@@ -17,10 +17,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
           window.localStorage.setItem(
             "auth:user",
             JSON.stringify({
-              fullName: res.result?.fullName ?? "",
               userName: res.result?.userName ?? "",
               role: res.result?.role ?? "",
-            })
+            }),
           );
           setReady(true);
         } else {

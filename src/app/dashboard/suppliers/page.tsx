@@ -50,7 +50,7 @@ function exportToExcel(rows: Supplier[]) {
       supplierName: r.supplierName,
       tin: r.tin,
       address: r.address,
-      status: r.isActive ? "Active" : "Inactive",
+      status: r.status === "active" ? "Active" : "Inactive",
     });
   });
 
@@ -77,7 +77,7 @@ const EMPTY_FORM: CreateSupplierPayload = {
   supplierName: "",
   tin: "",
   address: "",
-  isActive: true,
+  status: "active",
 };
 
 const columns: ColumnDef<Supplier>[] = [
@@ -126,7 +126,7 @@ const columns: ColumnDef<Supplier>[] = [
     ),
   },
   {
-    accessorKey: "isActive",
+    accessorKey: "status",
     header: ({ column }) => (
       <Button
         variant="ghost"
@@ -138,8 +138,10 @@ const columns: ColumnDef<Supplier>[] = [
       </Button>
     ),
     cell: ({ row }) => (
-      <Badge variant={row.original.isActive ? "default" : "secondary"}>
-        {row.original.isActive ? "Active" : "Inactive"}
+      <Badge
+        variant={row.original.status === "active" ? "default" : "secondary"}
+      >
+        {row.original.status === "active" ? "Active" : "Inactive"}
       </Badge>
     ),
   },
@@ -181,7 +183,7 @@ export default function SuppliersPage() {
       supplierName: row.supplierName,
       tin: row.tin,
       address: row.address,
-      isActive: row.isActive,
+      status: row.status,
     });
     setError("");
     setModalOpen(true);
@@ -282,13 +284,13 @@ export default function SuppliersPage() {
         const rawStatus = String(rowData["Status"] || "")
           .toLowerCase()
           .trim();
-        const isActive = rawStatus !== "inactive";
+        const status = rawStatus === "active" ? "active" : "inactive";
 
         suppliersToImport.push({
           supplierName,
           tin: String(rowData["TIN"] || "").trim(),
           address: String(rowData["Address"] || "").trim(),
-          isActive,
+          status,
         });
       });
 
@@ -417,10 +419,10 @@ export default function SuppliersPage() {
             <div className="space-y-1.5">
               <Label htmlFor="s-status">Status</Label>
               <Select
-                value={form.isActive ? "active" : "inactive"}
+                value={form.status}
                 disabled={saving}
                 onValueChange={(v) =>
-                  setForm((f) => ({ ...f, isActive: v === "active" }))
+                  setForm((f) => ({ ...f, status: v as "active" | "inactive" }))
                 }
               >
                 <SelectTrigger id="s-status" className="w-full">

@@ -46,10 +46,12 @@ export async function getSuppliers(): Promise<Supplier[]> {
         supplierName: row[0] || "",
         tin: row[1] || "",
         address: row[2] || "",
-        isActive:
+        status:
           row[3] !== undefined
             ? row[3] === "TRUE" || row[3] === "Active"
-            : true,
+              ? "active"
+              : "inactive"
+            : "active",
       };
     });
   } catch (error) {
@@ -81,7 +83,7 @@ export async function addSupplier(
       payload.supplierName || "",
       payload.tin || "",
       payload.address || "",
-      payload.isActive ? "Active" : "Inactive",
+      payload.status === "active" ? "Active" : "Inactive",
     ];
 
     // Write the new data values cleanly into the appended targeted row context
@@ -99,7 +101,7 @@ export async function addSupplier(
       supplierName: payload.supplierName,
       tin: payload.tin || "",
       address: payload.address || "",
-      isActive: payload.isActive,
+      status: payload.status,
     };
   } catch (error) {
     console.error(`Failed to create supplier row in Google Sheets:`, error);
@@ -134,8 +136,8 @@ export async function updateSupplierInSheets(
         : existingRow[0] || "",
       payload.tin !== undefined ? payload.tin : existingRow[1] || "",
       payload.address !== undefined ? payload.address : existingRow[2] || "",
-      payload.isActive !== undefined
-        ? payload.isActive
+      payload.status !== undefined
+        ? payload.status === "active"
           ? "Active"
           : "Inactive"
         : existingRow[3] || "Active",
@@ -156,7 +158,7 @@ export async function updateSupplierInSheets(
       supplierName: updatedValues[0],
       tin: updatedValues[1],
       address: updatedValues[2],
-      isActive: updatedValues[3] === "Active",
+      status: updatedValues[3] === "Active" ? "active" : "inactive",
     };
   } catch (error) {
     console.error(

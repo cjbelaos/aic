@@ -106,7 +106,7 @@ export async function addProduct(
         supplierName: supplierStr,
         tin: "",
         address: "",
-        status: "",
+        status: "active",
       },
       status: payload.status || "In Stock",
       minStock: payload.minStock ?? 0,
@@ -182,7 +182,7 @@ export async function getProducts(): Promise<Product[]> {
           supplierName: supplierStr,
           tin: "",
           address: "",
-          status: "",
+          status: "active",
         },
         status: (row[10] || "In Stock") as ProductStatus,
 

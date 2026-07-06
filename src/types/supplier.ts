@@ -3,7 +3,7 @@ export interface Supplier {
   supplierName: string;
   tin: string;
   address: string;
-  isActive: boolean;
+  status: "active" | "inactive";
 }
 
 /**

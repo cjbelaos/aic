@@ -6,9 +6,9 @@ import {
 import { UpdateSupplierPayload } from "@/types/supplier";
 
 interface RouteParams {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 /**
@@ -17,7 +17,8 @@ interface RouteParams {
  */
 export async function PUT(request: Request, { params }: RouteParams) {
   try {
-    const { id } = params;
+    // Await the asynchronous params object
+    const { id } = await params;
     const body = await request.json();
 
     if (!id) {
@@ -52,7 +53,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
  */
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
-    const { id } = params;
+    // Await the asynchronous params object
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json(

@@ -4,9 +4,9 @@ import { getSheetsClient } from "@/lib/googleSheets";
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
 interface RouteParams {
-  params: {
-    row: string;
-  };
+  params: Promise<{
+    id: string;
+  }>;
 }
 
 /**
@@ -15,7 +15,8 @@ interface RouteParams {
  */
 export async function PUT(request: Request, { params }: RouteParams) {
   try {
-    const rowNumber = params.row;
+    // Await the asynchronous params object
+    const { id: rowNumber } = await params;
     const body = await request.json();
 
     if (!rowNumber) {
@@ -73,7 +74,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
  */
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
-    const rowNumber = params.row;
+    // Await the asynchronous params object
+    const { id: rowNumber } = await params;
 
     if (!rowNumber) {
       return NextResponse.json(
