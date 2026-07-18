@@ -107,6 +107,49 @@ export const userService = {
       );
     }
   },
+
+  /**
+   * Uploads an e-Signature image for the current user
+   */
+  async uploadSignature(
+    signatureFile: File,
+    username?: string,
+  ): Promise<{ fileId: string; message: string }> {
+    try {
+      const formData = new FormData();
+      formData.append("signature", signatureFile);
+      if (username) {
+        formData.append("username", username);
+      }
+      const response = await api.post("/users/signature", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(
+        error.response?.data?.error || "Failed to upload signature.",
+      );
+    }
+  },
+
+  /**
+   * Fetches a user's signature image URL by username
+   */
+  async getSignatureByUsername(
+    username: string,
+  ): Promise<{ fileId: string; imageUrl: string } | null> {
+    try {
+      const response = await api.get(
+        `/users/signature/${encodeURIComponent(username)}`,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) return null;
+      throw new Error(
+        error.response?.data?.error || "Failed to fetch signature.",
+      );
+    }
+  },
 };
 
 export default userService;

@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         {
           success: false,
           message:
-            "Missing required fields: customer name and quotationDescription.",
+            "Missing required fields: customer name and quotation description.",
         },
         { status: 400 },
       );
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
       quotationNo: payload.quotationNo,
       preparedByName:
         payload.preparedBy || session?.fullName || session?.username || "",
-      approvedBy: "Von Jeric Carmona",
+      approvedBy: payload.approvedBy || "",
       sentByName:
         finalStatus === "SENT"
           ? payload.preparedBy || session?.fullName || session?.username || ""

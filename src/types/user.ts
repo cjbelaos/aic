@@ -10,6 +10,7 @@ export interface User {
   role: UserRole;
   createdAt: string;
   lastLogin: string;
+  signature?: string; // Drive file ID of uploaded e-Signature
 }
 
 export interface PublicUser {
@@ -20,6 +21,7 @@ export interface PublicUser {
   role: UserRole;
   createdAt: string;
   lastLogin: string;
+  signature?: string; // Drive file ID of uploaded e-Signature
 }
 
 export interface CreateUserInput {
@@ -28,6 +30,7 @@ export interface CreateUserInput {
   email: string;
   password: string;
   role: UserRole;
+  signature?: string;
 }
 
 export interface UpdateUserInput {
@@ -36,6 +39,7 @@ export interface UpdateUserInput {
   email?: string;
   password?: string;
   role?: UserRole;
+  signature?: string;
 }
 
 export interface SessionUser {
@@ -44,4 +48,5 @@ export interface SessionUser {
   email: string;
   role: UserRole;
   fullName: string;
+  signature?: string;
 }

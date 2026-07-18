@@ -9,7 +9,7 @@ import type {
 } from "@/types/user";
 
 const USERS_SHEET = "Users";
-const USERS_RANGE = `${USERS_SHEET}!A2:H`; // Covers exactly columns A to H
+const USERS_RANGE = `${USERS_SHEET}!A2:I`; // Covers columns A to I (signature added)
 
 async function getUsersSpreadsheetId(): Promise<string> {
   return await getDatabaseSpreadsheetId();
@@ -36,6 +36,7 @@ function rowToUser(row: string[], rowNumber: number): User | null {
     role: normalizeRole(row[5] || "user"),
     createdAt: (row[6] || "").trim(),
     lastLogin: (row[7] || "").trim(),
+    signature: (row[8] || "").trim() || undefined,
   };
 }
 
@@ -53,6 +54,7 @@ function userToRow(user: User): string[] {
     user.role,
     user.createdAt,
     user.lastLogin,
+    user.signature || "",
   ];
 }
 
@@ -65,6 +67,7 @@ export function toPublicUser(user: User): PublicUser {
     role: user.role,
     createdAt: user.createdAt,
     lastLogin: user.lastLogin,
+    signature: user.signature,
   };
 }
 
@@ -157,7 +160,7 @@ export async function addUser(input: CreateUserInput): Promise<PublicUser> {
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${USERS_SHEET}!A:H`,
+    range: `${USERS_SHEET}!A:I`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [userToRow(user)] },
   });
@@ -209,12 +212,16 @@ export async function updateUser(
     role: updatedData.role ? normalizeRole(updatedData.role) : current.role,
     passwordHash,
     salt,
+    signature:
+      updatedData.signature !== undefined
+        ? updatedData.signature
+        : current.signature,
   };
 
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${USERS_SHEET}!A${rowNumber}:H${rowNumber}`,
+    range: `${USERS_SHEET}!A${rowNumber}:I${rowNumber}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [userToRow(updated)] },
   });

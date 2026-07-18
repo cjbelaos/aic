@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RequiredLabel } from "@/components/ui/required-label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Select,
@@ -30,8 +31,10 @@ import { userService } from "@/lib/services/user.service";
 import { Customer } from "@/types/customer";
 import { Product } from "@/types/product";
 import { CustomerPrice } from "@/types/customer-price";
+import type { PublicUser } from "@/types/user";
 import { QuotationTemplate } from "@/components/quotation-template";
 import { QuotationDetail, QuotationNotation } from "@/types/quotation";
+import { getDriveImageUrl } from "@/lib/signatureUpload";
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -138,6 +141,7 @@ export type QuotationFormPayload = {
   delivery: string;
   warranty: string;
   preparedBy: string;
+  approvedBy: string;
   status: "DRAFT" | "SENT";
   vat: number;
   vatableAmount: number;
@@ -208,6 +212,57 @@ export function QuotationForm({
   );
 
   const [preparedBy, setPreparedBy] = useState(initialData?.preparedBy || "");
+  const [allUsers, setAllUsers] = useState<PublicUser[]>([]);
+  const [approvedByUsername, setApprovedByUsername] = useState("");
+  const [preparedBySignatureUrl, setPreparedBySignatureUrl] = useState<
+    string | undefined
+  >(undefined);
+  const [approvedBySignatureUrl, setApprovedBySignatureUrl] = useState<
+    string | undefined
+  >(undefined);
+
+  // Derive the approvedBy display name from the selected username
+  const approvedBy = useMemo(() => {
+    const user = allUsers.find(
+      (u) => u.username.toLowerCase() === approvedByUsername.toLowerCase(),
+    );
+    return user?.fullName || approvedByUsername;
+  }, [allUsers, approvedByUsername]);
+
+  // Fetch e-Signature URLs when preview mode is about to be used or preparedBy changes
+  useEffect(() => {
+    if (!isPreviewMode) return;
+
+    const fetchSignatures = async () => {
+      try {
+        // Fetch the logged-in user's signature (preparedBy)
+        const storedAuth = window.localStorage.getItem("auth:user");
+        if (storedAuth) {
+          const parsedAuth = JSON.parse(storedAuth);
+          const username = parsedAuth?.userName;
+          if (username) {
+            const sig = await userService.getSignatureByUsername(username);
+            if (sig) {
+              setPreparedBySignatureUrl(sig.imageUrl);
+            }
+          }
+        }
+
+        // Fetch the selected approver's signature
+        if (approvedByUsername) {
+          const approverSig =
+            await userService.getSignatureByUsername(approvedByUsername);
+          if (approverSig) {
+            setApprovedBySignatureUrl(approverSig.imageUrl);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch signatures:", err);
+      }
+    };
+
+    fetchSignatures();
+  }, [isPreviewMode, preparedBy, approvedByUsername]);
 
   const subTotal = lineItems.reduce(
     (sum, row) => sum + row.quantity * row.unitPrice,
@@ -240,6 +295,7 @@ export function QuotationForm({
         setCustomers(cRes ?? []);
         setProducts(pRes ?? []);
         setCustomerPrices(cpRes ?? []);
+        setAllUsers(uRes ?? []);
 
         try {
           const storedAuth = window.localStorage.getItem("auth:user");
@@ -423,6 +479,11 @@ export function QuotationForm({
       return;
     }
 
+    if (!projectDescription || projectDescription.trim() === "") {
+      toast.error("Please enter a quotation description before previewing.");
+      return;
+    }
+
     const hasEmptyFields = lineItems.some((item) => !item.productId);
     if (hasEmptyFields) {
       toast.error(
@@ -434,10 +495,25 @@ export function QuotationForm({
     setIsPreviewMode(true);
   };
 
+  const customerRef = useRef<HTMLDivElement>(null);
+  const descriptionRef = useRef<HTMLDivElement>(null);
+  const itemsRef = useRef<HTMLDivElement>(null);
+
+  const scrollToField = (ref: React.RefObject<HTMLDivElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
   const handleSaveDraft = () => {
-    // Validate required fields
+    // Validate required fields with scroll-to-field
     if (!selectedCustomer) {
       toast.error("Please select a customer.");
+      scrollToField(customerRef);
+      return;
+    }
+
+    if (!projectDescription || projectDescription.trim() === "") {
+      toast.error("Please enter a quotation description.");
+      scrollToField(descriptionRef);
       return;
     }
 
@@ -446,6 +522,7 @@ export function QuotationForm({
       toast.error(
         "Please complete or remove unselected product lines before saving draft.",
       );
+      scrollToField(itemsRef);
       return;
     }
 
@@ -488,6 +565,7 @@ export function QuotationForm({
       delivery: deliveryTerms,
       warranty: warrantyTerms,
       preparedBy,
+      approvedBy,
       notations: notationsPayload,
       status: finalStatus,
       vat,
@@ -523,6 +601,7 @@ export function QuotationForm({
       delivery: payload.delivery,
       warranty: payload.warranty,
       preparedBy: payload.preparedBy,
+      approvedBy: payload.approvedBy,
       status: payload.status,
       vat: payload.vat,
       vatableAmount: payload.vatableAmount,
@@ -581,6 +660,9 @@ export function QuotationForm({
         vat={vat}
         grandTotal={grandTotal}
         preparedBy={preparedBy}
+        approvedBy={approvedBy}
+        preparedBySignatureUrl={preparedBySignatureUrl}
+        approvedBySignatureUrl={approvedBySignatureUrl}
         onBack={() => setIsPreviewMode(false)}
         onConfirmSave={handleFinalSubmit}
         isSaving={isSaving}
@@ -831,8 +913,8 @@ export function QuotationForm({
         </h2>
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-4">
-            <div>
-              <Label>Client Name</Label>
+            <div ref={customerRef}>
+              <RequiredLabel>Client Name</RequiredLabel>
               <div className="mt-1">
                 <SearchableSelect
                   value={customerId}
@@ -904,8 +986,8 @@ export function QuotationForm({
           </div>
         </div>
 
-        <div className="mt-6 space-y-2">
-          <Label>Description</Label>
+        <div className="mt-6 space-y-2" ref={descriptionRef}>
+          <RequiredLabel>Description</RequiredLabel>
           <Input
             value={projectDescription}
             onChange={(e) => setProjectDescription(e.target.value)}
@@ -917,8 +999,10 @@ export function QuotationForm({
       </div>
 
       {/* Line Items Block */}
-      <div className="rounded-lg border bg-card p-6 shadow-sm">
-        <h2 className="text-xl font-semibold mb-4">Line Items</h2>
+      <div ref={itemsRef} className="rounded-lg border bg-card p-6 shadow-sm">
+        <h2 className="text-xl font-semibold mb-4">
+          Line Items <span className="text-red-500">*</span>
+        </h2>
         <Table className="border text-xs">
           <TableHeader>
             <TableRow>
@@ -1089,6 +1173,25 @@ export function QuotationForm({
               readOnly
             />
           </div>
+          <div>
+            <Label>Approved By</Label>
+            <Select
+              value={approvedByUsername}
+              onValueChange={setApprovedByUsername}
+              disabled={isSaving || readOnly}
+            >
+              <SelectTrigger className="w-full bg-white mt-1">
+                <SelectValue placeholder="Select approver..." />
+              </SelectTrigger>
+              <SelectContent>
+                {allUsers.map((u) => (
+                  <SelectItem key={u.username} value={u.username}>
+                    {u.fullName || u.username}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="rounded-lg border bg-card p-6 shadow-sm flex flex-col justify-between">
@@ -1145,7 +1248,6 @@ export function QuotationForm({
                 disabled={isSaving}
                 className="gap-2 text-white bg-emerald-600 hover:bg-emerald-700"
               >
-                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Eye className="h-4 w-4" />
                 Preview
               </Button>

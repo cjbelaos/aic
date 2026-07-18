@@ -46,6 +46,7 @@ export interface SaveQuotationPayload {
   delivery: string;
   warranty: string;
   preparedBy: string;
+  approvedBy?: string;
   discount: number;
   quotationNo: string;
   dateIssued: string;

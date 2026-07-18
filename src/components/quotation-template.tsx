@@ -6,6 +6,7 @@ import { ArrowLeft, Save, Send, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Customer } from "@/types/customer";
 import { QuotationDetail } from "@/types/quotation";
+import { getDriveImageUrl } from "@/lib/signatureUpload";
 
 interface QuotationProps {
   quotationNo: string;
@@ -24,8 +25,10 @@ interface QuotationProps {
   vat: number;
   grandTotal: number;
   preparedBy: string;
+  approvedBy: string;
+  preparedBySignatureUrl?: string;
+  approvedBySignatureUrl?: string;
   onBack: () => void;
-  // Parent onSubmit wrapper pointing to your updated route handler
   onConfirmSave: (payload: any, pdfBlob: Blob) => void;
   isSaving?: boolean;
 }
@@ -49,13 +52,15 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
       vat = 0,
       grandTotal = 0,
       preparedBy = "—",
+      approvedBy = "—",
+      preparedBySignatureUrl,
+      approvedBySignatureUrl,
       onBack,
       onConfirmSave,
       isSaving = false,
     },
     ref,
   ) => {
-    // Use the ref passed from parent, or fallback to internal ref
     const internalRef = useRef<HTMLDivElement>(null);
     const quotationRef =
       (ref as React.RefObject<HTMLDivElement>) || internalRef;
@@ -69,7 +74,6 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
     };
 
     const handleSubmission = async (targetStatus: "DRAFT" | "SENT") => {
-      // Metadata properties packet structure mapping
       const metadataPayload = {
         quotationDescription: projectDescription,
         items,
@@ -90,14 +94,11 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
         customer,
       };
 
-      // For DRAFT status, skip PDF generation entirely
       if (targetStatus === "DRAFT") {
-        // Call onConfirmSave without PDF blob
         onConfirmSave(metadataPayload, undefined as any);
         return;
       }
 
-      // ===== SENT status: Generate PDF =====
       const element = quotationRef.current;
       if (!element) {
         toast.error("Quotation visualization canvas element missing.");
@@ -109,11 +110,9 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
       );
 
       try {
-        // Dynamic loads for performance optimizations
         const html2canvasPro = (await import("html2canvas-pro")).default;
         const { jsPDF } = await import("jspdf");
 
-        // Give browser brief window to process updates
         await new Promise((resolve) => setTimeout(resolve, 150));
 
         const canvas = await html2canvasPro(element, {
@@ -149,7 +148,6 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
           heightLeft -= pdfHeight - margin * 2;
         }
 
-        // Output as explicit Blob to transmit via multipart form
         const pdfBlob = pdf.output("blob");
 
         toast.dismiss(toastId);
@@ -392,29 +390,68 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
             </div>
 
             {/* Dynamic Accountability Layout */}
-            <div className="mt-16 pt-8 border-t border-slate-100 flex justify-between items-end text-sm print:mt-12 print:pt-4 print:text-xs print:break-inside-avoid">
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wider print:text-[10px]">
+            <div className="mt-16 pt-8 border-t border-slate-100 grid grid-cols-3 gap-8 text-sm print:mt-12 print:pt-4 print:text-xs print:break-inside-avoid">
+              {/* Prepared By Block */}
+              <div className="flex flex-col justify-between h-32">
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold print:text-[10px]">
                   Prepared By
                 </p>
-                <p className="font-medium text-slate-900 mt-1">{preparedBy}</p>
+                <div>
+                  <div className="relative w-full border-b border-slate-300 pb-1">
+                    {preparedBySignatureUrl && (
+                      <img
+                        src={preparedBySignatureUrl}
+                        alt="Prepared by signature"
+                        className="absolute bottom-0 left-2 h-16 object-contain pointer-events-none data-[html2canvas-ignore]:hidden"
+                        style={{ maxWidth: "140px" }}
+                      />
+                    )}
+                  </div>
+                  <p className="font-semibold text-slate-900 mt-2">
+                    {preparedBy}
+                  </p>
+                </div>
               </div>
-              <div className="text-center">
-                <p className="text-xs text-slate-400 uppercase tracking-wider print:text-[10px]">
-                  Approved By
+
+              {/* Approved By Block - only shown when an approver is selected */}
+              {approvedBy ? (
+                <div className="flex flex-col justify-between items-center text-center h-32">
+                  <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold print:text-[10px]">
+                    Approved By
+                  </p>
+                  <div className="w-48 print:w-40">
+                    <div className="relative w-full border-b border-slate-300 pb-1">
+                      {approvedBySignatureUrl && (
+                        <img
+                          src={approvedBySignatureUrl}
+                          alt="Approved by signature"
+                          className="absolute bottom-0 left-1/2 -translate-x-1/2 h-16 object-contain pointer-events-none data-[html2canvas-ignore]:hidden"
+                          style={{ maxWidth: "140px" }}
+                        />
+                      )}
+                    </div>
+                    <p className="font-semibold text-slate-900 mt-2 uppercase">
+                      {approvedBy}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div></div>
+              )}
+
+              {/* Client Acceptance Block */}
+              <div className="flex flex-col justify-between items-end text-right h-32">
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold print:text-[10px]">
+                  Client Acceptance
                 </p>
-                <p className="font-medium text-slate-900 mt-1">
-                  VON JERIC CARMONA
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  After-Sales Manager
-                </p>
-              </div>
-              <div className="text-right">
-                <div className="w-48 border-b border-slate-300 mx-auto print:w-40"></div>
-                <p className="text-xs text-slate-400 uppercase tracking-wider mt-2 print:text-[10px] print:mt-1">
-                  Client Acceptance Signature
-                </p>
+                <div className="w-48 print:w-40">
+                  <div className="border-b border-slate-300 pb-1">
+                    <div className="h-7"></div>
+                  </div>
+                  <p className="text-[11px] text-slate-400 uppercase tracking-wider mt-2 print:text-[10px]">
+                    Authorized Signature / Date
+                  </p>
+                </div>
               </div>
             </div>
           </div>

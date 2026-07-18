@@ -86,6 +86,7 @@ interface ImportQuotationRow {
   file: string;
   date: string;
   preparedBy: string;
+  approvedBy?: string;
 }
 
 type ViewMode = "list" | "create" | "view" | "edit";
@@ -174,6 +175,7 @@ export default function QuotationsPage() {
       delivery: quot.delivery || "",
       warranty: quot.warranty || "",
       preparedBy: quot.preparedBy || "",
+      approvedBy: quot.approvedBy || "",
       status: quot.status || "DRAFT",
       vat: 0,
       vatableAmount: 0,
@@ -375,6 +377,7 @@ export default function QuotationsPage() {
         delivery: formPayload.delivery || "",
         warranty: formPayload.warranty || "",
         preparedBy: formPayload.preparedBy || "",
+        approvedBy: formPayload.approvedBy || "",
         discount: formPayload.discount || 0,
         quotationNo: formPayload.quotationNo || "",
         dateIssued:
@@ -396,7 +399,7 @@ export default function QuotationsPage() {
         grandTotal: formPayload.grandTotal || 0,
         status: finalStatus,
       };
-
+      console.log(payload);
       // Save the quotation first (sends PDF to Drive if SENT and pdfBlob provided)
       const result = await quotationService.saveQuotation(payload, pdfBlob);
 
@@ -546,6 +549,7 @@ export default function QuotationsPage() {
             delivery: "",
             warranty: "",
             preparedBy: quotation.preparedBy || "",
+            approvedBy: quotation.approvedBy || "",
             status: "DRAFT",
             vat: 0,
             vatableAmount: 0,
@@ -903,6 +907,7 @@ export default function QuotationsPage() {
         vat={viewQuotationData.vat}
         grandTotal={viewQuotationData.grandTotal}
         preparedBy={viewQuotationData.preparedBy}
+        approvedBy={viewQuotationData.approvedBy}
         onBack={() => setPreviewMode(false)}
         onConfirmSave={(payload, pdfBlob) =>
           handleFormSubmit(payload, pdfBlob, true)
