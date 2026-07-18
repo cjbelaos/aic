@@ -1,9 +1,33 @@
 import { google, sheets_v4, drive_v3 } from "googleapis";
+import * as fs from "fs";
+import * as path from "path";
+
+/**
+ * Persist a new refresh token to .env.local so it survives server restarts.
+ * Google may rotate refresh tokens under certain conditions.
+ */
+function persistRefreshToken(newToken: string): void {
+  try {
+    const envPath = path.resolve(process.cwd(), ".env.local");
+    let content = fs.readFileSync(envPath, "utf-8");
+    const regex = /^GOOGLE_REFRESH_TOKEN=.*$/m;
+    const replacement = `GOOGLE_REFRESH_TOKEN="${newToken}"`;
+    if (regex.test(content)) {
+      content = content.replace(regex, replacement);
+    } else {
+      content += `\n${replacement}\n`;
+    }
+    fs.writeFileSync(envPath, content, "utf-8");
+    // Also update the running process env so current session uses it
+    process.env.GOOGLE_REFRESH_TOKEN = newToken;
+    console.log("Persisted new refresh token to .env.local");
+  } catch (err) {
+    console.warn("Failed to persist refresh token to .env.local:", err);
+  }
+}
 
 /**
  * Shared OAuth2 client builder used by all Google API wrappers.
- * Extracted to a single function so callers can reuse the same auth client
- * for things like PDF export requests that need bearer tokens.
  */
 export async function createOAuth2Client() {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -24,14 +48,14 @@ export async function createOAuth2Client() {
     refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
   });
 
-  // Automatically listen for token updates
+  // Auto-persist new refresh tokens to .env.local when Google rotates them
   oauth2Client.on("tokens", (tokens) => {
     if (tokens.refresh_token) {
-      console.log("Got a new refresh token from Google:", tokens.refresh_token);
-      // OPTIONAL: If you use a database to store configuration,
-      // you would write code here to save tokens.refresh_token to it.
+      persistRefreshToken(tokens.refresh_token);
     }
-    console.log("Access token refreshed automatically:", tokens.access_token);
+    if (tokens.access_token) {
+      console.log("Access token refreshed successfully.");
+    }
   });
 
   return oauth2Client;
