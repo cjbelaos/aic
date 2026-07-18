@@ -8,6 +8,7 @@ import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
 import { EntityTable } from "@/components/ui/entity-table";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
@@ -29,7 +30,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 
 // Services
 import productService from "@/lib/services/product.service";
-import customerService from "@/lib/services/customer.service";
+import productCategoryService from "@/lib/services/product-category.service";
 import productUnitService from "@/lib/services/product-unit.service";
 import supplierService from "@/lib/services/supplier.service";
 
@@ -42,31 +43,20 @@ import {
 } from "@/types/product";
 import { ProductCategory } from "@/types/product-category";
 import { Supplier } from "@/types/supplier";
-import { Customer } from "@/types/customer";
 import { ProductUnit } from "@/types/product-unit";
 
 /* ── Constants ─────────────────────────────────────────── */
-const PRODUCT_CATEGORIES: string[] = [
-  "Raw Materials",
-  "Finished Goods",
-  "Packaging",
-  "Supplies",
-  "Equipment",
-  "Other",
-];
-
 const PRODUCT_STATUSES: ProductStatus[] = [
   "In Stock",
   "Out of Stock",
   "Low stock",
 ];
 
-/* ── Form state (using IDs for relations, separate from CreateProductPayload) ── */
+/* ── Form state (Fixed keys to match interface names) ── */
 interface ProductFormState {
-  productCode: string;
+  code: string;
+  name: string;
   categoryId: string;
-  customerId: string;
-  productName: string;
   description: string;
   productUnitId: string;
   costPerUnit: number;
@@ -79,14 +69,12 @@ interface ProductFormState {
   actualStock: number;
   reservedUnits: number;
   qtyOut: number;
-  inventoryFlag: string;
 }
 
 const EMPTY_FORM: ProductFormState = {
-  productCode: "",
+  code: "",
+  name: "",
   categoryId: "",
-  customerId: "",
-  productName: "",
   description: "",
   productUnitId: "",
   costPerUnit: 0,
@@ -99,73 +87,78 @@ const EMPTY_FORM: ProductFormState = {
   actualStock: 0,
   reservedUnits: 0,
   qtyOut: 0,
-  inventoryFlag: "",
 };
 
 /* ── Excel export ─────────────────────────────────────────── */
-function exportToExcel(rows: Product[]) {
+async function exportToExcel(rows: Product[]) {
   const worksheetData =
     !rows || rows.length === 0
       ? [
           {
-            "Product Code": "",
-            "Product Category": "",
-            "Customer Name": "",
-            "Product Name": "",
+            Code: "",
+            Name: "",
+            Category: "",
             Description: "",
             Unit: "",
             "Cost Per Unit": "",
             "Price Per Unit": "",
-            "Supplier Name": "",
-            Status: "",
+            Supplier: "",
             "Min Stock": "",
             "Beg Stock": "",
             "Quantity In": "",
             "Actual Stock": "",
             "Reserved Units": "",
             "Quantity Out": "",
-            "Inventory Flag": "",
+            Status: "",
           },
         ]
       : rows.map((r) => {
-          const cName = r.customer?.customerName;
-          const compName = r.customer?.companyName;
-          const displayCustomerName =
-            cName && cName.trim() !== "" ? cName : compName || "";
           return {
-            "Product Code": r.productCode,
-            "Product Category": r.category?.name || "",
-            "Customer Name": displayCustomerName,
-            "Product Name": r.productName,
+            Code: r.code,
+            Name: r.name,
+            Category: r.category?.name || "",
             Description: r.description || "",
             Unit: r.unit?.name || "",
             "Cost Per Unit": r.costPerUnit,
             "Price Per Unit": r.pricePerUnit ?? "",
             "Supplier Name": r.supplier?.supplierName || "",
-            Status: r.status,
             "Min Stock": r.minStock,
             "Beg Stock": r.begStock,
             "Quantity In": r.qtyIn,
             "Actual Stock": r.actualStock,
             "Reserved Units": r.reservedUnits,
             "Quantity Out": r.qtyOut,
-            "Inventory Flag": r.inventoryFlag,
+            Status: r.status,
           };
         });
 
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Products");
+
   worksheet.addRow(Object.keys(worksheetData[0]));
   worksheetData.forEach((row) => {
     worksheet.addRow(Object.values(row));
   });
-  workbook.xlsx.writeFile("products.xlsx");
+
+  const buffer = await workbook.xlsx.writeBuffer();
+
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "products.xlsx";
+  anchor.click();
+
+  window.URL.revokeObjectURL(url);
 }
 
 /* ── columns ────────────────────────────────────────────── */
 const columns: ColumnDef<Product>[] = [
   {
-    accessorKey: "productCode",
+    id: "productCode",
+    accessorKey: "code",
     header: ({ column }) => (
       <Button
         variant="ghost"
@@ -174,6 +167,20 @@ const columns: ColumnDef<Product>[] = [
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         Product Code <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+      </Button>
+    ),
+  },
+  {
+    id: "productName",
+    accessorKey: "name",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 font-semibold"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Product Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
   },
@@ -189,42 +196,6 @@ const columns: ColumnDef<Product>[] = [
       >
         Product Category <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
-    ),
-  },
-  {
-    id: "customerName",
-    accessorFn: (row) => {
-      const name = row.customer?.customerName;
-      const company = row.customer?.companyName;
-      return name && name.trim() !== "" ? name : company || "";
-    },
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Customer Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-  },
-  {
-    accessorKey: "productName",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Product Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-    cell: ({ row }) => (
-      <span className="text-blue-600 font-medium">
-        {row.original.productName}
-      </span>
     ),
   },
   {
@@ -267,7 +238,13 @@ const columns: ColumnDef<Product>[] = [
       </Button>
     ),
     cell: ({ row }) => (
-      <span className="text-blue-600">{row.original.costPerUnit}</span>
+      <span className="text-blue-600">
+        {row.original.costPerUnit.toLocaleString("en-PH", {
+          style: "currency",
+          currency: "PHP",
+          minimumFractionDigits: 2,
+        })}
+      </span>
     ),
   },
   {
@@ -282,7 +259,18 @@ const columns: ColumnDef<Product>[] = [
         Price/Unit <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
-    cell: ({ row }) => row.original.pricePerUnit ?? "—",
+    cell: ({ row }) => {
+      const value = row.original.pricePerUnit;
+      return (
+        <span className="text-blue-600">
+          {value.toLocaleString("en-PH", {
+            style: "currency",
+            currency: "PHP",
+            minimumFractionDigits: 2,
+          })}
+        </span>
+      );
+    },
   },
   {
     id: "supplierName",
@@ -297,20 +285,6 @@ const columns: ColumnDef<Product>[] = [
         Supplier Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
-  },
-  {
-    accessorKey: "status",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Status <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-    cell: ({ row }) => row.original.status ?? "—",
   },
   {
     accessorKey: "minStock",
@@ -394,7 +368,7 @@ const columns: ColumnDef<Product>[] = [
     ),
   },
   {
-    accessorKey: "inventoryFlag",
+    accessorKey: "status",
     header: ({ column }) => (
       <Button
         variant="ghost"
@@ -402,45 +376,32 @@ const columns: ColumnDef<Product>[] = [
         className="-ml-3 h-8 font-semibold"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
-        Inventory Flag <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        Status <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
-    cell: ({ row }) => row.original.inventoryFlag ?? "—",
+    cell: ({ row }) => row.original.status ?? "—",
   },
 ];
 
-/* ── Helper: build CreateProductPayload from form state + lookup maps ── */
+/* ── Helper: Fixed lookup state assignment mapping variables ── */
 function buildCreatePayload(
   form: ProductFormState,
   lookup: {
     categories: ProductCategory[];
-    customers: Customer[];
     units: ProductUnit[];
     suppliers: Supplier[];
   },
 ): CreateProductPayload {
   const cat = lookup.categories.find((c) => c.id === form.categoryId);
-  const cust = lookup.customers.find((c) => c.id === form.customerId);
   const u = lookup.units.find((unit) => unit.id === form.productUnitId);
-  const supp = lookup.suppliers.find((s) => s.id === form.supplierId);
+  const supp = lookup.suppliers.find((s) => String(s.id) === form.supplierId);
 
   return {
-    clientCode: "",
-    productCode: form.productCode,
-    category: cat || { id: form.categoryId, name: form.categoryId },
-    customer: cust || {
-      id: form.customerId,
-      customerName: "",
-      companyName: "",
-      contactPerson: "",
-      contactNumber: "",
-      email: "",
-      tin: "",
-      address: "",
-    },
-    productName: form.productName,
+    code: form.code, // Fixed string target
+    name: form.name, // Fixed string target
+    category: cat || { id: form.categoryId, code: "", name: form.categoryId },
     description: form.description,
-    unit: u || { id: form.productUnitId, name: form.productUnitId },
+    unit: u || { id: form.productUnitId, code: "", name: form.productUnitId },
     costPerUnit: form.costPerUnit,
     pricePerUnit: form.pricePerUnit ?? 0,
     supplier: supp || {
@@ -450,18 +411,20 @@ function buildCreatePayload(
       address: "",
       status: "active" as const,
     },
-    status: form.status,
     minStock: form.minStock,
     begStock: form.begStock,
     qtyIn: form.qtyIn,
     actualStock: form.actualStock,
     reservedUnits: form.reservedUnits,
     qtyOut: form.qtyOut,
-    inventoryFlag: form.inventoryFlag,
+    status: form.status,
   };
 }
 
-/* ── page ───────────────────────────────────────────────── */
+function supplierLabel(s: Supplier): string {
+  return s.supplierName?.trim() || `Supplier #${s.id}`;
+}
+
 export default function ProductsPage() {
   const [data, setData] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -472,10 +435,18 @@ export default function ProductsPage() {
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
     [],
+  );
+
+  const supplierOptions = useMemo(
+    () =>
+      suppliers.map((s) => ({
+        value: String(s.id),
+        label: supplierLabel(s),
+      })),
+    [suppliers],
   );
 
   const loadProducts = async () => {
@@ -491,14 +462,6 @@ export default function ProductsPage() {
   useEffect(() => {
     loadProducts().finally(() => setLoading(false));
 
-    customerService
-      .getAll()
-      .then((r: any) => {
-        if (r?.isSuccess) setCustomers(r.result);
-        else if (Array.isArray(r)) setCustomers(r);
-      })
-      .catch(console.error);
-
     productUnitService
       .getAll()
       .then((r: any) => {
@@ -506,8 +469,6 @@ export default function ProductsPage() {
         else if (Array.isArray(r)) setProductUnits(r);
       })
       .catch(console.error);
-
-    console.log("productUnits:", productUnits);
 
     supplierService
       .getAll()
@@ -517,13 +478,13 @@ export default function ProductsPage() {
       })
       .catch(console.error);
 
-    // Build product categories from the constant list
-    setProductCategories(
-      PRODUCT_CATEGORIES.map((name, i) => ({
-        id: name,
-        name,
-      })),
-    );
+    productCategoryService
+      .getAll()
+      .then((r: any) => {
+        if (r?.isSuccess) setProductCategories(r.result);
+        else if (Array.isArray(r)) setProductCategories(r);
+      })
+      .catch(console.error);
   }, []);
 
   const openCreate = () => {
@@ -535,42 +496,82 @@ export default function ProductsPage() {
 
   const openEdit = (row: Product) => {
     setEditTarget(row);
+    setError("");
+    setModalOpen(true);
+  };
+
+  // Populate the edit form once the lookup data is loaded and editTarget is set.
+  // This avoids race conditions where the lookup arrays (categories, units, suppliers)
+  // haven't finished loading when the user clicks edit.
+  useEffect(() => {
+    if (!editTarget) return;
+
+    if (
+      productCategories.length === 0 ||
+      productUnits.length === 0 ||
+      suppliers.length === 0
+    ) {
+      return;
+    }
+
+    const row = editTarget;
+
+    const matchedCategory = productCategories.find(
+      (c) =>
+        c.name.toLowerCase() === (row.category?.name || "").toLowerCase() ||
+        String(c.id) === String(row.category?.id),
+    );
+
+    // FIXED: Added String() coercion to prevent type matching drops
+    const matchedUnit = productUnits.find(
+      (u) =>
+        u.name.toLowerCase() === (row.unit?.name || "").toLowerCase() ||
+        String(u.id) === String(row.unit?.id),
+    );
+
+    const matchedSupplier = suppliers.find(
+      (s) =>
+        s.supplierName.toLowerCase() ===
+          (row.supplier?.supplierName || "").toLowerCase() ||
+        String(s.id) === String(row.supplier?.id),
+    );
+
     setForm({
-      productCode: row.productCode,
-      categoryId: row.category?.id || "",
-      customerId: row.customer?.id || "",
-      productName: row.productName,
+      code: row.code,
+      categoryId: matchedCategory
+        ? String(matchedCategory.id)
+        : row.category?.id || "",
+      name: row.name,
       description: row.description || "",
-      productUnitId: row.unit?.id || "",
+      // FIXED: Ensured fallback is also cleanly treated as string to match item select criteria
+      productUnitId: matchedUnit ? String(matchedUnit.id) : row.unit?.id || "",
       costPerUnit: row.costPerUnit,
       pricePerUnit: row.pricePerUnit,
-      supplierId: row.supplier?.id || "",
-      status: row.status || "In Stock",
+      supplierId: matchedSupplier
+        ? String(matchedSupplier.id)
+        : row.supplier?.id || "",
       minStock: row.minStock,
       begStock: row.begStock,
       qtyIn: row.qtyIn,
       actualStock: row.actualStock,
       reservedUnits: row.reservedUnits,
       qtyOut: row.qtyOut,
-      inventoryFlag: row.inventoryFlag,
+      status: row.status || "In Stock",
     });
-    setError("");
-    setModalOpen(true);
-  };
+  }, [editTarget, productCategories, productUnits, suppliers]);
 
   const lookupMaps = useMemo(
     () => ({
       categories: productCategories,
-      customers,
       units: productUnits,
       suppliers,
     }),
-    [productCategories, customers, productUnits, suppliers],
+    [productCategories, productUnits, suppliers],
   );
 
   const handleSave = async () => {
-    if (!form.productName.trim()) {
-      setError("Product name is required.");
+    if (!form.description.trim()) {
+      setError("Description is required.");
       return;
     }
     if (form.costPerUnit <= 0) {
@@ -617,7 +618,7 @@ export default function ProductsPage() {
     try {
       await productService.delete(deleteTarget.id);
       await loadProducts();
-      toast.success(`"${deleteTarget.productName}" deleted successfully.`);
+      toast.success(`"${deleteTarget.description}" deleted successfully.`);
     } catch (err: any) {
       console.error("Delete error:", err);
       const errMsg = err.response?.data?.error || "Failed to delete product.";
@@ -666,52 +667,67 @@ export default function ProductsPage() {
           }
         });
 
-        const productName = String(rowData["Product Name"] || "").trim();
-        const productCode = String(rowData["Product Code"] || "").trim();
-        if (!productName || !productCode) return;
+        const categoryName = String(rowData["Category"] || "").trim();
+        const matchedCategory = productCategories.find(
+          (c) => c.name.toLowerCase() === categoryName.toLowerCase(),
+        );
 
-        const categoryName = String(rowData["Product Category"] || "").trim();
-        const customerName = String(rowData["Customer Name"] || "").trim();
+        const unitName = String(rowData["Unit"] || "").trim();
+        const matchedUnit = productUnits.find(
+          (u) => u.name.toLowerCase() === unitName.toLowerCase(),
+        );
+
+        const supplierName = String(
+          rowData["Supplier"] || rowData["Supplier Name"] || "",
+        ).trim();
+        const matchedSupplier = suppliers.find(
+          (s) => s.supplierName.toLowerCase() === supplierName.toLowerCase(),
+        );
+
+        const importCategoryCode =
+          matchedCategory?.code || categoryName.toUpperCase().substring(0, 4);
+
+        const importCode = String(
+          rowData["Product Code"] || rowData["Code"] || "",
+        ).trim();
+        const importName = String(
+          rowData["Product Name"] || rowData["Name"] || "",
+        ).trim();
+
+        if (!importCode || !importName) return;
 
         productsImport.push({
-          clientCode: "",
-          productCode,
-          category: { id: categoryName, name: categoryName },
-          customer: {
-            id: customerName,
-            customerName,
-            companyName: customerName,
-            contactPerson: "",
-            contactNumber: "",
-            email: "",
-            tin: "",
-            address: "",
+          code: importCode,
+          name: importName,
+          category: matchedCategory || {
+            id: categoryName,
+            code: importCategoryCode,
+            name: categoryName,
           },
-          productName,
           description: String(rowData["Description"] || "").trim(),
-          unit: {
-            id: String(rowData["Unit"] || "").trim(),
-            name: String(rowData["Unit"] || "").trim(),
+          unit: matchedUnit || {
+            id: unitName,
+            code: "",
+            name: unitName,
           },
-          costPerUnit: parseFloat(rowData["Cost Per Unit"]) || 0,
-          pricePerUnit: rowData["Price Per Unit"]
-            ? parseFloat(rowData["Price Per Unit"])
-            : 0,
-          supplier: {
-            id: String(rowData["Supplier Name"] || "").trim(),
-            supplierName: String(rowData["Supplier Name"] || "").trim(),
+          costPerUnit:
+            parseFloat(rowData["Cost/Unit"] || rowData["Cost Per Unit"]) || 0,
+          pricePerUnit:
+            parseFloat(rowData["Price/Unit"] || rowData["Price Per Unit"]) || 0,
+          supplier: matchedSupplier || {
+            id: supplierName,
+            supplierName: supplierName,
             tin: "",
             address: "",
             status: "active" as const,
           },
-          status: "In Stock",
           minStock: parseInt(rowData["Min Stock"]) || 0,
           begStock: parseInt(rowData["Beg Stock"]) || 0,
           qtyIn: parseInt(rowData["Qty In"] || rowData["Quantity In"]) || 0,
           actualStock: parseInt(rowData["Actual Stock"]) || 0,
           reservedUnits: parseInt(rowData["Reserved Units"]) || 0,
           qtyOut: parseInt(rowData["Qty Out"] || rowData["Quantity Out"]) || 0,
-          inventoryFlag: String(rowData["Inventory Flag"] || "").trim(),
+          status: "In Stock",
         });
       });
 
@@ -766,16 +782,12 @@ export default function ProductsPage() {
       } else {
         toast.warning(
           `Imported ${successCount} products. ${failCount} failed.`,
-          {
-            id: toastId,
-          },
+          { id: toastId },
         );
       }
     } catch (err) {
       console.error("Import error:", err);
-      toast.error("Failed to complete workbook import.", {
-        id: toastId,
-      });
+      toast.error("Failed to complete workbook import.", { id: toastId });
     }
   };
 
@@ -813,10 +825,20 @@ export default function ProductsPage() {
               <Label htmlFor="p-code">Product Code *</Label>
               <Input
                 id="p-code"
-                value={form.productCode}
+                value={editTarget ? form.code : "Auto-Generated"}
+                disabled={true}
+              />
+            </div>
+
+            {/* Product Name */}
+            <div className="space-y-1.5">
+              <Label htmlFor="p-name">Product Name *</Label>
+              <Input
+                id="p-name"
+                value={form.name}
                 disabled={saving}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, productCode: e.target.value }))
+                  setForm((f) => ({ ...f, name: e.target.value }))
                 }
               />
             </div>
@@ -840,38 +862,6 @@ export default function ProductsPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            {/* Customer */}
-            <div className="space-y-1.5">
-              <Label>Customer</Label>
-              <SearchableSelect
-                value={form.customerId}
-                onValueChange={(v) => setForm((f) => ({ ...f, customerId: v }))}
-                placeholder="Select customer"
-                searchPlaceholder="Search customers..."
-                disabled={saving}
-                options={customers.map((c) => ({
-                  value: c.id,
-                  label:
-                    c.customerName ||
-                    c.companyName ||
-                    `Unnamed Customer (ID: ${c.id})`,
-                }))}
-              />
-            </div>
-
-            {/* Product Name */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-name">Product Name *</Label>
-              <Input
-                id="p-name"
-                value={form.productName}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, productName: e.target.value }))
-                }
-              />
             </div>
 
             {/* Description */}
@@ -902,7 +892,9 @@ export default function ProductsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {productUnits.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
+                    <SelectItem key={u.id} value={String(u.id)}>
+                      {" "}
+                      {/* Force value as string */}
                       {u.name}
                     </SelectItem>
                   ))}
@@ -952,46 +944,15 @@ export default function ProductsPage() {
 
             {/* Supplier */}
             <div className="space-y-1.5">
-              <Label>Supplier *</Label>
-              <Select
+              <Label htmlFor="p-supplier">Supplier *</Label>
+              <SearchableSelect
                 value={form.supplierId}
-                disabled={saving}
                 onValueChange={(v) => setForm((f) => ({ ...f, supplierId: v }))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select supplier" />
-                </SelectTrigger>
-                <SelectContent>
-                  {suppliers.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.supplierName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Status */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-status">Status</Label>
-              <Select
-                value={form.status}
+                options={supplierOptions}
+                placeholder="Select supplier"
+                searchPlaceholder="Search suppliers..."
                 disabled={saving}
-                onValueChange={(v) =>
-                  setForm((f) => ({ ...f, status: v as ProductStatus }))
-                }
-              >
-                <SelectTrigger id="p-status" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRODUCT_STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             </div>
 
             {/* Min Stock */}
@@ -1101,39 +1062,19 @@ export default function ProductsPage() {
                 }
               />
             </div>
-
-            {/* Inventory Flag */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-inventory-flag">Inventory Flag</Label>
-              <Input
-                id="p-inventory-flag"
-                value={form.inventoryFlag}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    inventoryFlag: e.target.value,
-                  }))
-                }
-              />
-            </div>
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setModalOpen(false)}
               disabled={saving}
+              onClick={() => setModalOpen(false)}
             >
               Cancel
             </Button>
-            <Button
-              onClick={handleSave}
-              disabled={saving}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
+            <Button disabled={saving} onClick={handleSave}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {editTarget ? "Update" : "Create"}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1141,7 +1082,8 @@ export default function ProductsPage() {
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}
-        description={`Delete product "${deleteTarget?.productName}"? This cannot be undone.`}
+        title="Delete Product"
+        description={`Are you sure you want to delete "${deleteTarget?.description}"? This action cannot be undone.`}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
       />

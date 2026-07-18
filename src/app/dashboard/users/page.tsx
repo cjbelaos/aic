@@ -237,7 +237,6 @@ export default function UsersPage() {
       let currentLoggedUsername = "";
       try {
         const raw = window.localStorage.getItem("auth:user");
-        console.log("Current logged user raw data:", raw);
         if (raw) {
           currentLoggedUsername =
             (JSON.parse(raw) as { username?: string }).username || "";

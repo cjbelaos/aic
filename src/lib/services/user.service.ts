@@ -73,4 +73,40 @@ export const userService = {
       console.error("Logout network cleanup omitted: ", error);
     }
   },
+
+  /**
+   * Fetches a user by their username
+   */
+  async getUserByUsername(username: string): Promise<PublicUser | null> {
+    try {
+      const response = await api.get<PublicUser>(
+        `/users?username=${encodeURIComponent(username)}`,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) return null;
+      throw new Error(
+        error.response?.data?.error || "Failed to fetch user by username.",
+      );
+    }
+  },
+
+  /**
+   * Fetches a user by their ID
+   */
+  async getUserById(id: string): Promise<PublicUser | null> {
+    try {
+      const response = await api.get<PublicUser>(
+        `/users/${encodeURIComponent(id)}`,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) return null;
+      throw new Error(
+        error.response?.data?.error || "Failed to fetch user by ID.",
+      );
+    }
+  },
 };
+
+export default userService;

@@ -25,7 +25,6 @@ const authService = {
         "/api/auth/login",
         payload,
       );
-      console.log("Login response:", response);
       return response.data;
     } catch (error) {
       const axiosError = error as AxiosError<ApiResponse<AuthUser>>;

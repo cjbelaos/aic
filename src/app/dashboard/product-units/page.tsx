@@ -56,11 +56,28 @@ function exportToExcel(rows: ProductUnit[]) {
 }
 
 const EMPTY_FORM: CreateProductUnitPayload = {
+  code: "",
   name: "",
 };
 
 /* ── columns ────────────────────────────────────────────── */
 const columns: ColumnDef<ProductUnit>[] = [
+  {
+    accessorKey: "code",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 font-semibold"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Unit Code <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+      </Button>
+    ),
+    cell: ({ row }) => (
+      <span className="text-blue-600 font-medium">{row.original.code}</span>
+    ),
+  },
   {
     accessorKey: "name",
     header: ({ column }) => (
@@ -72,9 +89,6 @@ const columns: ColumnDef<ProductUnit>[] = [
       >
         Unit Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
-    ),
-    cell: ({ row }) => (
-      <span className="text-blue-600 font-medium">{row.original.name}</span>
     ),
   },
 ];
@@ -93,7 +107,6 @@ export default function ProductUnitsPage() {
   const loadProductUnits = async () => {
     try {
       const productUnits = await productUnitService.getAll();
-      console.log("Fetched product units:", productUnits);
       setData(productUnits);
     } catch {
       toast.error("Failed to load product units.");
@@ -113,7 +126,10 @@ export default function ProductUnitsPage() {
 
   const openEdit = (row: ProductUnit) => {
     setEditTarget(row);
-    setForm({ name: row.name });
+    setForm({
+      code: row.code,
+      name: row.name,
+    });
     setError("");
     setModalOpen(true);
   };
@@ -131,6 +147,7 @@ export default function ProductUnitsPage() {
       if (editTarget) {
         await productUnitService.update({
           id: editTarget.id,
+          code: form.code,
           name: form.name,
         });
         toast.success("Product unit updated successfully.");
@@ -205,12 +222,10 @@ export default function ProductUnitsPage() {
           }
         });
 
-        const unitName = String(
-          rowData["name"] || rowData["unit name"] || "",
-        ).trim();
-        if (!unitName) return;
-
-        productUnitsToImport.push({ name: unitName });
+        productUnitsToImport.push({
+          code: String(rowData["Code"] || "").trim(),
+          name: String(rowData["Name"] || "").trim(),
+        });
       });
 
       if (productUnitsToImport.length === 0) {
@@ -300,6 +315,20 @@ export default function ProductUnitsPage() {
               {editTarget ? "Edit Product Unit" : "Create Product Unit"}
             </DialogTitle>
           </DialogHeader>
+          <div className="space-y-4 py-2">
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="space-y-1.5">
+              <Label htmlFor="u-name">Unit Code *</Label>
+              <Input
+                id="u-code"
+                value={form.code}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, name: e.target.value }))
+                }
+              />
+            </div>
+          </div>
           <div className="space-y-4 py-2">
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="space-y-1.5">

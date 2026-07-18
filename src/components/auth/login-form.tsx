@@ -61,7 +61,6 @@ export function LoginForm() {
           );
           return;
         }
-        console.log("Login successful:", res.result);
 
         // Save session meta-data to localStorage (matching spreadsheet structure)
         window.localStorage.setItem(

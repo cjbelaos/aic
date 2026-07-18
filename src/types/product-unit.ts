@@ -1,5 +1,6 @@
 export interface ProductUnit {
   id: string;
+  code: string;
   name: string;
 }
 

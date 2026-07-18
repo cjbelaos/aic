@@ -6,11 +6,7 @@ const SESSION_COOKIE = "aic_session";
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 
 function getSessionSecret(): string {
-  return (
-    process.env.AUTH_SESSION_SECRET ||
-    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
-    "aic-dev-session-secret"
-  );
+  return process.env.AUTH_SESSION_SECRET || "aic-dev-session-secret";
 }
 
 function signPayload(payload: string): string {
@@ -85,7 +81,10 @@ export async function requireAuthenticatedSession(): Promise<
 > {
   const session = await getSession();
   if (!session) {
-    return Response.json({ error: "Authentication required." }, { status: 401 });
+    return Response.json(
+      { error: "Authentication required." },
+      { status: 401 },
+    );
   }
   return session;
 }

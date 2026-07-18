@@ -43,7 +43,6 @@ function exportToExcel(rows: Customer[]) {
   rows.forEach((r) => {
     worksheet.addRow({
       customerName: r.customerName,
-      companyName: r.companyName,
       contactPerson: r.contactPerson,
       contactNumber: r.contactNumber,
       email: r.email,
@@ -73,7 +72,6 @@ function exportToExcel(rows: Customer[]) {
 
 const EMPTY_FORM: CreateCustomerPayload = {
   customerName: "",
-  companyName: "",
   contactPerson: "",
   contactNumber: "",
   email: "",
@@ -98,19 +96,6 @@ const columns: ColumnDef<Customer>[] = [
       <span className="text-blue-600 font-medium">
         {row.original.customerName}
       </span>
-    ),
-  },
-  {
-    accessorKey: "companyName",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Company Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
     ),
   },
   {
@@ -214,7 +199,6 @@ export default function CustomersPage() {
     setEditTarget(row);
     setForm({
       customerName: row.customerName,
-      companyName: row.companyName,
       contactPerson: row.contactPerson,
       contactNumber: row.contactNumber,
       email: row.email,
@@ -230,26 +214,32 @@ export default function CustomersPage() {
       setError("Customer name is required.");
       return;
     }
-    if (!form.companyName.trim()) {
-      setError("Company name is required.");
-      return;
-    }
 
     setSaving(true);
     setError("");
 
+    // Standard entries are capitalized; Email is explicitly set to lowercase
+    const transformedForm: CreateCustomerPayload = {
+      customerName: form.customerName.trim().toUpperCase(),
+      contactPerson: form.contactPerson.trim().toUpperCase(),
+      contactNumber: form.contactNumber.trim().toUpperCase(),
+      email: form.email.trim().toLowerCase(),
+      tin: form.tin.trim().toUpperCase(),
+      address: form.address.trim().toUpperCase(),
+    };
+
     try {
       if (editTarget) {
         await customerService.update({
-          ...form,
+          ...transformedForm,
           id: editTarget.id,
         });
         await loadCustomers();
         toast.success("Customer updated successfully.");
       } else {
-        await customerService.create(form);
-        await loadCustomers();
-        toast.success("Customer created successfully.");
+        // await customerService.create(transformedForm);
+        // await loadCustomers();
+        // toast.success("Customer created successfully.");
       }
       setModalOpen(false);
     } catch (err) {
@@ -318,19 +308,26 @@ export default function CustomersPage() {
           }
         });
 
-        const customerName = String(rowData["Customer Name"] || "").trim();
-        const companyName = String(rowData["Company Name"] || "").trim();
-
-        if (!customerName && !companyName) return;
-
+        // Map spreadsheet records applying uppercase formatting generally and lowercase strictly to email structures
         customersToImport.push({
-          customerName,
-          companyName,
-          contactPerson: String(rowData["Contact Person"] || "").trim(),
-          contactNumber: String(rowData["Contact Number"] || "").trim(),
-          email: String(rowData["Email Address"] || "").trim(),
-          tin: String(rowData["TIN"] || "").trim(),
-          address: String(rowData["Address"] || "").trim(),
+          customerName: String(rowData["Customer Name"] || "")
+            .trim()
+            .toUpperCase(),
+          contactPerson: String(rowData["Contact Person"] || "")
+            .trim()
+            .toUpperCase(),
+          contactNumber: String(rowData["Contact Number"] || "")
+            .trim()
+            .toUpperCase(),
+          email: String(rowData["Email Address"] || "")
+            .trim()
+            .toLowerCase(),
+          tin: String(rowData["TIN"] || "")
+            .trim()
+            .toUpperCase(),
+          address: String(rowData["Address"] || "")
+            .trim()
+            .toUpperCase(),
         });
       });
 
@@ -435,17 +432,6 @@ export default function CustomersPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="c-company">Company Name *</Label>
-              <Input
-                id="c-company"
-                value={form.companyName}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, companyName: e.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
               <Label htmlFor="c-contact-person">Contact Person</Label>
               <Input
                 id="c-contact-person"
@@ -479,17 +465,6 @@ export default function CustomersPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="c-address">Address</Label>
-              <Input
-                id="c-address"
-                value={form.address}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, address: e.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
               <Label htmlFor="c-tin">TIN</Label>
               <Input
                 id="c-tin"
@@ -497,6 +472,17 @@ export default function CustomersPage() {
                 disabled={saving}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, tin: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="c-address">Address</Label>
+              <Input
+                id="c-address"
+                value={form.address}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, address: e.target.value }))
                 }
               />
             </div>

@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
-import { addUser, getUsers } from "@/lib/userSheets";
+import { NextRequest, NextResponse } from "next/server";
+import { addUser, getUsers, getUserByUsername } from "@/lib/userSheets";
 import {
   requireAdminSession,
   requireAuthenticatedSession,
 } from "@/lib/auth/session";
+import { toPublicUser } from "@/lib/userSheets";
 import type { CreateUserInput, UserRole } from "@/types/user";
 
 function parseRole(value: unknown): UserRole {
@@ -14,11 +15,23 @@ function parseRole(value: unknown): UserRole {
     : "user";
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
 
   try {
+    // Support username lookup via query parameter: /api/users?username=xxx
+    const { searchParams } = new URL(request.url);
+    const usernameQuery = searchParams.get("username");
+
+    if (usernameQuery) {
+      const user = await getUserByUsername(usernameQuery);
+      if (!user) {
+        return NextResponse.json({ error: "User not found." }, { status: 404 });
+      }
+      return NextResponse.json(toPublicUser(user), { status: 200 });
+    }
+
     const users = await getUsers();
     return NextResponse.json(users, { status: 200 });
   } catch (error) {

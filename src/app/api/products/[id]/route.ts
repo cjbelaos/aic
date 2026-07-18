@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSheetsClient } from "@/lib/googleSheets";
+import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 
-const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
+const PRODUCTS_SHEET = "ProductsTest";
 
 interface RouteParams {
   params: Promise<{
@@ -10,14 +11,29 @@ interface RouteParams {
 }
 
 /**
- * PUT: Update an existing product row in the Google Sheet
- * Endpoint: /api/products/[row]
+ * Helper: Extracts the numeric row number from a product ID string.
+ * Example: "prod_5" -> 5
+ */
+function getRowNumber(id: string): number {
+  const rowStr = id.replace("prod_", "");
+  const rowNum = parseInt(rowStr, 10);
+  if (isNaN(rowNum)) {
+    throw new Error(`Invalid product ID format: ${id}`);
+  }
+  return rowNum;
+}
+
+/**
+ * PUT: Update an existing product row in the ProductsTest sheet.
+ * Endpoint: /api/products/[id]
  */
 export async function PUT(request: Request, { params }: RouteParams) {
+  const session = await requireAuthenticatedSession();
+  if (session instanceof Response) return session;
+
   try {
-    // Await the asynchronous params object
-    const { id: rowNumber } = await params;
-    const body = await request.json();
+    const { id } = await params;
+    const rowNumber = getRowNumber(id);
 
     if (!rowNumber) {
       return NextResponse.json(
@@ -27,55 +43,62 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
 
     const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // Map fields cleanly to match your array column structure
+    const body = await request.json();
+
+    // Map fields to match the 15-column layout defined in productSheets.ts:
+    // [code, name, category, description, unit, cost, price, supplier, minStock, begStock, qtyIn, actualStock, reservedUnits, qtyOut, status]
     const updatedRow = [
-      body.clientCode || "",
-      body.productCode || "",
-      body.productCategory || "",
-      body.customerName || "",
-      body.productName || "",
+      body.code || "",
+      body.name || "",
+      body.category?.name || "",
       body.description || "",
-      body.unitName || "",
+      body.unit?.name || "",
       body.costPerUnit || 0,
       body.pricePerUnit ?? "",
-      body.supplierName || "",
+      body.supplier?.supplierName || "",
+      body.minStock ?? 0,
+      body.begStock ?? 0,
+      body.qtyIn ?? 0,
+      body.actualStock ?? 0,
+      body.reservedUnits ?? 0,
+      body.qtyOut ?? 0,
       body.status || "In Stock",
-      body.reOrderLevel ?? 0,
-      body.begStock || 0,
-      body.qtyIn || 0,
-      body.quantityInStock || 0,
-      body.reservedUnits || 0,
-      body.qtyOut || 0,
-      body.inventoryFlag || "",
     ];
 
+    const updateRange = `${PRODUCTS_SHEET}!A${rowNumber}:O${rowNumber}`;
+
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `Product List & Inventory!A${rowNumber}:R${rowNumber}`,
+      spreadsheetId,
+      range: updateRange,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
 
-    // Return the updated object payload with a 200 status to match your frontend service's expectations
-    return NextResponse.json({ id: rowNumber, ...body }, { status: 200 });
+    return NextResponse.json(
+      { message: `Product row ${rowNumber} updated successfully` },
+      { status: 200 },
+    );
   } catch (error) {
     console.error(`[PRODUCT_PUT_ERROR] Failed updating row entry:`, error);
-    return NextResponse.json(
-      { error: "Internal Server Error during product update operation" },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error ? error.message : "Internal Server Error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 /**
- * DELETE: Remove or clear a product row from the Google Sheet
- * Endpoint: /api/products/[row]
+ * DELETE: Clear a product row from the ProductsTest sheet.
+ * Endpoint: /api/products/[id]
  */
 export async function DELETE(request: Request, { params }: RouteParams) {
+  const session = await requireAuthenticatedSession();
+  if (session instanceof Response) return session;
+
   try {
-    // Await the asynchronous params object
-    const { id: rowNumber } = await params;
+    const { id } = await params;
+    const rowNumber = getRowNumber(id);
 
     if (!rowNumber) {
       return NextResponse.json(
@@ -85,22 +108,24 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // Clear cells in the specified sheet range row to prevent alignment shifting
+    // Clear cells in the specified row (15 columns: A-O)
+    const deleteRange = `${PRODUCTS_SHEET}!A${rowNumber}:O${rowNumber}`;
+
     await sheets.spreadsheets.values.clear({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `Product List & Inventory!A${rowNumber}:R${rowNumber}`,
+      spreadsheetId,
+      range: deleteRange,
     });
 
     return NextResponse.json(
-      { message: `Product entry row ${rowNumber} successfully cleared` },
+      { message: `Product row ${rowNumber} successfully cleared` },
       { status: 200 },
     );
   } catch (error) {
     console.error(`[PRODUCT_DELETE_ERROR] Failed purging row entry:`, error);
-    return NextResponse.json(
-      { error: "Internal Server Error during product deletion operation" },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error ? error.message : "Internal Server Error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

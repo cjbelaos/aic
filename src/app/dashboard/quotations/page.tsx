@@ -1,746 +1,1015 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
-import Image from "next/image";
-import { Plus, Trash2, Loader2, Save, Send } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { ColumnDef } from "@tanstack/react-table";
+import { ArrowUpDown, Eye, Pencil, Trash2, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { EntityTable } from "@/components/ui/entity-table";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import productService from "@/lib/services/product.service";
-import customerService from "@/lib/services/customer.service";
+  QuotationForm,
+  QuotationFormPayload,
+} from "@/components/quotation-form";
+import { QuotationTemplate } from "@/components/quotation-template";
+import quotationService, {
+  SaveQuotationPayload,
+} from "@/lib/services/quotation.service";
+import { Quotation } from "@/types/quotation";
 import { Customer } from "@/types/customer";
-import { Product } from "@/types/product";
 
-/* ── Helpers ─────────────────────────────────────────────── */
+// Exports data safely using ExcelJS buffer streams
+function exportToExcel(rows: Quotation[]) {
+  if (rows.length === 0) {
+    toast.error("No quotation records found to export.");
+    return;
+  }
 
-function toExcelSerial(date: Date): number {
-  const epoch = new Date(1899, 11, 30);
-  const wholeDays = Math.floor((date.getTime() - epoch.getTime()) / 86400000);
-  const timeFraction =
-    (date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds()) /
-    86400;
-  return Number((wholeDays + timeFraction).toFixed(5));
-}
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Quotations");
 
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
+  worksheet.columns = [
+    { header: "Customer", key: "customer", width: 25 },
+    { header: "Description", key: "description", width: 25 },
+    { header: "Amount", key: "amount", width: 20 },
+    { header: "Discount", key: "discount", width: 15 },
+    { header: "Reference Number", key: "quotationNo", width: 25 },
+    { header: "File", key: "file", width: 25 },
+    { header: "Date", key: "date", width: 15 },
+    { header: "Prepared By", key: "preparedBy", width: 35 },
+    { header: "Approved By", key: "approvedBy", width: 35 },
+    { header: "Sent By", key: "sentBy", width: 35 },
+    { header: "Status", key: "status", width: 20 },
+  ];
 
-function formatDisplayDate(date: Date): string {
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+  rows.forEach((r) => {
+    worksheet.addRow({
+      customer: (r.customer as any)?.customerName || r.customer,
+      description: r.description,
+      amount: r.amount,
+      discount: r.discount || 0,
+      quotationNo: r.quotationNo,
+      file: r.file,
+      date: r.date,
+      preparedBy: r.preparedBy,
+      approvedBy: r.approvedBy,
+      sentBy: r.sentBy,
+      status: r.status || "DRAFT",
+    });
   });
+
+  workbook.xlsx
+    .writeBuffer()
+    .then((buffer) => {
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "quotations.xlsx";
+      link.click();
+      window.URL.revokeObjectURL(url);
+    })
+    .catch((err) => {
+      console.error("Excel generation failed:", err);
+      toast.error("Failed to generate Excel download file.");
+    });
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency: "PHP",
-    minimumFractionDigits: 2,
-  }).format(value);
+interface ImportQuotationRow {
+  customer: string;
+  description: string;
+  amount: number;
+  discount: number;
+  quotationNo: string;
+  file: string;
+  date: string;
+  preparedBy: string;
 }
 
-function customerLabel(c: Customer): string {
-  return c.companyName?.trim() || c.customerName?.trim() || `Customer #${c.id}`;
-}
+type ViewMode = "list" | "create" | "view" | "edit";
 
-/* ── Constants ─────────────────────────────────────────── */
-
-const PAYMENT_TERMS = ["COD", "30 Days", "50% Downpayment", "Upon Delivery"];
-const DELIVERY_TERMS = [
-  "7-15 Days upon confirmation of PO",
-  "3-5 Days",
-  "Pick-up",
-];
-const WARRANTY_TERMS = [
-  "No warranty for consumable Parts/Supplies",
-  "1 Year Limited Warranty",
-  "6 Months Limited Warranty",
-];
-
-type LineItem = {
-  id: string;
-  productId: string;
-  notation: string;
-  quantity: number;
-  unit: string;
-  pricePerUnit: number;
-};
-
-const emptyLine = (): LineItem => ({
-  id: crypto.randomUUID(),
-  productId: "",
-  notation: "",
-  quantity: 1,
-  unit: "",
-  pricePerUnit: 0,
-});
-
-/* ── Page ────────────────────────────────────────────────── */
-
-export default function QuotationGeneratorPage() {
-  const today = useMemo(() => new Date(), []);
-  const validityDate = useMemo(() => addDays(today, 90), [today]);
-  const quotationNo = useMemo(() => toExcelSerial(today), [today]);
-
-  const reportTemplateRef = useRef<HTMLDivElement>(null);
-  const [isPrinting, setIsPrinting] = useState(false);
+export default function QuotationsPage() {
+  const [data, setData] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(
+    null,
+  );
+  const [viewQuotationData, setViewQuotationData] =
+    useState<QuotationFormPayload | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
 
-  const [customerId, setCustomerId] = useState("");
-  const [projectDescription, setProjectDescription] = useState("");
-  const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
-  const [discount, setDiscount] = useState(0);
-
-  const [paymentTerms, setPaymentTerms] = useState(PAYMENT_TERMS[0]);
-  const [deliveryTerms, setDeliveryTerms] = useState(DELIVERY_TERMS[0]);
-  const [warrantyTerms, setWarrantyTerms] = useState(WARRANTY_TERMS[0]);
-
-  const [preparedBy, setPreparedBy] = useState("Von Jeric Carmona");
-  const [approvedBy, setApprovedBy] = useState("");
+  const loadQuotations = async () => {
+    try {
+      const quotations = await quotationService.getAll();
+      setData(quotations);
+    } catch {
+      toast.error("Failed to load quotations.");
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const [cRes, pRes] = await Promise.all([
-          customerService.getAll(),
-          productService.getAll(),
-        ]);
-
-        setCustomers(cRes ?? []);
-        setProducts(pRes ?? []);
-      } catch (error) {
-        console.error(error);
-        toast.error("Failed to load quotation data.");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadQuotations().finally(() => setLoading(false));
   }, []);
 
-  const selectedCustomer = customers.find((c) => String(c.id) === customerId);
-
-  const customerOptions = customers.map((c) => ({
-    value: String(c.id),
-    label: customerLabel(c),
-  }));
-
-  const productOptions = products.map((p) => ({
-    value: String(p.id),
-    label: p.productName?.trim(),
-  }));
-
-  const updateLine = (id: string, patch: Partial<LineItem>) => {
-    setLineItems((rows) =>
-      rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    );
-  };
-
-  const onProductSelect = (rowId: string, productId: string) => {
-    const product = products.find((p) => String(p.id) === productId);
-    updateLine(rowId, {
-      productId,
-      unit:
-        typeof product?.unit === "object" && product?.unit !== null
-          ? (product.unit as any).name || (product.unit as any).label || ""
-          : product?.unit || "",
-      pricePerUnit: product?.pricePerUnit ?? product?.costPerUnit ?? 0,
-    });
-  };
-
-  const subTotal = lineItems.reduce(
-    (sum, row) => sum + row.quantity * row.pricePerUnit,
-    0,
-  );
-  const grandTotal = Math.max(subTotal - (discount || 0), 0);
-  const vat = grandTotal * (12 / 112);
-  const vatableAmount = grandTotal - vat;
-
-  // 🔥 PDF GENERATION LOGIC
-  const handleSave = async () => {
-    if (!customerId) {
-      toast.error("Please select a customer before exporting.");
-      return;
+  /** Convert a Quotation from the API/Sheets into QuotationFormPayload for the form */
+  const toFormPayload = useCallback((quot: Quotation): QuotationFormPayload => {
+    let parsedDate: Date;
+    try {
+      parsedDate = quot.date ? new Date(quot.date) : new Date();
+      if (isNaN(parsedDate.getTime())) parsedDate = new Date();
+    } catch {
+      parsedDate = new Date();
     }
 
-    const toastId = toast.loading("Generating quotation PDF...");
-    setIsPrinting(true);
+    const customer: Customer = {
+      id: "",
+      customerName:
+        typeof quot.customer === "object" && quot.customer !== null
+          ? (quot.customer as any).customerName || String(quot.customer)
+          : String(quot.customer || ""),
+      contactPerson: "",
+      address: "",
+      email: "",
+      contactNumber: "",
+      tin: "",
+    };
+
+    if (typeof quot.customer === "object" && quot.customer !== null) {
+      const c = quot.customer as any;
+      customer.contactPerson = c.contactPerson || "";
+      customer.address = c.address || "";
+      customer.email = c.email || "";
+      customer.contactNumber = c.contactNumber || "";
+      customer.tin = c.tin || "";
+      customer.id = c.id || "";
+    }
+
+    return {
+      quotationNo: quot.quotationNo || "",
+      date: parsedDate,
+      validity: new Date(parsedDate.getTime() + 90 * 24 * 60 * 60 * 1000),
+      customer,
+      quotationDescription: quot.description || "",
+      items: (quot.items || []).map((item) => ({
+        quotationNo: item.quotationNo,
+        description: item.description || "",
+        quantity: item.quantity || 0,
+        unit: item.unit || "",
+        unitPrice: item.unitPrice || 0,
+      })),
+      notations: quot.notation || [],
+      subTotal: quot.items
+        ? (quot.items as any[]).reduce(
+            (sum: number, item: any) =>
+              sum + (item.quantity || 0) * (item.unitPrice || 0),
+            0,
+          )
+        : quot.amount || 0,
+      discount: quot.discount || 0,
+      terms: quot.terms || "",
+      delivery: quot.delivery || "",
+      warranty: quot.warranty || "",
+      preparedBy: quot.preparedBy || "",
+      status: quot.status || "DRAFT",
+      vat: 0,
+      vatableAmount: 0,
+      grandTotal: Math.max(
+        ((quot.items as any[]) || []).reduce(
+          (sum: number, item: any) =>
+            sum + (item.quantity || 0) * (item.unitPrice || 0),
+          0,
+        ) - (quot.discount || 0),
+        0,
+      ),
+    };
+  }, []);
+
+  /** Handle "View" action - fetch full quot data and show read-only */
+  const handleView = async (quot: Quotation) => {
+    try {
+      setLoading(true);
+      let fullQuot = await quotationService.getByRefNo(quot.quotationNo);
+      if (!fullQuot) {
+        fullQuot = quot;
+      }
+      const payload = toFormPayload(fullQuot);
+      setSelectedQuotation(fullQuot);
+      setViewQuotationData(payload);
+      setViewMode("view");
+    } catch {
+      const payload = toFormPayload(quot);
+      setSelectedQuotation(quot);
+      setViewQuotationData(payload);
+      setViewMode("view");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Handle "Edit" action - load into editable form */
+  const handleEdit = async (quot: Quotation) => {
+    try {
+      setLoading(true);
+      let fullQuot = await quotationService.getByRefNo(quot.quotationNo);
+      if (!fullQuot) fullQuot = quot;
+      const payload = toFormPayload(fullQuot);
+      setSelectedQuotation(fullQuot);
+      setViewQuotationData(payload);
+      setViewMode("edit");
+    } catch {
+      const payload = toFormPayload(quot);
+      setSelectedQuotation(quot);
+      setViewQuotationData(payload);
+      setViewMode("edit");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Handle "Delete" action */
+  const handleDelete = async (quotationNo: string) => {
+    if (!window.confirm("Are you sure you want to delete this quotation?"))
+      return;
+    try {
+      setSaving(true);
+      await quotationService.deleteByRefNo(quotationNo);
+      toast.success("Quotation deleted successfully.");
+      setViewMode("list");
+      setSelectedQuotation(null);
+      setViewQuotationData(null);
+      await loadQuotations();
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to delete quotation.";
+      toast.error(msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * FORM SUBMISSION HANDLER
+   * Handles both create and edit modes with simplified flow:
+   * - CREATE: Saves new quotation with DRAFT or SENT status
+   * - EDIT: Updates existing quotation
+   */
+  const handleFormSubmit = async (
+    formPayload: QuotationFormPayload,
+    pdfBlob?: Blob,
+    statusOnly?: boolean,
+  ) => {
+    setSaving(true);
 
     try {
-      // 1. Sequentially load rendering dependencies directly
-      const html2canvasPro = (await import("html2canvas-pro")).default;
-      const { jsPDF } = await import("jspdf");
+      // Check if status-only update (from view mode Send to Client)
+      if (statusOnly && selectedQuotation) {
+        // ===== STATUS-ONLY: Update status to SENT =====
+        await quotationService.updateStatusOnly(
+          selectedQuotation.quotationNo,
+          "SENT",
+        );
 
-      const element = reportTemplateRef.current;
-      if (!element) {
-        toast.error("Quotation template element not found.");
+        // Send email if PDF blob is provided
+        if (pdfBlob) {
+          try {
+            const customerName = formPayload.customer?.customerName || "";
+            const customerEmail = formPayload.customer?.email || "";
+
+            if (customerEmail) {
+              const emailResult = await quotationService.sendEmail({
+                quotationNo: selectedQuotation.quotationNo,
+                customer: customerName,
+                email: customerEmail,
+                quotationDescription: formPayload.quotationDescription,
+                grandTotal: formPayload.grandTotal,
+                pdfBlob: pdfBlob,
+              });
+
+              if (emailResult.success) {
+                toast.success(
+                  `Quotation sent successfully to ${customerName}.`,
+                );
+              } else {
+                toast.error("Status updated but email failed to send.");
+              }
+            } else {
+              toast.warning(
+                "No email address found for customer. Status updated but email not sent.",
+              );
+            }
+          } catch (emailError) {
+            console.error("Email send error:", emailError);
+            toast.error("Status updated but email failed to send.");
+          }
+        } else {
+          toast.success("Quotation sent successfully.");
+        }
+
+        setViewMode("list");
+        setSelectedQuotation(null);
+        setViewQuotationData(null);
+        await loadQuotations();
         return;
       }
 
-      const cleanClientName = customerLabel(selectedCustomer!)
-        .replace(/[^a-z0-9]/gi, "_")
-        .toLowerCase();
-      const filename = `quotation_${quotationNo}_${cleanClientName}.pdf`;
+      // Check if we're in edit mode (has selectedQuotation)
+      if (selectedQuotation && viewMode === "edit") {
+        // ===== EDIT MODE: Update existing quotation =====
+        const quotationNo = selectedQuotation.quotationNo;
 
-      // Allow DOM layout to settle into printing mode styles
-      await new Promise((resolve) => setTimeout(resolve, 350));
+        const updatePayload = {
+          customer: formPayload.customer?.customerName || "",
+          description: formPayload.quotationDescription || "",
+          amount: formPayload.grandTotal || 0,
+          discount: formPayload.discount || 0,
+          quotationNo: quotationNo,
+          file: selectedQuotation.file || "",
+          date: formPayload.date?.toISOString().split("T")[0] || "",
+          preparedBy: formPayload.preparedBy || "",
+          approvedBy: selectedQuotation.approvedBy || "",
+          sentBy: selectedQuotation.sentBy || "",
+          items: formPayload.items.map((item) => ({
+            description: item.description,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
+          })),
+          notation: formPayload.notations || [],
+          terms: formPayload.terms || "",
+          delivery: formPayload.delivery || "",
+          warranty: formPayload.warranty || "",
+          status: formPayload.status || "DRAFT",
+        };
 
-      // 2. Render canvas using the pro engine version that parses lab()
-      const canvas = await html2canvasPro(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-      });
+        await quotationService.updateByRefNo(quotationNo, updatePayload as any);
+        toast.success("Quotation updated successfully.");
 
-      const imgData = canvas.toDataURL("image/jpeg", 0.95);
-
-      // 3. Initialize Letter document context manually
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "in",
-        format: "letter",
-      });
-
-      const imgWidth = 7.5; // 8.5" width - 0.5" margins on each side
-      const pageHeight = 11.0;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0.5; // Top margin initialization
-      const marginLeft = 0.5;
-
-      // Add image data onto page bounds
-      pdf.addImage(imgData, "JPEG", marginLeft, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight - 1.0; // Account for top/bottom margin offset
-
-      // Multi-page tracking handling
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight + 0.5;
-        pdf.addPage();
-        pdf.addImage(
-          imgData,
-          "JPEG",
-          marginLeft,
-          position,
-          imgWidth,
-          imgHeight,
-        );
-        heightLeft -= pageHeight;
+        setViewMode("list");
+        setSelectedQuotation(null);
+        setViewQuotationData(null);
+        await loadQuotations();
+        return;
       }
 
-      pdf.save(filename);
-      toast.success("Quotation saved and downloaded successfully!", {
-        id: toastId,
-      });
-    } catch (error) {
-      console.error("PDF Generation error:", error);
-      toast.error("Failed to generate PDF.", { id: toastId });
+      // ===== CREATE MODE: New quotation =====
+      // Ensure validity is a valid date
+      let validUntilDate = formPayload.validity;
+      if (!validUntilDate || isNaN(validUntilDate.getTime())) {
+        const date = formPayload.date || new Date();
+        validUntilDate = new Date(date.getTime() + 90 * 24 * 60 * 60 * 1000);
+      }
+
+      // Determine status based on form status
+      const finalStatus = formPayload.status === "SENT" ? "SENT" : "DRAFT";
+
+      // Prepare save payload
+      const payload: SaveQuotationPayload = {
+        customer: formPayload.customer,
+        quotationDescription: formPayload.quotationDescription || "",
+        items: formPayload.items || [],
+        terms: formPayload.terms || "",
+        delivery: formPayload.delivery || "",
+        warranty: formPayload.warranty || "",
+        preparedBy: formPayload.preparedBy || "",
+        discount: formPayload.discount || 0,
+        quotationNo: formPayload.quotationNo || "",
+        dateIssued:
+          formPayload.date?.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }) || "",
+        validUntil:
+          validUntilDate?.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }) || "",
+        notations: formPayload.notations || [],
+        subTotal: formPayload.subTotal || 0,
+        vatableAmount: formPayload.vatableAmount || 0,
+        vat: formPayload.vat || 0,
+        grandTotal: formPayload.grandTotal || 0,
+        status: finalStatus,
+      };
+
+      // Save the quotation first (sends PDF to Drive if SENT and pdfBlob provided)
+      const result = await quotationService.saveQuotation(payload, pdfBlob);
+
+      if (!result.success) {
+        toast.error(result.message || "Failed to save quotation.");
+        return;
+      }
+
+      // If status is SENT and we have a PDF blob, also send the email
+      if (finalStatus === "SENT" && pdfBlob) {
+        try {
+          const customerName = formPayload.customer?.customerName || "";
+          const customerEmail = formPayload.customer?.email || "";
+
+          if (!customerEmail) {
+            toast.warning(
+              "No email address found for customer. Quotation saved but email not sent.",
+            );
+          } else {
+            const emailResult = await quotationService.sendEmail({
+              quotationNo: payload.quotationNo,
+              customer: customerName,
+              email: customerEmail,
+              quotationDescription: payload.quotationDescription,
+              grandTotal: payload.grandTotal,
+              pdfBlob: pdfBlob,
+            });
+
+            if (emailResult.success) {
+              toast.success(`Quotation sent successfully to ${customerName}.`);
+            } else {
+              toast.error("Quotation saved but email failed to send.");
+            }
+          }
+        } catch (emailError) {
+          console.error("Email send error:", emailError);
+          toast.error("Quotation saved but email failed to send.");
+        }
+      } else if (finalStatus === "SENT" && !pdfBlob) {
+        toast.warning(
+          "Quotation marked as SENT but no PDF was generated for Drive upload or email.",
+        );
+      }
+
+      setViewMode("list");
+      setSelectedQuotation(null);
+      setViewQuotationData(null);
+      await loadQuotations();
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save quotation.";
+      toast.error(message);
+      console.error("Save error:", err);
     } finally {
-      setIsPrinting(false);
+      setSaving(false);
     }
   };
 
-  if (loading) {
+  /** Handle Import */
+  const handleImport = async (file: File) => {
+    let toastId: string | number | undefined;
+
+    try {
+      const dataBuffer = await file.arrayBuffer();
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(dataBuffer);
+
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) {
+        toast.error("The selected workbook contains no worksheets.");
+        return;
+      }
+
+      const quotationsToImport: ImportQuotationRow[] = [];
+      const headers: string[] = [];
+
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) {
+          row.eachCell((cell) => {
+            headers.push(String(cell.value || "").trim());
+          });
+          return;
+        }
+
+        const rowData: Record<string, any> = {};
+        row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          const headerName = headers[colNumber - 1];
+          if (headerName) {
+            let cellValue = cell.value;
+            if (
+              cellValue &&
+              typeof cellValue === "object" &&
+              "result" in cellValue
+            ) {
+              cellValue = (cellValue as any).result;
+            }
+            rowData[headerName] = cellValue;
+          }
+        });
+
+        quotationsToImport.push({
+          customer: String(rowData["Customer"] || "").trim(),
+          description: String(rowData["Description"] || "").trim(),
+          amount: parseFloat(rowData["Amount"]) || 0,
+          discount: parseFloat(rowData["Discount"]) || 0,
+          quotationNo: String(
+            rowData["Reference Number"] || rowData["RefNo"] || "",
+          ).trim(),
+          file: String(rowData["File"] || "").trim(),
+          date: String(rowData["Date"] || "").trim(),
+          preparedBy: String(
+            rowData["Prepared By"] || rowData["PreparedBy"] || "",
+          ).trim(),
+        });
+      });
+
+      if (quotationsToImport.length === 0) {
+        toast.error("No valid quotation found inside the selected workbook.");
+        return;
+      }
+
+      toastId = toast.loading("Importing records...");
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const quotation of quotationsToImport) {
+        try {
+          const importPayload: QuotationFormPayload = {
+            quotationNo: quotation.quotationNo || "",
+            date: new Date(),
+            validity: new Date(),
+            customer: {
+              id: "",
+              customerName: quotation.customer,
+              contactPerson: "",
+              address: "",
+              email: "",
+              contactNumber: "",
+              tin: "",
+            },
+            quotationDescription: quotation.description || "",
+            items: [],
+            subTotal: quotation.amount || 0,
+            discount: quotation.discount || 0,
+            terms: "",
+            delivery: "",
+            warranty: "",
+            preparedBy: quotation.preparedBy || "",
+            status: "DRAFT",
+            vat: 0,
+            vatableAmount: 0,
+            grandTotal: quotation.amount || 0,
+          };
+
+          const importApiPayload: SaveQuotationPayload = {
+            customer: importPayload.customer,
+            quotationDescription: importPayload.quotationDescription || "",
+            items: importPayload.items || [],
+            terms: importPayload.terms || "",
+            delivery: importPayload.delivery || "",
+            warranty: importPayload.warranty || "",
+            preparedBy: importPayload.preparedBy || "",
+            discount: importPayload.discount || 0,
+            quotationNo: importPayload.quotationNo || "",
+            dateIssued:
+              importPayload.date?.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              }) || "",
+            validUntil:
+              importPayload.validity?.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              }) || "",
+            notations: importPayload.notations || [],
+            subTotal: importPayload.subTotal || 0,
+            vatableAmount: importPayload.vatableAmount || 0,
+            vat: importPayload.vat || 0,
+            grandTotal: importPayload.grandTotal || 0,
+            status: "DRAFT",
+          };
+
+          const res = await quotationService.saveQuotation(importApiPayload);
+          if (res.success) successCount++;
+          else failCount++;
+        } catch {
+          failCount++;
+        }
+      }
+
+      await loadQuotations();
+
+      if (failCount === 0) {
+        toast.success(`Successfully imported ${successCount} quotations.`, {
+          id: toastId,
+        });
+      } else {
+        toast.warning(
+          `Imported ${successCount} quotations. ${failCount} failed.`,
+          { id: toastId },
+        );
+      }
+    } catch (err) {
+      console.error("Import error:", err);
+      toast.error("Failed to complete workbook import parsing layout.", {
+        id: toastId,
+      });
+    }
+  };
+
+  const handleBackToList = () => {
+    setViewMode("list");
+    setSelectedQuotation(null);
+    setViewQuotationData(null);
+  };
+
+  /**
+   * Build columns dynamically
+   */
+  const columns: ColumnDef<Quotation>[] = [
+    {
+      accessorKey: "quotationNo",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 font-semibold"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Quotation No <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      ),
+    },
+    {
+      accessorKey: "customer",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 font-semibold"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Customer <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      ),
+      cell: ({ row }) => (
+        <span className="text-blue-600 font-medium">
+          {(row.original.customer as any)?.customerName ??
+            row.original.customer ??
+            ""}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "description",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 font-semibold"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Description <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      ),
+    },
+    {
+      accessorKey: "amount",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 font-semibold"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Amount <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const val = row.original.amount || 0;
+        return new Intl.NumberFormat("en-PH", {
+          style: "currency",
+          currency: "PHP",
+        }).format(val);
+      },
+    },
+    {
+      accessorKey: "discount",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 font-semibold"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Discount <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const val = row.original.discount || 0;
+        return new Intl.NumberFormat("en-PH", {
+          style: "currency",
+          currency: "PHP",
+        }).format(val);
+      },
+    },
+    {
+      accessorKey: "status",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 font-semibold"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Status <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const status = row.original.status || "DRAFT";
+        const statusColors = {
+          DRAFT: "bg-yellow-100 text-yellow-800",
+          SENT: "bg-green-100 text-green-800",
+        };
+        return (
+          <span
+            className={`px-2 py-1 rounded-full text-xs font-medium ${
+              statusColors[status as keyof typeof statusColors] ||
+              "bg-gray-100 text-gray-800"
+            }`}
+          >
+            {status}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "file",
+      header: "File",
+      cell: ({ row }) => {
+        const url = row.original.file;
+        const status = row.original.status || "DRAFT";
+
+        if (status === "SENT" && url) {
+          return (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 underline text-xs"
+            >
+              View File
+            </a>
+          );
+        }
+
+        if (status === "DRAFT") {
+          return (
+            <span className="text-yellow-600 text-xs">Draft (No File)</span>
+          );
+        }
+
+        return <span className="text-muted-foreground text-xs">—</span>;
+      },
+    },
+    {
+      accessorKey: "date",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 font-semibold"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Date <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      ),
+    },
+    {
+      accessorKey: "preparedBy",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3 h-8 font-semibold"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Prepared By <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      ),
+    },
+  ];
+
+  // Add actions column - show Edit/Delete for DRAFT quotations only
+  columns.push({
+    id: "actions",
+    header: "Actions",
+    cell: ({ row }) => {
+      const status = row.original.status || "DRAFT";
+      const isSent = status === "SENT";
+
+      return (
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            title="View"
+            onClick={() => handleView(row.original)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+
+          {/* Edit button - only for DRAFT quotations */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-blue-600"
+            title={isSent ? "Cannot edit sent quotation" : "Edit"}
+            onClick={() => handleEdit(row.original)}
+            disabled={isSent}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+
+          {/* Delete button - only for DRAFT quotations */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-destructive"
+            title={isSent ? "Cannot delete sent quotation" : "Delete"}
+            onClick={() => handleDelete(row.original.quotationNo)}
+            disabled={isSent}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      );
+    },
+  });
+
+  // Render: Create Mode
+  if (viewMode === "create") {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Create Quotation</h1>
+          <Button
+            variant="outline"
+            onClick={handleBackToList}
+            disabled={saving}
+          >
+            Back to List
+          </Button>
+        </div>
+        <QuotationForm
+          onSubmit={handleFormSubmit}
+          onCancel={handleBackToList}
+          isSaving={saving}
+        />
       </div>
     );
   }
 
-  return (
-    <div className="space-y-4">
-      {/* Container Ref captured by html2pdf wrapper */}
-      <div
-        ref={reportTemplateRef}
-        className={`mx-auto max-w-5xl space-y-0 bg-white text-black shadow-lg print:shadow-none p-2 ${isPrinting ? "pdf-mode" : ""}`}
-      >
-        {/* ── 1. HEADER ─────────────────────────────────────── */}
-        <div className="relative overflow-hidden border-b-4 border-blue-700 bg-gradient-to-r from-sky-100 via-blue-50 to-sky-100 px-8 py-6">
-          <div className="flex items-start gap-6">
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-md border bg-white">
-              <Image
-                src="/logo.png"
-                alt="Company Logo"
-                width={64}
-                height={64}
-                className="object-contain"
-              />
-            </div>
-            <div className="flex-1 text-center">
-              <h1 className="text-2xl font-bold tracking-wide text-blue-800 drop-shadow-sm">
-                AERICH INNOVATION CORP.
-              </h1>
-              <p className="mt-1 text-sm">
-                BLK 4, LOT 2 Bamboo Orchard Subdivision, Brgy. Banay Banay,
-                Cabuyao City, Laguna
-              </p>
-              <p className="text-sm">
-                Email Address: aerichinnovationcorp@gmail.com
-              </p>
-              <p className="text-sm">Contact No.: 09171832745, 09399063645</p>
-            </div>
-            <div className="hidden w-20 shrink-0 sm:block" />
-          </div>
-        </div>
+  // Render: View Mode - Preview (template with Send to Client)
+  if (viewMode === "view" && viewQuotationData && previewMode) {
+    const formattedDate =
+      viewQuotationData.date?.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }) || "";
+    const formattedValidity =
+      viewQuotationData.validity?.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }) || "";
 
-        <div className="px-8 py-6">
-          {/* ── 2. CLIENT + METADATA ───────────────────────── */}
-          <div className="grid gap-6 border-b border-blue-700 pb-6 md:grid-cols-2">
-            <div className="space-y-3 text-sm">
-              <Field label="Client Name">
-                {isPrinting ? (
-                  <span className="min-h-9 px-1 py-2 font-medium">
-                    {selectedCustomer ? customerLabel(selectedCustomer) : "—"}
-                  </span>
-                ) : (
-                  <SearchableSelect
-                    value={customerId}
-                    onValueChange={setCustomerId}
-                    options={customerOptions}
-                    placeholder="Select customer"
-                    searchPlaceholder="Search customers..."
-                  />
-                )}
-              </Field>
-              <Field label="Address" value={selectedCustomer?.address ?? ""} />
-              <Field
-                label="Contact Person"
-                value={selectedCustomer?.contactPerson ?? ""}
-              />
-              <Field
-                label="Email Address"
-                value={selectedCustomer?.email ?? ""}
-              />
-            </div>
+    return (
+      <QuotationTemplate
+        quotationNo={viewQuotationData.quotationNo}
+        date={formattedDate}
+        validity={formattedValidity}
+        customer={viewQuotationData.customer}
+        projectDescription={viewQuotationData.quotationDescription}
+        items={viewQuotationData.items}
+        paymentTerms={viewQuotationData.terms}
+        deliveryTerms={viewQuotationData.delivery}
+        warrantyTerms={viewQuotationData.warranty}
+        notations={
+          Array.isArray(viewQuotationData.notations)
+            ? viewQuotationData.notations.map((n: any) =>
+                typeof n === "string" ? n : n.notation || "",
+              )
+            : []
+        }
+        subTotal={viewQuotationData.subTotal}
+        discount={viewQuotationData.discount}
+        vatableAmount={viewQuotationData.vatableAmount}
+        vat={viewQuotationData.vat}
+        grandTotal={viewQuotationData.grandTotal}
+        preparedBy={viewQuotationData.preparedBy}
+        onBack={() => setPreviewMode(false)}
+        onConfirmSave={(payload, pdfBlob) =>
+          handleFormSubmit(payload, pdfBlob, true)
+        }
+        isSaving={saving}
+      />
+    );
+  }
 
-            <div className="space-y-3 text-sm">
-              <Field label="Date" value={formatDisplayDate(today)} />
-              <Field label="Quotation No." value={String(quotationNo)} />
-              <Field
-                label="Quotation Validity"
-                value={formatDisplayDate(validityDate)}
-              />
-            </div>
-          </div>
+  // Render: View Mode (read-only)
+  if (viewMode === "view" && viewQuotationData) {
+    const isSent = selectedQuotation?.status === "SENT";
 
-          <div className="mt-6 space-y-3">
-            <Label className="text-sm font-semibold">Description</Label>
-            {isPrinting ? (
-              <div className="p-2 border-b font-semibold uppercase text-sm text-blue-900">
-                {projectDescription || "PORTABLE RO Parts"}
-              </div>
-            ) : (
-              <Input
-                value={projectDescription}
-                onChange={(e) => setProjectDescription(e.target.value)}
-                placeholder="PORTABLE RO Parts"
-                className="border-blue-300 font-semibold uppercase"
-              />
-            )}
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              Dear Ma&apos;am/Sir,
-              <br />
-              <br />
-              We are pleased to submit our best price proposal for the
-              above-mentioned project and thank you for this opportunity to be
-              of service. The details of our offer are described below.
-            </p>
-          </div>
-
-          {/* ── 3. LINE ITEMS TABLE ────────────────────────── */}
-          <div className="mt-6">
-            <Table className="border border-black text-xs">
-              <TableHeader>
-                <TableRow className="bg-blue-700 hover:bg-blue-700">
-                  {[
-                    "Product Description",
-                    "Notation",
-                    "QTY",
-                    "UNIT",
-                    "PRICE/UNIT",
-                    "AMOUNT",
-                    ...(isPrinting ? [] : [""]),
-                  ].map((h) => (
-                    <TableHead
-                      key={h}
-                      className="border border-black px-2 py-2 text-center font-bold text-white"
-                    >
-                      {h}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lineItems.map((row) => {
-                  const amount = row.quantity * row.pricePerUnit;
-                  const matchedProd = products.find(
-                    (p) => String(p.id) === row.productId,
-                  );
-
-                  return (
-                    <TableRow key={row.id}>
-                      <TableCell className="border border-black p-1 align-top font-medium">
-                        {isPrinting ? (
-                          <div className="px-2 py-1.5">
-                            {matchedProd?.productName || "—"}
-                          </div>
-                        ) : (
-                          <SearchableSelect
-                            value={row.productId}
-                            onValueChange={(v) => onProductSelect(row.id, v)}
-                            options={productOptions}
-                            placeholder="Select product"
-                            searchPlaceholder="Search products..."
-                            className="h-8 border-0 text-xs shadow-none"
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell className="border border-black p-1 align-top">
-                        {isPrinting ? (
-                          <div className="px-2 py-1.5 text-muted-foreground">
-                            {row.notation || ""}
-                          </div>
-                        ) : (
-                          <Input
-                            value={row.notation}
-                            onChange={(e) =>
-                              updateLine(row.id, { notation: e.target.value })
-                            }
-                            placeholder="Optional notes..."
-                            className="h-8 border-0 text-xs shadow-none"
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell className="border border-black p-1 text-center">
-                        {isPrinting ? (
-                          row.quantity
-                        ) : (
-                          <Input
-                            type="number"
-                            min={1}
-                            value={row.quantity}
-                            onChange={(e) =>
-                              updateLine(row.id, {
-                                quantity: Number(e.target.value) || 0,
-                              })
-                            }
-                            className="h-8 w-16 border-0 text-center text-xs shadow-none mx-auto"
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell className="border border-black px-2 text-center">
-                        {row.unit || "—"}
-                      </TableCell>
-                      <TableCell className="border border-black px-2 text-right">
-                        {row.pricePerUnit.toLocaleString("en-PH", {
-                          minimumFractionDigits: 2,
-                        })}
-                      </TableCell>
-                      <TableCell className="border border-black px-2 text-right font-medium">
-                        {formatCurrency(amount)}
-                      </TableCell>
-
-                      {!isPrinting && (
-                        <TableCell className="border border-black p-1 text-center print:hidden">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive"
-                            onClick={() =>
-                              setLineItems((rows) =>
-                                rows.length > 1
-                                  ? rows.filter((r) => r.id !== row.id)
-                                  : rows,
-                              )
-                            }
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-
-            {!isPrinting && (
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">View Quotation</h1>
+          <div className="flex gap-2">
+            {/* Preview button */}
+            {!isSent && (
               <Button
-                type="button"
                 variant="outline"
-                size="sm"
-                className="mt-3 print:hidden"
-                onClick={() => setLineItems((rows) => [...rows, emptyLine()])}
+                onClick={() => setPreviewMode(true)}
+                disabled={saving}
+                className="gap-2 border-blue-600 text-blue-600"
               >
-                <Plus className="mr-1 h-4 w-4" />
-                Add New Line Item Row
+                <Eye className="h-4 w-4" />
+                Preview & Send
               </Button>
             )}
-          </div>
 
-          {/* ── 4. TOTALS ──────────────────────────────────── */}
-          <div className="mt-6 flex justify-end">
-            <div className="w-full max-w-sm space-y-2 text-sm">
-              <TotalRow label="Sub Total" value={formatCurrency(subTotal)} />
-              <div className="flex items-center justify-between gap-4">
-                <span>Less Discount</span>
-                {isPrinting ? (
-                  <span className="font-medium pr-1">
-                    {formatCurrency(discount)}
-                  </span>
-                ) : (
-                  <Input
-                    type="number"
-                    min={0}
-                    value={discount || ""}
-                    onChange={(e) => setDiscount(Number(e.target.value) || 0)}
-                    className="h-8 w-32 text-right"
-                  />
-                )}
-              </div>
-              <TotalRow
-                label="Grand Total Vat Inc."
-                value={formatCurrency(grandTotal)}
-                bold
-              />
-              <TotalRow label="Vat" value={formatCurrency(vat)} italic />
-              <TotalRow
-                label="Vatable Amount"
-                value={formatCurrency(vatableAmount)}
-                italic
-              />
-            </div>
-          </div>
-
-          {/* ── 5. TERMS ───────────────────────────────────── */}
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            {isPrinting ? (
-              <>
-                <div className="space-y-1">
-                  <span className="text-xs font-semibold text-gray-500 block">
-                    Terms of Payment
-                  </span>
-                  <div className="p-2 border rounded bg-gray-50 text-xs">
-                    {paymentTerms}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <span className="text-xs font-semibold text-gray-500 block">
-                    Delivery
-                  </span>
-                  <div className="p-2 border rounded bg-gray-50 text-xs">
-                    {deliveryTerms}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <span className="text-xs font-semibold text-gray-500 block">
-                    Warranty
-                  </span>
-                  <div className="p-2 border rounded bg-gray-50 text-xs">
-                    {warrantyTerms}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <TermsSelect
-                  label="Terms of Payment"
-                  value={paymentTerms}
-                  onChange={setPaymentTerms}
-                  options={PAYMENT_TERMS}
-                />
-                <TermsSelect
-                  label="Delivery"
-                  value={deliveryTerms}
-                  onChange={setDeliveryTerms}
-                  options={DELIVERY_TERMS}
-                />
-                <TermsSelect
-                  label="Warranty"
-                  value={warrantyTerms}
-                  onChange={setWarrantyTerms}
-                  options={WARRANTY_TERMS}
-                />
-              </>
+            {/* Edit button - only for DRAFT quotations */}
+            {!isSent && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (selectedQuotation) handleEdit(selectedQuotation);
+                }}
+                disabled={saving}
+                className="gap-2"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Button>
             )}
-          </div>
 
-          {/* ── 6. SIGNATURES ──────────────────────────────── */}
-          <div className="mt-10 grid gap-8 border-t pt-8 md:grid-cols-3">
-            <SignatureBlock
-              title="Prepared by:"
-              value={preparedBy}
-              onChange={setPreparedBy}
-              caption="Signature over printed name"
-              isPrinting={isPrinting}
-            />
-            <SignatureBlock
-              title="Approved by:"
-              value={approvedBy}
-              onChange={setApprovedBy}
-              caption="Signature over printed name"
-              isPrinting={isPrinting}
-            />
-            <div className="space-y-6">
-              <p className="text-sm font-semibold">Conforme by:</p>
-              <div className="h-16 border-b border-black" />
-              <div className="mt-2 h-9" />{" "}
-              {/* Visual spacer balancing input elements */}
-              <p className="text-xs text-muted-foreground">
-                Signature over Printed Name / Date
-              </p>
-            </div>
+            <Button
+              variant="outline"
+              onClick={handleBackToList}
+              disabled={saving}
+            >
+              Back to List
+            </Button>
           </div>
         </div>
-      </div>
-
-      {/* Persistent action triggers removed from target canvas element */}
-      <div className="mx-auto max-w-5xl flex justify-end gap-2 px-8 pb-8">
-        <Button
-          onClick={handleSave}
-          className="gap-2 bg-blue-700 hover:bg-blue-800"
-        >
-          <Save className="h-4 w-4" />
-          Save PDF
-        </Button>
-        <Button variant="outline" className="gap-2">
-          <Send className="h-4 w-4" />
-          Send
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/* ── Small sub-components ────────────────────────────────── */
-
-function Field({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value?: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-[140px_1fr] items-center gap-2">
-      <span className="font-semibold">{label}</span>
-      {children ?? (
-        <span className="min-h-9 rounded border border-input px-3 py-2 bg-white">
-          {value || "—"}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function TotalRow({
-  label,
-  value,
-  bold,
-  italic,
-}: {
-  label: string;
-  value: string;
-  bold?: boolean;
-  italic?: boolean;
-}) {
-  return (
-    <div
-      className={`flex justify-between ${bold ? "font-bold" : ""} ${italic ? "italic" : ""}`}
-    >
-      <span>{label}</span>
-      <span>{value}</span>
-    </div>
-  );
-}
-
-function TermsSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="font-semibold">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="w-full bg-white">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((opt) => (
-            <SelectItem key={opt} value={opt}>
-              {opt}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function SignatureBlock({
-  title,
-  value,
-  onChange,
-  caption,
-  isPrinting,
-}: {
-  title: string;
-  value: string;
-  onChange: (v: string) => void;
-  caption: string;
-  isPrinting: boolean;
-}) {
-  return (
-    <div className="space-y-6">
-      <p className="text-sm font-semibold">{title}</p>
-      <div className="h-16 border-b border-black" />
-      {isPrinting ? (
-        <div className="text-center font-medium h-9 pt-2 border-b border-transparent">
-          {value || "—"}
-        </div>
-      ) : (
-        <Input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="border-0 border-b border-black rounded-none px-0 text-center shadow-none focus-visible:ring-0 bg-transparent h-9"
+        <QuotationForm
+          initialData={viewQuotationData}
+          onSubmit={handleFormSubmit}
+          onCancel={handleBackToList}
+          onDelete={
+            selectedQuotation && !isSent
+              ? () => handleDelete(selectedQuotation.quotationNo)
+              : undefined
+          }
+          isSaving={saving}
+          readOnly={true}
+          isViewMode={true}
         />
-      )}
-      <p className="text-xs text-muted-foreground">{caption}</p>
-    </div>
+      </div>
+    );
+  }
+
+  // Render: Edit Mode
+  if (viewMode === "edit" && viewQuotationData) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Edit Quotation</h1>
+          <Button
+            variant="outline"
+            onClick={handleBackToList}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+        </div>
+        <QuotationForm
+          initialData={viewQuotationData}
+          onSubmit={handleFormSubmit}
+          onCancel={handleBackToList}
+          isSaving={saving}
+          readOnly={false}
+        />
+      </div>
+    );
+  }
+
+  // Default: List Mode
+  return (
+    <EntityTable
+      title="Quotation List"
+      columns={columns}
+      data={data}
+      loading={loading}
+      onCreateNew={() => setViewMode("create")}
+      onExport={exportToExcel}
+      onImport={handleImport}
+    />
   );
 }

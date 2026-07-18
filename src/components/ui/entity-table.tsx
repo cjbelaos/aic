@@ -12,7 +12,14 @@ import {
   PaginationState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, Pencil, Trash2, Plus, Download, Upload } from "lucide-react";
+import {
+  ArrowUpDown,
+  Pencil,
+  Trash2,
+  Plus,
+  Download,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -137,7 +144,10 @@ export function EntityTable<TData>({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-lg font-semibold">{title}</h1>
         {onCreateNew && (
-          <Button onClick={onCreateNew} className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">
+          <Button
+            onClick={onCreateNew}
+            className="bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-600 text-white w-full sm:w-auto"
+          >
             <Plus className="mr-2 h-4 w-4" />
             Create New
           </Button>
@@ -150,11 +160,17 @@ export function EntityTable<TData>({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {/* Left */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Show</span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">
+              Show
+            </span>
             <Select
               value={String(pageSize)}
               onValueChange={(v) =>
-                setPagination((p) => ({ ...p, pageSize: Number(v), pageIndex: 0 }))
+                setPagination((p) => ({
+                  ...p,
+                  pageSize: Number(v),
+                  pageIndex: 0,
+                }))
               }
             >
               <SelectTrigger className="h-8 w-[70px]">
@@ -219,45 +235,57 @@ export function EntityTable<TData>({
         {/* Table wrapper with horizontal scroll */}
         <div className="overflow-x-auto -mx-4 -mb-4 px-4 pb-4">
           <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((hg) => (
-              <TableRow key={hg.id} className="border-b">
-                {hg.headers.map((header) => (
-                  <TableHead key={header.id} className="font-semibold">
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={allColumns.length} className="h-24 text-center text-muted-foreground">
-                  Loading…
-                </TableCell>
-              </TableRow>
-            ) : table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
+            <TableHeader>
+              {table.getHeaderGroups().map((hg) => (
+                <TableRow key={hg.id} className="border-b border-border">
+                  {hg.headers.map((header) => (
+                    <TableHead key={header.id} className="font-semibold">
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                    </TableHead>
                   ))}
                 </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={allColumns.length} className="h-24 text-center text-muted-foreground">
-                  No results found.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={allColumns.length}
+                    className="h-24 text-center text-muted-foreground"
+                  >
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : table.getRowModel().rows.length ? (
+                table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={allColumns.length}
+                    className="h-24 text-center text-muted-foreground"
+                  >
+                    No results found.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
 
         {/* Pagination footer */}

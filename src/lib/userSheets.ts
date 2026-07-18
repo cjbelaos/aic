@@ -1,4 +1,4 @@
-import { getSheetsClient } from "@/lib/googleSheets";
+import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { generateSalt, hashPassword } from "@/lib/password";
 import type {
   CreateUserInput,
@@ -11,24 +11,8 @@ import type {
 const USERS_SHEET = "Users";
 const USERS_RANGE = `${USERS_SHEET}!A2:H`; // Covers exactly columns A to H
 
-function getUsersSpreadsheetId(): string {
-  const spreadsheetId = process.env.GOOGLE_SHEET_ID_DATABASE;
-  if (!spreadsheetId) {
-    throw new Error("Missing GOOGLE_SHEET_ID_DATABASE environment variable.");
-  }
-  return spreadsheetId;
-}
-
-function validateGoogleCredentials(): void {
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
-    throw new Error(
-      "Missing GOOGLE_SERVICE_ACCOUNT_EMAIL environment variable.",
-    );
-  }
-  if (!process.env.GOOGLE_PRIVATE_KEY) {
-    throw new Error("Missing GOOGLE_PRIVATE_KEY environment variable.");
-  }
-  getUsersSpreadsheetId();
+async function getUsersSpreadsheetId(): Promise<string> {
+  return await getDatabaseSpreadsheetId();
 }
 
 function normalizeRole(value: string): UserRole {
@@ -98,10 +82,10 @@ function getRowFromId(id: string): number {
 }
 
 async function fetchUserRows(): Promise<{ users: User[]; rows: string[][] }> {
-  validateGoogleCredentials();
+  const spreadsheetId = await getUsersSpreadsheetId();
   const sheets = await getSheetsClient();
   const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: getUsersSpreadsheetId(),
+    spreadsheetId,
     range: USERS_RANGE,
   });
 
@@ -134,7 +118,7 @@ export async function getUserById(id: string): Promise<User | null> {
 }
 
 export async function addUser(input: CreateUserInput): Promise<PublicUser> {
-  validateGoogleCredentials();
+  const spreadsheetId = await getUsersSpreadsheetId();
 
   const username = input.username.trim();
   // Safe validation fallback: if fullName is empty, default it to the username clean tag
@@ -172,7 +156,7 @@ export async function addUser(input: CreateUserInput): Promise<PublicUser> {
 
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.append({
-    spreadsheetId: getUsersSpreadsheetId(),
+    spreadsheetId,
     range: `${USERS_SHEET}!A:H`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [userToRow(user)] },
@@ -185,7 +169,7 @@ export async function updateUser(
   id: string,
   updatedData: UpdateUserInput,
 ): Promise<PublicUser> {
-  validateGoogleCredentials();
+  const spreadsheetId = await getUsersSpreadsheetId();
 
   const rowNumber = getRowFromId(id);
   const current = await getUserById(id);
@@ -229,7 +213,7 @@ export async function updateUser(
 
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
-    spreadsheetId: getUsersSpreadsheetId(),
+    spreadsheetId,
     range: `${USERS_SHEET}!A${rowNumber}:H${rowNumber}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [userToRow(updated)] },
@@ -239,12 +223,12 @@ export async function updateUser(
 }
 
 export async function deleteUser(id: string): Promise<void> {
-  validateGoogleCredentials();
+  const spreadsheetId = await getUsersSpreadsheetId();
   const rowNumber = getRowFromId(id);
 
   const sheets = await getSheetsClient();
   const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId: getUsersSpreadsheetId(),
+    spreadsheetId,
   });
 
   const sheet = spreadsheet.data.sheets?.find(
@@ -257,7 +241,7 @@ export async function deleteUser(id: string): Promise<void> {
   }
 
   await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: getUsersSpreadsheetId(),
+    spreadsheetId,
     requestBody: {
       requests: [
         {
@@ -276,11 +260,12 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 export async function updateLastLogin(id: string): Promise<void> {
+  const spreadsheetId = await getUsersSpreadsheetId();
   const rowNumber = getRowFromId(id);
   const sheets = await getSheetsClient();
 
   await sheets.spreadsheets.values.update({
-    spreadsheetId: getUsersSpreadsheetId(),
+    spreadsheetId,
     range: `${USERS_SHEET}!H${rowNumber}`,
     valueInputOption: "USER_ENTERED",
     requestBody: {

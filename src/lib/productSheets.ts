@@ -1,5 +1,6 @@
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { Product, ProductStatus, CreateProductPayload } from "@/types/product";
+import { generateProductCode } from "@/lib/productCodeGenerator";
 
 const PRODUCTS_SHEET = "Products";
 const PRODUCTS_RANGE = `${PRODUCTS_SHEET}!A2:Z`;
@@ -26,24 +27,21 @@ function parseGoogleSheetNumber(value: any): number {
  */
 function payloadToRow(payload: CreateProductPayload): (string | number)[] {
   return [
-    payload.clientCode || "",
-    payload.productCode || "",
+    payload.code || "",
+    payload.name || "",
     payload.category?.name || "",
-    payload.customer?.customerName || payload.customer?.companyName || "",
-    payload.productName || "",
     payload.description || "",
     payload.unit?.name || "",
     payload.costPerUnit || 0,
     payload.pricePerUnit ?? "",
     payload.supplier?.supplierName || "",
-    payload.status || "In Stock",
     payload.minStock ?? 0,
     payload.begStock ?? 0,
     payload.qtyIn ?? 0,
     payload.actualStock ?? 0,
     payload.reservedUnits ?? 0,
     payload.qtyOut ?? 0,
-    payload.inventoryFlag || "",
+    payload.status || "In Stock",
   ];
 }
 
@@ -57,7 +55,7 @@ export async function addProduct(
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // First, get current row count to derive the new row's ID
+    // First, get current row count to derive the new row's ID and sequence number
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: PRODUCTS_RANGE,
@@ -65,7 +63,16 @@ export async function addProduct(
     const rowCount = (response.data.values || []).length;
     const newRowNumber = rowCount + 2; // +2 because row 1 is header, data starts at row 2
 
-    const row = payloadToRow(payload);
+    // Auto-generate product code if none was provided
+    const categoryCode = payload.category?.code || payload.category?.name || "";
+    const description = payload.description || payload.name || "";
+    const sequence = rowCount + 1; // 1-based sequence
+    const finalCode = payload.code?.trim()
+      ? payload.code
+      : generateProductCode(categoryCode, description, sequence);
+
+    // Override the payload code with the generated one for the sheet row
+    const row = payloadToRow({ ...payload, code: finalCode });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -76,29 +83,17 @@ export async function addProduct(
 
     // Build and return the created product with its new ID
     const categoryStr = payload.category?.name || "";
-    const customerStr =
-      payload.customer?.customerName || payload.customer?.companyName || "";
     const unitStr = payload.unit?.name || "";
+    const codeStr = payload.unit.code || "";
     const supplierStr = payload.supplier?.supplierName || "";
 
     return {
       id: `prod_${newRowNumber}`,
-      clientCode: payload.clientCode || "",
-      productCode: payload.productCode || "",
-      category: { id: categoryStr, name: categoryStr },
-      customer: {
-        id: customerStr,
-        customerName: customerStr,
-        companyName: customerStr,
-        contactPerson: "",
-        contactNumber: "",
-        email: "",
-        tin: "",
-        address: "",
-      },
-      productName: payload.productName,
+      code: finalCode,
+      name: payload.name || "",
+      category: { id: categoryStr, code: categoryCode, name: categoryStr },
       description: payload.description || "",
-      unit: { id: unitStr, name: unitStr },
+      unit: { id: unitStr, code: codeStr, name: unitStr },
       costPerUnit: payload.costPerUnit,
       pricePerUnit: payload.pricePerUnit,
       supplier: {
@@ -108,14 +103,13 @@ export async function addProduct(
         address: "",
         status: "active",
       },
-      status: payload.status || "In Stock",
       minStock: payload.minStock ?? 0,
       begStock: payload.begStock ?? 0,
       qtyIn: payload.qtyIn ?? 0,
       actualStock: payload.actualStock ?? 0,
       reservedUnits: payload.reservedUnits ?? 0,
       qtyOut: payload.qtyOut ?? 0,
-      inventoryFlag: payload.inventoryFlag || "",
+      status: payload.status || "In Stock",
     };
   } catch (error) {
     console.error("Failed to add product to Google Sheets:", error);
@@ -143,39 +137,29 @@ export async function getProducts(): Promise<Product[]> {
     // Map rows arrays back into structured Product objects
     return rows.map((row, index): Product => {
       const categoryStr = row[2] || "";
-      const customerStr = row[3] || "";
-      const unitStr = row[6] || "";
-      const supplierStr = row[9] || "";
+      const unitStr = row[4] || "";
+      const supplierStr = row[7] || "";
 
       return {
         // Generates a unique string ID based on the sheet row position
         id: `prod_${index + 2}`,
-        clientCode: row[0] || "",
-        productCode: row[1] || "",
+        code: row[0] || "",
+        name: row[1] || "",
         category: {
           id: categoryStr,
+          code: categoryStr,
           name: categoryStr,
         },
-        customer: {
-          id: customerStr,
-          customerName: customerStr,
-          companyName: customerStr,
-          contactPerson: "",
-          contactNumber: "",
-          email: "",
-          tin: "",
-          address: "",
-        },
-        productName: row[4] || "",
-        description: row[5] || "",
+        description: row[3] || "",
         unit: {
           id: unitStr,
+          code: "",
           name: unitStr,
         },
 
         // 🔥 Clean numeric parsing to handle commas like 2,500.00 properly
-        costPerUnit: parseGoogleSheetNumber(row[7]),
-        pricePerUnit: parseGoogleSheetNumber(row[8]),
+        costPerUnit: parseGoogleSheetNumber(row[5]),
+        pricePerUnit: parseGoogleSheetNumber(row[6]),
 
         supplier: {
           id: supplierStr,
@@ -184,16 +168,15 @@ export async function getProducts(): Promise<Product[]> {
           address: "",
           status: "active",
         },
-        status: (row[10] || "In Stock") as ProductStatus,
-
         // Clean stock metrics
-        minStock: parseGoogleSheetNumber(row[11]),
-        begStock: parseGoogleSheetNumber(row[12]),
-        qtyIn: parseGoogleSheetNumber(row[13]),
-        actualStock: parseGoogleSheetNumber(row[14]),
-        reservedUnits: parseGoogleSheetNumber(row[15]),
-        qtyOut: parseGoogleSheetNumber(row[16]),
-        inventoryFlag: row[17] || "",
+        minStock: parseGoogleSheetNumber(row[8]),
+        begStock: parseGoogleSheetNumber(row[9]),
+        qtyIn: parseGoogleSheetNumber(row[10]),
+        actualStock: parseGoogleSheetNumber(row[11]),
+        reservedUnits: parseGoogleSheetNumber(row[12]),
+        qtyOut: parseGoogleSheetNumber(row[13]),
+
+        status: (row[14] || "In Stock") as ProductStatus,
       };
     });
   } catch (error) {

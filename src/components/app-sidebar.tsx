@@ -33,10 +33,20 @@ import {
 
 const navInventory = [
   { title: "Products", href: "/dashboard/products", icon: Package },
+  {
+    title: "Product Categories",
+    href: "/dashboard/product-categories",
+    icon: Ruler,
+  },
   { title: "Product Units", href: "/dashboard/product-units", icon: Ruler },
   { title: "Customers", href: "/dashboard/customers", icon: Users },
+  {
+    title: "Customer Prices",
+    href: "/dashboard/customer-prices",
+    icon: TrendingUp,
+  },
   { title: "Suppliers", href: "/dashboard/suppliers", icon: Building2 },
-  { title: "Machines", href: "/dashboard/#", icon: Cpu },
+  { title: "Machines", href: "/dashboard/machines", icon: Cpu },
   { title: "Quotations", href: "/dashboard/quotations", icon: FileText },
 ];
 

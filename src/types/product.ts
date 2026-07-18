@@ -1,4 +1,3 @@
-import { Customer } from "@/types/customer";
 import { Supplier } from "@/types/supplier";
 import { ProductCategory } from "@/types/product-category";
 import { ProductUnit } from "@/types/product-unit";
@@ -7,24 +6,21 @@ export type ProductStatus = "Out of Stock" | "In Stock" | "Low stock";
 
 export interface Product {
   id: string;
-  clientCode: string;
-  productCode: string;
+  code: string;
+  name: string;
   category: ProductCategory;
-  customer: Customer;
-  productName: string;
   description: string;
   unit: ProductUnit;
   costPerUnit: number;
   pricePerUnit: number;
   supplier: Supplier;
-  status: ProductStatus;
   minStock: number;
   begStock: number;
   qtyIn: number;
   actualStock: number;
   reservedUnits: number;
   qtyOut: number;
-  inventoryFlag: string;
+  status: ProductStatus;
 }
 
 /**

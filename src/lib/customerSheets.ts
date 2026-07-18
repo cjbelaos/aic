@@ -44,16 +44,68 @@ export async function getCustomers(): Promise<Customer[]> {
       return {
         id: `cust_${index + 2}`, // Matches row index position + offset
         customerName: row[0] || "",
-        companyName: row[1] || "",
-        contactPerson: row[2] || "",
-        contactNumber: row[3] || "",
-        email: row[4] || "",
-        tin: row[5] || "",
-        address: row[6] || "",
+        contactPerson: row[1] || "",
+        contactNumber: row[2] || "",
+        email: row[3] || "",
+        tin: row[4] || "",
+        address: row[5] || "",
       };
     });
   } catch (error) {
     console.error("Failed to fetch customers from Google Sheets:", error);
+    throw error;
+  }
+}
+
+/**
+ * POST: Appends a new supplier row in the Google Sheet
+ */
+export async function addCustomer(
+  payload: CreateCustomerPayload,
+): Promise<Customer> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+
+    // Fetch existing rows to calculate our clean predictable new sequential row boundary
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: CUSTOMERS_RANGE,
+    });
+    const rowCount = (response.data.values || []).length;
+    const newRowNumber = rowCount + 2; // +2 because row 1 is header, data starts at row 2
+
+    // Serialize into sequential array structure matching sheet column positioning
+    const newRowValues = [
+      payload.customerName || "",
+      payload.contactPerson || "",
+      payload.contactNumber || "",
+      payload.email || "",
+      payload.tin || "",
+      payload.address || "",
+    ];
+
+    // Write the new data values cleanly into the appended targeted row context
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: CUSTOMERS_RANGE,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [newRowValues],
+      },
+    });
+
+    return {
+      id: `cust_${newRowNumber}`,
+      customerName: payload.customerName,
+      contactPerson: payload.contactPerson || "",
+      contactNumber: payload.contactNumber || "",
+      email: payload.email,
+      tin: payload.tin || "",
+      address: payload.address || "",
+    };
+  } catch (error) {
+    console.error(`Failed to create supplier row in Google Sheets:`, error);
     throw error;
   }
 }
@@ -83,18 +135,15 @@ export async function updateCustomerInSheets(
       payload.customerName !== undefined
         ? payload.customerName
         : existingRow[0] || "",
-      payload.companyName !== undefined
-        ? payload.companyName
-        : existingRow[1] || "",
       payload.contactPerson !== undefined
         ? payload.contactPerson
-        : existingRow[2] || "",
+        : existingRow[1] || "",
       payload.contactNumber !== undefined
         ? payload.contactNumber
-        : existingRow[3] || "",
-      payload.email !== undefined ? payload.email : existingRow[4] || "",
-      payload.tin !== undefined ? payload.tin : existingRow[5] || "",
-      payload.address !== undefined ? payload.address : existingRow[6] || "",
+        : existingRow[2] || "",
+      payload.email !== undefined ? payload.email : existingRow[3] || "",
+      payload.tin !== undefined ? payload.tin : existingRow[4] || "",
+      payload.address !== undefined ? payload.address : existingRow[5] || "",
     ];
 
     // Write the updated array back into the targeted row range
@@ -110,12 +159,11 @@ export async function updateCustomerInSheets(
     return {
       id: payload.id,
       customerName: updatedValues[0],
-      companyName: updatedValues[1],
-      contactPerson: updatedValues[2],
-      contactNumber: updatedValues[3],
-      email: updatedValues[4],
-      tin: updatedValues[5],
-      address: updatedValues[6],
+      contactPerson: updatedValues[1],
+      contactNumber: updatedValues[2],
+      email: updatedValues[3],
+      tin: updatedValues[4],
+      address: updatedValues[5],
     };
   } catch (error) {
     console.error(

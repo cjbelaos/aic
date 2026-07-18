@@ -5,7 +5,7 @@ import {
   UpdateProductUnitPayload,
 } from "@/types/product-unit";
 
-const PRODUCT_UNITS_SHEET = "ProductUnit";
+const PRODUCT_UNITS_SHEET = "ProductUnits";
 const PRODUCT_UNITS_RANGE = `${PRODUCT_UNITS_SHEET}!A2:C`; // Covers columns A to C
 
 /**
@@ -43,7 +43,8 @@ export async function getProductUnits(): Promise<ProductUnit[]> {
     return rows.map((row, index): ProductUnit => {
       return {
         id: `unit_${index + 2}`,
-        name: row[0] || "",
+        code: row[0] || "",
+        name: row[1] || "",
       };
     });
   } catch (error) {
@@ -71,7 +72,7 @@ export async function addProductUnit(
     const newRowNumber = rowCount + 2; // +2 because row 1 is header, data starts at row 2
 
     // Fixed: Serialize directly into sequential array structure matching sheet column positioning
-    const newRowValues = [payload.name || "", (payload as any).code || ""];
+    const newRowValues = [payload.code || "", payload.name || ""];
 
     // Write the new data values cleanly into the appended targeted row context
     await sheets.spreadsheets.values.append({
@@ -85,9 +86,9 @@ export async function addProductUnit(
 
     return {
       id: `unit_${newRowNumber}`,
+      code: payload.code,
       name: payload.name,
-      code: (payload as any).code || "",
-    } as ProductUnit;
+    };
   } catch (error) {
     console.error(`Failed to create product unit row in Google Sheets:`, error);
     throw error;

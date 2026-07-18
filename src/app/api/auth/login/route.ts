@@ -19,6 +19,7 @@ export async function POST(request: Request) {
       );
     }
     const user = await getUserByUsername(username);
+    console.log(user);
     if (!user || !verifyPassword(password, user.passwordHash, user.salt)) {
       return NextResponse.json(
         {
