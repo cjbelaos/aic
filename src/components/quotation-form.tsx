@@ -805,11 +805,16 @@ export function QuotationForm({
         {notations.filter((n) => n.trim() !== "").length > 0 && (
           <div className="rounded-lg border bg-card p-6 shadow-sm">
             <h2 className="text-xl font-semibold mb-4">Notations</h2>
-            <ol className="list-decimal pl-4 text-sm text-slate-600 space-y-1">
+            <ol className="list-decimal pl-5 text-sm text-slate-200 space-y-2">
               {notations
                 .filter((n) => n.trim() !== "")
                 .map((note, idx) => (
-                  <li key={idx}>{note}</li>
+                  <li
+                    key={idx}
+                    className="break-words leading-relaxed text-white"
+                  >
+                    {note}
+                  </li>
                 ))}
             </ol>
           </div>

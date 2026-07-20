@@ -935,7 +935,7 @@ export default function QuotationsPage() {
                 className="gap-2 border-blue-600 text-blue-600"
               >
                 <Eye className="h-4 w-4" />
-                Preview & Send
+                Preview
               </Button>
             )}
 
