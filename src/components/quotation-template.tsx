@@ -348,15 +348,20 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
 
             {/* Summary Computations Footer Panel */}
             <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-slate-100 print:grid-cols-2 print:gap-4 print:pt-4 print:mt-4 print:break-inside-avoid">
-              <div className="space-y-4">
+              <div className="space-y-4 min-w-0">
+                {" "}
+                {/* Added min-w-0 to allow grid child shrinking */}
                 {notations.length > 0 && (
                   <div>
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 print:text-[10px] print:mb-1">
                       Notes & Notations
                     </h4>
-                    <ol className="list-decimal pl-4 text-xs text-slate-500 space-y-1 print:text-[11px]">
+                    {/* Added break-words to ensure text wraps inside the container */}
+                    <ol className="list-decimal pl-4 text-xs text-slate-500 space-y-1 break-words print:text-[11px]">
                       {notations.map((note, idx) => (
-                        <li key={idx}>{note}</li>
+                        <li key={idx} className="break-words">
+                          {note}
+                        </li>
                       ))}
                     </ol>
                   </div>
