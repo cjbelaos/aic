@@ -14,8 +14,11 @@ export async function GET() {
   return NextResponse.json({
     isSuccess: true,
     result: {
+      userId: session.userId,
       userName: session.username,
-      role: session.role,
+      userRoleId: session.userRoleId,
+      departmentId: session.departmentId,
+      positionId: session.positionId,
     },
   });
 }

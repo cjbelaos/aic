@@ -1,24 +1,26 @@
-export type UserRole = "admin" | "user";
-
 export interface User {
-  id: string;
+  userId: string;
   username: string;
   fullName: string;
   email: string;
   passwordHash: string;
   salt: string;
-  role: UserRole;
+  userRoleId: number;
+  departmentId: number;
+  positionId: number;
   createdAt: string;
   lastLogin: string;
   signature?: string; // Drive file ID of uploaded e-Signature
 }
 
 export interface PublicUser {
-  id: string;
+  userId: string;
   username: string;
   fullName: string;
   email: string;
-  role: UserRole;
+  userRoleId: number;
+  departmentId: number;
+  positionId: number;
   createdAt: string;
   lastLogin: string;
   signature?: string; // Drive file ID of uploaded e-Signature
@@ -29,7 +31,9 @@ export interface CreateUserInput {
   fullName: string;
   email: string;
   password: string;
-  role: UserRole;
+  userRoleId: number;
+  departmentId: number;
+  positionId: number;
   signature?: string;
 }
 
@@ -38,15 +42,19 @@ export interface UpdateUserInput {
   fullName?: string;
   email?: string;
   password?: string;
-  role?: UserRole;
+  userRoleId?: number;
+  departmentId?: number;
+  positionId?: number;
   signature?: string;
 }
 
 export interface SessionUser {
-  id: string;
+  userId: string;
   username: string;
   email: string;
-  role: UserRole;
+  userRoleId: number;
+  departmentId: number;
+  positionId: number;
   fullName: string;
   signature?: string;
 }

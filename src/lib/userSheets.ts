@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { generateSalt, hashPassword } from "@/lib/password";
 import type {
@@ -5,66 +6,110 @@ import type {
   PublicUser,
   UpdateUserInput,
   User,
-  UserRole,
 } from "@/types/user";
 
 const USERS_SHEET = "Users";
-const USERS_RANGE = `${USERS_SHEET}!A2:I`; // Covers columns A to I (signature added)
+const USERS_RANGE = `${USERS_SHEET}!A2:L`; // A=userId, B=username, C=fullName, D=email, E=passwordHash, F=salt, G=userRoleId, H=departmentId, I=positionId, J=createdAt, K=lastLogin, L=signature
+
+// ── Simple TTL Cache ──────────────────────────
+// getUsers()/getUserById()/getUserByUsername() are called on hot paths
+// (e.g. FTI list loads run getFTIRequestFull per row), and every call used
+// to hit the Users sheet. Caching here collapses the N+1 pattern into 1 read.
+const USERS_CACHE_TTL_MS = 10_000;
+let usersCache:
+  | { users: User[]; rows: string[][]; expires: number }
+  | undefined;
+
+function invalidateUsersCache(): void {
+  usersCache = undefined;
+}
+
+function getCachedUsers(): { users: User[]; rows: string[][] } | undefined {
+  if (!usersCache) return undefined;
+  if (Date.now() > usersCache.expires) {
+    usersCache = undefined;
+    return undefined;
+  }
+  return { users: usersCache.users, rows: usersCache.rows };
+}
+
+function setCachedUsers(users: User[], rows: string[][]): void {
+  usersCache = { users, rows, expires: Date.now() + USERS_CACHE_TTL_MS };
+}
 
 async function getUsersSpreadsheetId(): Promise<string> {
   return await getDatabaseSpreadsheetId();
 }
 
-function normalizeRole(value: string): UserRole {
-  return value.trim().toLowerCase() === "admin" ? "admin" : "user";
+/**
+ * Parses a string into a numeric userRoleId.
+ * Supports both numeric strings and "admin"/"user" literals for backward compat.
+ */
+function parseUserRoleId(value: string): number {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "admin") return 1;
+  if (trimmed === "user") return 2;
+  const num = parseInt(trimmed, 10);
+  return isNaN(num) ? 2 : num;
+}
+
+function parseNumericId(value: string): number {
+  const num = parseInt(value.trim(), 10);
+  return isNaN(num) ? 0 : num;
 }
 
 /**
  * Maps our Google Sheets row position indices straight into runtime objects
  */
 function rowToUser(row: string[], rowNumber: number): User | null {
-  const username = (row[0] || "").trim();
+  const username = (row[1] || "").trim();
   if (!username) return null;
 
   return {
-    id: `usr_${rowNumber}`, // Clean sequential ID matching its spreadsheet line entry directly
-    username,
-    fullName: (row[1] || "").trim(),
-    email: (row[2] || "").trim(),
-    passwordHash: (row[3] || "").trim(),
-    salt: (row[4] || "").trim(),
-    role: normalizeRole(row[5] || "user"),
-    createdAt: (row[6] || "").trim(),
-    lastLogin: (row[7] || "").trim(),
-    signature: (row[8] || "").trim() || undefined,
+    userId: (row[0] || "").trim(), // A
+    username, // B
+    fullName: (row[2] || "").trim(), // C
+    email: (row[3] || "").trim(), // D
+    passwordHash: (row[4] || "").trim(), // E
+    salt: (row[5] || "").trim(), // F
+    userRoleId: parseUserRoleId(row[6] || "2"), // G
+    departmentId: parseNumericId(row[7] || "0"), // H
+    positionId: parseNumericId(row[8] || "0"), // I
+    createdAt: (row[9] || "").trim(), // J
+    lastLogin: (row[10] || "").trim(), // K
+    signature: (row[11] || "").trim() || undefined, // L
   };
 }
 
 /**
- * Maps structural configurations straight into targeted row data formats.
- * Notice: We exclude tracking row IDs inside columns to respect your sheet setup.
+ * Maps user objects to sheet row data (12 columns, A-L).
  */
 function userToRow(user: User): string[] {
   return [
-    user.username,
-    user.fullName,
-    user.email,
-    user.passwordHash,
-    user.salt,
-    user.role,
-    user.createdAt,
-    user.lastLogin,
-    user.signature || "",
+    user.userId, // A
+    user.username, // B
+    user.fullName, // C
+    user.email, // D
+    user.passwordHash, // E
+    user.salt, // F
+    String(user.userRoleId), // G
+    String(user.departmentId || ""), // H
+    String(user.positionId || ""), // I
+    user.createdAt, // J
+    user.lastLogin, // K
+    user.signature || "", // L
   ];
 }
 
 export function toPublicUser(user: User): PublicUser {
   return {
-    id: user.id,
+    userId: user.userId,
     username: user.username,
     fullName: user.fullName,
     email: user.email,
-    role: user.role,
+    userRoleId: user.userRoleId,
+    departmentId: user.departmentId,
+    positionId: user.positionId,
     createdAt: user.createdAt,
     lastLogin: user.lastLogin,
     signature: user.signature,
@@ -72,19 +117,29 @@ export function toPublicUser(user: User): PublicUser {
 }
 
 /**
- * Extracts raw sheet row sequence values out of user ID string tags safely.
- * Example: "usr_4" -> 4
+ * Looks up the sheet row number (1-based, including header) for a given UUID.
  */
-function getRowFromId(id: string): number {
-  const rowStr = id.replace("usr_", "");
-  const rowNum = parseInt(rowStr, 10);
-  if (isNaN(rowNum)) {
-    throw new Error(`Invalid User ID format: ${id}`);
+async function getRowByUuid(uuid: string): Promise<number> {
+  const spreadsheetId = await getUsersSpreadsheetId();
+  const sheets = await getSheetsClient();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: USERS_RANGE,
+  });
+
+  const rows = response.data.values || [];
+  for (let i = 0; i < rows.length; i++) {
+    if ((rows[i][0] || "").trim() === uuid) {
+      return i + 2;
+    }
   }
-  return rowNum;
+  throw new Error(`User not found with ID: ${uuid}`);
 }
 
 async function fetchUserRows(): Promise<{ users: User[]; rows: string[][] }> {
+  const cached = getCachedUsers();
+  if (cached) return cached;
+
   const spreadsheetId = await getUsersSpreadsheetId();
   const sheets = await getSheetsClient();
   const response = await sheets.spreadsheets.values.get({
@@ -97,6 +152,7 @@ async function fetchUserRows(): Promise<{ users: User[]; rows: string[][] }> {
     .map((row, index) => rowToUser(row, index + 2))
     .filter((user): user is User => user !== null);
 
+  setCachedUsers(users, rows);
   return { users, rows };
 }
 
@@ -117,17 +173,16 @@ export async function getUserByUsername(
 
 export async function getUserById(id: string): Promise<User | null> {
   const { users } = await fetchUserRows();
-  return users.find((user) => user.id === id) ?? null;
+  return users.find((user) => user.userId === id) ?? null;
 }
 
 export async function addUser(input: CreateUserInput): Promise<PublicUser> {
   const spreadsheetId = await getUsersSpreadsheetId();
 
   const username = input.username.trim();
-  // Safe validation fallback: if fullName is empty, default it to the username clean tag
   const fullName = input.fullName?.trim() || username;
   const email = input.email.trim();
-  const role = normalizeRole(input.role);
+  const userRoleId = input.userRoleId;
 
   if (!username) {
     throw new Error("Username is required.");
@@ -141,18 +196,17 @@ export async function addUser(input: CreateUserInput): Promise<PublicUser> {
     throw new Error("Username already exists.");
   }
 
-  const { rows } = await fetchUserRows();
-  const nextRowNumber = rows.length + 2;
-
   const salt = generateSalt();
   const user: User = {
-    id: `usr_${nextRowNumber}`,
+    userId: crypto.randomUUID(),
     username,
     fullName,
     email,
     passwordHash: hashPassword(input.password, salt),
     salt,
-    role,
+    userRoleId,
+    departmentId: input.departmentId || 0,
+    positionId: input.positionId || 0,
     createdAt: new Date().toISOString().replace("T", " ").slice(0, 19),
     lastLogin: "",
   };
@@ -160,11 +214,12 @@ export async function addUser(input: CreateUserInput): Promise<PublicUser> {
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${USERS_SHEET}!A:I`,
+    range: `${USERS_SHEET}!A:L`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [userToRow(user)] },
   });
 
+  invalidateUsersCache();
   return toPublicUser(user);
 }
 
@@ -174,7 +229,7 @@ export async function updateUser(
 ): Promise<PublicUser> {
   const spreadsheetId = await getUsersSpreadsheetId();
 
-  const rowNumber = getRowFromId(id);
+  const rowNumber = await getRowByUuid(id);
   const current = await getUserById(id);
   if (!current) {
     throw new Error("User not found.");
@@ -185,7 +240,7 @@ export async function updateUser(
     updatedData.username.trim().toLowerCase() !== current.username.toLowerCase()
   ) {
     const duplicate = await getUserByUsername(updatedData.username);
-    if (duplicate && duplicate.id !== id) {
+    if (duplicate && duplicate.userId !== id) {
       throw new Error("Username already exists.");
     }
   }
@@ -209,7 +264,18 @@ export async function updateUser(
       updatedData.email !== undefined
         ? updatedData.email.trim()
         : current.email,
-    role: updatedData.role ? normalizeRole(updatedData.role) : current.role,
+    userRoleId:
+      updatedData.userRoleId !== undefined
+        ? updatedData.userRoleId
+        : current.userRoleId,
+    departmentId:
+      updatedData.departmentId !== undefined
+        ? updatedData.departmentId
+        : current.departmentId,
+    positionId:
+      updatedData.positionId !== undefined
+        ? updatedData.positionId
+        : current.positionId,
     passwordHash,
     salt,
     signature:
@@ -221,17 +287,18 @@ export async function updateUser(
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${USERS_SHEET}!A${rowNumber}:I${rowNumber}`,
+    range: `${USERS_SHEET}!A${rowNumber}:L${rowNumber}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [userToRow(updated)] },
   });
 
+  invalidateUsersCache();
   return toPublicUser(updated);
 }
 
 export async function deleteUser(id: string): Promise<void> {
   const spreadsheetId = await getUsersSpreadsheetId();
-  const rowNumber = getRowFromId(id);
+  const rowNumber = await getRowByUuid(id);
 
   const sheets = await getSheetsClient();
   const spreadsheet = await sheets.spreadsheets.get({
@@ -264,19 +331,23 @@ export async function deleteUser(id: string): Promise<void> {
       ],
     },
   });
+
+  invalidateUsersCache();
 }
 
 export async function updateLastLogin(id: string): Promise<void> {
   const spreadsheetId = await getUsersSpreadsheetId();
-  const rowNumber = getRowFromId(id);
+  const rowNumber = await getRowByUuid(id);
   const sheets = await getSheetsClient();
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${USERS_SHEET}!H${rowNumber}`,
+    range: `${USERS_SHEET}!K${rowNumber}`, // Column K = lastLogin
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [[new Date().toISOString().replace("T", " ").slice(0, 19)]],
     },
   });
+
+  invalidateUsersCache();
 }

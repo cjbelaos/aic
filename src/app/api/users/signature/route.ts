@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     // Update the user's row in the Users sheet with the Drive file ID
     const user = await getUserByUsername(username);
     if (user) {
-      await updateUser(user.id, { signature: fileId });
+      await updateUser(user.userId, { signature: fileId });
     }
 
     return NextResponse.json(

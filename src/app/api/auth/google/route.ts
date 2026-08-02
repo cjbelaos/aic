@@ -21,8 +21,8 @@ export async function GET(request: NextRequest) {
     ];
 
     const authUrl = oauth2Client.generateAuthUrl({
-      access_type: "offline", // Crucial: This guarantees you get a refresh_token
-      prompt: "consent", // Crucial: Forces Google to show the consent screen so a new refresh token is issued
+      access_type: "offline", // Crucial: guarantees you get a refresh_token
+      prompt: "consent", // Forces a new refresh token each time (invalidates old one)
       scope: scopes,
     });
 

@@ -7,8 +7,9 @@ export interface ApiResponse<T> {
 }
 
 export interface AuthUser {
+  userId?: string;
   userName: string;
-  role: string;
+  userRoleId?: number;
 }
 
 const authService = {

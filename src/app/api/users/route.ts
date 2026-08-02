@@ -5,14 +5,12 @@ import {
   requireAuthenticatedSession,
 } from "@/lib/auth/session";
 import { toPublicUser } from "@/lib/userSheets";
-import type { CreateUserInput, UserRole } from "@/types/user";
+import type { CreateUserInput } from "@/types/user";
 
-function parseRole(value: unknown): UserRole {
-  return String(value || "user")
-    .trim()
-    .toLowerCase() === "admin"
-    ? "admin"
-    : "user";
+function parseNumericId(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === "") return fallback;
+  const num = Number(value);
+  return isNaN(num) ? fallback : num;
 }
 
 export async function GET(request: NextRequest) {
@@ -52,7 +50,9 @@ export async function POST(request: Request) {
       fullName: String(body.fullName || "").trim(),
       email: String(body.email || "").trim(),
       password: String(body.password || ""),
-      role: parseRole(body.role),
+      userRoleId: parseNumericId(body.userRoleId, 2),
+      departmentId: parseNumericId(body.departmentId, 0),
+      positionId: parseNumericId(body.positionId, 0),
     };
 
     const user = await addUser(input);

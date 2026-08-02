@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, forwardRef } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Send, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, Save, Send, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Customer } from "@/types/customer";
 import { QuotationDetail } from "@/types/quotation";
@@ -64,6 +64,7 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
     const internalRef = useRef<HTMLDivElement>(null);
     const quotationRef =
       (ref as React.RefObject<HTMLDivElement>) || internalRef;
+    const [isDownloading, setIsDownloading] = useState(false);
 
     const formatCurrency = (value: number) => {
       return new Intl.NumberFormat("en-PH", {
@@ -73,41 +74,12 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
       }).format(value);
     };
 
-    const handleSubmission = async (targetStatus: "DRAFT" | "SENT") => {
-      const metadataPayload = {
-        quotationDescription: projectDescription,
-        items,
-        terms: paymentTerms,
-        delivery: deliveryTerms,
-        warranty: warrantyTerms,
-        preparedBy,
-        discount,
-        quotationNo,
-        date,
-        validity,
-        notations,
-        subTotal,
-        vatableAmount,
-        vat,
-        grandTotal,
-        status: targetStatus,
-        customer,
-      };
-
-      if (targetStatus === "DRAFT") {
-        onConfirmSave(metadataPayload, undefined as any);
-        return;
-      }
-
+    const generatePdfBlob = async (): Promise<Blob | null> => {
       const element = quotationRef.current;
       if (!element) {
         toast.error("Quotation visualization canvas element missing.");
-        return;
+        return null;
       }
-
-      const toastId = toast.loading(
-        "Generating pixel-perfect layout canvas...",
-      );
 
       try {
         const html2canvasPro = (await import("html2canvas-pro")).default;
@@ -148,7 +120,80 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
           heightLeft -= pdfHeight - margin * 2;
         }
 
-        const pdfBlob = pdf.output("blob");
+        return pdf.output("blob");
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to compile layout elements into PDF.");
+        return null;
+      }
+    };
+
+    const handleDownload = async () => {
+      setIsDownloading(true);
+      const toastId = toast.loading("Generating PDF for download...");
+
+      try {
+        const pdfBlob = await generatePdfBlob();
+        if (!pdfBlob) {
+          toast.dismiss(toastId);
+          setIsDownloading(false);
+          return;
+        }
+
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `Quotation_${quotationNo || "draft"}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        toast.success("PDF downloaded successfully.", { id: toastId });
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to download PDF.", { id: toastId });
+      } finally {
+        setIsDownloading(false);
+      }
+    };
+
+    const handleSubmission = async (targetStatus: "DRAFT" | "SENT") => {
+      const metadataPayload = {
+        quotationDescription: projectDescription,
+        items,
+        terms: paymentTerms,
+        delivery: deliveryTerms,
+        warranty: warrantyTerms,
+        preparedBy,
+        discount,
+        quotationNo,
+        date,
+        validity,
+        notations,
+        subTotal,
+        vatableAmount,
+        vat,
+        grandTotal,
+        status: targetStatus,
+        customer,
+      };
+
+      if (targetStatus === "DRAFT") {
+        onConfirmSave(metadataPayload, undefined as any);
+        return;
+      }
+
+      const toastId = toast.loading(
+        "Generating pixel-perfect layout canvas...",
+      );
+
+      try {
+        const pdfBlob = await generatePdfBlob();
+        if (!pdfBlob) {
+          toast.dismiss(toastId);
+          return;
+        }
 
         toast.dismiss(toastId);
         onConfirmSave(metadataPayload, pdfBlob);
@@ -175,6 +220,19 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
           </Button>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={isSaving || isDownloading}
+              onClick={handleDownload}
+            >
+              {isDownloading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Download PDF
+            </Button>
             <Button
               className="bg-blue-700 hover:bg-blue-800 text-white gap-2"
               disabled={isSaving}

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { deleteUser, updateUser } from "@/lib/userSheets";
 import { requireAdminSession } from "@/lib/auth/session";
-import type { UpdateUserInput, UserRole } from "@/types/user";
+import type { UpdateUserInput } from "@/types/user";
 
-function parseRole(value: unknown): UserRole | undefined {
+function parseNumericId(value: unknown): number | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  return String(value).trim().toLowerCase() === "admin" ? "admin" : "user";
+  const num = Number(value);
+  return isNaN(num) ? undefined : num;
 }
 
 export async function PUT(
@@ -26,7 +27,9 @@ export async function PUT(
         body.fullName !== undefined ? String(body.fullName).trim() : undefined,
       email: body.email !== undefined ? String(body.email).trim() : undefined,
       password: body.password !== undefined ? String(body.password) : undefined,
-      role: parseRole(body.role),
+      userRoleId: parseNumericId(body.userRoleId),
+      departmentId: parseNumericId(body.departmentId),
+      positionId: parseNumericId(body.positionId),
     };
 
     const user = await updateUser(id, updatedData);

@@ -62,12 +62,13 @@ export function LoginForm() {
           return;
         }
 
-        // Save session meta-data to localStorage (matching spreadsheet structure)
+        // Save session meta-data to localStorage
         window.localStorage.setItem(
           "auth:user",
           JSON.stringify({
+            userId: res.result?.userId ?? "",
             userName: res.result?.userName ?? username,
-            role: res.result?.role ?? "",
+            userRoleId: res.result?.userRoleId ?? 2,
           }),
         );
 

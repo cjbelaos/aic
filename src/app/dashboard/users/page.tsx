@@ -11,12 +11,15 @@ import { Label } from "@/components/ui/label";
 import { EntityTable } from "@/components/ui/entity-table";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { userService } from "@/lib/services/user.service";
+import { departmentService } from "@/lib/services/department.service";
+import { positionService } from "@/lib/services/position.service";
 import type {
   PublicUser,
-  UserRole,
   CreateUserInput,
   UpdateUserInput,
 } from "@/types/user";
+import type { Department } from "@/types/department";
+import type { Position } from "@/types/position";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +40,9 @@ interface UserFormState {
   fullName: string;
   email: string;
   password: string;
-  role: UserRole;
+  userRoleId: number;
+  departmentId: number;
+  positionId: number;
 }
 
 const EMPTY_FORM: UserFormState = {
@@ -45,7 +50,15 @@ const EMPTY_FORM: UserFormState = {
   fullName: "",
   email: "",
   password: "",
-  role: "user",
+  userRoleId: 2,
+  departmentId: 0,
+  positionId: 0,
+};
+
+// Role ID → label mapping
+const ROLE_LABELS: Record<number, string> = {
+  1: "Admin",
+  2: "User",
 };
 
 export default function UsersPage() {
@@ -57,12 +70,23 @@ export default function UsersPage() {
   const [editTarget, setEditTarget] = useState<PublicUser | null>(null);
   const [form, setForm] = useState<UserFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<PublicUser | null>(null);
-  const [currentRole, setCurrentRole] = useState<string>("");
+  const [currentUserRoleId, setCurrentUserRoleId] = useState<number>(2);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
 
-  const isAdmin = useMemo(
-    () => currentRole.trim().toLowerCase() === "admin",
-    [currentRole],
-  );
+  const isAdmin = useMemo(() => currentUserRoleId === 1, [currentUserRoleId]);
+
+  const deptMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const d of departments) map.set(d.departmentId, d.departmentName);
+    return map;
+  }, [departments]);
+
+  const posMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const p of positions) map.set(p.positionId, p.positionTitle);
+    return map;
+  }, [positions]);
 
   const columns = useMemo<ColumnDef<PublicUser>[]>(
     () => [
@@ -104,16 +128,32 @@ export default function UsersPage() {
       },
       { accessorKey: "email", header: "Email" },
       {
-        accessorKey: "role",
+        accessorKey: "userRoleId",
         header: "Role",
         cell: ({ row }) => (
           <Badge
-            variant={row.original.role === "admin" ? "default" : "secondary"}
+            variant={row.original.userRoleId === 1 ? "default" : "secondary"}
             className="capitalize"
           >
-            {row.original.role}
+            {ROLE_LABELS[row.original.userRoleId] ?? "User"}
           </Badge>
         ),
+      },
+      {
+        id: "department",
+        header: "Department",
+        cell: ({ row }) => {
+          const name = deptMap.get(row.original.departmentId);
+          return <span>{name || "—"}</span>;
+        },
+      },
+      {
+        id: "position",
+        header: "Position",
+        cell: ({ row }) => {
+          const name = posMap.get(row.original.positionId);
+          return <span>{name || "—"}</span>;
+        },
       },
       {
         accessorKey: "createdAt",
@@ -125,15 +165,21 @@ export default function UsersPage() {
       },
       { accessorKey: "lastLogin", header: "Last Login" },
     ],
-    [],
+    [deptMap, posMap],
   );
 
   const loadUsers = async () => {
     try {
-      const users = await userService.getAllUsers();
+      const [users, depts, poss] = await Promise.all([
+        userService.getAllUsers(),
+        departmentService.getAll(),
+        positionService.getAll(),
+      ]);
       setData(users);
+      setDepartments(depts);
+      setPositions(poss);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load users.");
+      toast.error(err instanceof Error ? err.message : "Failed to load data.");
     }
   };
 
@@ -141,11 +187,11 @@ export default function UsersPage() {
     try {
       const raw = window.localStorage.getItem("auth:user");
       if (raw) {
-        const parsed = JSON.parse(raw) as { role?: string };
-        setCurrentRole(parsed.role || "");
+        const parsed = JSON.parse(raw) as { userRoleId?: number };
+        setCurrentUserRoleId(parsed.userRoleId ?? 2);
       }
     } catch {
-      setCurrentRole("");
+      setCurrentUserRoleId(2);
     }
 
     loadUsers().finally(() => setLoading(false));
@@ -165,7 +211,9 @@ export default function UsersPage() {
       fullName: row.fullName || "",
       email: row.email,
       password: "",
-      role: row.role,
+      userRoleId: row.userRoleId,
+      departmentId: row.departmentId,
+      positionId: row.positionId,
     });
     setError("");
     setModalOpen(true);
@@ -199,10 +247,12 @@ export default function UsersPage() {
           username: cleanUsername,
           fullName: cleanFullName,
           email: form.email.trim(),
-          role: form.role,
+          userRoleId: form.userRoleId,
+          departmentId: form.departmentId,
+          positionId: form.positionId,
           ...(form.password ? { password: form.password } : {}),
         };
-        await userService.updateUser(editTarget.id, payload);
+        await userService.updateUser(editTarget.userId, payload);
         toast.success("User updated successfully.");
       } else {
         const payload: CreateUserInput = {
@@ -210,7 +260,9 @@ export default function UsersPage() {
           fullName: cleanFullName,
           email: form.email.trim(),
           password: form.password,
-          role: form.role,
+          userRoleId: form.userRoleId,
+          departmentId: form.departmentId,
+          positionId: form.positionId,
         };
         await userService.createUser(payload);
         toast.success("User created successfully.");
@@ -231,7 +283,7 @@ export default function UsersPage() {
     if (!deleteTarget) return;
 
     try {
-      await userService.deleteUser(deleteTarget.id);
+      await userService.deleteUser(deleteTarget.userId);
       toast.success(`"${deleteTarget.username}" deleted successfully.`);
 
       let currentLoggedUsername = "";
@@ -239,7 +291,7 @@ export default function UsersPage() {
         const raw = window.localStorage.getItem("auth:user");
         if (raw) {
           currentLoggedUsername =
-            (JSON.parse(raw) as { username?: string }).username || "";
+            (JSON.parse(raw) as { userName?: string }).userName || "";
         }
       } catch (_) {}
 
@@ -316,7 +368,7 @@ export default function UsersPage() {
                     id="user-fullname"
                     value={form.fullName}
                     disabled={saving}
-                    placeholder="e.g. John Doe" // ⭐ Hardcoded clear example
+                    placeholder="e.g. John Doe"
                     onChange={(e) =>
                       setForm((c) => ({ ...c, fullName: e.target.value }))
                     }
@@ -355,18 +407,70 @@ export default function UsersPage() {
                 <div className="space-y-1.5">
                   <Label htmlFor="user-role">Role</Label>
                   <Select
-                    value={form.role}
+                    value={String(form.userRoleId)}
                     disabled={saving}
-                    onValueChange={(value: UserRole) =>
-                      setForm((c) => ({ ...c, role: value }))
+                    onValueChange={(value) =>
+                      setForm((c) => ({ ...c, userRoleId: Number(value) }))
                     }
                   >
                     <SelectTrigger id="user-role">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="user">User</SelectItem>
+                      <SelectItem value="1">Admin</SelectItem>
+                      <SelectItem value="2">User</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="user-department">Department</Label>
+                  <Select
+                    value={String(form.departmentId)}
+                    disabled={saving}
+                    onValueChange={(value) =>
+                      setForm((c) => ({ ...c, departmentId: Number(value) }))
+                    }
+                  >
+                    <SelectTrigger id="user-department">
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">None</SelectItem>
+                      {departments.map((d) => (
+                        <SelectItem
+                          key={d.departmentId}
+                          value={String(d.departmentId)}
+                        >
+                          {d.departmentName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="user-position">Position</Label>
+                  <Select
+                    value={String(form.positionId)}
+                    disabled={saving}
+                    onValueChange={(value) =>
+                      setForm((c) => ({ ...c, positionId: Number(value) }))
+                    }
+                  >
+                    <SelectTrigger id="user-position">
+                      <SelectValue placeholder="Select position" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">None</SelectItem>
+                      {positions.map((p) => (
+                        <SelectItem
+                          key={p.positionId}
+                          value={String(p.positionId)}
+                        >
+                          {p.positionTitle}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

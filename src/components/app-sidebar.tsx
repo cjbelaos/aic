@@ -16,6 +16,8 @@ import {
   Ruler,
   FileText,
   UserCog,
+  MapPin,
+  BarChart3,
 } from "lucide-react";
 import {
   Sidebar,
@@ -151,6 +153,45 @@ export function AppSidebar() {
                   <Link href="/dashboard/users">
                     <UserCog />
                     <span>User Management</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        {/* ── Travel ────────────────────────────────────────────────── */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Travel</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith(
+                    "/dashboard/field-travel-itinerary",
+                  )}
+                  tooltip="Field Technician Itinerary"
+                >
+                  <Link href="/dashboard/field-travel-itinerary">
+                    <MapPin />
+                    <span>Field Technician Itinerary</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith(
+                    "/dashboard/fti-summary-report",
+                  )}
+                  tooltip="FTI Summary Report"
+                >
+                  <Link href="/dashboard/fti-summary-report">
+                    <BarChart3 />
+                    <span>FTI Summary Report</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

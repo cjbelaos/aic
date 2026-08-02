@@ -11,7 +11,7 @@ import { toast } from "sonner";
 interface StoredUser {
   fullName?: string;
   userName?: string;
-  role?: string;
+  userRoleId?: number;
 }
 
 export function UserMenu() {
@@ -126,9 +126,9 @@ export function UserMenu() {
             <User className="h-4 w-4 text-muted-foreground" />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{displayName}</p>
-              {user.role && (
+              {user.userRoleId && (
                 <p className="text-xs text-muted-foreground capitalize">
-                  {user.role}
+                  {user.userRoleId === 1 ? "Admin" : "User"}
                 </p>
               )}
             </div>

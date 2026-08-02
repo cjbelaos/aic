@@ -30,13 +30,15 @@ export async function POST(request: Request) {
       );
     }
 
-    await updateLastLogin(user.id);
+    await updateLastLogin(user.userId);
 
     await setSessionCookie({
-      id: user.id,
+      userId: user.userId,
       username: user.username,
       email: user.email,
-      role: user.role,
+      userRoleId: user.userRoleId,
+      departmentId: user.departmentId,
+      positionId: user.positionId,
       fullName: user.fullName,
     });
 
@@ -45,7 +47,7 @@ export async function POST(request: Request) {
       result: {
         fullName: user.fullName,
         userName: user.username,
-        role: user.role,
+        userRoleId: user.userRoleId,
       },
     });
   } catch (error) {

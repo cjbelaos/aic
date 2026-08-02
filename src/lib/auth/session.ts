@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
-import type { SessionUser, UserRole } from "@/types/user";
+import type { SessionUser } from "@/types/user";
 
 const SESSION_COOKIE = "aic_session";
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
@@ -42,7 +42,7 @@ export function parseSessionToken(token: string): SessionUser | null {
       Buffer.from(payload, "base64url").toString("utf8"),
     ) as SessionUser;
 
-    if (!parsed.username || !parsed.role) return null;
+    if (!parsed.username) return null;
     return parsed;
   } catch {
     return null;
@@ -72,8 +72,8 @@ export async function clearSessionCookie(): Promise<void> {
   cookieStore.delete(SESSION_COOKIE);
 }
 
-export function isAdminRole(role: UserRole | string): boolean {
-  return role.trim().toLowerCase() === "admin";
+export function isAdminRole(userRoleId: number): boolean {
+  return userRoleId === 1;
 }
 
 export async function requireAuthenticatedSession(): Promise<
@@ -93,7 +93,7 @@ export async function requireAdminSession(): Promise<SessionUser | Response> {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
 
-  if (!isAdminRole(session.role)) {
+  if (!isAdminRole(session.userRoleId)) {
     return Response.json(
       { error: "Forbidden. Admin access required." },
       { status: 403 },
