@@ -42,7 +42,10 @@ export async function GET(request: NextRequest) {
         ? requests
         : requests.filter((r) => r.userId === session.userId);
 
-    const summaries: FTIRequestSummary[] = filtered.map((req) => ({
+    const sorted = [...filtered].sort((x, y) =>
+      (y.dateCreated || "").localeCompare(x.dateCreated || ""),
+    );
+    const summaries: FTIRequestSummary[] = sorted.map((req) => ({
       ...req,
       userName: userMap.get(req.userId) || req.userId,
       totalAmount: req.totalAmount ?? 0,
