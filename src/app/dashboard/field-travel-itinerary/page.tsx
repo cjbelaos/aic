@@ -522,6 +522,34 @@ export default function FieldTravelItineraryPage() {
       toast.error("Please add at least one destination with a name.");
       return;
     }
+    if (isCalculating) {
+      toast.error("Please wait — leg distance is still being calculated.");
+      return;
+    }
+    if (!formData.fuelPrice || parseFloat(formData.fuelPrice) <= 0) {
+      toast.error("Fuel Price is required.");
+      return;
+    }
+    for (const dest of destinations) {
+      if (typeof dest.distanceKm !== "number" || dest.distanceKm <= 0) {
+        toast.error(`Leg distance is required for "${dest.name}".`);
+        return;
+      }
+      const legToll = dest.segments.reduce(
+        (s, seg) => s + (seg.tollFee || 0),
+        0,
+      );
+      if (legToll <= 0) {
+        toast.error(`Toll fee is required for leg "${dest.name}".`);
+        return;
+      }
+    }
+    if (totalTollFee <= 0) {
+      toast.error(
+        "Total toll fee is required before adding the itinerary row.",
+      );
+      return;
+    }
 
     const km = totalKm ?? 0;
     const tollFee = totalTollFee;
@@ -751,8 +779,6 @@ export default function FieldTravelItineraryPage() {
           ? [{ miscCode: item.miscellaneous, amount: item.miscAmount }]
           : [],
         legs: formSegments.map((dest, index) => ({
-          // First leg uses the global form origin; subsequent legs chain
-          // the origin to the previous leg's destination.
           originName: index === 0 ? item.origin : formSegments[index - 1].name,
           originAddress:
             index === 0
@@ -762,6 +788,12 @@ export default function FieldTravelItineraryPage() {
           destAddress: dest.address || "",
           tollFee: dest.segments.reduce((s, seg) => s + seg.tollFee, 0),
           distanceKm: dest.distanceKm || 0,
+          segments: (dest.segments || []).map((seg) => ({
+            group: seg.group,
+            entry: seg.entry,
+            exit: seg.exit,
+            tollFee: seg.tollFee || 0,
+          })),
         })),
       };
     });
@@ -977,7 +1009,15 @@ export default function FieldTravelItineraryPage() {
                   name: leg.destName,
                   address: leg.destAddress,
                   distanceKm: leg.distanceKm,
-                  segments: [],
+                  segments: Array.isArray(leg.segments)
+                    ? leg.segments.map((s) => ({
+                        id: s.segmentId,
+                        group: s.groupName,
+                        entry: s.entryGate,
+                        exit: s.exitGate,
+                        tollFee: s.tollFee || 0,
+                      }))
+                    : [],
                 }))
               : [],
         };

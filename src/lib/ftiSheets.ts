@@ -14,6 +14,7 @@ import type {
   FTIDetails,
   FTIExpenses,
   FTILegs,
+  FTISegments,
   FTIDetailInput,
   FTILegsInput,
   FTIRequestFull,
@@ -29,6 +30,7 @@ const FTI_REQUEST_SHEET = "FTIRequests";
 const FTI_DETAILS_SHEET = "FTIDetails";
 const FTI_EXPENSES_SHEET = "FTIExpenses";
 const FTI_LEGS_SHEET = "FTILegs";
+const FTI_SEGMENTS_SHEET = "FTISegments";
 const USER_FUEL_PER_KM_SHEET = "UserFuelPerKm";
 const FTI_LIST_SHEET = "FTIList";
 
@@ -36,6 +38,7 @@ const RANGE_REQUEST = `${FTI_REQUEST_SHEET}!A2:J`; // A=controlNo, B=userId, C=s
 const RANGE_DETAILS = `${FTI_DETAILS_SHEET}!A2:I`; // A=detailId, B=controlNo, C=date, D=itinerary, E=description, F=km, G=fuelPrice, H=fuelSubTotal, I=tollFee
 const RANGE_EXPENSES = `${FTI_EXPENSES_SHEET}!A2:D`; // A=expenseId, B=detailId, C=miscCode, D=amount
 const RANGE_LEGS = `${FTI_LEGS_SHEET}!A2:I`; // A=legId, B=detailId, C=controlNo, D=originName, E=originAddress, F=destName, G=destAddress, H=tollFee, I=distanceKm
+const RANGE_SEGMENTS = `${FTI_SEGMENTS_SHEET}!A2:H`; // A=segmentId, B=legId, C=detailId, D=controlNo, E=group, F=entryGate, G=exitGate, H=tollFee
 const RANGE_USER_FUEL = `${USER_FUEL_PER_KM_SHEET}!A2:B`; // A=userId, B=KmPerLiter
 
 const TOLL_MATRIX_SHEET = "Toll Matrix Table";
@@ -322,6 +325,32 @@ async function getAllLegs(): Promise<FTILegs[]> {
   }));
   cacheSet(cacheKey, legs, CACHE_TTL_MS);
   return legs;
+}
+
+async function getAllSegments(): Promise<FTISegments[]> {
+  const cacheKey = "fti:segments";
+  const cached = cacheGet<FTISegments[]>(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const sheets = await getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: RANGE_SEGMENTS,
+  });
+  const rows = res.data.values || [];
+  const segments = rows.map((row) => ({
+    segmentId: (row[0] || "").toString().trim(),
+    legId: (row[1] || "").toString().trim(),
+    detailId: (row[2] || "").toString().trim(),
+    controlNo: (row[3] || "").toString().trim(),
+    groupName: (row[4] || "").toString().trim(),
+    entryGate: (row[5] || "").toString().trim(),
+    exitGate: (row[6] || "").toString().trim(),
+    tollFee: parseFloat((row[7] || "0").toString().trim()) || 0,
+  }));
+  cacheSet(cacheKey, segments, CACHE_TTL_MS);
+  return segments;
 }
 
 // ── FTIRequests ──
@@ -638,21 +667,39 @@ export async function getFTILegs(detailId: string): Promise<FTILegs[]> {
 }
 
 async function deleteLegsForRequest(controlNo: string): Promise<void> {
-  // Direct read is required to compute exact spreadsheet row numbers.
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
+
+  const legsRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: RANGE_LEGS,
   });
-  const rows = res.data.values || [];
-  const dirtyRowNumbers: number[] = [];
-  rows.forEach((row, i) => {
+  const legRows = legsRes.data.values || [];
+  const legIds = new Set<string>();
+  const legRowNumbers: number[] = [];
+  legRows.forEach((row, i) => {
     if ((row[2] || "").toString().trim() === controlNo) {
-      dirtyRowNumbers.push(i + 2);
+      legIds.add((row[0] || "").toString().trim());
+      legRowNumbers.push(i + 2);
     }
   });
-  await deleteSheetRows(FTI_LEGS_SHEET, dirtyRowNumbers);
+
+  if (legIds.size > 0) {
+    const segRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: RANGE_SEGMENTS,
+    });
+    const segRows = segRes.data.values || [];
+    const segRowNumbers: number[] = [];
+    segRows.forEach((row, i) => {
+      if (legIds.has((row[1] || "").toString().trim())) {
+        segRowNumbers.push(i + 2);
+      }
+    });
+    await deleteSheetRows(FTI_SEGMENTS_SHEET, segRowNumbers);
+  }
+
+  await deleteSheetRows(FTI_LEGS_SHEET, legRowNumbers);
   invalidateFTICache();
 }
 
@@ -665,24 +712,62 @@ async function saveFTILegs(
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
 
-  const rows = legs.map((leg) => [
-    leg.legId || generateUUID(),
-    detailId,
-    controlNo,
-    (leg.originName || "").toString().trim().toUpperCase(),
-    (leg.originAddress || "").toString().trim().toUpperCase(),
-    (leg.destName || "").toString().trim().toUpperCase(),
-    (leg.destAddress || "").toString().trim().toUpperCase(),
-    String(leg.tollFee || 0),
-    String(leg.distanceKm || 0),
-  ]);
+  const legRows = legs.map((leg) => {
+    const segmentTotal = (leg.segments || []).reduce(
+      (s, seg) => s + (seg.tollFee || 0),
+      0,
+    );
+    const tollFee = segmentTotal > 0 ? segmentTotal : leg.tollFee || 0;
+    return {
+      legId: leg.legId || generateUUID(),
+      parked: [
+        detailId,
+        controlNo,
+        (leg.originName || "").toString().trim().toUpperCase(),
+        (leg.originAddress || "").toString().trim().toUpperCase(),
+        (leg.destName || "").toString().trim().toUpperCase(),
+        (leg.destAddress || "").toString().trim().toUpperCase(),
+        String(tollFee),
+        String(leg.distanceKm || 0),
+      ],
+    };
+  });
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: `${FTI_LEGS_SHEET}!A:I`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: rows },
+    requestBody: {
+      values: legRows.map((l) => [l.legId, ...l.parked]),
+    },
   });
+
+  // One row per expressway segment, linked to its leg via LegId.
+  const segmentRows: (string | number)[][] = [];
+  legRows.forEach((l, i) => {
+    for (const seg of legs[i].segments || []) {
+      if (!seg.group) continue;
+      segmentRows.push([
+        generateUUID(),
+        l.legId,
+        detailId,
+        controlNo,
+        seg.group,
+        seg.entry,
+        seg.exit,
+        seg.tollFee || 0,
+      ]);
+    }
+  });
+  if (segmentRows.length > 0) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${FTI_SEGMENTS_SHEET}!A:H`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: segmentRows },
+    });
+  }
+
   invalidateFTICache();
 }
 
@@ -784,16 +869,22 @@ export async function getFTIRequestFull(
   const user = users.find((u) => u.userId === req.userId);
 
   // Bulk-read all three sheets once (cached) and join in memory.
-  const [details, expenses, legs] = await Promise.all([
+  const [details, expenses, legs, segments] = await Promise.all([
     getAllDetails(),
     getAllExpenses(),
     getAllLegs(),
+    getAllSegments(),
   ]);
 
   const detailsForRequest = details.filter((d) => d.controlNo === controlNo);
   const detailsWithExpenses = detailsForRequest.map((det) => {
     const detExpenses = expenses.filter((e) => e.detailId === det.detailId);
-    const detLegs = legs.filter((l) => l.detailId === det.detailId);
+    const detLegs = legs
+      .filter((l) => l.detailId === det.detailId)
+      .map((l) => ({
+        ...l,
+        segments: segments.filter((s) => s.legId === l.legId),
+      }));
     return { ...det, expenses: detExpenses, legs: detLegs };
   });
 

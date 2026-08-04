@@ -38,6 +38,18 @@ export interface FTILegs {
   destAddress: string;
   tollFee: number;
   distanceKm: number;
+  segments?: FTISegments[];
+}
+
+export interface FTISegments {
+  segmentId: string;
+  legId: string;
+  detailId: string;
+  controlNo: string;
+  groupName: string;
+  entryGate: string;
+  exitGate: string;
+  tollFee: number;
 }
 
 export interface FTIExpenses {
@@ -73,6 +85,12 @@ export interface FTILegsInput {
   destAddress: string;
   tollFee: number;
   distanceKm: number;
+  segments?: {
+    group: string;
+    entry: string;
+    exit: string;
+    tollFee: number;
+  }[];
 }
 
 export interface FTIRequestFull extends FTIRequest {
