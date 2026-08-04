@@ -41,6 +41,10 @@ import FTIPrintDocument from "@/components/fti-print-document";
 import type { DraftItinerary } from "@/components/fti-print-document";
 import { EntityTable } from "@/components/ui/entity-table";
 import ftiService from "@/lib/services/fti.service";
+import { userApproverService } from "@/lib/services/userApprover.service";
+import { userService } from "@/lib/services/user.service";
+import type { UserApprover } from "@/types/userApprover";
+
 import {
   FTIRequestSummary,
   FTIRequestFull,
@@ -100,6 +104,7 @@ interface FormInfo {
   locations: LocationItem[];
   expresswayGroups: ExpresswayGroup[];
   currentUserFullName: string;
+  currentUserUsername: string;
   currentUserId: string;
   isAdmin: boolean;
   users: { userId: string; fullName: string }[];
@@ -107,10 +112,25 @@ interface FormInfo {
   kmPerLiter: number;
 }
 
-const STATUS_OPTIONS = ["ALL", "DRAFT", "SENT"] as const;
+const STATUS_OPTIONS = [
+  "ALL",
+  "DRAFT",
+  "SENT",
+  "APPROVED",
+  "REQUESTED_FOR_CHANGE",
+  "REJECTED",
+] as const;
 
 function statusBadgeClass(status: string): string {
   switch (status.toUpperCase()) {
+    case "APPROVED":
+      return "bg-green-100 text-green-800";
+    case "REQUESTED_FOR_CHANGE":
+      return "bg-amber-100 text-amber-800";
+    case "REJECTED":
+      return "bg-red-100 text-red-800";
+    case "SENT":
+      return "bg-blue-100 text-blue-800";
     case "SAVED":
     case "DRAFT":
     default:
@@ -176,27 +196,23 @@ export default function FieldTravelItineraryPage() {
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [currentStatus, setCurrentStatus] = useState("SAVED");
   const [requestDateCreated, setRequestDateCreated] = useState("");
+  const [approvalInProgress, setApprovalInProgress] = useState(false);
+  const [approvers, setApprovers] = useState<UserApprover[]>([]);
+  const [approvedBy, setApprovedBy] = useState("");
+  const [approvedBySignatureUrl, setApprovedBySignatureUrl] = useState("");
 
   const loadFTIRequests = useCallback(async () => {
     try {
-      // Get current user ID from localStorage
-      let currentUserId = "";
-      try {
-        const raw = window.localStorage.getItem("auth:user");
-        if (raw) {
-          currentUserId = (JSON.parse(raw) as { userId?: string }).userId || "";
-        }
-      } catch {}
+      setListLoading(true);
 
-      // Admins see all users' requests; regular users see only their own.
-      const requests =
-        formInfo?.isAdmin === true
-          ? await ftiService.getRequests()
-          : currentUserId
-            ? await ftiService.getRequestsByUser(currentUserId)
-            : await ftiService.getRequests();
+      // Fetch both requests and user-approver mappings in parallel
+      const [requests, approverList] = await Promise.all([
+        ftiService.getRequests(),
+        userApproverService.getAll().catch(() => []), // Gracefully handle if route errors
+      ]);
 
       setFtiRequests(requests);
+      setApprovers(approverList);
     } catch {
       toast.error("Failed to load FTI requests.");
     } finally {
@@ -219,6 +235,7 @@ export default function FieldTravelItineraryPage() {
         locations: data.locations || [],
         expresswayGroups: data.expresswayGroups || [],
         currentUserFullName: data.currentUserFullName || "",
+        currentUserUsername: data.currentUserUsername || "",
         currentUserId: data.currentUserId || "",
         isAdmin: data.isAdmin === true,
         users: data.users || [],
@@ -818,10 +835,15 @@ export default function FieldTravelItineraryPage() {
     return pdf.output("blob");
   };
 
-  const saveGdToGoogleDrive = async (blob: Blob): Promise<string> => {
+  const saveGdToGoogleDrive = async (
+    blob: Blob,
+    ref?: string,
+  ): Promise<string> => {
+    const refValue = ref || formData.ftiRef;
+    if (!refValue) throw new Error("NO FTI Reference provided.");
     const fd = new FormData();
-    fd.append("pdf", blob, `FTI_${formData.ftiRef}.pdf`);
-    fd.append("ftiRef", formData.ftiRef);
+    fd.append("pdf", blob, "FTI_" + refValue + ".pdf");
+    fd.append("ftiRef", refValue);
     const res = await fetch("/api/fti/save-pdf-to-drive", {
       method: "POST",
       body: fd,
@@ -883,11 +905,9 @@ export default function FieldTravelItineraryPage() {
     try {
       // Generate the PDF directly from the hidden FTIPrintDocument, upload to
       // Google Drive, then mark the FTI as SENT — no preview required.
-      const fileLink = await saveGdToGoogleDrive(await generatePdfBlob());
       await ftiService.updateRequest(formData.ftiRef, {
         status: "SENT",
         details: mapBatchToDetails(),
-        ftiFileLink: fileLink,
       });
       toast.success(`FTI ${formData.ftiRef} submitted and PDF saved to Drive.`);
       setBatchItems([]);
@@ -926,9 +946,10 @@ export default function FieldTravelItineraryPage() {
         const miscAmount = det.expenses.reduce((s, e) => s + e.amount, 0);
         const miscCodes = det.expenses.map((e) => e.miscCode).join(", ");
         const miscDescriptions = det.expenses
-          .map((e) =>
-            formInfo?.miscellaneousFull.find((m) => m.code === e.miscCode)?.description ||
-              e.miscCode,
+          .map(
+            (e) =>
+              formInfo?.miscellaneousFull.find((m) => m.code === e.miscCode)
+                ?.description || e.miscCode,
           )
           .join(", ");
         const firstLeg = det.legs?.[0];
@@ -996,6 +1017,62 @@ export default function FieldTravelItineraryPage() {
       setViewModalOpen(true);
     } catch {
       toast.error("Failed to load FTI details.");
+    }
+  };
+
+  const handleApprovalAction = async (
+    action: "approve" | "request_change" | "reject",
+    comment: string,
+  ) => {
+    if (!viewRequest) return;
+    if (action === "request_change" && !comment.trim()) {
+      toast.error("Please enter a comment for the requester.");
+      return;
+    }
+    setApprovalInProgress(true);
+    try {
+      let fileLink: string | undefined;
+      if (action === "approve") {
+        // Fetch the approver's e-signature to render on the signed PDF.
+        let signatureUrl = "";
+        try {
+          const sig = await userService.getSignatureByUsername(
+            formInfo?.currentUserUsername || "",
+          );
+          signatureUrl = sig?.imageUrl || "";
+        } catch {
+          // no signature on file — proceed without the image
+        }
+        setApprovedBy(formInfo?.currentUserFullName || "");
+        setApprovedBySignatureUrl(signatureUrl);
+        // Let the modal re-render with the approval block before capture.
+        await new Promise((r) => setTimeout(r, 150));
+        const blob = await generatePdfBlob();
+        fileLink = await saveGdToGoogleDrive(blob, viewRequest.controlNo);
+      }
+      await ftiService.approveAction(
+        viewRequest.controlNo,
+        action,
+        comment.trim(),
+        fileLink,
+      );
+      toast.success(
+        action === "approve"
+          ? "Request approved and PDF saved to Drive."
+          : action === "request_change"
+            ? "Change requested."
+            : "Request rejected.",
+      );
+      setViewModalOpen(false);
+      setApprovedBy("");
+      setApprovedBySignatureUrl("");
+      await loadFTIRequests();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to process approval.",
+      );
+    } finally {
+      setApprovalInProgress(false);
     }
   };
 
@@ -1315,11 +1392,11 @@ export default function FieldTravelItineraryPage() {
                 tollFee: det.tollFee,
                 miscellaneous: det.expenses.map((e) => e.miscCode).join(", "),
                 miscellaneousDescription: det.expenses
-                  .map((e) =>
-                    formInfo?.miscellaneousFull.find(
-                      (m) => m.code === e.miscCode,
-                    )?.description ||
-                      e.miscCode,
+                  .map(
+                    (e) =>
+                      formInfo?.miscellaneousFull.find(
+                        (m) => m.code === e.miscCode,
+                      )?.description || e.miscCode,
                   )
                   .join(", "),
                 miscAmount,
@@ -1336,6 +1413,28 @@ export default function FieldTravelItineraryPage() {
             onDownloadPdf={handleDownloadPdf}
             downloadingPdf={downloadingPdf}
             readOnly
+            approvalActions={
+              viewRequest.status.toUpperCase() === "SENT" &&
+              approvers.some(
+                (m) =>
+                  m.approverUserId === formInfo?.currentUserId &&
+                  m.requesterUserId === viewRequest.userId,
+              )
+                ? {
+                    onApprove: (comment) =>
+                      handleApprovalAction("approve", comment),
+                    onRequestChange: (comment) =>
+                      handleApprovalAction("request_change", comment),
+                    onReject: (comment) =>
+                      handleApprovalAction("reject", comment),
+                    actionInProgress: approvalInProgress,
+                  }
+                : undefined
+            }
+            approvalComment={viewRequest.approvalComment}
+            approvalStatus={viewRequest.status}
+            approvedBy={approvedBy}
+            approvedBySignatureUrl={approvedBySignatureUrl}
           />
         )}
       </div>
@@ -1470,16 +1569,10 @@ export default function FieldTravelItineraryPage() {
                   variant="outline"
                   size="sm"
                   onClick={handleAddDestination}
-                  disabled={destinations.length >= 5}
                 >
                   <Plus className="mr-1 h-4 w-4" /> Add Destination
                 </Button>
               </div>
-              {destinations.length >= 5 && (
-                <p className="text-xs text-amber-600">
-                  Maximum of 5 destinations reached.
-                </p>
-              )}
               {destinations.length === 0 && (
                 <p className="text-sm text-muted-foreground italic">
                   No destinations added. Click "Add Destination" to add a

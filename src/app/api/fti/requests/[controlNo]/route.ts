@@ -4,12 +4,37 @@ import {
   deleteFTIRequest,
   updateFTIRequestStatus,
   updateFTIFileLink,
+  updateFTIApproval,
   saveFullFTIRequest,
 } from "@/lib/ftiSheets";
+import { getUserApprovers } from "@/lib/userApproverSheets";
 import { getSession } from "@/lib/auth/session";
 import type { FTIDetailInput } from "@/types/fti";
 
 type RouteContext = { params: Promise<{ controlNo: string }> };
+
+/**
+ * Returns true when the session user is authorized to approve the given
+ * request: admin, the request's stored approver (column G), or a mapped
+ * approver from the UserApprovers sheet for the requester.
+ */
+async function isAuthorizedApprover(
+  sessionUserId: string,
+  isAdmin: boolean,
+  full: { userId: string; approverUserId?: string },
+): Promise<boolean> {
+  if (isAdmin) return true;
+  if (full.approverUserId === sessionUserId) return true;
+  try {
+    const approvers = await getUserApprovers();
+    return approvers.some(
+      (m) =>
+        m.approverUserId === sessionUserId && m.requesterUserId === full.userId,
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
@@ -28,7 +53,12 @@ export async function GET(_req: NextRequest, context: RouteContext) {
     }
 
     const isAdmin = session.userRoleId === 1;
-    if (!isAdmin && full.userId !== session.userId) {
+    const isApprover = await isAuthorizedApprover(
+      session.userId,
+      isAdmin,
+      full,
+    );
+    if (!isAdmin && full.userId !== session.userId && !isApprover) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -61,9 +91,54 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     const full = await getFTIRequestFull(decoded);
     if (full) {
       const isAdmin = session.userRoleId === 1;
-      if (!isAdmin && full.userId !== session.userId) {
+      const isApprover = await isAuthorizedApprover(
+        session.userId,
+        isAdmin,
+        full,
+      );
+      if (!isAdmin && full.userId !== session.userId && !isApprover) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
+    }
+
+    // ── Approval actions (approver flow) ──
+    if (body.action) {
+      if (!full) {
+        return NextResponse.json(
+          { error: "Request not found" },
+          { status: 404 },
+        );
+      }
+      const isAdmin = session.userRoleId === 1;
+      const isApprover = await isAuthorizedApprover(
+        session.userId,
+        isAdmin,
+        full,
+      );
+      if (!isApprover) {
+        return NextResponse.json(
+          { error: "Only the assigned approver can decide this request." },
+          { status: 403 },
+        );
+      }
+      if (full.status.toUpperCase() !== "SENT") {
+        return NextResponse.json(
+          { error: `Cannot act on request with status "${full.status}".` },
+          { status: 400 },
+        );
+      }
+      const { action, comment, ftiFileLink } = body as {
+        action: "approve" | "request_change" | "reject";
+        comment?: string;
+        ftiFileLink?: string;
+      };
+      await updateFTIApproval(decoded, action, session.userId, comment);
+      // Persist the signed PDF Google Drive link (approval only).
+      if (action === "approve" && ftiFileLink) {
+        await updateFTIFileLink(decoded, ftiFileLink);
+      }
+      const updated = await getFTIRequestFull(decoded);
+      return NextResponse.json(updated);
     }
 
     if (body.details && Array.isArray(body.details)) {

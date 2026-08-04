@@ -55,3 +55,11 @@ export async function getDatabaseSpreadsheetId(): Promise<string> {
   }
   return spreadsheetId;
 }
+
+export async function getFTISpreadsheetId(): Promise<string> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID_FTI;
+  if (!spreadsheetId) {
+    throw new Error("Missing GOOGLE_SHEET_ID_FTI environment variable.");
+  }
+  return spreadsheetId;
+}

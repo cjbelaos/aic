@@ -18,6 +18,7 @@ import {
   UserCog,
   MapPin,
   BarChart3,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -153,6 +154,18 @@ export function AppSidebar() {
                   <Link href="/dashboard/users">
                     <UserCog />
                     <span>User Management</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith("/dashboard/user-approvers")}
+                  tooltip="User Approvers"
+                >
+                  <Link href="/dashboard/user-approvers">
+                    <ShieldCheck />
+                    <span>User Approvers</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

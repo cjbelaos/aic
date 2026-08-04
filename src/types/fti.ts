@@ -1,9 +1,20 @@
+export type FTIStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "APPROVED"
+  | "REQUESTED_FOR_CHANGE";
+
 export interface FTIRequest {
   controlNo: string;
   userId: string;
   status: string;
   dateCreated: string;
-  ftiFileLink?: string;  totalAmount?: number;}
+  ftiFileLink?: string;
+  totalAmount?: number;
+  approverUserId?: string;
+  dateApproved?: string;
+  approvalComment?: string;
+}
 
 export interface FTIDetails {
   detailId: string;
@@ -67,6 +78,7 @@ export interface FTILegsInput {
 export interface FTIRequestFull extends FTIRequest {
   userName: string;
   totalAmount: number;
+  canApprove?: boolean;
   details: (FTIDetails & { expenses: FTIExpenses[]; legs: FTILegs[] })[];
 }
 
@@ -94,5 +106,5 @@ export function computeDetailTotal(
 
 export function isEditableStatus(status: string): boolean {
   const upper = status.toUpperCase();
-  return upper === "SAVED" || upper === "DRAFT" || upper === "REJECTED";
+  return upper === "DRAFT" || upper === "REQUESTED_FOR_CHANGE";
 }

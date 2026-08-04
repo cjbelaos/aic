@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Loader2 } from "lucide-react";
+import { ArrowUpDown, Loader2, Users } from "lucide-react";
 import { toast } from "sonner";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,10 @@ import {
 } from "@/components/ui/select";
 import supplierService from "@/lib/services/supplier.service";
 import { Supplier, CreateSupplierPayload } from "@/types/supplier";
+import { SupplierContactsDrawer } from "@/components/supplier-contacts-drawer";
 
-// Exports data safely using ExcelJS buffer streams
+let openContactsFor: (s: Supplier) => void = () => {};
+
 function exportToExcel(rows: Supplier[]) {
   if (rows.length === 0) {
     toast.error("No supplier records found to export.");
@@ -39,17 +41,31 @@ function exportToExcel(rows: Supplier[]) {
   const worksheet = workbook.addWorksheet("Suppliers");
 
   worksheet.columns = [
+    { header: "Supplier ID", key: "supplierId", width: 15 },
     { header: "Supplier Name", key: "supplierName", width: 25 },
     { header: "TIN", key: "tin", width: 15 },
-    { header: "Address", key: "address", width: 35 },
+    { header: "Address", key: "addressLine", width: 35 },
+    { header: "City/Municipality", key: "city", width: 20 },
+    { header: "Province", key: "province", width: 20 },
+    { header: "Country", key: "country", width: 15 },
+    { header: "Delivery Lead Time", key: "deliveryLeadTime", width: 15 },
+    { header: "Delivery Terms", key: "deliveryTerms", width: 20 },
+    { header: "Payment Terms", key: "paymentTerms", width: 20 },
     { header: "Status", key: "status", width: 12 },
   ];
 
   rows.forEach((r) => {
     worksheet.addRow({
+      supplierId: r.supplierId,
       supplierName: r.supplierName,
       tin: r.tin,
-      address: r.address,
+      addressLine: r.addressLine,
+      city: r.city,
+      province: r.province,
+      country: r.country,
+      deliveryLeadTime: r.deliveryLeadTime,
+      deliveryTerms: r.deliveryTerms,
+      paymentTerms: r.paymentTerms,
       status: r.status === "active" ? "Active" : "Inactive",
     });
   });
@@ -74,9 +90,16 @@ function exportToExcel(rows: Supplier[]) {
 }
 
 const EMPTY_FORM: CreateSupplierPayload = {
+  supplierId: "",
   supplierName: "",
   tin: "",
-  address: "",
+  addressLine: "",
+  city: "",
+  province: "",
+  country: "",
+  deliveryLeadTime: "",
+  deliveryTerms: "",
+  paymentTerms: "",
   status: "active",
 };
 
@@ -113,7 +136,7 @@ const columns: ColumnDef<Supplier>[] = [
     ),
   },
   {
-    accessorKey: "address",
+    accessorKey: "addressLine",
     header: ({ column }) => (
       <Button
         variant="ghost"
@@ -125,6 +148,12 @@ const columns: ColumnDef<Supplier>[] = [
       </Button>
     ),
   },
+  { accessorKey: "city", header: "City/Municipality" },
+  { accessorKey: "province", header: "Province" },
+  { accessorKey: "country", header: "Country" },
+  { accessorKey: "deliveryLeadTime", header: "Delivery Lead Time" },
+  { accessorKey: "deliveryTerms", header: "Delivery Terms" },
+  { accessorKey: "paymentTerms", header: "Payment Terms" },
   {
     accessorKey: "status",
     header: ({ column }) => (
@@ -145,6 +174,21 @@ const columns: ColumnDef<Supplier>[] = [
       </Badge>
     ),
   },
+  {
+    id: "contacts",
+    header: "Contacts",
+    cell: ({ row }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="gap-1.5 h-8 text-blue-600 hover:text-blue-700"
+        onClick={() => openContactsFor?.(row.original)}
+      >
+        <Users className="h-4 w-4" />
+        View
+      </Button>
+    ),
+  },
 ];
 
 export default function SuppliersPage() {
@@ -156,6 +200,13 @@ export default function SuppliersPage() {
   const [editTarget, setEditTarget] = useState<Supplier | null>(null);
   const [form, setForm] = useState<CreateSupplierPayload>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Supplier | null>(null);
+  const [contactsSupplier, setContactsSupplier] = useState<Supplier | null>(
+    null,
+  );
+
+  useEffect(() => {
+    openContactsFor = (s) => setContactsSupplier(s);
+  }, []);
 
   const loadSuppliers = async () => {
     try {
@@ -180,9 +231,16 @@ export default function SuppliersPage() {
   const openEdit = (row: Supplier) => {
     setEditTarget(row);
     setForm({
+      supplierId: row.supplierId,
       supplierName: row.supplierName,
       tin: row.tin,
-      address: row.address,
+      addressLine: row.addressLine,
+      city: row.city,
+      province: row.province,
+      country: row.country,
+      deliveryLeadTime: row.deliveryLeadTime,
+      deliveryTerms: row.deliveryTerms,
+      paymentTerms: row.paymentTerms,
       status: row.status,
     });
     setError("");
@@ -234,7 +292,6 @@ export default function SuppliersPage() {
     }
   };
 
-  // Modernized: Import handler utilizing ExcelJS buffer reads exclusively
   const handleImport = async (file: File) => {
     let toastId: string | number | undefined;
 
@@ -252,9 +309,7 @@ export default function SuppliersPage() {
       const suppliersToImport: CreateSupplierPayload[] = [];
       const headers: string[] = [];
 
-      // Parse the sheet row by row manually
       worksheet.eachRow((row, rowNumber) => {
-        // Collect header text positions from the first row entry
         if (rowNumber === 1) {
           row.eachCell((cell) => {
             headers.push(String(cell.value || "").trim());
@@ -262,12 +317,10 @@ export default function SuppliersPage() {
           return;
         }
 
-        // Build a dynamic object representing row cell values mapped to headers
         const rowData: Record<string, any> = {};
         row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
           const headerName = headers[colNumber - 1];
           if (headerName) {
-            // Check if cell is a formula or an object, extract primitive string text
             const cellValue =
               cell.value &&
               typeof cell.value === "object" &&
@@ -287,9 +340,16 @@ export default function SuppliersPage() {
         const status = rawStatus === "active" ? "active" : "inactive";
 
         suppliersToImport.push({
+          supplierId: String(rowData["Supplier ID"] || "").trim(),
           supplierName,
           tin: String(rowData["TIN"] || "").trim(),
-          address: String(rowData["Address"] || "").trim(),
+          addressLine: String(rowData["Address"] || "").trim(),
+          city: String(rowData["City/Municipality"] || "").trim(),
+          province: String(rowData["Province"] || "").trim(),
+          country: String(rowData["Country"] || "").trim(),
+          deliveryLeadTime: String(rowData["Delivery Lead Time"] || "").trim(),
+          deliveryTerms: String(rowData["Delivery Terms"] || "").trim(),
+          paymentTerms: String(rowData["Payment Terms"] || "").trim(),
           status,
         });
       });
@@ -409,10 +469,76 @@ export default function SuppliersPage() {
               <Label htmlFor="s-address">Address</Label>
               <Input
                 id="s-address"
-                value={form.address}
+                value={form.addressLine}
                 disabled={saving}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, address: e.target.value }))
+                  setForm((f) => ({ ...f, addressLine: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="s-city">City/Municipality</Label>
+              <Input
+                id="s-city"
+                value={form.city}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, city: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="s-province">Province</Label>
+              <Input
+                id="s-province"
+                value={form.province}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, province: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="s-country">Country</Label>
+              <Input
+                id="s-country"
+                value={form.country}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, country: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="s-lead-time">Delivery Lead Time</Label>
+              <Input
+                id="s-lead-time"
+                value={form.deliveryLeadTime}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, deliveryLeadTime: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="s-delivery-terms">Delivery Terms</Label>
+              <Input
+                id="s-delivery-terms"
+                value={form.deliveryTerms}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, deliveryTerms: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="s-payment-terms">Payment Terms</Label>
+              <Input
+                id="s-payment-terms"
+                value={form.paymentTerms}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, paymentTerms: e.target.value }))
                 }
               />
             </div>
@@ -460,6 +586,14 @@ export default function SuppliersPage() {
         description={`Delete supplier "${deleteTarget?.supplierName}"? This cannot be undone.`}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      <SupplierContactsDrawer
+        supplier={contactsSupplier}
+        open={!!contactsSupplier}
+        onOpenChange={(v) => {
+          if (!v) setContactsSupplier(null);
+        }}
       />
     </>
   );

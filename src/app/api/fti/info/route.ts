@@ -63,6 +63,7 @@ export async function GET() {
       locations,
       expresswayGroups,
       currentUserFullName,
+      currentUserUsername: session?.username || "",
       currentUserId: session?.userId || "",
       isAdmin,
       users: users.map((u) => ({ userId: u.userId, fullName: u.fullName })),

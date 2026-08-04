@@ -6,12 +6,8 @@ import {
 } from "@/types/supplier";
 
 const SUPPLIERS_SHEET = "Suppliers";
-const SUPPLIERS_RANGE = `${SUPPLIERS_SHEET}!A2:E`; // A: supplierName, B: tin, C: address, D: isActive, E: status
+const SUPPLIERS_RANGE = `${SUPPLIERS_SHEET}!A2:K`; // A:supplierId, B: supplierName, C: tin, D: addressLine, E: city/municipality, F: Province, G: Country, H: deliveryLeadTime, I: deliveryTerms, J: paymentTerms, K: status
 
-/**
- * Utility helper to extract the raw Excel/Google Sheets row number from our custom string ID.
- * Example: "supp_5" -> 5
- */
 function getRowFromId(id: string): number {
   const rowStr = id.replace("supp_", "");
   const rowNum = parseInt(rowStr, 10);
@@ -21,9 +17,6 @@ function getRowFromId(id: string): number {
   return rowNum;
 }
 
-/**
- * GET: Fetches all rows mapped to Supplier items from the Google Sheet
- */
 export async function getSuppliers(): Promise<Supplier[]> {
   try {
     const sheets = await getSheetsClient();
@@ -43,12 +36,19 @@ export async function getSuppliers(): Promise<Supplier[]> {
     return rows.map((row, index): Supplier => {
       return {
         id: `supp_${index + 2}`,
-        supplierName: row[0] || "",
-        tin: row[1] || "",
-        address: row[2] || "",
+        supplierId: row[0] || "",
+        supplierName: row[1] || "",
+        tin: row[2] || "",
+        addressLine: row[3] || "",
+        city: row[4] || "",
+        province: row[5] || "",
+        country: row[6] || "",
+        deliveryLeadTime: row[7] || "",
+        deliveryTerms: row[8] || "",
+        paymentTerms: row[9] || "",
         status:
-          row[3] !== undefined
-            ? row[3] === "TRUE" || row[3] === "Active"
+          row[10] !== undefined
+            ? row[10] === "TRUE" || row[10] === "Active"
               ? "active"
               : "inactive"
             : "active",
@@ -60,9 +60,6 @@ export async function getSuppliers(): Promise<Supplier[]> {
   }
 }
 
-/**
- * POST: Appends a new supplier row in the Google Sheet
- */
 export async function addSupplier(
   payload: CreateSupplierPayload,
 ): Promise<Supplier> {
@@ -70,23 +67,27 @@ export async function addSupplier(
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // Fetch existing rows to calculate our clean predictable new sequential row boundary
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: SUPPLIERS_RANGE,
     });
     const rowCount = (response.data.values || []).length;
-    const newRowNumber = rowCount + 2; // +2 because row 1 is header, data starts at row 2
+    const newRowNumber = rowCount + 2;
 
-    // Serialize into sequential array structure matching sheet column positioning
     const newRowValues = [
+      payload.supplierId || "",
       payload.supplierName || "",
       payload.tin || "",
-      payload.address || "",
+      payload.addressLine || "",
+      payload.city || "",
+      payload.province || "",
+      payload.country || "",
+      payload.deliveryLeadTime || "",
+      payload.deliveryTerms || "",
+      payload.paymentTerms || "",
       payload.status === "active" ? "Active" : "Inactive",
     ];
 
-    // Write the new data values cleanly into the appended targeted row context
     await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: SUPPLIERS_RANGE,
@@ -98,9 +99,16 @@ export async function addSupplier(
 
     return {
       id: `supp_${newRowNumber}`,
+      supplierId: payload.supplierId || "",
       supplierName: payload.supplierName,
       tin: payload.tin || "",
-      address: payload.address || "",
+      addressLine: payload.addressLine || "",
+      city: payload.city || "",
+      province: payload.province || "",
+      country: payload.country || "",
+      deliveryLeadTime: payload.deliveryLeadTime || "",
+      deliveryTerms: payload.deliveryTerms || "",
+      paymentTerms: payload.paymentTerms || "",
       status: payload.status,
     };
   } catch (error) {
@@ -109,9 +117,6 @@ export async function addSupplier(
   }
 }
 
-/**
- * PUT / UPDATE: Updates an existing supplier row in the Google Sheet
- */
 export async function updateSupplierInSheets(
   payload: UpdateSupplierPayload,
 ): Promise<Supplier> {
@@ -120,30 +125,44 @@ export async function updateSupplierInSheets(
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
     const rowNumber = getRowFromId(payload.id);
-    const updateRange = `${SUPPLIERS_SHEET}!A${rowNumber}:D${rowNumber}`;
+    const updateRange = `${SUPPLIERS_SHEET}!A${rowNumber}:K${rowNumber}`;
 
-    // First, fetch the current row so we don't accidentally overwrite skipped partial fields
     const currentDataResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: updateRange,
     });
     const existingRow = currentDataResponse.data.values?.[0] || [];
 
-    // Map payload updates over old values, maintaining structural array index positioning
     const updatedValues = [
+      payload.supplierId !== undefined
+        ? payload.supplierId
+        : existingRow[0] || "",
       payload.supplierName !== undefined
         ? payload.supplierName
-        : existingRow[0] || "",
-      payload.tin !== undefined ? payload.tin : existingRow[1] || "",
-      payload.address !== undefined ? payload.address : existingRow[2] || "",
+        : existingRow[1] || "",
+      payload.tin !== undefined ? payload.tin : existingRow[2] || "",
+      payload.addressLine !== undefined
+        ? payload.addressLine
+        : existingRow[3] || "",
+      payload.city !== undefined ? payload.city : existingRow[4] || "",
+      payload.province !== undefined ? payload.province : existingRow[5] || "",
+      payload.country !== undefined ? payload.country : existingRow[6] || "",
+      payload.deliveryLeadTime !== undefined
+        ? payload.deliveryLeadTime
+        : existingRow[7] || "",
+      payload.deliveryTerms !== undefined
+        ? payload.deliveryTerms
+        : existingRow[8] || "",
+      payload.paymentTerms !== undefined
+        ? payload.paymentTerms
+        : existingRow[9] || "",
       payload.status !== undefined
         ? payload.status === "active"
           ? "Active"
           : "Inactive"
-        : existingRow[3] || "Active",
+        : existingRow[10] || "Active",
     ];
 
-    // Write the updated array back into the targeted row range
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: updateRange,
@@ -155,10 +174,17 @@ export async function updateSupplierInSheets(
 
     return {
       id: payload.id,
-      supplierName: updatedValues[0],
-      tin: updatedValues[1],
-      address: updatedValues[2],
-      status: updatedValues[3] === "Active" ? "active" : "inactive",
+      supplierId: updatedValues[0],
+      supplierName: updatedValues[1],
+      tin: updatedValues[2],
+      addressLine: updatedValues[3],
+      city: updatedValues[4],
+      province: updatedValues[5],
+      country: updatedValues[6],
+      deliveryLeadTime: updatedValues[7],
+      deliveryTerms: updatedValues[8],
+      paymentTerms: updatedValues[9],
+      status: updatedValues[10] === "Active" ? "active" : "inactive",
     };
   } catch (error) {
     console.error(
@@ -169,18 +195,14 @@ export async function updateSupplierInSheets(
   }
 }
 
-/**
- * DELETE: Clears the contents of a supplier row from the Google Sheet
- */
 export async function deleteSupplierFromSheets(id: string): Promise<void> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
     const rowNumber = getRowFromId(id);
-    const deleteRange = `${SUPPLIERS_SHEET}!A${rowNumber}:D${rowNumber}`;
+    const deleteRange = `${SUPPLIERS_SHEET}!A${rowNumber}:K${rowNumber}`;
 
-    // Clears the text values inside the targeted line range cells
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
       range: deleteRange,

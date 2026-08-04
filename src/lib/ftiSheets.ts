@@ -1,8 +1,13 @@
 import crypto from "crypto";
-import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
+import {
+  getSheetsClient,
+  getDatabaseSpreadsheetId,
+  getFTISpreadsheetId,
+} from "@/lib/googleSheets";
 import { getAllMiscellaneous } from "@/lib/miscellaneousSheets";
 import { getUsers } from "@/lib/userSheets";
 import { getCustomers } from "@/lib/customerSheets";
+import { getApproverForRequester } from "@/lib/userApproverSheets";
 import { EXPRESSWAY_GROUPS } from "@/lib/tollMatrix";
 import type {
   FTIRequest,
@@ -13,7 +18,11 @@ import type {
   FTILegsInput,
   FTIRequestFull,
 } from "@/types/fti";
-import { computeDetailTotal, computeFuelCost } from "@/types/fti";
+import {
+  computeDetailTotal,
+  computeFuelCost,
+  isEditableStatus,
+} from "@/types/fti";
 
 // ── Constants ──
 const FTI_REQUEST_SHEET = "FTIRequests";
@@ -21,8 +30,9 @@ const FTI_DETAILS_SHEET = "FTIDetails";
 const FTI_EXPENSES_SHEET = "FTIExpenses";
 const FTI_LEGS_SHEET = "FTILegs";
 const USER_FUEL_PER_KM_SHEET = "UserFuelPerKm";
+const FTI_LIST_SHEET = "FTIList";
 
-const RANGE_REQUEST = `${FTI_REQUEST_SHEET}!A2:F`; // A=controlNo, B=userId, C=status, D=dateCreated, E=ftiFileLink
+const RANGE_REQUEST = `${FTI_REQUEST_SHEET}!A2:J`; // A=controlNo, B=userId, C=status, D=dateCreated, E=ftiFileLink, F=totalAmount, G=approverUserId, H=dateApproved, I=approvalComment
 const RANGE_DETAILS = `${FTI_DETAILS_SHEET}!A2:I`; // A=detailId, B=controlNo, C=date, D=itinerary, E=description, F=km, G=fuelPrice, H=fuelSubTotal, I=tollFee
 const RANGE_EXPENSES = `${FTI_EXPENSES_SHEET}!A2:D`; // A=expenseId, B=detailId, C=miscCode, D=amount
 const RANGE_LEGS = `${FTI_LEGS_SHEET}!A2:I`; // A=legId, B=detailId, C=controlNo, D=originName, E=originAddress, F=destName, G=destAddress, H=tollFee, I=distanceKm
@@ -31,6 +41,15 @@ const RANGE_USER_FUEL = `${USER_FUEL_PER_KM_SHEET}!A2:B`; // A=userId, B=KmPerLi
 const TOLL_MATRIX_SHEET = "Toll Matrix Table";
 
 const DEFAULT_KM_PER_LITER = 12;
+
+// UserId → legacy FTIList technician name (matches the previous tech admin's records).
+const FTI_LIST_TECHNICIAN_NAMES: Record<string, string> = {
+  "24b3d020-de29-4ad6-9045-cd38bbf9fa92": "Edralinda, Jhon Jhon C.",
+  "02b3e166-2cfe-4620-9c2f-b1e592b49b1e": "Abogado, Jerico",
+  "743f7a59-7a74-447d-9495-1ba93dfdc7f7": "Sacop, Jodillo",
+  "54c8e375-fa9f-4d1c-b214-2a325bd2fd07": "Ordonez, Atillano",
+  "cc476062-ec0f-4861-9fe8-da2a6dfd6c9c": "Carmona Von",
+};
 
 // ── Simple TTL Cache ──────────────────────────
 // Reduces Google Sheets API round-trips for hot reads (list/detail loads).
@@ -152,8 +171,7 @@ async function guardEditableStatus(controlNo: string): Promise<void> {
   const all = await getAllFTIRequests();
   const req = all.find((r) => r.controlNo === controlNo);
   if (!req) throw new Error(`FTI request ${controlNo} not found`);
-  const locked = ["SUBMITTED", "APPROVED"];
-  if (locked.includes(req.status.toUpperCase())) {
+  if (!isEditableStatus(req.status)) {
     throw new Error(
       `Cannot modify request ${controlNo}: status is "${req.status}".`,
     );
@@ -224,6 +242,9 @@ async function getAllFTIRequestsRaw(): Promise<FTIRequest[]> {
     totalAmount: (row[5] || "").toString().trim()
       ? parseFloat((row[5] || "").toString().trim())
       : undefined,
+    approverUserId: (row[6] || "").toString().trim() || undefined,
+    dateApproved: (row[7] || "").toString().trim() || undefined,
+    approvalComment: (row[8] || "").toString().trim() || undefined,
   }));
 }
 
@@ -334,6 +355,84 @@ export async function createFTIRequest(userId: string): Promise<FTIRequest> {
   };
 }
 
+/**
+ * Resolve the approver for a requester from the UserApprovers sheet.
+ * Returns undefined when no approver is configured.
+ */
+export async function resolveApproverForRequester(
+  userId: string,
+): Promise<{ approverUserId: string } | null> {
+  try {
+    const { getApproverForRequester } =
+      await import("@/lib/userApproverSheets");
+    const { getUsers } = await import("@/lib/userSheets");
+    const users = await getUsers().catch(() => []);
+    const user = users.find((u) => u.userId === userId);
+    if (!user) return null;
+    const mapping = await getApproverForRequester(userId, user.departmentId);
+    return mapping ? { approverUserId: mapping.approverUserId } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function updateFTIApproval(
+  controlNo: string,
+  action: "approve" | "request_change" | "reject",
+  approverUserId: string,
+  comment?: string,
+): Promise<void> {
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const all = await getAllFTIRequests();
+  const idx = all.findIndex((r) => r.controlNo === controlNo);
+  if (idx === -1) throw new Error(`FTI request ${controlNo} not found`);
+  const rowNumber = idx + 2; // +2: header + 0-index
+
+  const status =
+    action === "approve"
+      ? "APPROVED"
+      : action === "request_change"
+        ? "REQUESTED_FOR_CHANGE"
+        : "REJECTED";
+  const dateApproved = formatPhilippineTimestamp();
+  const approvedValue = action === "approve" ? dateApproved : "";
+
+  const sheets = await getSheetsClient();
+  // Write each column independently so DateCreated (D), ftiFileLink (E),
+  // and totalAmount (F) are never touched or erased.
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${FTI_REQUEST_SHEET}!C${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[status]] },
+  });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${FTI_REQUEST_SHEET}!G${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[approverUserId]] },
+  });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${FTI_REQUEST_SHEET}!H${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[approvedValue]] },
+  });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${FTI_REQUEST_SHEET}!I${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[comment || ""]] },
+  });
+  // Mirror the approved details into the legacy FTIList tab (approve only).
+  if (action === "approve") {
+    await exportFTIListOnApproval(controlNo).catch(() => {
+      // Non-fatal: approval already persisted; log export failure.
+    });
+  }
+  invalidateFTICache();
+}
+
 export async function updateFTIRequestStatus(
   controlNo: string,
   status: string,
@@ -343,6 +442,31 @@ export async function updateFTIRequestStatus(
   const idx = all.findIndex((r) => r.controlNo === controlNo);
   if (idx === -1) throw new Error(`FTI request ${controlNo} not found`);
   const rowNumber = idx + 2; // +2: header + 0-index
+
+  // When a request is submitted, auto-assign the configured approver.
+  if (status.toUpperCase() === "SENT") {
+    const req = all[idx];
+    if (req && !req.approverUserId) {
+      const approver = await resolveApproverForRequester(req.userId);
+      if (approver) {
+        const sheets = await getSheetsClient();
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${FTI_REQUEST_SHEET}!C${rowNumber}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [[status]] },
+        });
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${FTI_REQUEST_SHEET}!G${rowNumber}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [[approver.approverUserId]] },
+        });
+        invalidateFTICache();
+        return;
+      }
+    }
+  }
 
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
@@ -376,6 +500,63 @@ export async function updateFTIFileLink(
     requestBody: { values: [[ftiFileLink]] },
   });
   invalidateFTICache();
+}
+
+/**
+ * Append the approved request's details to the legacy FTIList tab.
+ * FTIList columns: A=Technician, B=Date, C=Itinerary, D=Description,
+ * E=Kilometer, F=Fuel Price, G=Toll gate, H=Miscellaneous, I=Misc. Amount, J=FTI REF
+ * One row per detail; misc codes joined by ", " and amounts summed.
+ */
+export async function exportFTIListOnApproval(
+  controlNo: string,
+): Promise<void> {
+  const full = await getFTIRequestFull(controlNo);
+  if (!full) return;
+
+  const technician =
+    FTI_LIST_TECHNICIAN_NAMES[full.userId] || full.userName || full.userId;
+
+  const miscMap = new Map<string, string>();
+  for (const m of await getAllMiscellaneous()) {
+    miscMap.set(m.code, m.description || m.code);
+  }
+
+  const rows = full.details.map((det) => {
+    const codes = det.expenses.map((e) => e.miscCode).filter(Boolean);
+    const miscDesc = codes.map((c) => miscMap.get(c) || c).join(", ");
+    const miscAmount = det.expenses.reduce((s, e) => s + (e.amount || 0), 0);
+    // FTIList dates are DD/MM/YYYY; our detail dates are YYYY-MM-DD.
+    const dateParts = (det.date || "").split("-");
+    const legacyDate =
+      dateParts.length === 3
+        ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
+        : det.date;
+
+    return [
+      technician,
+      legacyDate,
+      det.itinerary,
+      det.description,
+      String(det.km || 0),
+      String(det.fuelPrice || 0),
+      String(det.tollFee || 0),
+      miscDesc,
+      miscAmount ? String(miscAmount) : "",
+      controlNo,
+    ];
+  });
+
+  if (rows.length === 0) return;
+
+  const spreadsheetId = await getFTISpreadsheetId();
+  const sheets = await getSheetsClient();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${FTI_LIST_SHEET}!A:J`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: rows },
+  });
 }
 
 // ── FTIDetails ──
@@ -657,7 +838,7 @@ export async function saveFullFTIRequest(
   if (existing) {
     const currentStatus = existing.status.toUpperCase();
     if (status.toUpperCase() === "SUBMITTED") {
-      if (!["SAVED", "DRAFT", "REJECTED"].includes(currentStatus)) {
+      if (!["DRAFT", "REQUESTED_FOR_CHANGE"].includes(currentStatus)) {
         throw new Error(
           `Cannot submit request ${controlNo}: status is "${existing.status}".`,
         );
@@ -758,7 +939,9 @@ export async function saveFullFTIRequest(
         ]),
       },
     });
-      // Persist the total to column F so list views do not recompute per row.
+  }
+
+  // Persist the total to column F so list views do not recompute per row.
   const totalAmount = savedDetails.reduce((sum, det) => {
     const detExp = allExpenses.filter((e) => e.detailId === det.detailId);
     return sum + computeDetailTotal(det, detExp);
@@ -766,15 +949,14 @@ export async function saveFullFTIRequest(
   const updatedAll = await getAllFTIRequests();
   const rowIdx = updatedAll.findIndex((r) => r.controlNo === controlNo);
   if (rowIdx !== -1) {
+    const rowNumber = rowIdx + 2;
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: "!F",
+      range: FTI_REQUEST_SHEET + "!F" + rowNumber,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[String(totalAmount)]] },
     });
     invalidateFTICache();
-  }
-  invalidateFTICache();
   }
 }
 

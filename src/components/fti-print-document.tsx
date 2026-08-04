@@ -51,6 +51,8 @@ interface FTIPrintDocumentProps {
   fullName: string;
   kmPerLiter?: number;
   id?: string;
+  approvedBy?: string;
+  approvedBySignatureUrl?: string;
 }
 
 /**
@@ -65,6 +67,8 @@ export default function FTIPrintDocument({
   fullName,
   kmPerLiter = 12,
   id = "fti-preview-content",
+  approvedBy,
+  approvedBySignatureUrl,
 }: FTIPrintDocumentProps) {
   // Helper to calculate fuel amount: (KM / kmPerLiter) * Fuel Price
   const getItemFuel = (item: DraftItinerary) => {
@@ -298,7 +302,16 @@ export default function FTIPrintDocument({
           </p>
         </div>
         <div className="w-1/4">
-          <p className="font-normal text-gray-800">Approved by:</p>
+          {approvedBy && approvedBySignatureUrl && (
+            <img
+              src={approvedBySignatureUrl}
+              alt="Approver Signature"
+              className="h-10 w-auto object-contain mb-1"
+            />
+          )}
+          <p className="font-normal text-gray-800">
+            Approved by: {approvedBy || ""}
+          </p>
         </div>
         <div className="w-1/3 space-y-8">
           <p className="font-normal text-gray-800">Released Cash by:</p>

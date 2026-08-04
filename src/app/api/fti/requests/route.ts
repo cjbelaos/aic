@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getAllFTIRequests,
-  createFTIRequest,
-} from "@/lib/ftiSheets";
+import { getAllFTIRequests, createFTIRequest } from "@/lib/ftiSheets";
 import { getUsers } from "@/lib/userSheets";
+import { getUserApprovers } from "@/lib/userApproverSheets";
 import { getSession } from "@/lib/auth/session";
 import type { FTIRequestSummary } from "@/types/fti";
 
@@ -28,19 +26,34 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const [requests, users] = await Promise.all([
+    const [requests, users, approvers] = await Promise.all([
       getAllFTIRequests(),
       getUsers(),
+      getUserApprovers().catch(() => []),
     ]);
 
     const userMap = new Map(users.map((u) => [u.userId, u.fullName]));
     const isAdmin = session.userRoleId === 1;
 
+    // Build a set of requester user IDs for which the current user is an approver
+    // (from the UserApprovers sheet — the source of truth for who may approve whom).
+    const mappedRequesterIds = new Set<string>();
+    for (const m of approvers) {
+      if (m.approverUserId === session.userId) {
+        mappedRequesterIds.add(m.requesterUserId);
+      }
+    }
+
     const filtered = userIdFilter
       ? requests.filter((r) => r.userId === userIdFilter)
       : isAdmin
         ? requests
-        : requests.filter((r) => r.userId === session.userId);
+        : requests.filter(
+            (r) =>
+              r.userId === session.userId ||
+              r.approverUserId === session.userId ||
+              mappedRequesterIds.has(r.userId),
+          );
 
     const sorted = [...filtered].sort((x, y) =>
       (y.dateCreated || "").localeCompare(x.dateCreated || ""),

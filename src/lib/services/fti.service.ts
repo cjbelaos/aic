@@ -59,6 +59,24 @@ export const ftiService = {
     return res.data;
   },
 
+  /**
+   * Perform an approval action on a SENT request.
+   * Only the assigned approver (or admin) can perform these.
+   * For "approve", ftiFileLink is the Google Drive link of the signed PDF.
+   */
+  async approveAction(
+    controlNo: string,
+    action: "approve" | "request_change" | "reject",
+    comment?: string,
+    ftiFileLink?: string,
+  ): Promise<FTIRequestFull> {
+    const res = await api.patch<FTIRequestFull>(
+      `/fti/requests/${encodeURIComponent(controlNo)}`,
+      { action, comment, ftiFileLink },
+    );
+    return res.data;
+  },
+
   async deleteRequest(controlNo: string): Promise<void> {
     await api.delete(`/fti/requests/${encodeURIComponent(controlNo)}`);
   },

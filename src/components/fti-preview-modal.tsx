@@ -1,7 +1,14 @@
 "use client";
 
-import { useRef } from "react";
-import { Loader2, Download, Save } from "lucide-react";
+import { useRef, useState } from "react";
+import {
+  Loader2,
+  Download,
+  Save,
+  CheckCircle2,
+  MessageSquareWarning,
+  XCircle,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +17,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import FTIPrintDocument from "@/components/fti-print-document";
 
 // Re-export shared types so existing imports keep working.
@@ -32,6 +41,18 @@ interface FTIPreviewModalProps {
   onSaveData?: () => void;
   savingData?: boolean;
   readOnly?: boolean;
+  // ── Approval actions ──
+  approvalActions?: {
+    onApprove: (comment: string) => void;
+    onRequestChange: (comment: string) => void;
+    onReject: (comment: string) => void;
+    actionInProgress?: boolean;
+  };
+  approvalComment?: string;
+  approvalStatus?: string;
+  // ── Approval display on the printed document ──
+  approvedBy?: string;
+  approvedBySignatureUrl?: string;
 }
 
 export default function FTIPreviewModal({
@@ -47,8 +68,14 @@ export default function FTIPreviewModal({
   onSaveData,
   savingData = false,
   readOnly = false,
+  approvalActions,
+  approvalComment,
+  approvalStatus,
+  approvedBy,
+  approvedBySignatureUrl,
 }: FTIPreviewModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
+  const [comment, setComment] = useState("");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,36 +95,111 @@ export default function FTIPreviewModal({
             fullName={fullName}
             kmPerLiter={kmPerLiter}
             id="fti-preview-content"
+            approvedBy={approvedBy}
+            approvedBySignatureUrl={approvedBySignatureUrl}
           />
         </div>
 
         {/* ── Actions ── */}
-        <DialogFooter className="flex flex-wrap gap-2 pt-3 border-t">
-          {onDownloadPdf && (
-            <Button
-              variant="outline"
-              onClick={onDownloadPdf}
-              disabled={downloadingPdf}
-            >
-              {downloadingPdf ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              Download PDF
-            </Button>
-          )}
-          {!readOnly && onSaveData && (
-            <Button onClick={onSaveData} disabled={savingData}>
-              {savingData ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-4 w-4" />
-              )}
-              Save Data
-            </Button>
-          )}
-        </DialogFooter>
+        {(onDownloadPdf || (!readOnly && onSaveData) || approvalActions) && (
+          <DialogFooter className="flex flex-wrap gap-2 pt-3 border-t">
+            {onDownloadPdf && (
+              <Button
+                variant="outline"
+                onClick={onDownloadPdf}
+                disabled={downloadingPdf}
+              >
+                {downloadingPdf ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Download PDF
+              </Button>
+            )}
+            {!readOnly && onSaveData && (
+              <Button onClick={onSaveData} disabled={savingData}>
+                {savingData ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Save Data
+              </Button>
+            )}
+
+            {/* ── Approval action area ── */}
+            {approvalActions && (
+              <div className="w-full">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fti-approval-comment">
+                      Comment{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (required for Request for Change)
+                      </span>
+                    </Label>
+                    <Input
+                      id="fti-approval-comment"
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      placeholder="Type your comments for the requester..."
+                      disabled={approvalActions?.actionInProgress}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-start justify-end gap-2 pt-5">
+                    <Button
+                      variant="default"
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => approvalActions?.onApprove(comment)}
+                      disabled={approvalActions?.actionInProgress}
+                    >
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="text-amber-600 border-amber-300 hover:bg-amber-50"
+                      onClick={() => approvalActions?.onRequestChange(comment)}
+                      disabled={approvalActions?.actionInProgress}
+                    >
+                      <MessageSquareWarning className="mr-2 h-4 w-4" />
+                      Request for Change
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => approvalActions?.onReject(comment)}
+                      disabled={approvalActions?.actionInProgress}
+                    >
+                      <XCircle className="mr-2 h-4 w-4" />
+                      Reject
+                    </Button>
+                  </div>
+                </div>
+                {approvalActions?.actionInProgress && (
+                  <div className="flex justify-end pt-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogFooter>
+        )}
+
+        {/* ── Approval info (shown to requester / read-only viewers) ── */}
+        {approvalStatus && (
+          <div className="pt-2 border-t text-sm text-muted-foreground">
+            Status:{" "}
+            <span className="font-semibold text-foreground">
+              {approvalStatus}
+            </span>
+            {approvalComment && (
+              <span className="block mt-1">
+                Approver comment: <em>{approvalComment}</em>
+              </span>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
