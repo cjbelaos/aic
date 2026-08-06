@@ -340,7 +340,10 @@ export default function UsersPage() {
             open={modalOpen}
             onOpenChange={(open) => !saving && setModalOpen(open)}
           >
-            <DialogContent className="sm:max-w-md">
+            <DialogContent
+              className="sm:max-w-md"
+              onPointerDownOutside={(e) => e.preventDefault()}
+            >
               <DialogHeader>
                 <DialogTitle>
                   {editTarget ? "Edit User" : "Add New User"}
@@ -413,7 +416,7 @@ export default function UsersPage() {
                       setForm((c) => ({ ...c, userRoleId: Number(value) }))
                     }
                   >
-                    <SelectTrigger id="user-role">
+                    <SelectTrigger id="user-role" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -432,7 +435,7 @@ export default function UsersPage() {
                       setForm((c) => ({ ...c, departmentId: Number(value) }))
                     }
                   >
-                    <SelectTrigger id="user-department">
+                    <SelectTrigger id="user-department" className="w-full">
                       <SelectValue placeholder="Select department" />
                     </SelectTrigger>
                     <SelectContent>
@@ -458,7 +461,7 @@ export default function UsersPage() {
                       setForm((c) => ({ ...c, positionId: Number(value) }))
                     }
                   >
-                    <SelectTrigger id="user-position">
+                    <SelectTrigger id="user-position" className="w-full">
                       <SelectValue placeholder="Select position" />
                     </SelectTrigger>
                     <SelectContent>
