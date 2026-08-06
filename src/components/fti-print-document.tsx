@@ -296,23 +296,34 @@ export default function FTIPrintDocument({
 
       {/* ── Signature Section ── */}
       <div className="pt-12 text-xs flex justify-between items-start">
-        <div className="w-1/4">
+        <div className="w-1/3">
           <p className="font-normal text-gray-800">
-            Prepared by: {fullName || technician}
+            Prepared by:{" "}
+            <span className="font-semibold text-slate-900">
+              {fullName || technician}
+            </span>
           </p>
         </div>
-        <div className="w-1/4">
-          {approvedBy && approvedBySignatureUrl && (
-            <img
-              src={approvedBySignatureUrl}
-              alt="Approver Signature"
-              className="h-10 w-auto object-contain mb-1"
-            />
-          )}
-          <p className="font-normal text-gray-800">
-            Approved by: {approvedBy || ""}
-          </p>
+
+        <div className="w-1/3">
+          <div className="inline-flex items-center gap-1">
+            <span className="font-normal text-gray-800">Approved by:</span>
+            <div className="relative inline-block">
+              {/* Centered signature floating directly above the full name */}
+              {approvedBy && approvedBySignatureUrl && (
+                <img
+                  src={approvedBySignatureUrl}
+                  alt="Approver Signature"
+                  className="absolute left-1/2 -bottom-1 -translate-x-1/2 h-16 w-auto object-contain pointer-events-none filter contrast-125 z-10"
+                />
+              )}
+              <span className="font-semibold text-slate-900 px-1">
+                {approvedBy || ""}
+              </span>
+            </div>
+          </div>
         </div>
+
         <div className="w-1/3 space-y-8">
           <p className="font-normal text-gray-800">Released Cash by:</p>
           <p className="font-normal text-gray-800">

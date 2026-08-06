@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
         : requests.filter(
             (r) =>
               r.userId === session.userId ||
-              r.approverUserId === session.userId ||
+              r.approvedByUserId === session.userId ||
               mappedRequesterIds.has(r.userId),
           );
 

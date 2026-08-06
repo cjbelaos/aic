@@ -21,10 +21,10 @@ type RouteContext = { params: Promise<{ controlNo: string }> };
 async function isAuthorizedApprover(
   sessionUserId: string,
   isAdmin: boolean,
-  full: { userId: string; approverUserId?: string },
+  full: { userId: string; approvedByUserId?: string },
 ): Promise<boolean> {
   if (isAdmin) return true;
-  if (full.approverUserId === sessionUserId) return true;
+  if (full.approvedByUserId === sessionUserId) return true;
   try {
     const approvers = await getUserApprovers();
     return approvers.some(
@@ -132,7 +132,14 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         comment?: string;
         ftiFileLink?: string;
       };
-      await updateFTIApproval(decoded, action, session.userId, comment);
+      await updateFTIApproval(
+        decoded,
+        action,
+        session.userId,
+        body.approvedByName,
+        body.approvedBySignatureUrl,
+        comment,
+      );
       // Persist the signed PDF Google Drive link (approval only).
       if (action === "approve" && ftiFileLink) {
         await updateFTIFileLink(decoded, ftiFileLink);

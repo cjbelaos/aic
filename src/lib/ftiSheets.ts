@@ -7,7 +7,6 @@ import {
 import { getAllMiscellaneous } from "@/lib/miscellaneousSheets";
 import { getUsers } from "@/lib/userSheets";
 import { getCustomers } from "@/lib/customerSheets";
-import { getApproverForRequester } from "@/lib/userApproverSheets";
 import { EXPRESSWAY_GROUPS } from "@/lib/tollMatrix";
 import type {
   FTIRequest,
@@ -34,7 +33,7 @@ const FTI_SEGMENTS_SHEET = "FTISegments";
 const USER_FUEL_PER_KM_SHEET = "UserFuelPerKm";
 const FTI_LIST_SHEET = "FTIList";
 
-const RANGE_REQUEST = `${FTI_REQUEST_SHEET}!A2:J`; // A=controlNo, B=userId, C=status, D=dateCreated, E=ftiFileLink, F=totalAmount, G=approverUserId, H=dateApproved, I=approvalComment
+const RANGE_REQUEST = `${FTI_REQUEST_SHEET}!A2:K`;
 const RANGE_DETAILS = `${FTI_DETAILS_SHEET}!A2:I`; // A=detailId, B=controlNo, C=date, D=itinerary, E=description, F=km, G=fuelPrice, H=fuelSubTotal, I=tollFee
 const RANGE_EXPENSES = `${FTI_EXPENSES_SHEET}!A2:D`; // A=expenseId, B=detailId, C=miscCode, D=amount
 const RANGE_LEGS = `${FTI_LEGS_SHEET}!A2:I`; // A=legId, B=detailId, C=controlNo, D=originName, E=originAddress, F=destName, G=destAddress, H=tollFee, I=distanceKm
@@ -245,9 +244,11 @@ async function getAllFTIRequestsRaw(): Promise<FTIRequest[]> {
     totalAmount: (row[5] || "").toString().trim()
       ? parseFloat((row[5] || "").toString().trim())
       : undefined,
-    approverUserId: (row[6] || "").toString().trim() || undefined,
-    dateApproved: (row[7] || "").toString().trim() || undefined,
-    approvalComment: (row[8] || "").toString().trim() || undefined,
+    approvedByUserId: (row[6] || "").toString().trim() || undefined,
+    approvedByName: (row[7] || "").toString().trim() || undefined,
+    approvedBySignatureUrl: (row[8] || "").toString().trim() || undefined,
+    approvedDate: (row[9] || "").toString().trim() || undefined,
+    approvalComment: (row[10] || "").toString().trim() || undefined,
   }));
 }
 
@@ -408,7 +409,9 @@ export async function resolveApproverForRequester(
 export async function updateFTIApproval(
   controlNo: string,
   action: "approve" | "request_change" | "reject",
-  approverUserId: string,
+  approvedByUserId: string,
+  approvedByName?: string,
+  approvedBySignatureUrl?: string,
   comment?: string,
 ): Promise<void> {
   const spreadsheetId = await getDatabaseSpreadsheetId();
@@ -424,7 +427,7 @@ export async function updateFTIApproval(
         ? "REQUESTED_FOR_CHANGE"
         : "REJECTED";
   const dateApproved = formatPhilippineTimestamp();
-  const approvedValue = action === "approve" ? dateApproved : "";
+  const isApprove = action === "approve";
 
   const sheets = await getSheetsClient();
   // Write each column independently so DateCreated (D), ftiFileLink (E),
@@ -439,20 +442,33 @@ export async function updateFTIApproval(
     spreadsheetId,
     range: `${FTI_REQUEST_SHEET}!G${rowNumber}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[approverUserId]] },
+    requestBody: { values: [[approvedByUserId]] },
   });
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${FTI_REQUEST_SHEET}!H${rowNumber}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[approvedValue]] },
+    requestBody: { values: [[isApprove ? approvedByName : ""]] },
   });
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${FTI_REQUEST_SHEET}!I${rowNumber}`,
     valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[isApprove ? approvedBySignatureUrl : ""]] },
+  });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${FTI_REQUEST_SHEET}!J${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[isApprove ? dateApproved : ""]] },
+  });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${FTI_REQUEST_SHEET}!K${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
     requestBody: { values: [[comment || ""]] },
   });
+
   // Mirror the approved details into the legacy FTIList tab (approve only).
   if (action === "approve") {
     await exportFTIListOnApproval(controlNo).catch(() => {
@@ -475,7 +491,7 @@ export async function updateFTIRequestStatus(
   // When a request is submitted, auto-assign the configured approver.
   if (status.toUpperCase() === "SENT") {
     const req = all[idx];
-    if (req && !req.approverUserId) {
+    if (req && !req.approvedByUserId) {
       const approver = await resolveApproverForRequester(req.userId);
       if (approver) {
         const sheets = await getSheetsClient();

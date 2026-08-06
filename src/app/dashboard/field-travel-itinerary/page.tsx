@@ -1054,6 +1054,8 @@ export default function FieldTravelItineraryPage() {
     try {
       const full = await ftiService.getRequest(item.controlNo);
       setViewRequest(full);
+      setApprovedBy(full.approvedByName || "");
+      setApprovedBySignatureUrl(full.approvedBySignatureUrl || "");
       setViewModalOpen(true);
     } catch {
       toast.error("Failed to load FTI details.");
@@ -1072,6 +1074,8 @@ export default function FieldTravelItineraryPage() {
     setApprovalInProgress(true);
     try {
       let fileLink: string | undefined;
+      let approvedName: string | undefined;
+      let approvedSignature = "";
       if (action === "approve") {
         // Fetch the approver's e-signature to render on the signed PDF.
         let signatureUrl = "";
@@ -1085,6 +1089,8 @@ export default function FieldTravelItineraryPage() {
         }
         setApprovedBy(formInfo?.currentUserFullName || "");
         setApprovedBySignatureUrl(signatureUrl);
+        approvedName = formInfo?.currentUserFullName;
+        approvedSignature = signatureUrl;
         // Let the modal re-render with the approval block before capture.
         await new Promise((r) => setTimeout(r, 150));
         const blob = await generatePdfBlob();
@@ -1095,6 +1101,8 @@ export default function FieldTravelItineraryPage() {
         action,
         comment.trim(),
         fileLink,
+        approvedName,
+        approvedSignature,
       );
       toast.success(
         action === "approve"

@@ -399,7 +399,6 @@ export default function QuotationsPage() {
         grandTotal: formPayload.grandTotal || 0,
         status: finalStatus,
       };
-      console.log(payload);
       // Save the quotation first (sends PDF to Drive if SENT and pdfBlob provided)
       const result = await quotationService.saveQuotation(payload, pdfBlob);
 

@@ -11,8 +11,10 @@ export interface FTIRequest {
   dateCreated: string;
   ftiFileLink?: string;
   totalAmount?: number;
-  approverUserId?: string;
-  dateApproved?: string;
+  approvedByUserId?: string;
+  approvedByName?: string;
+  approvedBySignatureUrl?: string;
+  approvedDate?: string;
   approvalComment?: string;
 }
 

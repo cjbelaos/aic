@@ -3,7 +3,7 @@ import { Readable } from "stream";
 import { getSheetsAndDriveClient } from "@/lib/googleSheets";
 import { getSession } from "@/lib/auth/session";
 
-const FTI_DRIVE_FOLDER_ID = "1nwGI5ZBTJaPgfh7260X_kxP3goZcnXsc";
+const FTI_DRIVE_FOLDER_ID = "1Lzr8kqlrZ94RPVwhVfCgt2H6p5nFORzG";
 
 export async function POST(req: NextRequest) {
   try {

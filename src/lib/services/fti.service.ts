@@ -69,10 +69,12 @@ export const ftiService = {
     action: "approve" | "request_change" | "reject",
     comment?: string,
     ftiFileLink?: string,
+    approvedByName?: string,
+    approvedBySignatureUrl?: string,
   ): Promise<FTIRequestFull> {
     const res = await api.patch<FTIRequestFull>(
       `/fti/requests/${encodeURIComponent(controlNo)}`,
-      { action, comment, ftiFileLink },
+      { action, comment, ftiFileLink, approvedByName, approvedBySignatureUrl },
     );
     return res.data;
   },
