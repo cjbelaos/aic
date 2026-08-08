@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown, Loader2, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -33,14 +34,15 @@ let openContactsFor: (c: Company) => void = () => {};
 
 function exportToExcel(rows: Company[]) {
   if (rows.length === 0) {
-    toast.error("No supplier records found to export.");
+    toast.error("No company records found to export.");
     return;
   }
 
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Suppliers");
+  const worksheet = workbook.addWorksheet("Companies");
 
   worksheet.columns = [
+    { header: "Company Type", key: "companyType", width: 15 },
     { header: "Company Name", key: "companyName", width: 25 },
     { header: "TIN", key: "tin", width: 18 },
     { header: "Address", key: "address", width: 35 },
@@ -49,6 +51,7 @@ function exportToExcel(rows: Company[]) {
 
   rows.forEach((r) => {
     worksheet.addRow({
+      companyType: r.companyType,
       companyName: r.companyName,
       tin: r.tin,
       address: r.address,
@@ -65,7 +68,7 @@ function exportToExcel(rows: Company[]) {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "suppliers.xlsx";
+      link.download = "companies.xlsx";
       link.click();
       window.URL.revokeObjectURL(url);
     })
@@ -84,11 +87,31 @@ const EMPTY_FORM: CreateCompanyPayload = {
   status: "active",
 };
 
-function isSupplierType(t: CompanyType): boolean {
-  return t === "Supplier" || t === "Both";
-}
+const COMPANY_TYPES: CompanyType[] = ["Supplier", "Customer", "Both"];
+
+type TypeFilter = "all" | "supplier" | "customer" | "both";
 
 const columns: ColumnDef<Company>[] = [
+  {
+    accessorKey: "companyType",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 font-semibold"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Company Type <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+      </Button>
+    ),
+    cell: ({ row }) => (
+      <Badge
+        variant={row.original.companyType === "Both" ? "default" : "secondary"}
+      >
+        {row.original.companyType}
+      </Badge>
+    ),
+  },
   {
     accessorKey: "companyName",
     header: ({ column }) => (
@@ -172,7 +195,11 @@ const columns: ColumnDef<Company>[] = [
   },
 ];
 
-export default function SuppliersPage() {
+function CompaniesPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const typeParam = searchParams.get("type");
+
   const [data, setData] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -182,28 +209,84 @@ export default function SuppliersPage() {
   const [form, setForm] = useState<CreateCompanyPayload>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
   const [contactsCompany, setContactsCompany] = useState<Company | null>(null);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+
+  // Sync the filter whenever the URL search params change. Client-side
+  // navigation (e.g. clicking the sidebar Suppliers/Customers shortcuts
+  // while already on this page) only changes the query string, so this
+  // effect — rather than a mount-only read — keeps the view in sync.
+  useEffect(() => {
+    if (
+      typeParam === "supplier" ||
+      typeParam === "customer" ||
+      typeParam === "both"
+    ) {
+      setTypeFilter(typeParam);
+    } else {
+      setTypeFilter("all");
+    }
+  }, [typeParam]);
+
+  const handleTypeFilterChange = (v: TypeFilter) => {
+    setTypeFilter(v);
+    const params = new URLSearchParams(searchParams.toString());
+    if (v === "all") {
+      params.delete("type");
+    } else {
+      params.set("type", v);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/dashboard/companies?${qs}` : "/dashboard/companies");
+  };
 
   useEffect(() => {
     openContactsFor = (c) => setContactsCompany(c);
   }, []);
 
-  const loadSuppliers = async () => {
+  const filteredData = useMemo(() => {
+    if (typeFilter === "all") return data;
+    if (typeFilter === "both") {
+      return data.filter((c) => c.companyType === "Both");
+    }
+    if (typeFilter === "supplier") {
+      return data.filter(
+        (c) => c.companyType === "Supplier" || c.companyType === "Both",
+      );
+    }
+    return data.filter(
+      (c) => c.companyType === "Customer" || c.companyType === "Both",
+    );
+  }, [data, typeFilter]);
+
+  const loadCompanies = async () => {
     try {
       const companies = await companyService.getAll();
-      const suppliers = companies.filter((c) => isSupplierType(c.companyType));
-      setData(suppliers);
+      setData(companies);
     } catch {
-      toast.error("Failed to load suppliers.");
+      toast.error("Failed to load companies.");
     }
   };
 
   useEffect(() => {
-    loadSuppliers().finally(() => setLoading(false));
+    loadCompanies().finally(() => setLoading(false));
   }, []);
+
+  // When the page was opened via the Customers/Suppliers shortcut, the type
+  // is implied by the URL and must not be changed on create; otherwise it is
+  // user-selectable.
+  const lockedType: CompanyType | null =
+    typeParam === "customer"
+      ? "Customer"
+      : typeParam === "supplier"
+        ? "Supplier"
+        : null;
 
   const openCreate = () => {
     setEditTarget(null);
-    setForm(EMPTY_FORM);
+    setForm({
+      ...EMPTY_FORM,
+      companyType: lockedType ?? EMPTY_FORM.companyType,
+    });
     setError("");
     setModalOpen(true);
   };
@@ -211,7 +294,7 @@ export default function SuppliersPage() {
   const openEdit = (row: Company) => {
     setEditTarget(row);
     setForm({
-      companyId: row.companyId,
+      companyId: row.companyId, // kept in state for import only, not shown in form
       companyType: row.companyType,
       companyName: row.companyName,
       tin: row.tin,
@@ -237,15 +320,12 @@ export default function SuppliersPage() {
           ...form,
           id: editTarget.id,
         });
-        await loadSuppliers();
-        toast.success("Supplier updated successfully.");
+        await loadCompanies();
+        toast.success("Company updated successfully.");
       } else {
-        await companyService.create({
-          ...form,
-          companyType: "Supplier",
-        });
-        await loadSuppliers();
-        toast.success("Supplier created successfully.");
+        await companyService.create(form);
+        await loadCompanies();
+        toast.success("Company created successfully.");
       }
       setModalOpen(false);
     } catch (err) {
@@ -260,11 +340,11 @@ export default function SuppliersPage() {
     if (!deleteTarget) return;
     try {
       await companyService.delete(deleteTarget.id);
-      await loadSuppliers();
+      await loadCompanies();
       toast.success(`"${deleteTarget.companyName}" deleted successfully.`);
     } catch (err) {
       console.error("Delete error:", err);
-      toast.error("Failed to delete supplier.");
+      toast.error("Failed to delete company.");
     } finally {
       setDeleteTarget(null);
     }
@@ -284,7 +364,7 @@ export default function SuppliersPage() {
         return;
       }
 
-      const suppliersToImport: CreateCompanyPayload[] = [];
+      const companiesToImport: CreateCompanyPayload[] = [];
       const headers: string[] = [];
 
       worksheet.eachRow((row, rowNumber) => {
@@ -310,18 +390,31 @@ export default function SuppliersPage() {
         });
 
         const companyName = String(
-          rowData["Company Name"] || rowData["Supplier Name"] || "",
+          rowData["Company Name"] ||
+            rowData["Supplier Name"] ||
+            rowData["Customer Name"] ||
+            "",
         ).trim();
         if (!companyName) return;
+
+        const rawType = String(rowData["Company Type"] || "Supplier")
+          .trim()
+          .toLowerCase();
+        const companyType: CompanyType =
+          rawType === "customer"
+            ? "Customer"
+            : rawType === "both"
+              ? "Both"
+              : "Supplier";
 
         const rawStatus = String(rowData["Status"] || "")
           .toLowerCase()
           .trim();
         const status = rawStatus === "inactive" ? "inactive" : "active";
 
-        suppliersToImport.push({
+        companiesToImport.push({
           companyId: String(rowData["Company ID"] || "").trim(),
-          companyType: "Supplier",
+          companyType,
           companyName,
           tin: String(rowData["TIN"] || "").trim(),
           address: String(
@@ -331,9 +424,9 @@ export default function SuppliersPage() {
         });
       });
 
-      if (suppliersToImport.length === 0) {
+      if (companiesToImport.length === 0) {
         toast.error(
-          "No valid supplier profiles found inside the selected workbook.",
+          "No valid company profiles found inside the selected workbook.",
         );
         return;
       }
@@ -352,16 +445,16 @@ export default function SuppliersPage() {
         return;
       }
 
-      toast.loading(`Importing ${suppliersToImport.length} fresh records...`, {
+      toast.loading(`Importing ${companiesToImport.length} fresh records...`, {
         id: toastId,
       });
 
       let successCount = 0;
       let failCount = 0;
 
-      for (const supplier of suppliersToImport) {
+      for (const company of companiesToImport) {
         try {
-          const res = await companyService.create(supplier);
+          const res = await companyService.create(company);
           if (res) successCount++;
           else failCount++;
         } catch {
@@ -369,15 +462,15 @@ export default function SuppliersPage() {
         }
       }
 
-      await loadSuppliers();
+      await loadCompanies();
 
       if (failCount === 0) {
-        toast.success(`Successfully imported ${successCount} suppliers.`, {
+        toast.success(`Successfully imported ${successCount} companies.`, {
           id: toastId,
         });
       } else {
         toast.warning(
-          `Imported ${successCount} suppliers. ${failCount} failed.`,
+          `Imported ${successCount} companies. ${failCount} failed.`,
           { id: toastId },
         );
       }
@@ -391,10 +484,30 @@ export default function SuppliersPage() {
 
   return (
     <>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="co-filter" className="text-sm whitespace-nowrap">
+          Company Type:
+        </Label>
+        <Select
+          value={typeFilter}
+          onValueChange={(v) => handleTypeFilterChange(v as TypeFilter)}
+        >
+          <SelectTrigger id="co-filter" className="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="supplier">Suppliers</SelectItem>
+            <SelectItem value="customer">Customers</SelectItem>
+            <SelectItem value="both">Both</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <EntityTable
-        title="Supplier List"
+        title="Companies"
         columns={columns}
-        data={data}
+        data={filteredData}
         loading={loading}
         onCreateNew={openCreate}
         onEdit={openEdit}
@@ -412,15 +525,38 @@ export default function SuppliersPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {editTarget ? "Edit Supplier" : "Create Supplier"}
+              {editTarget ? "Edit Company" : "Create Company"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {error && <p className="text-sm text-destructive">{error}</p>}
+            {!lockedType && (
+              <div className="space-y-1.5">
+                <Label htmlFor="co-type">Company Type</Label>
+                <Select
+                  value={form.companyType}
+                  disabled={saving}
+                  onValueChange={(v) =>
+                    setForm((f) => ({ ...f, companyType: v as CompanyType }))
+                  }
+                >
+                  <SelectTrigger id="co-type" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMPANY_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
-              <Label htmlFor="s-name">Company Name *</Label>
+              <Label htmlFor="co-name">Company Name *</Label>
               <Input
-                id="s-name"
+                id="co-name"
                 value={form.companyName}
                 disabled={saving}
                 onChange={(e) =>
@@ -429,9 +565,9 @@ export default function SuppliersPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-tin">TIN</Label>
+              <Label htmlFor="co-tin">TIN</Label>
               <Input
-                id="s-tin"
+                id="co-tin"
                 value={form.tin}
                 disabled={saving}
                 onChange={(e) =>
@@ -440,9 +576,9 @@ export default function SuppliersPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-address">Address</Label>
+              <Label htmlFor="co-address">Address</Label>
               <Input
-                id="s-address"
+                id="co-address"
                 value={form.address}
                 disabled={saving}
                 onChange={(e) =>
@@ -451,7 +587,7 @@ export default function SuppliersPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-status">Status</Label>
+              <Label htmlFor="co-status">Status</Label>
               <Select
                 value={form.status}
                 disabled={saving}
@@ -459,7 +595,7 @@ export default function SuppliersPage() {
                   setForm((f) => ({ ...f, status: v as "active" | "inactive" }))
                 }
               >
-                <SelectTrigger id="s-status" className="w-full">
+                <SelectTrigger id="co-status" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -491,7 +627,7 @@ export default function SuppliersPage() {
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}
-        description={`Delete supplier "${deleteTarget?.companyName}"? This cannot be undone.`}
+        description={`Delete company "${deleteTarget?.companyName}"? This cannot be undone.`}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
       />
@@ -504,5 +640,13 @@ export default function SuppliersPage() {
         }}
       />
     </>
+  );
+}
+
+export default function CompaniesPage() {
+  return (
+    <Suspense fallback={null}>
+      <CompaniesPageInner />
+    </Suspense>
   );
 }

@@ -27,6 +27,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarGroupContent,
@@ -34,41 +37,23 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 
-const navInventory = [
-  { title: "Products", href: "/dashboard/products", icon: Package },
-  {
-    title: "Product Categories",
-    href: "/dashboard/product-categories",
-    icon: Ruler,
-  },
-  { title: "Product Units", href: "/dashboard/product-units", icon: Ruler },
-  { title: "Customers", href: "/dashboard/customers", icon: Users },
-  {
-    title: "Customer Prices",
-    href: "/dashboard/customer-prices",
-    icon: TrendingUp,
-  },
-  { title: "Suppliers", href: "/dashboard/suppliers", icon: Building2 },
-  { title: "Machines", href: "/dashboard/machines", icon: Cpu },
-  { title: "Quotations", href: "/dashboard/quotations", icon: FileText },
-];
-
-const navOrders = [
-  {
-    title: "Purchase Orders",
-    href: "/dashboard/#",
-    icon: ShoppingCart,
-  },
-  { title: "Sales Orders", href: "/dashboard/#", icon: TrendingUp },
-  {
-    title: "Machine Orders",
-    href: "/dashboard/#",
-    icon: ClipboardList,
-  },
-];
-
 export function AppSidebar() {
   const pathname = usePathname();
+
+  // Determine whether a nav item is active. Items with query-string hrefs
+  // (e.g. /dashboard/companies?type=customer) match only when both the base
+  // path and the full query string are active.
+  const isItemActive = (href: string): boolean => {
+    if (href.includes("?")) {
+      const [base, query] = href.split("?");
+      return (
+        pathname === base &&
+        typeof window !== "undefined" &&
+        window.location.search === `?${query}`
+      );
+    }
+    return pathname.startsWith(href);
+  };
 
   return (
     <Sidebar collapsible="icon">
@@ -120,20 +105,181 @@ export function AppSidebar() {
           <SidebarGroupLabel>Inventory</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navInventory.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname.startsWith(item.href)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.href}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/products")}
+                  tooltip="Products"
+                >
+                  <Link href="/dashboard/products">
+                    <Package />
+                    <span>Products</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/product-categories")}
+                  tooltip="Product Categories"
+                >
+                  <Link href="/dashboard/product-categories">
+                    <Ruler />
+                    <span>Product Categories</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/product-units")}
+                  tooltip="Product Units"
+                >
+                  <Link href="/dashboard/product-units">
+                    <Ruler />
+                    <span>Product Units</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/machines")}
+                  tooltip="Machines"
+                >
+                  <Link href="/dashboard/machines">
+                    <Cpu />
+                    <span>Machines</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        {/* ── Contacts & Parties ───────────────────────────────────── */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Contacts & Parties</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {/* Companies (master view) with Customers/Suppliers as
+                  filter shortcuts nested underneath */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={
+                    pathname === "/dashboard/companies" &&
+                    isItemActive("/dashboard/companies")
+                  }
+                  tooltip="Companies"
+                >
+                  <Link href="/dashboard/companies">
+                    <Building2 />
+                    <span>Companies</span>
+                  </Link>
+                </SidebarMenuButton>
+                <SidebarMenuSub>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      asChild
+                      isActive={isItemActive(
+                        "/dashboard/companies?type=customer",
+                      )}
+                    >
+                      <Link href="/dashboard/companies?type=customer">
+                        <Users />
+                        <span>Customers</span>
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      asChild
+                      isActive={isItemActive(
+                        "/dashboard/companies?type=supplier",
+                      )}
+                    >
+                      <Link href="/dashboard/companies?type=supplier">
+                        <Building2 />
+                        <span>Suppliers</span>
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                </SidebarMenuSub>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/customer-prices")}
+                  tooltip="Customer Prices"
+                >
+                  <Link href="/dashboard/customer-prices">
+                    <TrendingUp />
+                    <span>Customer Prices</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        {/* ── Sales ─────────────────────────────────────────────────── */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Sales</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/quotations")}
+                  tooltip="Quotations"
+                >
+                  <Link href="/dashboard/quotations">
+                    <FileText />
+                    <span>Quotations</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/#")}
+                  tooltip="Purchase Orders"
+                >
+                  <Link href="/dashboard/#">
+                    <ShoppingCart />
+                    <span>Purchase Orders</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/#")}
+                  tooltip="Sales Orders"
+                >
+                  <Link href="/dashboard/#">
+                    <TrendingUp />
+                    <span>Sales Orders</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/#")}
+                  tooltip="Machine Orders"
+                >
+                  <Link href="/dashboard/#">
+                    <ClipboardList />
+                    <span>Machine Orders</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -208,31 +354,6 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarSeparator />
-
-        {/* ── Orders ───────────────────────────────────────────────── */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Orders</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navOrders.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname.startsWith(item.href)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.href}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

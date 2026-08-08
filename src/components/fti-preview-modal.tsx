@@ -154,7 +154,11 @@ export default function FTIPreviewModal({
                       onClick={() => approvalActions?.onApprove(comment)}
                       disabled={approvalActions?.actionInProgress}
                     >
-                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      {approvalActions?.actionInProgress ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                      )}
                       Approve
                     </Button>
                     <Button
@@ -163,7 +167,11 @@ export default function FTIPreviewModal({
                       onClick={() => approvalActions?.onRequestChange(comment)}
                       disabled={approvalActions?.actionInProgress}
                     >
-                      <MessageSquareWarning className="mr-2 h-4 w-4" />
+                      {approvalActions?.actionInProgress ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <MessageSquareWarning className="mr-2 h-4 w-4" />
+                      )}
                       Request for Change
                     </Button>
                     <Button
@@ -171,16 +179,15 @@ export default function FTIPreviewModal({
                       onClick={() => approvalActions?.onReject(comment)}
                       disabled={approvalActions?.actionInProgress}
                     >
-                      <XCircle className="mr-2 h-4 w-4" />
+                      {approvalActions?.actionInProgress ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <XCircle className="mr-2 h-4 w-4" />
+                      )}
                       Reject
                     </Button>
                   </div>
                 </div>
-                {approvalActions?.actionInProgress && (
-                  <div className="flex justify-end pt-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  </div>
-                )}
               </div>
             )}
           </DialogFooter>

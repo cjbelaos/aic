@@ -55,6 +55,10 @@ const supplierService = {
       throw error;
     }
   },
+
+  clearAll: async (): Promise<void> => {
+    await axios.delete(API_BASE_URL);
+  },
 };
 
 export default supplierService;

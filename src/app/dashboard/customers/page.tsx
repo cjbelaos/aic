@@ -8,6 +8,7 @@ import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { EntityTable } from "@/components/ui/entity-table";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import {
@@ -17,11 +18,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import customerService from "@/lib/services/customer.service";
-import { Customer, CreateCustomerPayload } from "@/types/customer";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import companyService from "@/lib/services/company.service";
+import { Company, CompanyType, CreateCompanyPayload } from "@/types/company";
 
-// Exports data safely using ExcelJS buffer streams
-function exportToExcel(rows: Customer[]) {
+function exportToExcel(rows: Company[]) {
   if (rows.length === 0) {
     toast.error("No customer records found to export.");
     return;
@@ -31,23 +38,18 @@ function exportToExcel(rows: Customer[]) {
   const worksheet = workbook.addWorksheet("Customers");
 
   worksheet.columns = [
-    { header: "Customer Name", key: "customerName", width: 25 },
     { header: "Company Name", key: "companyName", width: 25 },
-    { header: "Contact Person", key: "contactPerson", width: 20 },
-    { header: "Contact Number", key: "contactNumber", width: 18 },
-    { header: "Email Address", key: "email", width: 25 },
-    { header: "TIN", key: "tin", width: 15 },
+    { header: "TIN", key: "tin", width: 18 },
     { header: "Address", key: "address", width: 35 },
+    { header: "Status", key: "status", width: 12 },
   ];
 
   rows.forEach((r) => {
     worksheet.addRow({
-      customerName: r.customerName,
-      contactPerson: r.contactPerson,
-      contactNumber: r.contactNumber,
-      email: r.email,
+      companyName: r.companyName,
       tin: r.tin,
       address: r.address,
+      status: r.status === "active" ? "Active" : "Inactive",
     });
   });
 
@@ -70,18 +72,22 @@ function exportToExcel(rows: Customer[]) {
     });
 }
 
-const EMPTY_FORM: CreateCustomerPayload = {
-  customerName: "",
-  contactPerson: "",
-  contactNumber: "",
-  email: "",
+const EMPTY_FORM: CreateCompanyPayload = {
+  companyId: "",
+  companyType: "Customer",
+  companyName: "",
   tin: "",
   address: "",
+  status: "active",
 };
 
-const columns: ColumnDef<Customer>[] = [
+function isCustomerType(t: CompanyType): boolean {
+  return t === "Customer" || t === "Both";
+}
+
+const columns: ColumnDef<Company>[] = [
   {
-    accessorKey: "customerName",
+    accessorKey: "companyName",
     header: ({ column }) => (
       <Button
         variant="ghost"
@@ -89,52 +95,13 @@ const columns: ColumnDef<Customer>[] = [
         className="-ml-3 h-8 font-semibold"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
-        Customer Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        Company Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
     cell: ({ row }) => (
       <span className="text-blue-600 font-medium">
-        {row.original.customerName}
+        {row.original.companyName}
       </span>
-    ),
-  },
-  {
-    accessorKey: "contactPerson",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Contact Person <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-  },
-  {
-    accessorKey: "contactNumber",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Contact Number <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-  },
-  {
-    accessorKey: "email",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Email Address <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
     ),
   },
   {
@@ -149,6 +116,7 @@ const columns: ColumnDef<Customer>[] = [
         TIN <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
+    cell: ({ row }) => <span>{row.original.tin || "—"}</span>,
   },
   {
     accessorKey: "address",
@@ -162,22 +130,44 @@ const columns: ColumnDef<Customer>[] = [
         Address <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
+    cell: ({ row }) => <span>{row.original.address || "—"}</span>,
+  },
+  {
+    accessorKey: "status",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 font-semibold"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Status <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+      </Button>
+    ),
+    cell: ({ row }) => (
+      <Badge
+        variant={row.original.status === "active" ? "default" : "secondary"}
+      >
+        {row.original.status === "active" ? "Active" : "Inactive"}
+      </Badge>
+    ),
   },
 ];
 
 export default function CustomersPage() {
-  const [data, setData] = useState<Customer[]>([]);
+  const [data, setData] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Customer | null>(null);
-  const [form, setForm] = useState<CreateCustomerPayload>(EMPTY_FORM);
-  const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+  const [editTarget, setEditTarget] = useState<Company | null>(null);
+  const [form, setForm] = useState<CreateCompanyPayload>(EMPTY_FORM);
+  const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
 
   const loadCustomers = async () => {
     try {
-      const customers = await customerService.getAll();
+      const companies = await companyService.getAll();
+      const customers = companies.filter((c) => isCustomerType(c.companyType));
       setData(customers);
     } catch {
       toast.error("Failed to load customers.");
@@ -195,56 +185,49 @@ export default function CustomersPage() {
     setModalOpen(true);
   };
 
-  const openEdit = (row: Customer) => {
+  const openEdit = (row: Company) => {
     setEditTarget(row);
     setForm({
-      customerName: row.customerName,
-      contactPerson: row.contactPerson,
-      contactNumber: row.contactNumber,
-      email: row.email,
+      companyId: row.companyId,
+      companyType: row.companyType,
+      companyName: row.companyName,
       tin: row.tin,
       address: row.address,
+      status: row.status,
     });
     setError("");
     setModalOpen(true);
   };
 
   const handleSave = async () => {
-    if (!form.customerName.trim()) {
-      setError("Customer name is required.");
+    if (!form.companyName.trim()) {
+      setError("Company name is required.");
       return;
     }
 
     setSaving(true);
     setError("");
 
-    // Standard entries are capitalized; Email is explicitly set to lowercase
-    const transformedForm: CreateCustomerPayload = {
-      customerName: form.customerName.trim().toUpperCase(),
-      contactPerson: form.contactPerson.trim().toUpperCase(),
-      contactNumber: form.contactNumber.trim().toUpperCase(),
-      email: form.email.trim().toLowerCase(),
-      tin: form.tin.trim().toUpperCase(),
-      address: form.address.trim().toUpperCase(),
-    };
-
     try {
       if (editTarget) {
-        await customerService.update({
-          ...transformedForm,
+        await companyService.update({
+          ...form,
           id: editTarget.id,
         });
         await loadCustomers();
         toast.success("Customer updated successfully.");
       } else {
-        // await customerService.create(transformedForm);
-        // await loadCustomers();
-        // toast.success("Customer created successfully.");
+        await companyService.create({
+          ...form,
+          companyType: "Customer",
+        });
+        await loadCustomers();
+        toast.success("Customer created successfully.");
       }
       setModalOpen(false);
     } catch (err) {
       console.error("Save error:", err);
-      setError("Server error encountered updating customer profile.");
+      setError("Server error. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -253,18 +236,17 @@ export default function CustomersPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await customerService.delete(deleteTarget.id);
+      await companyService.delete(deleteTarget.id);
       await loadCustomers();
-      toast.success(`"${deleteTarget.customerName}" deleted successfully.`);
+      toast.success(`"${deleteTarget.companyName}" deleted successfully.`);
     } catch (err) {
       console.error("Delete error:", err);
-      toast.error("Failed to delete customer configuration.");
+      toast.error("Failed to delete customer.");
     } finally {
       setDeleteTarget(null);
     }
   };
 
-  // Modernized: Import handler utilizing ExcelJS buffer reads exclusively
   const handleImport = async (file: File) => {
     let toastId: string | number | undefined;
 
@@ -279,12 +261,10 @@ export default function CustomersPage() {
         return;
       }
 
-      const customersToImport: CreateCustomerPayload[] = [];
+      const customersToImport: CreateCompanyPayload[] = [];
       const headers: string[] = [];
 
-      // Parse the sheet row by row manually
       worksheet.eachRow((row, rowNumber) => {
-        // Collect header text positions from the first row entry
         if (rowNumber === 1) {
           row.eachCell((cell) => {
             headers.push(String(cell.value || "").trim());
@@ -292,12 +272,10 @@ export default function CustomersPage() {
           return;
         }
 
-        // Build a dynamic object representing row cell values mapped to headers
         const rowData: Record<string, any> = {};
         row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
           const headerName = headers[colNumber - 1];
           if (headerName) {
-            // Check if cell is a formula or an object, extract primitive string text
             const cellValue =
               cell.value &&
               typeof cell.value === "object" &&
@@ -308,26 +286,23 @@ export default function CustomersPage() {
           }
         });
 
-        // Map spreadsheet records applying uppercase formatting generally and lowercase strictly to email structures
+        const companyName = String(
+          rowData["Company Name"] || rowData["Customer Name"] || "",
+        ).trim();
+        if (!companyName) return;
+
+        const rawStatus = String(rowData["Status"] || "")
+          .toLowerCase()
+          .trim();
+        const status = rawStatus === "inactive" ? "inactive" : "active";
+
         customersToImport.push({
-          customerName: String(rowData["Customer Name"] || "")
-            .trim()
-            .toUpperCase(),
-          contactPerson: String(rowData["Contact Person"] || "")
-            .trim()
-            .toUpperCase(),
-          contactNumber: String(rowData["Contact Number"] || "")
-            .trim()
-            .toUpperCase(),
-          email: String(rowData["Email Address"] || "")
-            .trim()
-            .toLowerCase(),
-          tin: String(rowData["TIN"] || "")
-            .trim()
-            .toUpperCase(),
-          address: String(rowData["Address"] || "")
-            .trim()
-            .toUpperCase(),
+          companyId: String(rowData["Company ID"] || "").trim(),
+          companyType: "Customer",
+          companyName,
+          tin: String(rowData["TIN"] || "").trim(),
+          address: String(rowData["Address"] || "").trim(),
+          status,
         });
       });
 
@@ -343,12 +318,9 @@ export default function CustomersPage() {
       );
 
       try {
-        const currentData = await customerService.getAll();
-        for (const existingCustomer of currentData) {
-          await customerService.delete(existingCustomer.id);
-        }
+        await companyService.getAll();
       } catch (clearErr) {
-        console.error("Failed to clear previous records:", clearErr);
+        console.error("Failed to verify company records:", clearErr);
         toast.error("Failed to reset existing customer list. Import aborted.", {
           id: toastId,
         });
@@ -364,7 +336,7 @@ export default function CustomersPage() {
 
       for (const customer of customersToImport) {
         try {
-          const res = await customerService.create(customer);
+          const res = await companyService.create(customer);
           if (res) successCount++;
           else failCount++;
         } catch {
@@ -421,46 +393,13 @@ export default function CustomersPage() {
           <div className="space-y-4 py-2">
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="space-y-1.5">
-              <Label htmlFor="c-name">Customer Name *</Label>
+              <Label htmlFor="c-name">Company Name *</Label>
               <Input
                 id="c-name"
-                value={form.customerName}
+                value={form.companyName}
                 disabled={saving}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, customerName: e.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="c-contact-person">Contact Person</Label>
-              <Input
-                id="c-contact-person"
-                value={form.contactPerson}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, contactPerson: e.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="c-contact-number">Contact Number</Label>
-              <Input
-                id="c-contact-number"
-                value={form.contactNumber}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, contactNumber: e.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="c-email">Email Address</Label>
-              <Input
-                id="c-email"
-                value={form.email}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, email: e.target.value }))
+                  setForm((f) => ({ ...f, companyName: e.target.value }))
                 }
               />
             </div>
@@ -486,6 +425,24 @@ export default function CustomersPage() {
                 }
               />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="c-status">Status</Label>
+              <Select
+                value={form.status}
+                disabled={saving}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, status: v as "active" | "inactive" }))
+                }
+              >
+                <SelectTrigger id="c-status" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -509,7 +466,7 @@ export default function CustomersPage() {
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}
-        description={`Delete customer "${deleteTarget?.customerName}"? This cannot be undone.`}
+        description={`Delete customer "${deleteTarget?.companyName}"? This cannot be undone.`}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
       />

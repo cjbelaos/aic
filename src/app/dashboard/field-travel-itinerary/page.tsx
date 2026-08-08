@@ -12,6 +12,7 @@ import {
   ArrowUpDown,
   Save,
   Send,
+  X,
 } from "lucide-react";
 import {
   Card,
@@ -535,16 +536,20 @@ export default function FieldTravelItineraryPage() {
         toast.error(`Leg distance is required for "${dest.name}".`);
         return;
       }
-      const legToll = dest.segments.reduce(
-        (s, seg) => s + (seg.tollFee || 0),
-        0,
-      );
-      if (legToll <= 0) {
-        toast.error(`Toll fee is required for leg "${dest.name}".`);
-        return;
+      // Toll is only required if the destination has expressway segments.
+      // Destinations without expressway segments can be saved with toll = 0.
+      if (dest.segments.length > 0) {
+        const legToll = dest.segments.reduce(
+          (s, seg) => s + (seg.tollFee || 0),
+          0,
+        );
+        if (legToll <= 0) {
+          toast.error(`Toll fee is required for leg "${dest.name}".`);
+          return;
+        }
       }
     }
-    if (totalTollFee <= 0) {
+    if (totalTollFee <= 0 && destinations.some((d) => d.segments.length > 0)) {
       toast.error(
         "Total toll fee is required before adding the itinerary row.",
       );
@@ -609,7 +614,7 @@ export default function FieldTravelItineraryPage() {
     setFormData((prev) => ({
       ...prev,
       date: format(new Date(), "yyyy-MM-dd"),
-      origin: "",
+      // origin and fuelPrice are intentionally preserved after adding a row
       itinerary: "",
       description: "",
       miscellaneous: "",
@@ -669,6 +674,29 @@ export default function FieldTravelItineraryPage() {
     toast.info(
       "Editing itinerary. Update fields and click 'Update Itinerary in List' to save.",
     );
+  };
+
+  // ── Cancel edit batch item ────────────────────
+  // Abandons the in-progress edit (the saved row stays untouched) and resets
+  // the entry form back to blank defaults — same behavior as "Reset Fields".
+  const handleCancelEdit = () => {
+    if (!editingItemId) return;
+    const today = new Date();
+    setSelectedDate(today);
+    setFormData((prev) => ({
+      ...prev,
+      date: format(today, "yyyy-MM-dd"),
+      // origin stays at the default AERICH value — do not revert it
+      itinerary: "",
+      description: "",
+      miscellaneous: "",
+      amount: "",
+      // fuelPrice is intentionally preserved as it is used across rows
+    }));
+    setDestinations([]);
+    setTotalKm(null);
+    setEditingItemId(null);
+    toast.info("Edit cancelled.");
   };
 
   const handleRemoveBatchItem = (id: string) => {
@@ -901,14 +929,25 @@ export default function FieldTravelItineraryPage() {
     }
     setBatchSubmitting(true);
     try {
-      await ftiService.updateRequest(formData.ftiRef, {
+      // The request (Control No + Date Created) is generated on the first
+      // save/submit — not when the form is opened — so abandoned drafts do
+      // not leave empty/orphan rows in the sheet.
+      let ref = formData.ftiRef;
+      if (!ref) {
+        const created = await ftiService.createRequest();
+        ref = created.controlNo;
+        setFormData((prev) => ({ ...prev, ftiRef: ref }));
+        setCurrentStatus(created.status);
+        setRequestDateCreated(created.dateCreated);
+      }
+      await ftiService.updateRequest(ref, {
         status: submitStatus,
         details: mapBatchToDetails(),
       });
       toast.success(
         submitStatus === "SENT"
-          ? `FTI ${formData.ftiRef} sent successfully.`
-          : `FTI ${formData.ftiRef} saved as draft.`,
+          ? `FTI ${ref} sent successfully.`
+          : `FTI ${ref} saved as draft.`,
       );
       setBatchItems([]);
       setEditingItemId(null);
@@ -935,13 +974,21 @@ export default function FieldTravelItineraryPage() {
     }
     setBatchSubmitting(true);
     try {
-      // Generate the PDF directly from the hidden FTIPrintDocument, upload to
-      // Google Drive, then mark the FTI as SENT — no preview required.
-      await ftiService.updateRequest(formData.ftiRef, {
+      // Generate the request (Control No + Date Created) on submit if it has
+      // not already been saved, then mark the FTI as SENT.
+      let ref = formData.ftiRef;
+      if (!ref) {
+        const created = await ftiService.createRequest();
+        ref = created.controlNo;
+        setFormData((prev) => ({ ...prev, ftiRef: ref }));
+        setCurrentStatus(created.status);
+        setRequestDateCreated(created.dateCreated);
+      }
+      await ftiService.updateRequest(ref, {
         status: "SENT",
         details: mapBatchToDetails(),
       });
-      toast.success(`FTI ${formData.ftiRef} submitted and PDF saved to Drive.`);
+      toast.success(`FTI ${ref} submitted and PDF saved to Drive.`);
       setBatchItems([]);
       setEditingItemId(null);
       setPreviewOpen(false);
@@ -966,6 +1013,8 @@ export default function FieldTravelItineraryPage() {
       ...prev,
       ftiRef: full.controlNo,
       technician: full.userName,
+      // Always default the form origin to AERICH when editing a request
+      origin: "AERICH INNOVATION CORP.",
     }));
     setCurrentStatus(full.status);
     setRequestDateCreated(full.dateCreated);
@@ -1026,27 +1075,26 @@ export default function FieldTravelItineraryPage() {
   }, []);
 
   const handleCreateNew = async () => {
+    // The request (Control No + Date Created) is generated lazily on the first
+    // Save Draft / Submit Request, not when opening the form, so abandoned
+    // entries do not leave orphan request rows in the sheet.
     try {
-      const ref = formInfo?.ftiRef || generateNewRef();
-      const created = await ftiService.createRequest({ controlNo: ref });
       setFormData((prev) => ({
         ...prev,
-        ftiRef: created.controlNo,
+        ftiRef: "",
         technician: formInfo?.currentUserFullName || "",
         origin: "AERICH INNOVATION CORP.",
       }));
-      setCurrentStatus(created.status);
-      setRequestDateCreated(created.dateCreated);
-      setBatchItems([]);
+      setCurrentStatus("DRAFT");
+      setRequestDateCreated("");
       setEditingItemId(null);
+      setBatchItems([]);
       setDestinations([]);
       setTotalKm(null);
       setSelectedDate(new Date());
       setViewMode("create");
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to create FTI request",
-      );
+    } catch {
+      toast.error("Failed to start a new FTI request.");
     }
   };
 
@@ -1503,37 +1551,39 @@ export default function FieldTravelItineraryPage() {
         </Button>
       </div>
 
-      {/* Request header info */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">
-                Control No.
-              </Label>
-              <p className="font-mono font-medium text-blue-600">
-                {formData.ftiRef}
-              </p>
+      {/* Request header info (visible only when editing an existing request) */}
+      {viewMode === "edit" && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">
+                  Control No.
+                </Label>
+                <p className="font-mono font-medium text-blue-600">
+                  {formData.ftiRef}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">User</Label>
+                <p className="font-medium">{formData.technician || "—"}</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">
+                  Date Created
+                </Label>
+                <p className="font-medium">{requestDateCreated || "—"}</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Status</Label>
+                <Badge className={statusBadgeClass(currentStatus)}>
+                  {currentStatus}
+                </Badge>
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">User</Label>
-              <p className="font-medium">{formData.technician || "—"}</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">
-                Date Created
-              </Label>
-              <p className="font-medium">{requestDateCreated || "—"}</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Status</Label>
-              <Badge className={statusBadgeClass(currentStatus)}>
-                {currentStatus}
-              </Badge>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Entry Form ──────────────────────── */}
       <Card>
@@ -1546,20 +1596,66 @@ export default function FieldTravelItineraryPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Row 1: Date */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Row 1: Date & Fuel Price */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>
                   Date <span className="text-destructive">*</span>
                 </Label>
                 <DatePicker value={selectedDate} onChange={handleDateChange} />
               </div>
+              <div className="space-y-2">
+                <Label>
+                  Fuel Price (₱/L) <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.fuelPrice}
+                  onChange={(e) =>
+                    handleFieldChange("fuelPrice", e.target.value)
+                  }
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>
+                  Itinerary <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={formData.itinerary}
+                  onChange={(e) =>
+                    handleFieldChange("itinerary", e.target.value)
+                  }
+                  placeholder="e.g., ACE BALIWAG"
+                  className="uppercase"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>
+                  Description <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={formData.description}
+                  onChange={(e) =>
+                    handleFieldChange("description", e.target.value)
+                  }
+                  placeholder="e.g., REBEDDING"
+                  className="uppercase"
+                />
+              </div>
             </div>
 
             {/* Origin Group */}
             <div className="space-y-4">
               <div className="space-y-1.5 w-full">
-                <Label>Origin</Label>
+                <Label>
+                  Origin <span className="text-destructive">*</span>
+                </Label>
                 <SearchableSelect
                   value={formData.origin}
                   onValueChange={(v) => handleFieldChange("origin", v)}
@@ -1575,58 +1671,31 @@ export default function FieldTravelItineraryPage() {
                   placeholder="Origin address will appear here"
                 />
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>
-                    Itinerary <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    value={formData.itinerary}
-                    onChange={(e) =>
-                      handleFieldChange("itinerary", e.target.value)
-                    }
-                    placeholder="e.g., ACE BALIWAG"
-                    className="uppercase"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>
-                    Description <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    value={formData.description}
-                    onChange={(e) =>
-                      handleFieldChange("description", e.target.value)
-                    }
-                    placeholder="e.g., REBEDDING"
-                    className="uppercase"
-                  />
-                </div>
-              </div>
             </div>
 
             {/* Destinations with Expressway Segments */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label className="text-base font-semibold">
-                  Destinations & Expressway Segments
-                </Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAddDestination}
-                >
-                  <Plus className="mr-1 h-4 w-4" /> Add Destination
-                </Button>
-              </div>
+              <Label className="text-base font-semibold">
+                Destinations & Expressway Segments
+              </Label>
               {destinations.length === 0 && (
                 <p className="text-sm text-muted-foreground italic">
-                  No destinations added. Click "Add Destination" to add a
-                  segment.
+                  No destinations added yet.
                 </p>
               )}
+              {/* Add Destination Button when list is EMPTY */}
+              {destinations.length === 0 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="w-full py-3 flex items-center justify-center gap-1.5 font-medium"
+                  onClick={handleAddDestination}
+                >
+                  <Plus className="h-4 w-4" /> Add Destination
+                </Button>
+              )}
+              {/* Render Destination Items */}
               {destinations.map((dest, index) => (
                 <div
                   key={dest.id}
@@ -1648,7 +1717,8 @@ export default function FieldTravelItineraryPage() {
                   </div>
                   <div className="space-y-1.5 w-full">
                     <Label className="text-xs font-medium">
-                      Destination Name
+                      Destination Name{" "}
+                      <span className="text-destructive">*</span>
                     </Label>
                     <SearchableSelect
                       value={dest.name}
@@ -1790,9 +1860,9 @@ export default function FieldTravelItineraryPage() {
                     {dest.segments.length < 5 && (
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
-                        className="w-full py-3 border-dashed flex items-center justify-center gap-1.5"
+                        className="h-8 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 -ml-1"
                         onClick={() => handleAddSegment(dest.id)}
                       >
                         <Plus className="h-4 w-4" /> Add Expressway Segment
@@ -1809,6 +1879,18 @@ export default function FieldTravelItineraryPage() {
                   )}
                 </div>
               ))}
+              {/* Add Destination Button AFTER all destination cards */}
+              {destinations.length > 0 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="w-full py-3 flex items-center justify-center gap-1.5 font-medium"
+                  onClick={handleAddDestination}
+                >
+                  <Plus className="h-4 w-4" /> Add Destination
+                </Button>
+              )}
             </div>
 
             {/* Totals */}
@@ -1837,8 +1919,8 @@ export default function FieldTravelItineraryPage() {
               </div>
             )}
 
-            {/* Miscellaneous & Amount & Fuel */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Miscellaneous & Amount */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Miscellaneous</Label>
                 <SearchableSelect
@@ -1860,19 +1942,6 @@ export default function FieldTravelItineraryPage() {
                   placeholder="0.00"
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Fuel Price (₱/L)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.fuelPrice}
-                  onChange={(e) =>
-                    handleFieldChange("fuelPrice", e.target.value)
-                  }
-                  placeholder="0.00"
-                />
-              </div>
             </div>
 
             {/* Form Actions */}
@@ -1886,7 +1955,7 @@ export default function FieldTravelItineraryPage() {
                   setFormData((prev) => ({
                     ...prev,
                     date: format(today, "yyyy-MM-dd"),
-                    origin: "",
+                    // origin stays at the default AERICH value — do not revert it
                     itinerary: "",
                     description: "",
                     miscellaneous: "",
@@ -1899,6 +1968,16 @@ export default function FieldTravelItineraryPage() {
               >
                 Reset Fields
               </Button>
+              {editingItemId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCancelEdit}
+                  className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                >
+                  <X className="mr-1 h-4 w-4" /> Cancel Edit
+                </Button>
+              )}
               <Button type="submit" disabled={isReadOnlyForm}>
                 {editingItemId ? (
                   <>Update Itinerary Row</>

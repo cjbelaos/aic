@@ -114,6 +114,7 @@ export function EntityTable<TData>({
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualPagination: false,
+    autoResetPageIndex: false, // Prevent data refreshes from yanking users back to page 1
   });
 
   const { pageIndex, pageSize } = pagination;
@@ -121,6 +122,36 @@ export function EntityTable<TData>({
   const filteredRowCount = table.getFilteredRowModel().rows.length;
   const from = filteredRowCount === 0 ? 0 : pageIndex * pageSize + 1;
   const to = Math.min((pageIndex + 1) * pageSize, filteredRowCount);
+
+  // Clamp pageIndex when the result set shrinks (e.g., after a delete or filter)
+  // so the table never points beyond the last available page.
+  React.useEffect(() => {
+    if (pageCount > 0 && pageIndex > pageCount - 1) {
+      setPagination((p) => ({
+        ...p,
+        pageIndex: Math.max(0, pageCount - 1),
+      }));
+    }
+  }, [pageCount, pageIndex]);
+
+  // Render only a window of page numbers around the current page instead of
+  // every page, keeping the footer fast and responsive for large datasets.
+  const getPageNumbers = (): (number | "ellipsis")[] => {
+    const pages: (number | "ellipsis")[] = [];
+    const maxVisible = 5;
+    const start = Math.max(0, pageIndex - Math.floor(maxVisible / 2));
+    const end = Math.min(pageCount, start + maxVisible);
+    if (start > 0) {
+      pages.push(0);
+      if (start > 1) pages.push("ellipsis");
+    }
+    for (let i = start; i < end; i++) pages.push(i);
+    if (end < pageCount) {
+      if (end < pageCount - 1) pages.push("ellipsis");
+      pages.push(pageCount - 1);
+    }
+    return pages;
+  };
 
   const handleExport = () => {
     if (onExport) {
@@ -303,17 +334,26 @@ export function EntityTable<TData>({
             >
               ←
             </Button>
-            {Array.from({ length: pageCount }, (_, i) => i).map((i) => (
-              <Button
-                key={i}
-                variant={pageIndex === i ? "default" : "outline"}
-                size="icon"
-                className={`h-8 w-8 flex-shrink-0 ${pageIndex === i ? "bg-blue-600 text-white hover:bg-blue-700" : ""}`}
-                onClick={() => table.setPageIndex(i)}
-              >
-                {i + 1}
-              </Button>
-            ))}
+            {getPageNumbers().map((p, idx) =>
+              p === "ellipsis" ? (
+                <span
+                  key={`ellipsis-${idx}`}
+                  className="px-1 text-sm text-muted-foreground select-none"
+                >
+                  …
+                </span>
+              ) : (
+                <Button
+                  key={p}
+                  variant={pageIndex === p ? "default" : "outline"}
+                  size="icon"
+                  className={`h-8 w-8 flex-shrink-0 ${pageIndex === p ? "bg-blue-600 text-white hover:bg-blue-700" : ""}`}
+                  onClick={() => table.setPageIndex(p)}
+                >
+                  {p + 1}
+                </Button>
+              ),
+            )}
             <Button
               variant="outline"
               size="icon"
