@@ -19,6 +19,7 @@ import {
   MapPin,
   BarChart3,
   ShieldCheck,
+  CalendarDays,
 } from "lucide-react";
 import {
   Sidebar,
@@ -351,6 +352,18 @@ export function AppSidebar() {
                   <Link href="/dashboard/fti-summary-report">
                     <BarChart3 />
                     <span>FTI Summary Report</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith("/dashboard/schedule-calendar")}
+                  tooltip="Schedule Calendar"
+                >
+                  <Link href="/dashboard/schedule-calendar">
+                    <CalendarDays />
+                    <span>Schedule Calendar</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
