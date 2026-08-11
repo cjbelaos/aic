@@ -19,6 +19,8 @@ import {
   MapPin,
   BarChart3,
   ShieldCheck,
+  Receipt,
+  ReceiptText,
 } from "lucide-react";
 import {
   Sidebar,
@@ -351,6 +353,32 @@ export function AppSidebar() {
                   <Link href="/dashboard/fti-summary-report">
                     <BarChart3 />
                     <span>FTI Summary Report</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/expense-liquidation"}
+                  tooltip="Expense Liquidation"
+                >
+                  <Link href="/dashboard/expense-liquidation">
+                    <Receipt />
+                    <span>Expense Liquidation</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith(
+                    "/dashboard/expense-liquidation/history",
+                  )}
+                  tooltip="Liquidation History"
+                >
+                  <Link href="/dashboard/expense-liquidation/history">
+                    <ReceiptText />
+                    <span>Liquidation History</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
