@@ -1,4 +1,4 @@
-import { getSheetsAndDriveClient } from "@/lib/googleSheets";
+import { getDriveUploadClient } from "@/lib/googleSheets";
 import { Readable } from "stream";
 
 export interface ReceiptUploadResult {
@@ -20,7 +20,9 @@ export async function uploadReceiptFile(params: {
   mimeType: string;
   liquidationId?: string;
 }): Promise<ReceiptUploadResult> {
-  const { drive } = await getSheetsAndDriveClient();
+  // Service accounts have no Drive storage quota, so uploads must use the
+  // OAuth2 refresh-token client which acts as a real user with quota.
+  const drive = await getDriveUploadClient();
   const folderId = process.env.GOOGLE_DRIVE_RECEIPT_FOLDER_ID;
 
   if (!folderId) {

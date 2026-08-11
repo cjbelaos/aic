@@ -1,4 +1,4 @@
-import { getSheetsAndDriveClient } from "@/lib/googleSheets";
+import { getDriveUploadClient } from "@/lib/googleSheets";
 import { Readable } from "stream";
 
 /**
@@ -11,7 +11,9 @@ export async function uploadSignatureImage(params: {
   imageBuffer: Buffer;
   username: string;
 }): Promise<{ fileId: string; webViewLink: string }> {
-  const { drive } = await getSheetsAndDriveClient();
+  // Service accounts have no Drive storage quota, so file creation must use
+  // the OAuth2 refresh-token client which acts as a real user with quota.
+  const drive = await getDriveUploadClient();
   const folderId = process.env.GOOGLE_DRIVE_SIGNATURE_FOLDER_ID;
 
   if (!folderId) {

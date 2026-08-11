@@ -55,6 +55,8 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
   const [draftAmount, setDraftAmount] = useState("");
   const [draftReceiptUrl, setDraftReceiptUrl] = useState("");
   const [draftReceiptPreviewUrl, setDraftReceiptPreviewUrl] = useState("");
+  const [draftReceiptFile, setDraftReceiptFile] = useState<File | null>(null);
+  const [draftPreviewSrc, setDraftPreviewSrc] = useState("");
   const [draftReceiptIsImage, setDraftReceiptIsImage] = useState(true);
   const [draftReceiptName, setDraftReceiptName] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -89,45 +91,48 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
     setDraftDescription("");
     setDraftCategory("");
     setDraftAmount("");
+    if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
+    setDraftReceiptFile(null);
+    setDraftPreviewSrc("");
     setDraftReceiptUrl("");
     setDraftReceiptPreviewUrl("");
     setDraftReceiptIsImage(true);
     setDraftReceiptName("");
   };
 
-  // ── Receipt upload (Take Photo / Upload File) ──
-  const handleFileSelected = async (file?: File) => {
+  // ── Receipt photo: store locally first (no Drive upload yet) ──
+  // The photo is kept as a browser File + object-URL preview so the user can
+  // retake/remove it freely. It is only uploaded to Google Drive when the
+  // item is added/updated via handleAddOrUpdateItem.
+  const handleFileSelected = (file?: File) => {
     if (!file) return;
-    setUploading(true);
-    try {
-      const result = await liquidationService.uploadReceipt(file);
-      setDraftReceiptUrl(result.receiptImageUrl);
-      setDraftReceiptPreviewUrl(result.proxyUrl);
-      setDraftReceiptIsImage(file.type.startsWith("image/"));
-      setDraftReceiptName(file.name);
-      toast.success("Receipt file uploaded.");
-    } catch (error) {
-      console.error("Receipt upload failed:", error);
-      toast.error("Failed to upload receipt file. Please try again.");
-    } finally {
-      setUploading(false);
-      // Reset input values so selecting the same file again re-triggers change
-      if (cameraInputRef.current) cameraInputRef.current.value = "";
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      const active = document.activeElement as HTMLInputElement | null;
-      if (active && active.type === "file") active.value = "";
-    }
+    // Release the previous local preview if one existed.
+    if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
+    setDraftReceiptFile(file);
+    setDraftPreviewSrc(URL.createObjectURL(file));
+    setDraftReceiptIsImage(file.type.startsWith("image/"));
+    setDraftReceiptName(file.name);
+    setDraftReceiptUrl("");
+    setDraftReceiptPreviewUrl("");
+    // Reset input values so selecting the same file again re-triggers change
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    const active = document.activeElement as HTMLInputElement | null;
+    if (active && active.type === "file") active.value = "";
   };
 
   const handleRemoveReceipt = () => {
+    if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
+    setDraftReceiptFile(null);
+    setDraftPreviewSrc("");
     setDraftReceiptUrl("");
     setDraftReceiptPreviewUrl("");
     setDraftReceiptIsImage(true);
     setDraftReceiptName("");
   };
 
-  // ── Line-item add / update ──
-  const handleAddOrUpdateItem = () => {
+  // ── Line-item add / update (uploads photo to Drive only at this point) ──
+  const handleAddOrUpdateItem = async () => {
     if (!draftDate) {
       toast.error("Please select a date.");
       return;
@@ -150,14 +155,38 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
       draftDate.getMonth() + 1,
     ).padStart(2, "0")}-${String(draftDate.getDate()).padStart(2, "0")}`;
 
+    let finalReceiptUrl = draftReceiptUrl;
+    let finalReceiptPreviewUrl = draftReceiptPreviewUrl;
+    let finalReceiptIsImage = draftReceiptIsImage;
+
+    // Upload the NEW locally-held photo to Drive when the item is committed.
+    if (draftReceiptFile && !draftReceiptUrl) {
+      setUploading(true);
+      try {
+        const result = await liquidationService.uploadReceipt(draftReceiptFile);
+        finalReceiptUrl = result.receiptImageUrl;
+        finalReceiptPreviewUrl = result.proxyUrl;
+        finalReceiptIsImage = draftReceiptIsImage;
+        toast.success("Receipt photo saved to Drive.");
+      } catch (error) {
+        console.error("Receipt upload failed:", error);
+        const message =
+          error instanceof Error ? error.message : "Unknown upload error.";
+        toast.error(`Upload failed: ${message}`);
+        return; // Keep the draft so the user can retry.
+      } finally {
+        setUploading(false);
+      }
+    }
+
     const item: ReceiptItemInput = {
       date: dateStr,
       description: draftDescription.trim().toUpperCase(),
       category: draftCategory,
       amount: Math.round(amount * 100) / 100,
-      receiptImageUrl: draftReceiptUrl || undefined,
-      receiptPreviewUrl: draftReceiptPreviewUrl || undefined,
-      receiptIsImage: draftReceiptUrl ? draftReceiptIsImage : undefined,
+      receiptImageUrl: finalReceiptUrl || undefined,
+      receiptPreviewUrl: finalReceiptPreviewUrl || undefined,
+      receiptIsImage: finalReceiptUrl ? finalReceiptIsImage : undefined,
     };
 
     if (editingIndex !== null) {
@@ -176,6 +205,11 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
   const handleEditItem = (index: number) => {
     const item = items[index];
     if (!item) return;
+    // Clear any locally-held photo from a previous unattached draft so the
+    // editor starts fresh from the item's existing Drive receipt.
+    if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
+    setDraftReceiptFile(null);
+    setDraftPreviewSrc("");
     setEditingIndex(index);
     const [y, m, d] = item.date.split("-").map(Number);
     setDraftDate(new Date(y, (m || 1) - 1, d || 1));
@@ -396,12 +430,16 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
               </div>
             )}
 
-            {draftReceiptUrl && (
+            {(draftReceiptFile || draftReceiptUrl) && (
               <div className="space-y-2">
                 {draftReceiptIsImage ? (
                   <div className="overflow-hidden rounded-xl border bg-muted">
                     <img
-                      src={draftReceiptPreviewUrl || draftReceiptUrl}
+                      src={
+                        draftPreviewSrc ||
+                        draftReceiptPreviewUrl ||
+                        draftReceiptUrl
+                      }
                       alt="Receipt preview"
                       className="max-h-64 w-full object-contain"
                     />
@@ -418,6 +456,11 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
                       </p>
                     </div>
                   </div>
+                )}
+                {draftReceiptFile && !draftReceiptUrl && (
+                  <p className="text-xs font-medium text-amber-600">
+                    Saved locally — will upload to Drive when you add this item.
+                  </p>
                 )}
                 <div className="flex items-center justify-between gap-2">
                   <span className="max-w-[45%] truncate text-xs text-muted-foreground">

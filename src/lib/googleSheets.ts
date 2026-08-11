@@ -123,6 +123,37 @@ export async function getSheetsAndDriveClient(): Promise<{
   };
 }
 
+/**
+ * Creates a Drive client backed by the OAuth2 refresh-token flow.
+ *
+ * IMPORTANT: Service accounts have NO storage quota, so `drive.files.create`
+ * fails with "Service Accounts do not have storage quota". File uploads must
+ * act as a real user. This client always uses GOOGLE_CLIENT_ID/SECRET/
+ * GOOGLE_REFRESH_TOKEN (the pre-service-account credentials) so created files
+ * consume the user's Drive quota.
+ */
+export async function getDriveUploadClient(): Promise<drive_v3.Drive> {
+  if (
+    !process.env.GOOGLE_CLIENT_ID ||
+    !process.env.GOOGLE_CLIENT_SECRET ||
+    !process.env.GOOGLE_REFRESH_TOKEN
+  ) {
+    throw new Error(
+      "Missing GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, or GOOGLE_REFRESH_TOKEN environment variables (required for Drive uploads).",
+    );
+  }
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+  );
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+  });
+
+  return google.drive({ version: "v3", auth: oauth2Client });
+}
+
 export async function getDatabaseSpreadsheetId(): Promise<string> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID_DATABASE;
   if (!spreadsheetId) {
