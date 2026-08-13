@@ -8,6 +8,8 @@ export interface Company {
   companyName: string;
   tin: string;
   address: string;
+  latitude: number | undefined;
+  longitude: number | undefined;
   status: "active" | "inactive";
 }
 

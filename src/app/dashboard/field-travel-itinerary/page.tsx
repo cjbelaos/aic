@@ -26,6 +26,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { LocationSearchableSelect } from "@/components/ui/location-searchable-select";
+import { LocationPickerDialog } from "@/components/location-picker-dialog";
+import { CompanyPickerDialog } from "@/components/company-picker-dialog";
+import type { LocationAddress } from "@/types/locationAddress";
+import type { Company } from "@/types/company";
 import { DatePicker } from "@/components/ui/date-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
@@ -90,6 +95,9 @@ interface FormData {
 interface LocationItem {
   companyName: string;
   address: string;
+  locationId?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface ExpresswayGroup {
@@ -176,6 +184,9 @@ export default function FieldTravelItineraryPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPayloadRef = useRef<string>("");
   const addressMapRef = useRef<Record<string, string>>({});
+  const coordsMapRef = useRef<
+    Record<string, { lat: number; lng: number }>
+  >({});
 
   // ── Batch state ──────────────────────────────
   const [batchItems, setBatchItems] = useState<DraftItinerary[]>([]);
@@ -201,6 +212,8 @@ export default function FieldTravelItineraryPage() {
   const [approvers, setApprovers] = useState<UserApprover[]>([]);
   const [approvedBy, setApprovedBy] = useState("");
   const [approvedBySignatureUrl, setApprovedBySignatureUrl] = useState("");
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
 
   const loadFTIRequests = useCallback(async () => {
     try {
@@ -244,10 +257,21 @@ export default function FieldTravelItineraryPage() {
         kmPerLiter: data.kmPerLiter || 12,
       });
       const map: Record<string, string> = {};
+      const coordsMap: Record<string, { lat: number; lng: number }> = {};
       (data.locations || []).forEach((loc: LocationItem) => {
         map[loc.companyName] = loc.address || loc.companyName;
+        if (
+          typeof loc.latitude === "number" &&
+          typeof loc.longitude === "number"
+        ) {
+          coordsMap[loc.companyName] = {
+            lat: loc.latitude,
+            lng: loc.longitude,
+          };
+        }
       });
       addressMapRef.current = map;
+      coordsMapRef.current = coordsMap;
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to load form data",
@@ -282,11 +306,19 @@ export default function FieldTravelItineraryPage() {
       debounceRef.current = setTimeout(async () => {
         setIsCalculating(true);
         const originAddress = addressMapRef.current[origin] || origin;
+        const originCoords = coordsMapRef.current[origin];
         const payload = {
-          origin: originAddress,
-          legs: legs.map((l) => ({
-            destination: addressMapRef.current[l.name] || l.name,
-          })),
+          origin: originCoords
+            ? { lat: originCoords.lat, lng: originCoords.lng }
+            : originAddress,
+          legs: legs.map((l) => {
+            const destCoords = coordsMapRef.current[l.name];
+            return {
+              destination: destCoords
+                ? { lat: destCoords.lat, lng: destCoords.lng }
+                : addressMapRef.current[l.name] || l.name,
+            };
+          }),
         };
         const payloadKey = JSON.stringify(payload);
         if (payloadKey === lastPayloadRef.current) {
@@ -484,6 +516,46 @@ export default function FieldTravelItineraryPage() {
     (sum, d) => sum + d.segments.reduce((s, seg) => s + seg.tollFee, 0),
     0,
   );
+
+  const handleCompanySaved = useCallback((company: Company) => {
+    loadFormInfo();
+    toast.success(`"${company.companyName}" is now available in the list.`);
+  }, [loadFormInfo]);
+
+  const handleLocationSaved = useCallback((loc: LocationAddress) => {
+    setFormInfo((prev) => {
+      if (!prev) return prev;
+      const newLocation: LocationItem = {
+        companyName: loc.locationName,
+        address: loc.address,
+        locationId: loc.locationId,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+      };
+      const exists = prev.locations.some(
+        (l) => l.companyName.toLowerCase() === loc.locationName.toLowerCase(),
+      );
+      const locations = exists
+        ? prev.locations.map((l) =>
+            l.companyName.toLowerCase() === loc.locationName.toLowerCase()
+              ? newLocation
+              : l,
+          )
+        : [...prev.locations, newLocation];
+      addressMapRef.current[loc.locationName] = loc.address;
+      if (
+        typeof loc.latitude === "number" &&
+        typeof loc.longitude === "number"
+      ) {
+        coordsMapRef.current[loc.locationName] = {
+          lat: loc.latitude,
+          lng: loc.longitude,
+        };
+      }
+      return { ...prev, locations };
+    });
+    toast.success(`"${loc.locationName}" is now available in the list.`);
+  }, []);
 
   const handleFieldChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => {
@@ -1656,12 +1728,14 @@ export default function FieldTravelItineraryPage() {
                 <Label>
                   Origin <span className="text-destructive">*</span>
                 </Label>
-                <SearchableSelect
+                <LocationSearchableSelect
                   value={formData.origin}
                   onValueChange={(v) => handleFieldChange("origin", v)}
                   options={locationOptions}
                   placeholder="Select origin location"
                   searchPlaceholder="Search locations..."
+                  onAddLocation={() => setLocationPickerOpen(true)}
+                  onAddCompany={() => setCompanyPickerOpen(true)}
                 />
                 <Input
                   value={getAddress(formData.origin)}
@@ -1720,7 +1794,7 @@ export default function FieldTravelItineraryPage() {
                       Destination Name{" "}
                       <span className="text-destructive">*</span>
                     </Label>
-                    <SearchableSelect
+                    <LocationSearchableSelect
                       value={dest.name}
                       onValueChange={(v) =>
                         handleDestinationNameChange(dest.id, v)
@@ -1728,6 +1802,8 @@ export default function FieldTravelItineraryPage() {
                       options={locationOptions}
                       placeholder="Select destination location"
                       searchPlaceholder="Search locations..."
+                      onAddLocation={() => setLocationPickerOpen(true)}
+                      onAddCompany={() => setCompanyPickerOpen(true)}
                     />
                     <Input
                       value={getAddress(dest.name)}
@@ -2216,6 +2292,20 @@ export default function FieldTravelItineraryPage() {
         downloadingPdf={downloadingPdf}
         onSaveData={handleSaveDraft}
         savingData={batchSubmitting}
+      />
+
+      {/* Location Picker Dialog */}
+      <LocationPickerDialog
+        open={locationPickerOpen}
+        onOpenChange={setLocationPickerOpen}
+        onSaved={handleLocationSaved}
+      />
+
+      {/* Company Picker Dialog */}
+      <CompanyPickerDialog
+        open={companyPickerOpen}
+        onOpenChange={setCompanyPickerOpen}
+        onSaved={handleCompanySaved}
       />
     </div>
   );

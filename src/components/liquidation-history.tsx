@@ -9,7 +9,12 @@ import {
   ChevronDown,
   ChevronUp,
   History,
+  CheckCircle2,
+  MessageSquareWarning,
+  XCircle,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -19,14 +24,52 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import { liquidationService } from "@/lib/services/liquidation.service";
 import type { LiquidationFull } from "@/types/liquidation";
+
+function statusBadgeClass(status: string): string {
+  switch ((status || "").toUpperCase()) {
+    case "APPROVED":
+      return "bg-green-100 text-green-800";
+    case "REQUESTED_FOR_CHANGE":
+      return "bg-amber-100 text-amber-800";
+    case "REJECTED":
+      return "bg-red-100 text-red-800";
+    case "SUBMITTED":
+    case "SENT":
+      return "bg-blue-100 text-blue-800";
+    case "SAVED":
+    case "DRAFT":
+    default:
+      return "bg-gray-100 text-gray-800";
+  }
+}
+
+interface StoredUser {
+  userId?: string;
+}
+
+function getStoredUserId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem("auth:user");
+    if (!raw) return "";
+    const parsed = JSON.parse(raw) as StoredUser;
+    return parsed.userId || "";
+  } catch {
+    return "";
+  }
+}
 
 export function LiquidationHistory() {
   const [liquidations, setLiquidations] = useState<LiquidationFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [comment, setComment] = useState("");
+  const [currentUserId] = useState<string>(getStoredUserId);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +88,25 @@ export function LiquidationHistory() {
       cancelled = true;
     };
   }, []);
+
+  const handleApprovalAction = async (
+    liquidationId: string,
+    action: "approve" | "request_change" | "reject",
+  ) => {
+    setApprovingId(liquidationId);
+    try {
+      await liquidationService.approve(liquidationId, action, comment);
+      toast.success("Liquidation status updated.");
+      setComment("");
+      const data = await liquidationService.getMyLiquidations();
+      setLiquidations(data);
+    } catch (err) {
+      console.error("Approval action failed:", err);
+      toast.error("Failed to update liquidation status.");
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-PH", {
@@ -110,12 +172,24 @@ export function LiquidationHistory() {
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="space-y-1">
-                  <CardTitle className="text-base">
+                  <CardTitle className="text-base flex items-center gap-2">
                     Liquidation #{liquidation.liquidationId.slice(0, 8)}
+                    <Badge
+                      className={statusBadgeClass(liquidation.status)}
+                      variant="outline"
+                    >
+                      {liquidation.status || "SAVED"}
+                    </Badge>
                   </CardTitle>
                   <CardDescription className="font-mono text-xs">
                     {liquidation.liquidationId}
                   </CardDescription>
+                  <Badge
+                    variant="outline"
+                    className="font-mono text-xs text-blue-600"
+                  >
+                    FTI: {liquidation.controlNo}
+                  </Badge>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
@@ -144,6 +218,82 @@ export function LiquidationHistory() {
               <CardDescription>
                 {liquidation.items.length} receipt item(s)
               </CardDescription>
+
+              {liquidation.approvedByName && (
+                <CardDescription>
+                  Approved by: <span className="font-medium">{liquidation.approvedByName}</span>
+                </CardDescription>
+              )}
+
+              {/* ── Approval actions (only for the assigned approver) ── */}
+              {currentUserId &&
+                liquidation.approvedByUserId === currentUserId &&
+                (liquidation.status || "").toUpperCase() === "SUBMITTED" && (
+                  <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3">
+                    <Label htmlFor={`approval-comment-${liquidation.liquidationId}`}>
+                      Comment{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (required for Request for Change)
+                      </span>
+                    </Label>
+                    <Input
+                      id={`approval-comment-${liquidation.liquidationId}`}
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      placeholder="Type your comment..."
+                      disabled={approvingId === liquidation.liquidationId}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() =>
+                          handleApprovalAction(
+                            liquidation.liquidationId,
+                            "approve",
+                          )
+                        }
+                        disabled={approvingId === liquidation.liquidationId}
+                      >
+                        {approvingId === liquidation.liquidationId ? (
+                          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="mr-1 h-4 w-4" />
+                        )}
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-amber-600 border-amber-300 hover:bg-amber-50"
+                        onClick={() =>
+                          handleApprovalAction(
+                            liquidation.liquidationId,
+                            "request_change",
+                          )
+                        }
+                        disabled={approvingId === liquidation.liquidationId}
+                      >
+                        <MessageSquareWarning className="mr-1 h-4 w-4" />
+                        Request for Change
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() =>
+                          handleApprovalAction(
+                            liquidation.liquidationId,
+                            "reject",
+                          )
+                        }
+                        disabled={approvingId === liquidation.liquidationId}
+                      >
+                        <XCircle className="mr-1 h-4 w-4" />
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                )}
             </CardHeader>
 
             {isExpanded && (

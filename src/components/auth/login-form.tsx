@@ -62,13 +62,35 @@ export function LoginForm() {
           return;
         }
 
+        // Enrich identity from the authenticated session (/api/auth/me) as a
+        // fallback in case the login response omits departmentId/positionId.
+        const loginResult = res.result;
+        let deptId: number | null = loginResult?.departmentId ?? null;
+        let posId: number | null = loginResult?.positionId ?? null;
+        try {
+          const me = await authService.me();
+          if (me.isSuccess && me.result) {
+            if (deptId == null && me.result.departmentId != null) {
+              deptId = me.result.departmentId;
+            }
+            if (posId == null && me.result.positionId != null) {
+              posId = me.result.positionId;
+            }
+          }
+        } catch {
+          // ignore — fall back to whatever the login response provided
+        }
+
         // Save session meta-data to localStorage
         window.localStorage.setItem(
           "auth:user",
           JSON.stringify({
-            userId: res.result?.userId ?? "",
-            userName: res.result?.userName ?? username,
-            userRoleId: res.result?.userRoleId ?? 2,
+            userId: loginResult?.userId ?? "",
+            userName: loginResult?.userName ?? username,
+            fullName: loginResult?.fullName ?? "",
+            userRoleId: loginResult?.userRoleId ?? 2,
+            departmentId: deptId,
+            positionId: posId,
           }),
         );
 

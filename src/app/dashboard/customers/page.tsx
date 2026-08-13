@@ -78,6 +78,8 @@ const EMPTY_FORM: CreateCompanyPayload = {
   companyName: "",
   tin: "",
   address: "",
+  latitude: undefined,
+  longitude: undefined,
   status: "active",
 };
 
@@ -193,6 +195,8 @@ export default function CustomersPage() {
       companyName: row.companyName,
       tin: row.tin,
       address: row.address,
+      latitude: row.latitude,
+      longitude: row.longitude,
       status: row.status,
     });
     setError("");
@@ -296,12 +300,17 @@ export default function CustomersPage() {
           .trim();
         const status = rawStatus === "inactive" ? "inactive" : "active";
 
+        const rawLat = parseFloat(String(rowData["Latitude"] || ""));
+        const rawLng = parseFloat(String(rowData["Longitude"] || ""));
+
         customersToImport.push({
           companyId: String(rowData["Company ID"] || "").trim(),
           companyType: "Customer",
           companyName,
           tin: String(rowData["TIN"] || "").trim(),
           address: String(rowData["Address"] || "").trim(),
+          latitude: isNaN(rawLat) ? undefined : rawLat,
+          longitude: isNaN(rawLng) ? undefined : rawLng,
           status,
         });
       });

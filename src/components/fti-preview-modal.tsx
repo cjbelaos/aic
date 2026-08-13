@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import {
   Loader2,
   Download,
@@ -8,6 +9,7 @@ import {
   CheckCircle2,
   MessageSquareWarning,
   XCircle,
+  ReceiptText,
 } from "lucide-react";
 import {
   Dialog,
@@ -101,8 +103,23 @@ export default function FTIPreviewModal({
         </div>
 
         {/* ── Actions ── */}
-        {(onDownloadPdf || (!readOnly && onSaveData) || approvalActions) && (
+        {(onDownloadPdf ||
+          (!readOnly && onSaveData) ||
+          approvalActions ||
+          readOnly) && (
           <DialogFooter className="flex flex-wrap gap-2 pt-3 border-t">
+            {readOnly && (
+              <Link
+                href={`/dashboard/expense-liquidation?controlNo=${encodeURIComponent(
+                  ftiRef,
+                )}`}
+              >
+                <Button variant="outline">
+                  <ReceiptText className="mr-2 h-4 w-4" />
+                  Add Expense Liquidation
+                </Button>
+              </Link>
+            )}
             {onDownloadPdf && (
               <Button
                 variant="outline"

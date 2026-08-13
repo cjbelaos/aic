@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Camera,
@@ -14,6 +14,7 @@ import {
   ReceiptText,
   FileText,
   CheckCircle2,
+  Lock,
 } from "lucide-react";
 import {
   Card,
@@ -33,10 +34,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { DatePicker } from "@/components/ui/date-picker";
 import { RECEIPT_CATEGORIES } from "@/types/liquidation";
-import type { ReceiptItemInput } from "@/types/liquidation";
+import type { LiquidationStatus, ReceiptItemInput } from "@/types/liquidation";
 import { liquidationService } from "@/lib/services/liquidation.service";
+import { ftiService } from "@/lib/services/fti.service";
+import type { FTIRequestSummary } from "@/types/fti";
 
 interface StoredUser {
   userId?: string;
@@ -44,9 +56,147 @@ interface StoredUser {
   userName?: string;
 }
 
-export function LiquidationForm({ user }: { user: StoredUser | null }) {
+/** Maps FTI request statuses to badge tailwind classes (matches FTI page). */
+function statusBadgeClass(status: string): string {
+  switch (status.toUpperCase()) {
+    case "APPROVED":
+      return "bg-green-100 text-green-800";
+    case "REQUESTED_FOR_CHANGE":
+      return "bg-amber-100 text-amber-800";
+    case "REJECTED":
+      return "bg-red-100 text-red-800";
+    case "SENT":
+      return "bg-blue-100 text-blue-800";
+    case "SAVED":
+    case "DRAFT":
+    default:
+      return "bg-gray-100 text-gray-800";
+  }
+}
+
+const EDITABLE_STATUSES: LiquidationStatus[] = [
+  "SAVED",
+  "REQUESTED_FOR_CHANGE",
+];
+
+export function LiquidationForm({
+  user,
+  initialControlNo = "",
+}: {
+  user: StoredUser | null;
+  initialControlNo?: string;
+}) {
   const [items, setItems] = useState<ReceiptItemInput[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  // Active SAVED liquidation returned by createDraft (first Add Item click).
+  const [liquidationId, setLiquidationId] = useState("");
+
+  // FTI link (ControlNo)
+  const [ftiRequests, setFtiRequests] = useState<FTIRequestSummary[]>([]);
+  const [controlNo, setControlNo] = useState(initialControlNo);
+  const [loadingFti, setLoadingFti] = useState(true);
+  const [loadingLiquidation, setLoadingLiquidation] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [lastLoadedControlNo, setLastLoadedControlNo] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    // Support deep-link: /dashboard/expense-liquidation?controlNo=CTRL-...
+    let preselected = "";
+    if (typeof window !== "undefined") {
+      preselected =
+        new URLSearchParams(window.location.search).get("controlNo") || "";
+    }
+    (async () => {
+      try {
+        const requests = await ftiService.getRequests();
+        if (!cancelled) {
+          // Technicians can only link to their own FTI requests (the API
+          // already restricts to session user for non-admins). Disregard
+          // DRAFT and SAVED, and sort latest to oldest by dateCreated.
+          const myId = user?.userId;
+          const usable = requests
+            .filter((r) => r.status !== "SAVED" && (!myId || r.userId === myId))
+            .sort((a, b) =>
+              (b.dateCreated || "").localeCompare(a.dateCreated || ""),
+            );
+          setFtiRequests(usable);
+          // Pre-select the deep-linked ControlNo if it is one of the usable
+          // requests (e.g. clicked "Add Liquidation" from the FTI page).
+          if (preselected && usable.some((r) => r.controlNo === preselected)) {
+            setControlNo(preselected);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load FTI requests:", error);
+      } finally {
+        if (!cancelled) setLoadingFti(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // When the selected FTI ControlNo changes, restore the existing
+  // liquidation (its liquidationId + receipt items). This is the core fix
+  // for the bug where re-selecting an FTI showed an empty receipt list.
+  useEffect(() => {
+    let cancelled = false;
+    const controlNoToLoad = controlNo.trim();
+    if (!controlNoToLoad) return;
+
+    // If we already restored this ControlNo, don't re-fetch.
+    if (lastLoadedControlNo === controlNoToLoad) return;
+
+    setLoadingLiquidation(true);
+    (async () => {
+      try {
+        const liquidation =
+          await liquidationService.getByControlNo(controlNoToLoad);
+        if (cancelled) return;
+        if (liquidation) {
+          setLiquidationId(liquidation.liquidationId);
+          const receiptItems: ReceiptItemInput[] = liquidation.items.map(
+            (item) => ({
+              date: item.date,
+              description: item.description,
+              category: item.category,
+              amount: item.amount,
+              receiptImageUrl: item.receiptImageUrl || undefined,
+              // The API does not return preview/type metadata; reconstruct
+              // preview from the Drive URL when rendering.
+            }),
+          );
+          setItems(receiptItems);
+          setIsLocked(
+            !EDITABLE_STATUSES.includes(
+              (liquidation.status || "").toUpperCase() as LiquidationStatus,
+            ),
+          );
+          toast.success(
+            `Loaded existing liquidation (${liquidation.items.length} receipt item(s)).`,
+          );
+        } else {
+          // Fresh ControlNo → start a brand new batch.
+          setLiquidationId("");
+          setItems([]);
+          setIsLocked(false);
+        }
+        setLastLoadedControlNo(controlNoToLoad);
+      } catch (error) {
+        console.error("Failed to load liquidation by controlNo:", error);
+        if (!cancelled) {
+          toast.error("Failed to load existing receipts for this FTI.");
+        }
+      } finally {
+        if (!cancelled) setLoadingLiquidation(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [controlNo, lastLoadedControlNo]);
 
   // Line-item input draft
   const [draftDate, setDraftDate] = useState<Date | undefined>(undefined);
@@ -133,6 +283,14 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
 
   // ── Line-item add / update (uploads photo to Drive only at this point) ──
   const handleAddOrUpdateItem = async () => {
+    if (isLocked) {
+      toast.error("This liquidation has been submitted and can no longer be edited.");
+      return;
+    }
+    if (!controlNo.trim()) {
+      toast.error("Please select an FTI control number first.");
+      return;
+    }
     if (!draftDate) {
       toast.error("Please select a date.");
       return;
@@ -189,14 +347,31 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
       receiptIsImage: finalReceiptUrl ? finalReceiptIsImage : undefined,
     };
 
-    if (editingIndex !== null) {
-      setItems((prev) =>
-        prev.map((existing, idx) => (idx === editingIndex ? item : existing)),
-      );
-      toast.success("Receipt item updated.");
-    } else {
-      setItems((prev) => [...prev, item]);
-      toast.success("Receipt item added.");
+    setUploading(true);
+    try {
+      if (editingIndex !== null) {
+        const updated = items.map((existing, idx) =>
+          idx === editingIndex ? item : existing,
+        );
+        await liquidationService.replace(liquidationId, updated);
+        setItems(updated);
+        toast.success("Receipt item updated.");
+      } else {
+        let activeId = liquidationId;
+        if (!activeId) {
+          const draft = await liquidationService.createDraft(controlNo);
+          activeId = draft.liquidationId;
+          setLiquidationId(activeId);
+        }
+        await liquidationService.addItem(activeId, [item]);
+        setItems((prev) => [...prev, item]);
+        toast.success("Receipt item added.");
+      }
+    } catch (error) {
+      console.error("Failed to persist receipt item:", error);
+      toast.error("Failed to save receipt item. Please try again.");
+    } finally {
+      setUploading(false);
     }
 
     resetDraft();
@@ -205,6 +380,10 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
   const handleEditItem = (index: number) => {
     const item = items[index];
     if (!item) return;
+    if (isLocked) {
+      toast.error("This liquidation has been submitted and can no longer be edited.");
+      return;
+    }
     // Clear any locally-held photo from a previous unattached draft so the
     // editor starts fresh from the item's existing Drive receipt.
     if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
@@ -219,36 +398,60 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
     setDraftReceiptUrl(item.receiptImageUrl || "");
     setDraftReceiptPreviewUrl(item.receiptPreviewUrl || "");
     setDraftReceiptIsImage(
-      item.receiptIsImage ?? (item.receiptImageUrl ? isImageUrl(item.receiptImageUrl) : true),
+      item.receiptIsImage ??
+        (item.receiptImageUrl ? isImageUrl(item.receiptImageUrl) : true),
     );
-    setDraftReceiptName(
-      item.receiptImageUrl ? "Receipt attached" : "",
-    );
+    setDraftReceiptName(item.receiptImageUrl ? "Receipt attached" : "");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleDeleteItem = (index: number) => {
-    setItems((prev) => prev.filter((_, idx) => idx !== index));
-    if (editingIndex === index) {
-      resetDraft();
+  const handleDeleteItem = async (index: number) => {
+    if (isLocked) {
+      toast.error("This liquidation has been submitted and can no longer be edited.");
+      return;
     }
-    toast.success("Receipt item removed.");
+    const remaining = items.filter((_, idx) => idx !== index);
+    setUploading(true);
+    try {
+      await liquidationService.replace(liquidationId, remaining);
+      setItems(remaining);
+      if (editingIndex === index) {
+        resetDraft();
+      }
+      toast.success("Receipt item removed.");
+    } catch (error) {
+      console.error("Failed to remove receipt item:", error);
+      toast.error("Failed to remove receipt item. Please try again.");
+    } finally {
+      setUploading(false);
+    }
   };
 
-  // ── Submit ──
+  // ── Submit (flips status SAVED → SUBMITTED + auto-assigns approver) ──
   const handleSubmit = async () => {
+    if (isLocked) {
+      toast.error("This liquidation has already been submitted.");
+      return;
+    }
+    if (!liquidationId) {
+      toast.error(
+        "No active liquidation to submit. Add at least one item first.",
+      );
+      return;
+    }
     if (items.length === 0) {
       toast.error("Add at least one receipt item before submitting.");
       return;
     }
     setSubmitting(true);
     try {
-      const result = await liquidationService.create(items);
-      setSubmittedTotal(result.totalAmount);
+      const result = await liquidationService.submit(liquidationId);
+      setSubmittedTotal(totalAmount);
       setSuccessLiquidationId(result.liquidationId);
       toast.success(`Liquidation submitted! ID: ${result.liquidationId}`);
       // Clear the form for the next batch
       setItems([]);
+      setLiquidationId("");
       resetDraft();
     } catch (error) {
       console.error("Liquidation submit failed:", error);
@@ -276,6 +479,12 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
           <div className="w-full rounded-lg border bg-muted px-4 py-3 font-mono text-xs break-all sm:text-sm">
             Liquidation ID: {successLiquidationId}
           </div>
+          <p className="text-muted-foreground">
+            Linked FTI:{" "}
+            <span className="font-mono font-semibold text-foreground">
+              {controlNo}
+            </span>
+          </p>
           <p className="text-muted-foreground">
             Total Amount:{" "}
             <span className="font-semibold text-foreground">
@@ -321,6 +530,82 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
             <p className="text-lg font-bold tracking-tight">
               {formatCurrency(totalAmount)}
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Link to FTI (ControlNo) ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Link to FTI</CardTitle>
+          <CardDescription>
+            Select the Field Travel Itinerary this liquidation belongs to.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <Label>FTI Control Number</Label>
+            {loadingFti ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading FTI requests...
+              </div>
+            ) : (
+              <Select value={controlNo} onValueChange={setControlNo}>
+                <SelectTrigger className="h-11 text-base">
+                  <SelectValue placeholder="Select FTI control no." />
+                </SelectTrigger>
+                <SelectContent>
+                  {ftiRequests.length === 0 ? (
+                    <p className="px-4 py-2 text-sm text-muted-foreground">
+                      No available FTI requests to link.
+                    </p>
+                  ) : (
+                    ftiRequests.map((request) => (
+                      <SelectItem
+                        key={request.controlNo}
+                        value={request.controlNo}
+                      >
+                        {request.controlNo}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* ── ControlNo preview panel ── */}
+            {(() => {
+              const selected = ftiRequests.find(
+                (r) => r.controlNo === controlNo,
+              );
+              if (!selected) return null;
+              return (
+                <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Status</span>
+                    <Badge
+                      className={statusBadgeClass(selected.status)}
+                      variant="outline"
+                    >
+                      {selected.status}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Date Created</span>
+                    <span className="font-medium">{selected.dateCreated}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">
+                      FTI Total Amount
+                    </span>
+                    <span className="font-bold">
+                      {formatCurrency(selected.totalAmount || 0)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </CardContent>
       </Card>
@@ -496,7 +781,7 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
             size="lg"
             className="h-12 w-full text-base"
             onClick={handleAddOrUpdateItem}
-            disabled={uploading}
+            disabled={uploading || isLocked}
           >
             {editingIndex !== null ? (
               <>
@@ -513,7 +798,7 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
         </CardContent>
       </Card>
 
-      {/* ── Itemized summary (mobile-first card list) ── */}
+      {/* ── Itemized summary (table: Date | Category | Description | Amount | Receipt | Actions) ── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Receipt Items</CardTitle>
@@ -521,97 +806,127 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
             {items.length === 0
               ? "No items added yet."
               : `${items.length} item(s) — Total: ${formatCurrency(totalAmount)}`}
+            {isLocked && " (Locked — already submitted)"}
+            {loadingLiquidation && " (Loading…)"}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {items.length === 0 ? (
+          {loadingLiquidation ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading receipts…
+            </div>
+          ) : items.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               Add receipt items above to build your liquidation batch.
             </p>
           ) : (
-            <div className="space-y-3">
-              {items.map((item, index) => {
-                const isImage =
-                  item.receiptIsImage ??
-                  (item.receiptImageUrl
-                    ? isImageUrl(item.receiptImageUrl)
-                    : true);
-                return (
-                  <div
-                    key={`${item.date}-${index}`}
-                    className="rounded-xl border bg-card p-3 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium whitespace-nowrap">
-                            {item.date}
-                          </span>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-center">Receipt</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item, index) => {
+                    const isImage =
+                      item.receiptIsImage ??
+                      (item.receiptImageUrl
+                        ? isImageUrl(item.receiptImageUrl)
+                        : true);
+                    return (
+                      <TableRow key={`${item.date}-${index}`}>
+                        <TableCell className="whitespace-nowrap font-medium">
+                          {item.date}
+                        </TableCell>
+                        <TableCell>
                           <Badge variant="secondary" className="text-xs">
                             {item.category}
                           </Badge>
-                        </div>
-                        <p className="mt-1 truncate text-sm text-muted-foreground">
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
                           {item.description}
-                        </p>
-                        <p className="mt-1 text-lg font-bold">
+                        </TableCell>
+                        <TableCell className="text-right font-bold">
                           {formatCurrency(item.amount)}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-2">
-                        {item.receiptImageUrl ? (
-                          <a
-                            href={item.receiptImageUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label="Open receipt"
-                          >
-                            {isImage ? (
-                              <img
-                                src={
-                                  item.receiptPreviewUrl || item.receiptImageUrl
-                                }
-                                alt="Receipt"
-                                className="h-14 w-14 rounded-lg border object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-14 w-14 items-center justify-center rounded-lg border bg-muted">
-                                <FileText className="h-6 w-6 text-muted-foreground" />
-                              </div>
-                            )}
-                          </a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            No receipt
-                          </span>
-                        )}
-                        <div className="flex gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-10 w-10"
-                            aria-label="Edit item"
-                            onClick={() => handleEditItem(index)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-10 w-10 text-destructive"
-                            aria-label="Delete item"
-                            onClick={() => handleDeleteItem(index)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {item.receiptImageUrl ? (
+                            <a
+                              href={item.receiptImageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label="Open receipt"
+                            >
+                              {isImage ? (
+                                <img
+                                  src={
+                                    item.receiptPreviewUrl ||
+                                    item.receiptImageUrl
+                                  }
+                                  alt="Receipt"
+                                  className="mx-auto h-12 w-12 rounded-lg border object-cover"
+                                />
+                              ) : (
+                                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg border bg-muted">
+                                  <FileText className="h-5 w-5 text-muted-foreground" />
+                                </div>
+                              )}
+                            </a>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              — 
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-9 w-9"
+                              aria-label="Edit item"
+                              onClick={() => handleEditItem(index)}
+                              disabled={isLocked || uploading}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-9 w-9 text-destructive"
+                              aria-label="Delete item"
+                              onClick={() => handleDeleteItem(index)}
+                              disabled={isLocked || uploading}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+                <TableFooter>
+                  <TableRow>
+                    <TableCell colSpan={3} className="font-semibold">
+                      Total
+                    </TableCell>
+                    <TableCell className="text-right font-bold">
+                      {formatCurrency(totalAmount)}
+                    </TableCell>
+                    <TableCell colSpan={2} />
+                  </TableRow>
+                </TableFooter>
+              </Table>
             </div>
           )}
         </CardContent>
@@ -630,13 +945,15 @@ export function LiquidationForm({ user }: { user: StoredUser | null }) {
             size="lg"
             className="h-12 flex-1 max-w-xs text-base"
             onClick={handleSubmit}
-            disabled={submitting || items.length === 0}
+            disabled={submitting || items.length === 0 || isLocked}
           >
             {submitting ? (
               <>
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 Submitting...
               </>
+            ) : isLocked ? (
+              <Lock className="mr-2 h-5 w-5" />
             ) : (
               <>
                 <Send className="mr-2 h-5 w-5" />

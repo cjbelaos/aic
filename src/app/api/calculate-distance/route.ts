@@ -1,5 +1,23 @@
 import { NextResponse } from "next/server";
 
+/**
+ * Normalizes a point (address string or coordinate object) into the format
+ * accepted by the Apps Script direction-finder. Coordinate objects like
+ * { lat, lng } or { Latitude, Longitude } become "lat,lng" strings.
+ */
+function normalizePoint(point: unknown): string {
+  if (typeof point === "object" && point !== null) {
+    const o = point as Record<string, unknown>;
+    const lat = o.lat ?? o.Latitude;
+    const lng = o.lng ?? o.Longitude;
+    if (typeof lat === "number" && typeof lng === "number") {
+      return `${lat},${lng}`;
+    }
+    return "";
+  }
+  return String(point ?? "").trim();
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -44,9 +62,14 @@ export async function POST(request: Request) {
       }
 
       const appScriptPayload = {
-        origin: previousPoint.toString(),
-        destination: destination.toString(),
+        origin: normalizePoint(previousPoint),
+        destination: normalizePoint(destination),
       };
+
+      if (!appScriptPayload.origin || !appScriptPayload.destination) {
+        legDistances.push({ legIndex: i, distanceKm: 0 });
+        continue;
+      }
 
       const response = await fetch(endpoint, {
         method: "POST",

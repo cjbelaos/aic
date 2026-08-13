@@ -2,8 +2,12 @@
  * Expense liquidation feature types.
  *
  * Database schema (two Google Sheets tabs in GOOGLE_SHEET_ID_DATABASE):
- *   Liquidations : LiquidationId | UserId | TotalAmount
+ *   Liquidations : LiquidationId | ControlNo | UserId | TotalAmount | Status
  *   ReceiptItems : ReceiptItemId | LiquidationId | Date | Description | Category | Amount | ReceiptImageUrl
+ *
+ * ControlNo links the liquidation to an FTI (Field Travel Itinerary) request.
+ * Status lifecycle mirrors FTI: SAVED (items being added) → SUBMITTED (sent
+ * for approval) → APPROVED / REQUESTED_FOR_CHANGE / REJECTED.
  */
 
 export const RECEIPT_CATEGORIES = [
@@ -17,11 +21,27 @@ export const RECEIPT_CATEGORIES = [
 
 export type ReceiptCategory = (typeof RECEIPT_CATEGORIES)[number];
 
+export type LiquidationStatus =
+  | "SAVED"
+  | "SUBMITTED"
+  | "APPROVED"
+  | "REQUESTED_FOR_CHANGE"
+  | "REJECTED";
+
 /** Parent row in the `Liquidations` sheet. */
 export interface Liquidation {
   liquidationId: string;
+  /** Links the liquidation to an FTI request (e.g. CTRL-20260812...). */
+  controlNo: string;
   userId: string;
   totalAmount: number;
+  status: LiquidationStatus | string;
+  /** Auto-assigned approver when submitted (mirrors FTI). */
+  approvedByUserId?: string;
+  approvedByName?: string;
+  approvedBySignatureUrl?: string;
+  approvedDate?: string;
+  approvalComment?: string;
 }
 
 /** Child row in the `ReceiptItems` sheet. */
@@ -53,6 +73,8 @@ export interface ReceiptItemInput {
 export interface NewLiquidationInput {
   /** The authenticated user's ID (set server-side from the session). */
   userId: string;
+  /** The FTI ControlNo this liquidation is linked to. */
+  controlNo: string;
   items: ReceiptItemInput[];
 }
 

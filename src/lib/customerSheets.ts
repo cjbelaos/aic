@@ -50,6 +50,8 @@ export async function addCustomer(
       companyName: payload.customerName || "",
       tin: payload.tin || "",
       address: payload.address || "",
+      latitude: undefined,
+      longitude: undefined,
       status: "active",
     });
     return toCustomerShape(created);

@@ -44,9 +44,12 @@ export async function POST(request: Request) {
     return NextResponse.json({
       isSuccess: true,
       result: {
-        fullName: user.fullName,
+        userId: user.userId,
         userName: user.username,
+        fullName: user.fullName,
         userRoleId: user.userRoleId,
+        departmentId: user.departmentId || 0,
+        positionId: user.positionId || 0,
       },
     });
   } catch (error) {

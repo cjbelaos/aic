@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { LiquidationForm } from "@/components/liquidation-form";
 
 interface StoredUser {
@@ -25,8 +25,24 @@ function getStoredUser(): StoredUser | null {
  * renders the expense liquidation submission form. The actual UserId used
  * when writing to the database is captured server-side from the session.
  */
-export default function ExpenseLiquidationPage() {
+function ExpenseLiquidationPageInner() {
   const [user] = useState<StoredUser | null>(getStoredUser);
 
-  return <LiquidationForm user={user} />;
+  // Deep-link support: /dashboard/expense-liquidation?controlNo=CTRL-...
+  // (e.g. "Add Liquidation" from the FTI preview modal).
+  let initialControlNo = "";
+  if (typeof window !== "undefined") {
+    initialControlNo =
+      new URLSearchParams(window.location.search).get("controlNo") || "";
+  }
+
+  return <LiquidationForm user={user} initialControlNo={initialControlNo} />;
+}
+
+export default function ExpenseLiquidationPage() {
+  return (
+    <Suspense fallback={null}>
+      <ExpenseLiquidationPageInner />
+    </Suspense>
+  );
 }

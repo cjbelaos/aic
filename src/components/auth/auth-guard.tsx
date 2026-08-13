@@ -20,6 +20,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
               userId: res.result?.userId ?? "",
               userName: res.result?.userName ?? "",
               userRoleId: res.result?.userRoleId ?? 2,
+              departmentId: res.result?.departmentId ?? null,
+              positionId: res.result?.positionId ?? null,
             }),
           );
           setReady(true);

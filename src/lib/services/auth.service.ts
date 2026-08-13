@@ -9,7 +9,10 @@ export interface ApiResponse<T> {
 export interface AuthUser {
   userId?: string;
   userName: string;
+  fullName?: string;
   userRoleId?: number;
+  departmentId?: number | null;
+  positionId?: number | null;
 }
 
 const authService = {

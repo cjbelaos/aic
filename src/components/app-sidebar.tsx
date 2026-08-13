@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -39,8 +40,27 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 
+interface StoredUser {
+  userId?: string;
+  departmentId?: number;
+}
+
+function getStoredDepartmentId(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("auth:user");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredUser;
+    return typeof parsed.departmentId === "number" ? parsed.departmentId : null;
+  } catch {
+    return null;
+  }
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
+  const [departmentId] = useState<number | null>(getStoredDepartmentId);
+  const canSeeTravel = departmentId === 1;
 
   // Determine whether a nav item is active. Items with query-string hrefs
   // (e.g. /dashboard/companies?type=customer) match only when both the base
@@ -321,70 +341,87 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator />
-
-        {/* ── Travel ────────────────────────────────────────────────── */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Travel</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith(
-                    "/dashboard/field-travel-itinerary",
-                  )}
-                  tooltip="Field Technician Itinerary"
-                >
-                  <Link href="/dashboard/field-travel-itinerary">
-                    <MapPin />
-                    <span>Field Technician Itinerary</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith(
-                    "/dashboard/fti-summary-report",
-                  )}
-                  tooltip="FTI Summary Report"
-                >
-                  <Link href="/dashboard/fti-summary-report">
-                    <BarChart3 />
-                    <span>FTI Summary Report</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === "/dashboard/expense-liquidation"}
-                  tooltip="Expense Liquidation"
-                >
-                  <Link href="/dashboard/expense-liquidation">
-                    <Receipt />
-                    <span>Expense Liquidation</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith(
-                    "/dashboard/expense-liquidation/history",
-                  )}
-                  tooltip="Liquidation History"
-                >
-                  <Link href="/dashboard/expense-liquidation/history">
-                    <ReceiptText />
-                    <span>Liquidation History</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {canSeeTravel && (
+          <>
+            <SidebarSeparator />
+            {/* ── Travel (DepartmentId = 1 only) ────────────────── */}
+            <SidebarGroup>
+              <SidebarGroupLabel>Travel</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith(
+                        "/dashboard/field-travel-itinerary",
+                      )}
+                      tooltip="Field Technician Itinerary"
+                    >
+                      <Link href="/dashboard/field-travel-itinerary">
+                        <MapPin />
+                        <span>Field Technician Itinerary</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith(
+                        "/dashboard/fti-summary-report",
+                      )}
+                      tooltip="FTI Summary Report"
+                    >
+                      <Link href="/dashboard/fti-summary-report">
+                        <BarChart3 />
+                        <span>FTI Summary Report</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith(
+                        "/dashboard/location-addresses",
+                      )}
+                      tooltip="Location Addresses"
+                    >
+                      <Link href="/dashboard/location-addresses">
+                        <MapPin />
+                        <span>Location Addresses</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === "/dashboard/expense-liquidation"}
+                      tooltip="Expense Liquidation"
+                    >
+                      <Link href="/dashboard/expense-liquidation">
+                        <Receipt />
+                        <span>Expense Liquidation</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith(
+                        "/dashboard/expense-liquidation/history",
+                      )}
+                      tooltip="Liquidation History"
+                    >
+                      <Link href="/dashboard/expense-liquidation/history">
+                        <ReceiptText />
+                        <span>Liquidation History</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
       </SidebarContent>
 
       {/* ── Footer ───────────────────────────────────────────────── */}

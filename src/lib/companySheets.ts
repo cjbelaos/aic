@@ -7,7 +7,7 @@ import {
 } from "@/types/company";
 
 const COMPANIES_SHEET = "Companies";
-const COMPANIES_RANGE = `${COMPANIES_SHEET}!A2:F`; // A:companyId, B:companyType, C:companyName, D:tin, E:address, F:status
+const COMPANIES_RANGE = `${COMPANIES_SHEET}!A2:H`; // A:companyId, B:companyType, C:companyName, D:tin, E:address, F:latitude, G:longitude, H:status
 
 function getRowFromId(id: string): number {
   const rowStr = id.replace("comp_", "");
@@ -76,7 +76,9 @@ export async function getCompanies(): Promise<Company[]> {
             companyName: row[2] || "",
             tin: row[3] || "",
             address: row[4] || "",
-            status: parseStatus(row[5]),
+            latitude: row[5] ? parseFloat(row[5]) : undefined,
+            longitude: row[6] ? parseFloat(row[6]) : undefined,
+            status: parseStatus(row[7]),
           };
         })
         // Hide stale/blank rows (e.g. leftover rows containing only an ID and no
@@ -142,14 +144,20 @@ export async function addCompany(
         existingType === payload.companyType ? existingType : "Both";
 
       const rowNumber = matchIndex + 2; // +2 because row 1 is header
-      const updateRange = `${COMPANIES_SHEET}!A${rowNumber}:F${rowNumber}`;
+      const updateRange = `${COMPANIES_SHEET}!A${rowNumber}:H${rowNumber}`;
       const updatedValues = [
         existingRow[0] || "", // keep existing CompanyId
         mergedType,
         (payload.companyName || "").trim() || existingRow[2] || "",
         payload.tin !== undefined ? payload.tin : existingRow[3] || "",
         payload.address !== undefined ? payload.address : existingRow[4] || "",
-        payload.status === "active" ? "Active" : existingRow[5] || "Active",
+        payload.latitude !== undefined && !isNaN(payload.latitude)
+          ? String(payload.latitude)
+          : existingRow[5] || "",
+        payload.longitude !== undefined && !isNaN(payload.longitude)
+          ? String(payload.longitude)
+          : existingRow[6] || "",
+        payload.status === "active" ? "Active" : existingRow[7] || "Active",
       ];
 
       await sheets.spreadsheets.values.update({
@@ -169,7 +177,11 @@ export async function addCompany(
         companyName: updatedValues[2],
         tin: updatedValues[3],
         address: updatedValues[4],
-        status: parseStatus(updatedValues[5]),
+        latitude: updatedValues[5] ? parseFloat(updatedValues[5]) : undefined,
+        longitude: updatedValues[6]
+          ? parseFloat(updatedValues[6])
+          : undefined,
+        status: parseStatus(updatedValues[7]),
       };
     }
 
@@ -186,6 +198,12 @@ export async function addCompany(
       payload.companyName || "",
       payload.tin || "",
       payload.address || "",
+      payload.latitude !== undefined && !isNaN(payload.latitude)
+        ? String(payload.latitude)
+        : "",
+      payload.longitude !== undefined && !isNaN(payload.longitude)
+        ? String(payload.longitude)
+        : "",
       payload.status === "active" ? "Active" : "Inactive",
     ];
 
@@ -206,6 +224,8 @@ export async function addCompany(
       companyName: payload.companyName || "",
       tin: payload.tin || "",
       address: payload.address || "",
+      latitude: payload.latitude,
+      longitude: payload.longitude,
       status: payload.status,
     };
   } catch (error) {
@@ -222,7 +242,7 @@ export async function updateCompanyInSheets(
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
     const rowNumber = getRowFromId(payload.id);
-    const updateRange = `${COMPANIES_SHEET}!A${rowNumber}:F${rowNumber}`;
+    const updateRange = `${COMPANIES_SHEET}!A${rowNumber}:H${rowNumber}`;
 
     const currentDataResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -275,11 +295,17 @@ export async function updateCompanyInSheets(
         : existingRow[2] || "",
       payload.tin !== undefined ? payload.tin : existingRow[3] || "",
       payload.address !== undefined ? payload.address : existingRow[4] || "",
+      payload.latitude !== undefined && !isNaN(payload.latitude)
+        ? String(payload.latitude)
+        : existingRow[5] || "",
+      payload.longitude !== undefined && !isNaN(payload.longitude)
+        ? String(payload.longitude)
+        : existingRow[6] || "",
       payload.status !== undefined
         ? payload.status === "active"
           ? "Active"
           : "Inactive"
-        : existingRow[5] || "Active",
+        : existingRow[7] || "Active",
     ];
 
     await sheets.spreadsheets.values.update({
@@ -299,7 +325,11 @@ export async function updateCompanyInSheets(
       companyName: updatedValues[2],
       tin: updatedValues[3],
       address: updatedValues[4],
-      status: parseStatus(updatedValues[5]),
+      latitude: updatedValues[5] ? parseFloat(updatedValues[5]) : undefined,
+      longitude: updatedValues[6]
+        ? parseFloat(updatedValues[6])
+        : undefined,
+      status: parseStatus(updatedValues[7]),
     };
   } catch (error) {
     console.error(

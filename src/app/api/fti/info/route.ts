@@ -3,11 +3,12 @@ import {
   getTechnicians,
   getMiscellaneous,
   getTollMatrix,
-  getCustomersList,
   getExpresswayGroups,
   generateFTIRef,
   getKmPerLiter,
 } from "@/lib/ftiSheets";
+import { getLocationAddresses } from "@/lib/locationAddressSheets";
+import { getCompanies } from "@/lib/companySheets";
 import { getSession } from "@/lib/auth/session";
 import { getUsers } from "@/lib/userSheets";
 
@@ -19,14 +20,16 @@ export async function GET() {
       techList,
       miscellaneous,
       tollMatrixData,
-      customers,
+      companies,
+      locationAddresses,
       expresswayGroups,
       kmPerLiter,
     ] = await Promise.all([
       getTechnicians(),
       getMiscellaneous(),
       getTollMatrix(),
-      getCustomersList(),
+      getCompanies(),
+      getLocationAddresses().catch(() => []),
       getExpresswayGroups(),
       getKmPerLiter(session?.userId || ""),
     ]);
@@ -34,10 +37,22 @@ export async function GET() {
     // Map to backward-compatible formats
     const technicians = techList.map((t) => t.fullName);
     const miscCodes = miscellaneous.map((m) => m.code);
-    const locations = customers.map((c) => ({
-      companyName: c.customerName,
-      address: c.address,
-    }));
+    const locations = [
+      ...companies.map((c) => ({
+        companyName: c.companyName,
+        address: c.address,
+        locationId: c.companyId,
+        latitude: c.latitude,
+        longitude: c.longitude,
+      })),
+      ...locationAddresses.map((loc) => ({
+        companyName: loc.locationName,
+        address: loc.address,
+        locationId: loc.locationId,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+      })),
+    ];
     const tollGates = tollMatrixData.gates || [];
 
     // Get current user's fullName + role + user list for the admin dropdown.

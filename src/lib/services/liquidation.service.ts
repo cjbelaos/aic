@@ -10,6 +10,7 @@ const api = axios.create({
 export interface CreateLiquidationResponse {
   success: boolean;
   liquidationId: string;
+  controlNo: string;
   totalAmount: number;
   itemCount: number;
 }
@@ -79,12 +80,47 @@ async function compressImage(file: File): Promise<File> {
 export const liquidationService = {
   /**
    * Creates a new liquidation batch. UserId is captured server-side.
+   * controlNo links the liquidation to the technician's FTI request.
    */
-  async create(items: ReceiptItemInput[]): Promise<CreateLiquidationResponse> {
-    const res = await api.post<CreateLiquidationResponse>("/liquidations", {
-      items,
-    });
-    return res.data;
+  async createDraft(controlNo: string) {
+    return (await api.post("/liquidations", { action: "create", controlNo }))
+      .data;
+  },
+  async addItem(liquidationId: string, items: ReceiptItemInput[]) {
+    return (
+      await api.post("/liquidations", {
+        action: "add-item",
+        liquidationId,
+        items,
+      })
+    ).data;
+  },
+  async replace(liquidationId: string, items: ReceiptItemInput[]) {
+    return (
+      await api.post("/liquidations", {
+        action: "replace",
+        liquidationId,
+        items,
+      })
+    ).data;
+  },
+  async submit(liquidationId: string) {
+    return (
+      await api.post("/liquidations", { action: "submit", liquidationId })
+    ).data;
+  },
+  async approve(
+    liquidationId: string,
+    action: "approve" | "request_change" | "reject",
+    comment?: string,
+  ) {
+    return (
+      await api.post("/liquidations", {
+        action: "approve",
+        liquidationId,
+        approval: { action, comment },
+      })
+    ).data;
   },
 
   /**
@@ -96,6 +132,21 @@ export const liquidationService = {
       liquidations: LiquidationFull[];
     }>("/liquidations");
     return res.data.liquidations;
+  },
+
+  /**
+   * Returns the current user's liquidation (with receipt items) for an FTI
+   * ControlNo. Used to restore existing receipts when a ControlNo that
+   * already has a SAVED/SUBMITTED/… liquidation is re-selected.
+   */
+  async getByControlNo(controlNo: string): Promise<LiquidationFull | null> {
+    const res = await api.get<{
+      success: boolean;
+      liquidations: LiquidationFull[];
+    }>("/liquidations", {
+      params: { controlNo },
+    });
+    return res.data.liquidations[0] || null;
   },
 
   /**
