@@ -55,7 +55,7 @@ export async function addSupplier(
       companyType: "Supplier",
       companyName: payload.supplierName || "",
       tin: payload.tin || "",
-      address: payload.address || "",
+      address: payload.addressLine || "",
       latitude: undefined,
       longitude: undefined,
       status: payload.status,
