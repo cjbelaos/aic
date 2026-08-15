@@ -43,7 +43,7 @@ export async function getCustomerPrices(): Promise<CustomerPrice[]> {
     return rows.map((row, index): CustomerPrice => {
       return {
         id: `cp_${index + 2}`, // Matches row index position + offset (row 1 = header)
-        customerName: row[0] || "",
+        companyName: row[0] || "",
         productCode: row[1] || "",
         pricePerUnit:
           parseFloat(String(row[2] || "0").replace(/[₱$,]/g, "")) || 0,
@@ -78,13 +78,13 @@ export async function addCustomerPrice(
     const duplicate = existingRows.find(
       (row) =>
         row[0]?.trim().toLowerCase() ===
-          payload.customerName.trim().toLowerCase() &&
+          payload.companyName.trim().toLowerCase() &&
         row[1]?.trim().toLowerCase() ===
           payload.productCode.trim().toLowerCase(),
     );
     if (duplicate) {
       throw new Error(
-        `A custom price already exists for customer "${payload.customerName}" and product "${payload.productCode}".`,
+        `A custom price already exists for customer "${payload.companyName}" and product "${payload.productCode}".`,
       );
     }
 
@@ -101,7 +101,7 @@ export async function addCustomerPrice(
 
     // Serialize into column array matching sheet layout: [customerName, productCode, pricePerUnit]
     const newRowValues = [
-      payload.customerName || "",
+      payload.companyName || "",
       payload.productCode || "",
       payload.pricePerUnit || 0,
     ];
@@ -118,7 +118,7 @@ export async function addCustomerPrice(
 
     return {
       id: `cp_${newRowNumber}`,
-      customerName: payload.customerName,
+      companyName: payload.companyName,
       productCode: payload.productCode,
       pricePerUnit: payload.pricePerUnit,
     };
@@ -161,8 +161,8 @@ export async function updateCustomerPriceInSheets(
 
     // Map payload updates over old values
     const updatedValues = [
-      payload.customerName !== undefined
-        ? payload.customerName
+      payload.companyName !== undefined
+        ? payload.companyName
         : existingRow[0] || "",
       payload.productCode !== undefined
         ? payload.productCode
@@ -182,7 +182,7 @@ export async function updateCustomerPriceInSheets(
 
     return {
       id: payload.id,
-      customerName: String(updatedValues[0]),
+      companyName: String(updatedValues[0]),
       productCode: String(updatedValues[1]),
       pricePerUnit: Number(updatedValues[2]),
     };

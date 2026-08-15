@@ -100,6 +100,32 @@ export const ftiService = {
     });
   },
 
+  // ── Single-detail immediate persistence ──
+  async appendDetail(
+    controlNo: string,
+    detail: FTIDetailInput,
+    userId?: string,
+  ): Promise<{ controlNo: string; detailId: string }> {
+    const res = await api.post<{ controlNo: string; detailId: string }>(
+      "/fti/details",
+      { controlNo, detail, userId },
+    );
+    return res.data;
+  },
+
+  async updateDetail(
+    controlNo: string,
+    detailId: string,
+    detail: FTIDetailInput,
+    userId?: string,
+  ): Promise<void> {
+    await api.put("/fti/details", { controlNo, detailId, detail, userId });
+  },
+
+  async deleteDetailRow(detailId: string): Promise<void> {
+    await api.delete(`/fti/details?detailId=${encodeURIComponent(detailId)}`);
+  },
+
   // ── FTIExpenses ──
   async getExpenses(detailId: string): Promise<FTIExpenses[]> {
     const res = await api.get<FTIExpenses[]>(

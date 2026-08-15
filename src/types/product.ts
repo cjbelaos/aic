@@ -1,11 +1,9 @@
-import { Supplier } from "@/types/supplier";
+import { Company } from "@/types/company";
 import { ProductCategory } from "@/types/product-category";
 import { ProductUnit } from "@/types/product-unit";
 
-export type ProductStatus = "Out of Stock" | "In Stock" | "Low stock";
-
 export interface Product {
-  id: string;
+  id: string; // prod_<rowNumber> (row-based ID for row targeting)
   code: string;
   name: string;
   category: ProductCategory;
@@ -13,14 +11,7 @@ export interface Product {
   unit: ProductUnit;
   costPerUnit: number;
   pricePerUnit: number;
-  supplier: Supplier;
-  minStock: number;
-  begStock: number;
-  qtyIn: number;
-  actualStock: number;
-  reservedUnits: number;
-  qtyOut: number;
-  status: ProductStatus;
+  supplier: Company;
 }
 
 /**

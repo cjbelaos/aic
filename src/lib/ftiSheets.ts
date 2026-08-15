@@ -6,7 +6,7 @@ import {
 } from "@/lib/googleSheets";
 import { getAllMiscellaneous } from "@/lib/miscellaneousSheets";
 import { getUsers } from "@/lib/userSheets";
-import { getCustomers } from "@/lib/customerSheets";
+import { getCompanies } from "@/lib/companySheets";
 import { EXPRESSWAY_GROUPS } from "@/lib/tollMatrix";
 import type {
   FTIRequest,
@@ -834,6 +834,208 @@ export async function saveFTIExpenses(
   return expenses;
 }
 
+// ── Single-detail immediate persistence (DRAFT row-save flow) ──
+
+async function deleteSingleDetailRow(detailId: string): Promise<void> {
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const sheets = await getSheetsClient();
+
+  const [expensesRes, legsRes] = await Promise.all([
+    sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE_EXPENSES }),
+    sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE_LEGS }),
+  ]);
+
+  const expenseRowNumbers: number[] = [];
+  (expensesRes.data.values || []).forEach((row, i) => {
+    if ((row[1] || "").toString().trim() === detailId) {
+      expenseRowNumbers.push(i + 2);
+    }
+  });
+
+  const legIds = new Set<string>();
+  const legRowNumbers: number[] = [];
+  (legsRes.data.values || []).forEach((row, i) => {
+    if ((row[1] || "").toString().trim() === detailId) {
+      legIds.add((row[0] || "").toString().trim());
+      legRowNumbers.push(i + 2);
+    }
+  });
+
+  if (legIds.size > 0) {
+    const segRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: RANGE_SEGMENTS,
+    });
+    const segRowNumbers: number[] = [];
+    (segRes.data.values || []).forEach((row, i) => {
+      if (legIds.has((row[1] || "").toString().trim())) {
+        segRowNumbers.push(i + 2);
+      }
+    });
+    await deleteSheetRows(FTI_SEGMENTS_SHEET, segRowNumbers);
+  }
+
+  await deleteSheetRows(FTI_EXPENSES_SHEET, expenseRowNumbers);
+  await deleteSheetRows(FTI_LEGS_SHEET, legRowNumbers);
+
+  const detailsRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: RANGE_DETAILS,
+  });
+  const detailRowNumbers: number[] = [];
+  (detailsRes.data.values || []).forEach((row, i) => {
+    if ((row[0] || "").toString().trim() === detailId) {
+      detailRowNumbers.push(i + 2);
+    }
+  });
+  await deleteSheetRows(FTI_DETAILS_SHEET, detailRowNumbers);
+  invalidateFTICache();
+}
+
+async function saveDetailExpenses(
+  detailId: string,
+  expenses: { miscCode: string; amount: number }[],
+): Promise<void> {
+  if (!expenses || expenses.length === 0) return;
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const sheets = await getSheetsClient();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${FTI_EXPENSES_SHEET}!A:D`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: expenses
+        .filter((e) => e.miscCode)
+        .map((e) => [
+          generateUUID(),
+          detailId,
+          e.miscCode,
+          String(e.amount || 0),
+        ]),
+    },
+  });
+  invalidateFTICache();
+}
+
+async function recomputeRequestTotal(controlNo: string): Promise<void> {
+  const [details, expenses, all] = await Promise.all([
+    getAllDetails(),
+    getAllExpenses(),
+    getAllFTIRequests(),
+  ]);
+  const idx = all.findIndex((r) => r.controlNo === controlNo);
+  if (idx === -1) return;
+  const dets = details.filter((d) => d.controlNo === controlNo);
+  const total = dets.reduce((sum, det) => {
+    const detExp = expenses.filter((e) => e.detailId === det.detailId);
+    return sum + computeDetailTotal(det, detExp);
+  }, 0);
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const sheets = await getSheetsClient();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${FTI_REQUEST_SHEET}!F${idx + 2}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[String(total)]] },
+  });
+  invalidateFTICache();
+}
+
+/**
+ * Immediately persist a single itinerary (detail) row under a DRAFT request.
+ * Auto-creates the request row on first add when no controlNo exists yet.
+ */
+export async function appendFTIDetail(
+  controlNo: string,
+  detail: FTIDetailInput,
+  userId?: string,
+): Promise<{ controlNo: string; detailId: string }> {
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const sheets = await getSheetsClient();
+  const all = await getAllFTIRequests();
+  let existing = all.find((r) => r.controlNo === controlNo);
+
+  if (!existing) {
+    const effectiveUserId = userId || "";
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${FTI_REQUEST_SHEET}!A:D`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[controlNo, effectiveUserId, "DRAFT", formatPhilippineTimestamp()]],
+      },
+    });
+    invalidateFTICache();
+    existing = {
+      controlNo,
+      userId: effectiveUserId,
+      status: "DRAFT",
+      dateCreated: formatPhilippineTimestamp(),
+    };
+  }
+
+  await guardEditableStatus(controlNo);
+
+  const effectiveUserIdForFuel = existing?.userId || userId || "";
+  const kmPerLiter = await getKmPerLiter(effectiveUserIdForFuel);
+  const detailId = detail.detailId || generateUUID();
+  const fuelSubTotal =
+    detail.fuelSubTotal !== undefined
+      ? parseFloat(detail.fuelSubTotal.toFixed(2))
+      : computeFuelSubTotal(detail.km, detail.fuelPrice, kmPerLiter);
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${FTI_DETAILS_SHEET}!A:I`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [
+        [
+          detailId,
+          controlNo,
+          detail.date,
+          (detail.itinerary || "").toUpperCase(),
+          (detail.description || "").toUpperCase(),
+          String(detail.km || 0),
+          String(detail.fuelPrice || 0),
+          String(fuelSubTotal),
+          String(detail.tollFee || 0),
+        ],
+      ],
+    },
+  });
+
+  if (detail.legs && detail.legs.length > 0) {
+    await saveFTILegs(controlNo, detailId, detail.legs);
+  }
+  await saveDetailExpenses(detailId, detail.expenses || []);
+  await recomputeRequestTotal(controlNo);
+  invalidateFTICache();
+  return { controlNo, detailId };
+}
+
+/** Replace a single detail row (used when editing an itinerary row). */
+export async function updateFTIDetail(
+  controlNo: string,
+  detailId: string,
+  detail: FTIDetailInput,
+  userId?: string,
+): Promise<void> {
+  await guardEditableStatus(controlNo);
+  await deleteSingleDetailRow(detailId);
+  await appendFTIDetail(controlNo, { ...detail, detailId }, userId);
+}
+
+/** Delete a single detail row plus its expenses/legs/segments. */
+export async function deleteFTIDetailRow(detailId: string): Promise<void> {
+  const allDetails = await getAllDetails();
+  const det = allDetails.find((d) => d.detailId === detailId);
+  if (!det) return;
+  await guardEditableStatus(det.controlNo);
+  await deleteSingleDetailRow(detailId);
+  await recomputeRequestTotal(det.controlNo);
+}
+
 async function deleteDetailsAndExpensesForRequest(
   controlNo: string,
 ): Promise<void> {
@@ -1084,12 +1286,12 @@ export async function getMiscellaneous(): Promise<
   return await getAllMiscellaneous();
 }
 
-export async function getCustomersList(): Promise<
-  { customerName: string; address: string }[]
+export async function getCompanyList(): Promise<
+  { companyName: string; address: string }[]
 > {
-  const customers = await getCustomers();
-  return customers.map((c) => ({
-    customerName: c.customerName,
+  const companies = await getCompanies();
+  return companies.map((c) => ({
+    companyName: c.companyName,
     address: c.address,
   }));
 }

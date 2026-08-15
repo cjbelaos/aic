@@ -20,7 +20,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 
 // Services
 import customerPriceService from "@/lib/services/customer-price.service";
-import customerService from "@/lib/services/customer.service";
+import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
 
 // Types
@@ -29,18 +29,18 @@ import {
   CreateCustomerPricePayload,
   UpdateCustomerPricePayload,
 } from "@/types/customer-price";
-import { Customer } from "@/types/customer";
+import { Company } from "@/types/company";
 import { Product } from "@/types/product";
 
 /* ── Form state ─────────────────────────────────────────── */
 interface CustomerPriceFormState {
-  customerName: string;
+  companyName: string;
   productCode: string;
   pricePerUnit: number;
 }
 
 const EMPTY_FORM: CustomerPriceFormState = {
-  customerName: "",
+  companyName: "",
   productCode: "",
   pricePerUnit: 0,
 };
@@ -50,7 +50,7 @@ function buildCreatePayload(
   form: CustomerPriceFormState,
 ): CreateCustomerPricePayload {
   return {
-    customerName: form.customerName,
+    companyName: form.companyName,
     productCode: form.productCode,
     pricePerUnit: form.pricePerUnit,
   };
@@ -59,7 +59,7 @@ function buildCreatePayload(
 /* ── Columns ────────────────────────────────────────────── */
 const columns: ColumnDef<CustomerPrice>[] = [
   {
-    accessorKey: "customerName",
+    accessorKey: "companyName",
     header: ({ column }) => (
       <Button
         variant="ghost"
@@ -123,7 +123,7 @@ export default function CustomerPricesPage() {
   const [deleteTarget, setDeleteTarget] = useState<CustomerPrice | null>(null);
 
   // Reference data for validation / dropdowns
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<Company[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
 
   const loadPrices = async () => {
@@ -139,7 +139,7 @@ export default function CustomerPricesPage() {
   useEffect(() => {
     loadPrices().finally(() => setLoading(false));
 
-    customerService
+    companyService
       .getAll()
       .then((r) => {
         setCustomers(Array.isArray(r) ? r : []);
@@ -158,8 +158,8 @@ export default function CustomerPricesPage() {
   const customerOptions = useMemo(
     () =>
       customers.map((c) => ({
-        value: c.customerName,
-        label: c.customerName,
+        value: c.companyName,
+        label: c.companyName,
       })),
     [customers],
   );
@@ -183,7 +183,7 @@ export default function CustomerPricesPage() {
   const openEdit = (row: CustomerPrice) => {
     setEditTarget(row);
     setForm({
-      customerName: row.customerName,
+      companyName: row.companyName,
       productCode: row.productCode,
       pricePerUnit: row.pricePerUnit,
     });
@@ -193,8 +193,8 @@ export default function CustomerPricesPage() {
 
   const handleSave = async () => {
     // Client-side validation
-    if (!form.customerName.trim()) {
-      setError("Customer name is required.");
+    if (!form.companyName.trim()) {
+      setError("Company name is required.");
       return;
     }
     if (!form.productCode.trim()) {
@@ -242,7 +242,7 @@ export default function CustomerPricesPage() {
       await customerPriceService.delete(deleteTarget.id);
       await loadPrices();
       toast.success(
-        `Price for "${deleteTarget.customerName}" / "${deleteTarget.productCode}" deleted.`,
+        `Price for "${deleteTarget.companyName}" / "${deleteTarget.productCode}" deleted.`,
       );
     } catch (err: any) {
       console.error("Delete error:", err);
@@ -285,9 +285,9 @@ export default function CustomerPricesPage() {
             <div className="space-y-1.5">
               <Label htmlFor="cp-customer">Customer Name *</Label>
               <SearchableSelect
-                value={form.customerName}
+                value={form.companyName}
                 onValueChange={(v) =>
-                  setForm((f) => ({ ...f, customerName: v }))
+                  setForm((f) => ({ ...f, companyName: v }))
                 }
                 options={customerOptions}
                 placeholder="Select customer"
@@ -354,7 +354,7 @@ export default function CustomerPricesPage() {
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}
-        description={`Delete custom price for "${deleteTarget?.customerName}" / "${deleteTarget?.productCode}"? This cannot be undone.`}
+        description={`Delete custom price for "${deleteTarget?.companyName}" / "${deleteTarget?.productCode}"? This cannot be undone.`}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
       />

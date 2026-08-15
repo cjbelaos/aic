@@ -24,11 +24,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import productService from "@/lib/services/product.service";
-import customerService from "@/lib/services/customer.service";
+import companyService from "@/lib/services/company.service";
 import customerPriceService from "@/lib/services/customer-price.service";
 import quotationService from "@/lib/services/quotation.service";
 import { userService } from "@/lib/services/user.service";
-import { Customer } from "@/types/customer";
+import { QuotationCustomer } from "@/lib/services/quotation.service";
+import companyContactService from "@/lib/services/companyContact.service";
 import { Product } from "@/types/product";
 import { CustomerPrice } from "@/types/customer-price";
 import type { PublicUser } from "@/types/user";
@@ -83,8 +84,8 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-function customerLabel(c: Customer): string {
-  return c.customerName?.trim() || `Customer #${c.id}`;
+function customerLabel(c: QuotationCustomer): string {
+  return c.companyName?.trim() || `Customer #${c.id}`;
 }
 
 /* ── Constants ─────────────────────────────────────────── */
@@ -131,7 +132,7 @@ export type QuotationFormPayload = {
   quotationNo: string;
   date: Date;
   validity: Date;
-  customer: Customer;
+  customer: QuotationCustomer;
   quotationDescription: string;
   items: QuotationDetail[];
   notations?: QuotationNotation[];
@@ -182,7 +183,7 @@ export function QuotationForm({
 
   const [loading, setLoading] = useState(true);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<QuotationCustomer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customerPrices, setCustomerPrices] = useState<CustomerPrice[]>([]);
 
@@ -285,14 +286,33 @@ export function QuotationForm({
           setQuotationNo(generatedNo);
         }
 
-        const [cRes, pRes, cpRes, uRes] = await Promise.all([
-          customerService.getAll(),
+        const [cRes, pRes, cpRes, uRes, contactRes] = await Promise.all([
+          companyService.getAll(),
           productService.getAll(),
           customerPriceService.getAll(),
           userService.getAllUsers(),
+          companyContactService.getAll(),
         ]);
 
-        setCustomers(cRes ?? []);
+        const customerCompanies = (cRes ?? []).filter(
+          (c) => c.companyType === "Customer" || c.companyType === "Both",
+        );
+        const mappedCustomers: QuotationCustomer[] = customerCompanies.map(
+          (company) => {
+            const contacts = (contactRes ?? []).filter(
+              (contact) => contact.companyId === company.companyId,
+            );
+            const primaryContact =
+              contacts.find((contact) => contact.isPrimary) || contacts[0];
+            return {
+              ...company,
+              contactPerson: primaryContact?.fullName,
+              email: primaryContact?.email,
+            };
+          },
+        );
+
+        setCustomers(mappedCustomers);
         setProducts(pRes ?? []);
         setCustomerPrices(cpRes ?? []);
         setAllUsers(uRes ?? []);
@@ -327,8 +347,8 @@ export function QuotationForm({
         if (initialData && cRes) {
           const initialCustomer = cRes.find(
             (c) =>
-              c.customerName?.trim() ===
-              initialData.customer?.customerName?.trim(),
+              c.companyName ?.trim() ===
+              initialData.customer?.companyName ?.trim(),
           );
           if (initialCustomer) {
             setCustomerId(String(initialCustomer.id));
@@ -377,9 +397,9 @@ export function QuotationForm({
       if (customer) {
         const match = customerPrices.find(
           (cp) =>
-            (cp.customerName?.trim().toLowerCase() ===
-              customer.customerName?.trim().toLowerCase() ||
-              String(cp.customerId) === String(customer.id)) &&
+            (cp.companyName?.trim().toLowerCase() ===
+              customer.companyName?.trim().toLowerCase() ||
+              String(cp.companyId) === String(customer.id)) &&
             (cp.productCode?.trim().toLowerCase() ===
               product.code?.trim().toLowerCase() ||
               String(cp.productId) === String(product.id)),
@@ -682,7 +702,7 @@ export function QuotationForm({
               <div>
                 <Label>Client Name</Label>
                 <Input
-                  value={selectedCustomer?.customerName ?? ""}
+                  value={selectedCustomer?.companyName ?? ""}
                   className="mt-1 bg-muted/40"
                   readOnly
                   disabled

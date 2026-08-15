@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { getCustomerPrices, addCustomerPrice } from "@/lib/customerPriceSheets";
-import { getCustomers } from "@/lib/customerSheets";
+import { getCustomers } from "@/lib/companySheets";
 import { getProducts } from "@/lib/productSheets";
 import { CreateCustomerPricePayload } from "@/types/customer-price";
 
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     const body: CreateCustomerPricePayload = await request.json();
 
     // Validate required fields
-    if (!body.customerName?.trim()) {
+if (!body.companyName?.trim()) {
       return NextResponse.json(
         { error: "Customer name is required." },
         { status: 400 },
@@ -66,12 +66,12 @@ export async function POST(request: Request) {
     const customers = await getCustomers();
     const customerExists = customers.some(
       (c) =>
-        c.customerName?.trim().toLowerCase() ===
-        body.customerName.trim().toLowerCase(),
+        c.companyName?.trim().toLowerCase() ===
+        body.companyName.trim().toLowerCase(),
     );
     if (!customerExists) {
       return NextResponse.json(
-        { error: `Customer "${body.customerName}" not found.` },
+        { error: `Customer "${body.companyName}" not found.` },
         { status: 400 },
       );
     }

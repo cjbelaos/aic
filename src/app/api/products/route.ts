@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { getProducts, addProduct } from "@/lib/productSheets";
+import { getProducts, addProduct, clearAllProducts } from "@/lib/productSheets";
 import { CreateProductPayload } from "@/types/product";
 
 export async function GET() {
@@ -28,6 +28,20 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to create product.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE() {
+  const session = await requireAuthenticatedSession();
+  if (session instanceof Response) return session;
+
+  try {
+    await clearAllProducts();
+    return NextResponse.json({ success: true }, { status: 200 });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to clear products.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

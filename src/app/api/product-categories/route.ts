@@ -3,6 +3,7 @@ import { requireAuthenticatedSession } from "@/lib/auth/session";
 import {
   getProductCategories,
   addProductCategory,
+  clearAllProductCategories,
 } from "@/lib/productCategorySheets";
 import { CreateProductCategoryPayload } from "@/types/product-category";
 
@@ -58,6 +59,26 @@ export async function POST(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to create product category.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/product-categories
+ * Clears all product category rows from the Google Sheet.
+ */
+export async function DELETE() {
+  const session = await requireAuthenticatedSession();
+  if (session instanceof Response) return session;
+
+  try {
+    await clearAllProductCategories();
+    return NextResponse.json({ success: true }, { status: 200 });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to clear product categories.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

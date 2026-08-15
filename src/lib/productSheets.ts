@@ -1,53 +1,57 @@
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
-import { Product, ProductStatus, CreateProductPayload } from "@/types/product";
+import { Product, CreateProductPayload } from "@/types/product";
 import { generateProductCode } from "@/lib/productCodeGenerator";
+import { getProductCategories } from "@/lib/productCategorySheets";
+import { getProductUnits } from "@/lib/productUnitSheets";
+import { getCompanies } from "@/lib/companySheets"; // Assuming suppliers are now represented by the Company type
 
 const PRODUCTS_SHEET = "Products";
-const PRODUCTS_RANGE = `${PRODUCTS_SHEET}!A2:Z`;
+// A=ProductCode, B=ProductName, C=ProductCategoryCode,
+// D=ProductDescription, E=UnitCode, F=Cost/Unit, G=Price/Unit, H=SupplierId
+const PRODUCTS_RANGE = `${PRODUCTS_SHEET}!A2:H`;
 
-/**
- * Safely parses Google Sheets cell values into clean numbers.
- * Removes currency markers (₱, $) and thousands-separator commas (e.g., "2,500.00" -> 2500)
- */
 function parseGoogleSheetNumber(value: any): number {
   if (value === undefined || value === null) return 0;
   if (typeof value === "number") return value;
-
   const cleanString = String(value)
-    .replace(/[₱$]/g, "") // Clear any currency symbols
-    .replace(/,/g, "") // Strip thousand-separator commas
+    .replace(/[₱$]/g, "")
+    .replace(/,/g, "")
     .trim();
-
   const parsed = parseFloat(cleanString);
   return isNaN(parsed) ? 0 : parsed;
 }
 
-/**
- * Serialises a CreateProductPayload into the flat column array used by the sheet.
- */
+/** Serialises a CreateProductPayload into the 8-column sheet row (A=ProductCode … H=SupplierId). */
 function payloadToRow(payload: CreateProductPayload): (string | number)[] {
   return [
     payload.code || "",
     payload.name || "",
-    payload.category?.name || "",
+    payload.category?.code || payload.category?.name || "",
     payload.description || "",
-    payload.unit?.name || "",
+    payload.unit?.code || payload.unit?.name || "",
     payload.costPerUnit || 0,
     payload.pricePerUnit ?? "",
-    payload.supplier?.supplierName || "",
-    payload.minStock ?? 0,
-    payload.begStock ?? 0,
-    payload.qtyIn ?? 0,
-    payload.actualStock ?? 0,
-    payload.reservedUnits ?? 0,
-    payload.qtyOut ?? 0,
-    payload.status || "In Stock",
+    payload.supplier?.companyId || payload.supplier?.id || "",
   ];
 }
 
-/**
- * POST: Appends a new product row to the bottom of the Products sheet.
- */
+/** DELETE: Clears all product rows from the Products sheet. */
+export async function clearAllProducts(): Promise<void> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: PRODUCTS_RANGE,
+    });
+  } catch (error) {
+    console.error("Failed to clear all products from Google Sheets:", error);
+    throw error;
+  }
+}
+
+/** POST: Appends a new product row to the bottom of the Products sheet. */
 export async function addProduct(
   payload: CreateProductPayload,
 ): Promise<Product> {
@@ -55,7 +59,6 @@ export async function addProduct(
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // First, get current row count to derive the new row's ID and sequence number
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: PRODUCTS_RANGE,
@@ -63,15 +66,13 @@ export async function addProduct(
     const rowCount = (response.data.values || []).length;
     const newRowNumber = rowCount + 2; // +2 because row 1 is header, data starts at row 2
 
-    // Auto-generate product code if none was provided
     const categoryCode = payload.category?.code || payload.category?.name || "";
     const description = payload.description || payload.name || "";
-    const sequence = rowCount + 1; // 1-based sequence
+    const sequence = rowCount + 1;
     const finalCode = payload.code?.trim()
       ? payload.code
       : generateProductCode(categoryCode, description, sequence);
 
-    // Override the payload code with the generated one for the sheet row
     const row = payloadToRow({ ...payload, code: finalCode });
 
     await sheets.spreadsheets.values.append({
@@ -81,42 +82,35 @@ export async function addProduct(
       requestBody: { values: [row] },
     });
 
-    // Build and return the created product with its new ID
-    const categoryStr = payload.category?.name || "";
-    const unitStr = payload.unit?.name || "";
-    const codeStr = payload.unit.code || "";
-    const supplierStr = payload.supplier?.supplierName || "";
-
     return {
       id: `prod_${newRowNumber}`,
       code: finalCode,
       name: payload.name || "",
-      category: { id: categoryStr, code: categoryCode, name: categoryStr },
+      category: {
+        id: categoryCode,
+        code: categoryCode,
+        name: payload.category?.name || categoryCode,
+      },
       description: payload.description || "",
-      unit: { id: unitStr, code: codeStr, name: unitStr },
+      unit: {
+        id: payload.unit?.code || "",
+        code: payload.unit?.code || "",
+        name: payload.unit?.name || "",
+      },
       costPerUnit: payload.costPerUnit,
       pricePerUnit: payload.pricePerUnit,
-      supplier: {
-        id: supplierStr,
-        supplierId: "",
-        supplierName: supplierStr,
+      supplier: payload.supplier || {
+        id: "",
+        companyId: "",
+        companyName: "",
+        companyType: "Supplier",
+        row: 0,
         tin: "",
-        addressLine: "",
-        city: "",
-        province: "",
-        country: "",
-        deliveryLeadTime: "",
-        deliveryTerms: "",
-        paymentTerms: "",
+        address: "",
+        latitude: undefined,
+        longitude: undefined,
         status: "active",
       },
-      minStock: payload.minStock ?? 0,
-      begStock: payload.begStock ?? 0,
-      qtyIn: payload.qtyIn ?? 0,
-      actualStock: payload.actualStock ?? 0,
-      reservedUnits: payload.reservedUnits ?? 0,
-      qtyOut: payload.qtyOut ?? 0,
-      status: payload.status || "In Stock",
     };
   } catch (error) {
     console.error("Failed to add product to Google Sheets:", error);
@@ -124,73 +118,67 @@ export async function addProduct(
   }
 }
 
+/** GET: Reads all product rows, resolving codes/supplier IDs via their sheets. */
 export async function getProducts(): Promise<Product[]> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // Fetch the data from the specified range
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: PRODUCTS_RANGE,
     });
-
     const rows = response.data.values;
 
-    if (!rows || rows.length === 0) {
-      return [];
-    }
+    if (!rows || rows.length === 0) return [];
 
-    // Map rows arrays back into structured Product objects
+    // Resolve reference data once so column C/F/H codes map to names/objects.
+    const [categories, units, suppliers] = await Promise.all([
+      getProductCategories().catch(() => []),
+      getProductUnits().catch(() => []),
+      getCompanies().catch(() => []),
+    ]);
+
     return rows.map((row, index): Product => {
-      const categoryStr = row[2] || "";
-      const unitStr = row[4] || "";
-      const supplierStr = row[7] || "";
+      const categoryCode = String(row[2] || "").trim();
+      const unitCode = String(row[4] || "").trim();
+      const supplierId = String(row[7] || "").trim();
+
+      const category = categories.find(
+        (c) => c.code === categoryCode || c.name === categoryCode,
+      );
+      const unit = units.find(
+        (u) => u.code === unitCode || u.name === unitCode,
+      );
+      const supplier = suppliers.find(
+        (s) => s.companyId === supplierId || s.id === supplierId,
+      );
 
       return {
-        // Generates a unique string ID based on the sheet row position
         id: `prod_${index + 2}`,
-        code: row[0] || "",
-        name: row[1] || "",
-        category: {
-          id: categoryStr,
-          code: categoryStr,
-          name: categoryStr,
+        code: String(row[0] || "").trim(),
+        name: String(row[1] || "").trim(),
+        category: category || {
+          id: categoryCode,
+          code: categoryCode,
+          name: categoryCode,
         },
-        description: row[3] || "",
-        unit: {
-          id: unitStr,
-          code: "",
-          name: unitStr,
-        },
-
-        // 🔥 Clean numeric parsing to handle commas like 2,500.00 properly
+        description: String(row[3] || "").trim(),
+        unit: unit || { id: unitCode, code: unitCode, name: unitCode },
         costPerUnit: parseGoogleSheetNumber(row[5]),
         pricePerUnit: parseGoogleSheetNumber(row[6]),
-
-        supplier: {
-          id: supplierStr,
-          supplierId: "",
-          supplierName: supplierStr,
+        supplier: supplier || {
+          id: supplierId,
+          row: 0,
+          companyId: supplierId,
+          companyType: "Supplier",
+          companyName: supplierId,
           tin: "",
-          addressLine: "",
-          city: "",
-          province: "",
-          country: "",
-          deliveryLeadTime: "",
-          deliveryTerms: "",
-          paymentTerms: "",
+          address: "",
+          latitude: undefined,
+          longitude: undefined,
           status: "active",
         },
-        // Clean stock metrics
-        minStock: parseGoogleSheetNumber(row[8]),
-        begStock: parseGoogleSheetNumber(row[9]),
-        qtyIn: parseGoogleSheetNumber(row[10]),
-        actualStock: parseGoogleSheetNumber(row[11]),
-        reservedUnits: parseGoogleSheetNumber(row[12]),
-        qtyOut: parseGoogleSheetNumber(row[13]),
-
-        status: (row[14] || "In Stock") as ProductStatus,
       };
     });
   } catch (error) {

@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState, forwardRef } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, Download, Save, Send, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Customer } from "@/types/customer";
+import { QuotationCustomer } from "@/lib/services/quotation.service";
 import { QuotationDetail } from "@/types/quotation";
 import { getDriveImageUrl } from "@/lib/signatureUpload";
 
@@ -12,7 +12,7 @@ interface QuotationProps {
   quotationNo: string;
   date: string;
   validity: string;
-  customer: Customer;
+  customer: QuotationCustomer;
   projectDescription: string;
   paymentTerms: string;
   deliveryTerms: string;
@@ -313,7 +313,7 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
                   {customer?.contactPerson || "—"}
                 </p>
                 <p className="text-slate-600 mt-1">
-                  {customer?.customerName || "—"}
+                  {customer?.companyName || "—"}
                 </p>
                 <p className="text-slate-500 text-xs mt-1 print:text-[11px]">
                   {customer?.address || "—"}

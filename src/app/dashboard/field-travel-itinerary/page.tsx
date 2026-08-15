@@ -80,6 +80,12 @@ interface Destination {
   distanceKm?: number;
 }
 
+interface MiscExpenseEntry {
+  id: string;
+  code: string;
+  amount: string;
+}
+
 interface FormData {
   ftiRef: string;
   technician: string;
@@ -87,8 +93,7 @@ interface FormData {
   origin: string;
   itinerary: string;
   description: string;
-  miscellaneous: string;
-  amount: string;
+  miscellaneousExpenses: MiscExpenseEntry[];
   fuelPrice: string;
 }
 
@@ -174,8 +179,7 @@ export default function FieldTravelItineraryPage() {
     origin: "AERICH INNOVATION CORP.",
     itinerary: "",
     description: "",
-    miscellaneous: "",
-    amount: "",
+    miscellaneousExpenses: [],
     fuelPrice: "",
   });
   const [destinations, setDestinations] = useState<Destination[]>([]);
@@ -184,15 +188,14 @@ export default function FieldTravelItineraryPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPayloadRef = useRef<string>("");
   const addressMapRef = useRef<Record<string, string>>({});
-  const coordsMapRef = useRef<
-    Record<string, { lat: number; lng: number }>
-  >({});
+  const coordsMapRef = useRef<Record<string, { lat: number; lng: number }>>({});
 
   // ── Batch state ──────────────────────────────
   const [batchItems, setBatchItems] = useState<DraftItinerary[]>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [savingRow, setSavingRow] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   // ── View mode & list state ───────────────────
@@ -517,10 +520,13 @@ export default function FieldTravelItineraryPage() {
     0,
   );
 
-  const handleCompanySaved = useCallback((company: Company) => {
-    loadFormInfo();
-    toast.success(`"${company.companyName}" is now available in the list.`);
-  }, [loadFormInfo]);
+  const handleCompanySaved = useCallback(
+    (company: Company) => {
+      loadFormInfo();
+      toast.success(`"${company.companyName}" is now available in the list.`);
+    },
+    [loadFormInfo],
+  );
 
   const handleLocationSaved = useCallback((loc: LocationAddress) => {
     setFormInfo((prev) => {
@@ -578,7 +584,11 @@ export default function FieldTravelItineraryPage() {
   const kmPerLiter = formInfo?.kmPerLiter ?? 12;
 
   // ── Add to batch ──────────────────────────────
-  const handleAddToBatch = () => {
+  const handleAddToBatch = async () => {
+    if (savingRow) {
+      toast.info("Please wait — row is still being saved.");
+      return;
+    }
     if (!formData.date || !formData.itinerary) {
       toast.error("Please fill in required fields: Itinerary, Description");
       return;
@@ -628,9 +638,20 @@ export default function FieldTravelItineraryPage() {
       return;
     }
 
+    setSavingRow(true);
+    try {
     const km = totalKm ?? 0;
     const tollFee = totalTollFee;
-    const miscAmount = parseFloat(formData.amount) || 0;
+    const miscExpenses = formData.miscellaneousExpenses
+      .filter((m) => m.code && parseFloat(m.amount) > 0)
+      .map((m) => ({
+        code: m.code,
+        description:
+          formInfo?.miscellaneousFull.find((x) => x.code === m.code)
+            ?.description || m.code,
+        amount: parseFloat(m.amount) || 0,
+      }));
+    const miscAmount = miscExpenses.reduce((s, m) => s + m.amount, 0);
     const fuelPrice = parseFloat(formData.fuelPrice) || 0;
     const fuelAmount = computeFuelCost(km, fuelPrice, kmPerLiter);
     const totalAmount = parseFloat(
@@ -645,12 +666,12 @@ export default function FieldTravelItineraryPage() {
       km: parseFloat(km.toFixed(2)),
       fuelPrice,
       tollFee,
-      miscellaneous: formData.miscellaneous,
-      miscellaneousDescription:
-        formInfo?.miscellaneousFull.find(
-          (m) => m.code === formData.miscellaneous,
-        )?.description || "",
+      miscellaneous: miscExpenses.map((m) => m.code).join(", "),
+      miscellaneousDescription: miscExpenses
+        .map((m) => m.description)
+        .join(", "),
       miscAmount,
+      miscExpenses,
       fuelAmount,
       totalAmount,
       origin: formData.origin,
@@ -669,6 +690,88 @@ export default function FieldTravelItineraryPage() {
         })),
       })),
     };
+
+    // ── Persist immediately to the database (DRAFT request) ──
+    const detailPayload = {
+      date: newItem.date,
+      itinerary: newItem.itinerary,
+      description: newItem.description,
+      km: newItem.km,
+      fuelPrice: newItem.fuelPrice,
+      tollFee: newItem.tollFee,
+      expenses:
+        newItem.miscExpenses && newItem.miscExpenses.length > 0
+          ? newItem.miscExpenses.map((m) => ({
+              miscCode: m.code,
+              amount: m.amount,
+            }))
+          : [],
+      legs: (newItem.destinations || []).map((dest, index) => ({
+        originName:
+          index === 0 ? newItem.origin : newItem.destinations[index - 1].name,
+        originAddress:
+          index === 0
+            ? newItem.originAddress || ""
+            : newItem.destinations[index - 1].address || "",
+        destName: dest.name,
+        destAddress: dest.address || "",
+        tollFee: dest.segments.reduce((s, seg) => s + seg.tollFee, 0),
+        distanceKm: dest.distanceKm || 0,
+        segments: (dest.segments || []).map((seg) => ({
+          group: seg.group,
+          entry: seg.entry,
+          exit: seg.exit,
+          tollFee: seg.tollFee || 0,
+        })),
+      })),
+    };
+
+    let ref = formData.ftiRef;
+    if (!ref) {
+      const created = await ftiService.createRequest({
+        userId: formInfo?.currentUserId,
+      });
+      ref = created.controlNo;
+      setFormData((prev) => ({ ...prev, ftiRef: ref }));
+      setCurrentStatus(created.status);
+      setRequestDateCreated(created.dateCreated);
+    }
+    try {
+      localStorage.setItem(LS_ACTIVE_REF, ref);
+    } catch {}
+
+    if (editingItemId) {
+      try {
+        await ftiService.updateDetail(
+          ref,
+          editingItemId,
+          detailPayload,
+          formInfo?.currentUserId,
+        );
+        newItem.id = editingItemId;
+      } catch (err) {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "Failed to update itinerary row.",
+        );
+        return;
+      }
+    } else {
+      try {
+        const saved = await ftiService.appendDetail(
+          ref,
+          detailPayload,
+          formInfo?.currentUserId,
+        );
+        newItem.id = saved.detailId;
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to save itinerary row.",
+        );
+        return;
+      }
+    }
 
     if (editingItemId) {
       setBatchItems((prev) =>
@@ -689,10 +792,12 @@ export default function FieldTravelItineraryPage() {
       // origin and fuelPrice are intentionally preserved after adding a row
       itinerary: "",
       description: "",
-      miscellaneous: "",
-      amount: "",
+      miscellaneousExpenses: [],
     }));
     setSelectedDate(new Date());
+    } finally {
+      setSavingRow(false);
+    }
   };
 
   // ── Edit batch item ───────────────────────────
@@ -704,8 +809,22 @@ export default function FieldTravelItineraryPage() {
       origin: item.origin || "AERICH INNOVATION CORP.",
       itinerary: item.itinerary,
       description: item.description,
-      miscellaneous: item.miscellaneous || "",
-      amount: item.miscAmount ? item.miscAmount.toString() : "",
+      miscellaneousExpenses: (item.miscExpenses && item.miscExpenses.length > 0
+        ? item.miscExpenses
+        : item.miscellaneous
+          ? [
+              {
+                code: item.miscellaneous,
+                description: item.miscellaneousDescription,
+                amount: item.miscAmount,
+              },
+            ]
+          : []
+      ).map((m) => ({
+        id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+        code: m.code,
+        amount: m.amount ? m.amount.toString() : "",
+      })),
       fuelPrice: item.fuelPrice ? item.fuelPrice.toString() : "",
     }));
     if (item.date) {
@@ -761,8 +880,7 @@ export default function FieldTravelItineraryPage() {
       // origin stays at the default AERICH value — do not revert it
       itinerary: "",
       description: "",
-      miscellaneous: "",
-      amount: "",
+      miscellaneousExpenses: [],
       // fuelPrice is intentionally preserved as it is used across rows
     }));
     setDestinations([]);
@@ -771,9 +889,17 @@ export default function FieldTravelItineraryPage() {
     toast.info("Edit cancelled.");
   };
 
-  const handleRemoveBatchItem = (id: string) => {
+  const handleRemoveBatchItem = async (id: string) => {
     setBatchItems((prev) => prev.filter((item) => item.id !== id));
     if (editingItemId === id) setEditingItemId(null);
+    try {
+      await ftiService.deleteDetailRow(id);
+      toast.success("Itinerary row deleted.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete itinerary row.",
+      );
+    }
   };
 
   const handleClearDraft = () => {
@@ -875,9 +1001,15 @@ export default function FieldTravelItineraryPage() {
         km: item.km,
         fuelPrice: item.fuelPrice,
         tollFee: item.tollFee,
-        expenses: item.miscellaneous
-          ? [{ miscCode: item.miscellaneous, amount: item.miscAmount }]
-          : [],
+        expenses:
+          item.miscExpenses && item.miscExpenses.length > 0
+            ? item.miscExpenses.map((m) => ({
+                miscCode: m.code,
+                amount: m.amount,
+              }))
+            : item.miscellaneous
+              ? [{ miscCode: item.miscellaneous, amount: item.miscAmount }]
+              : [],
         legs: formSegments.map((dest, index) => ({
           originName: index === 0 ? item.origin : formSegments[index - 1].name,
           originAddress:
@@ -1014,7 +1146,6 @@ export default function FieldTravelItineraryPage() {
       }
       await ftiService.updateRequest(ref, {
         status: submitStatus,
-        details: mapBatchToDetails(),
       });
       toast.success(
         submitStatus === "SENT"
@@ -1058,7 +1189,6 @@ export default function FieldTravelItineraryPage() {
       }
       await ftiService.updateRequest(ref, {
         status: "SENT",
-        details: mapBatchToDetails(),
       });
       toast.success(`FTI ${ref} submitted and PDF saved to Drive.`);
       setBatchItems([]);
@@ -1105,6 +1235,13 @@ export default function FieldTravelItineraryPage() {
                 ?.description || e.miscCode,
           )
           .join(", ");
+        const miscExpenses = det.expenses.map((e) => ({
+          code: e.miscCode,
+          description:
+            formInfo?.miscellaneousFull.find((m) => m.code === e.miscCode)
+              ?.description || e.miscCode,
+          amount: e.amount,
+        }));
         const firstLeg = det.legs?.[0];
         const originName = firstLeg?.originName || "AERICH INNOVATION CORP.";
         const originAddress = firstLeg?.originAddress || "";
@@ -1119,6 +1256,7 @@ export default function FieldTravelItineraryPage() {
           miscellaneous: miscCodes,
           miscellaneousDescription: miscDescriptions,
           miscAmount,
+          miscExpenses,
           totalAmount: computeDetailTotal(det, det.expenses),
           fuelAmount: fuel,
           origin: originName,
@@ -1550,6 +1688,13 @@ export default function FieldTravelItineraryPage() {
             onOpenChange={setViewModalOpen}
             batchItems={viewRequest.details.map((det) => {
               const miscAmount = det.expenses.reduce((s, e) => s + e.amount, 0);
+              const miscExpenses = det.expenses.map((e) => ({
+                code: e.miscCode,
+                description:
+                  formInfo?.miscellaneousFull.find((m) => m.code === e.miscCode)
+                    ?.description || e.miscCode,
+                amount: e.amount,
+              }));
               return {
                 id: det.detailId,
                 date: det.date,
@@ -1567,6 +1712,7 @@ export default function FieldTravelItineraryPage() {
                       )?.description || e.miscCode,
                   )
                   .join(", "),
+                miscExpenses,
                 miscAmount,
                 fuelAmount: det.fuelSubTotal,
                 totalAmount: computeDetailTotal(det, det.expenses),
@@ -1995,29 +2141,115 @@ export default function FieldTravelItineraryPage() {
               </div>
             )}
 
-            {/* Miscellaneous & Amount */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Miscellaneous</Label>
-                <SearchableSelect
-                  value={formData.miscellaneous}
-                  onValueChange={(v) => handleFieldChange("miscellaneous", v)}
-                  options={miscOptions}
-                  placeholder="Select (optional)"
-                  searchPlaceholder="Search..."
-                />
+            {/* Miscellaneous Expenses (multiple allowed) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">
+                  Miscellaneous Expenses
+                </Label>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 text-xs flex items-center gap-1"
+                  onClick={() =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      miscellaneousExpenses: [
+                        ...prev.miscellaneousExpenses,
+                        {
+                          id:
+                            crypto.randomUUID?.() ||
+                            Math.random().toString(36).slice(2),
+                          code: "",
+                          amount: "",
+                        },
+                      ],
+                    }))
+                  }
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Miscellaneous
+                </Button>
               </div>
-              <div className="space-y-2">
-                <Label>Amount (₱)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.amount}
-                  onChange={(e) => handleFieldChange("amount", e.target.value)}
-                  placeholder="0.00"
-                />
-              </div>
+              {formData.miscellaneousExpenses.length === 0 && (
+                <p className="text-sm text-muted-foreground italic">
+                  No miscellaneous expenses added.
+                </p>
+              )}
+              {formData.miscellaneousExpenses.map((exp) => (
+                <div
+                  key={exp.id}
+                  className="grid grid-cols-1 md:grid-cols-[1fr_140px_40px] gap-3 items-end"
+                >
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Item</Label>
+                    <SearchableSelect
+                      value={exp.code}
+                      onValueChange={(v) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          miscellaneousExpenses: prev.miscellaneousExpenses.map(
+                            (m) => (m.id === exp.id ? { ...m, code: v } : m),
+                          ),
+                        }))
+                      }
+                      options={miscOptions}
+                      placeholder="Select miscellaneous item"
+                      searchPlaceholder="Search..."
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Amount (₱)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={exp.amount}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          miscellaneousExpenses: prev.miscellaneousExpenses.map(
+                            (m) =>
+                              m.id === exp.id
+                                ? { ...m, amount: e.target.value }
+                                : m,
+                          ),
+                        }))
+                      }
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-destructive"
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        miscellaneousExpenses:
+                          prev.miscellaneousExpenses.filter(
+                            (m) => m.id !== exp.id,
+                          ),
+                      }))
+                    }
+                    title="Remove"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              {formData.miscellaneousExpenses.length > 0 && (
+                <p className="text-xs text-muted-foreground text-right">
+                  Total Misc:{" "}
+                  <span className="font-mono font-medium text-foreground">
+                    ₱
+                    {formData.miscellaneousExpenses
+                      .reduce((s, m) => s + (parseFloat(m.amount) || 0), 0)
+                      .toFixed(2)}
+                  </span>
+                </p>
+              )}
             </div>
 
             {/* Form Actions */}
@@ -2034,8 +2266,7 @@ export default function FieldTravelItineraryPage() {
                     // origin stays at the default AERICH value — do not revert it
                     itinerary: "",
                     description: "",
-                    miscellaneous: "",
-                    amount: "",
+                    miscellaneousExpenses: [],
                   }));
                   setDestinations([]);
                   setTotalKm(null);
@@ -2054,8 +2285,13 @@ export default function FieldTravelItineraryPage() {
                   <X className="mr-1 h-4 w-4" /> Cancel Edit
                 </Button>
               )}
-              <Button type="submit" disabled={isReadOnlyForm}>
-                {editingItemId ? (
+              <Button type="submit" disabled={isReadOnlyForm || savingRow}>
+                {savingRow ? (
+                  <>
+                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />{" "}
+                    {editingItemId ? "Updating..." : "Adding..."}
+                  </>
+                ) : editingItemId ? (
                   <>Update Itinerary Row</>
                 ) : (
                   <>
@@ -2152,7 +2388,20 @@ export default function FieldTravelItineraryPage() {
                         ).toFixed(2)}
                       </td>
                       <td className="px-3 py-2">
-                        {item.miscellaneous ? (
+                        {item.miscExpenses && item.miscExpenses.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {item.miscExpenses.map((m, idx) => (
+                              <Badge key={idx} variant="secondary" className="whitespace-nowrap">
+                                {miscellaneousFull.find(
+                                  (x) => x.code === m.code,
+                                )?.description ||
+                                  m.description ||
+                                  m.code}{" "}
+                                · ₱{m.amount.toFixed(2)}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : item.miscellaneous ? (
                           <Badge variant="secondary">
                             {miscellaneousFull.find(
                               (m) => m.code === item.miscellaneous,

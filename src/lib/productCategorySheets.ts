@@ -9,6 +9,27 @@ const CATEGORIES_SHEET = "ProductCategories"; // Assumes a sheet tab named "Prod
 const CATEGORIES_RANGE = `${CATEGORIES_SHEET}!A2:Z`; // Covers columns A (code), B (name)
 
 /**
+ * DELETE: Clears all product category rows from the Google Sheet.
+ */
+export async function clearAllProductCategories(): Promise<void> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: CATEGORIES_RANGE,
+    });
+  } catch (error) {
+    console.error(
+      "Failed to clear all product categories from Google Sheets:",
+      error,
+    );
+    throw error;
+  }
+}
+
+/**
  * Utility helper to extract the raw Excel/Google Sheets row number from our custom string ID.
  * Example: "pc_3" -> 3
  */

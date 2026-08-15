@@ -71,6 +71,13 @@ const productService = {
       throw error;
     }
   },
+
+  /**
+   * Clears all product rows from the Google Sheet
+   */
+  clearAll: async (): Promise<void> => {
+    await axios.delete(API_BASE_URL);
+  },
 };
 
 export default productService;

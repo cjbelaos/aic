@@ -32,25 +32,17 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import productService from "@/lib/services/product.service";
 import productCategoryService from "@/lib/services/product-category.service";
 import productUnitService from "@/lib/services/product-unit.service";
-import supplierService from "@/lib/services/supplier.service";
+import companyService from "@/lib/services/company.service";
 
 // Types
 import {
   Product,
   CreateProductPayload,
   UpdateProductPayload,
-  ProductStatus,
 } from "@/types/product";
 import { ProductCategory } from "@/types/product-category";
-import { Supplier } from "@/types/supplier";
+import { Company } from "@/types/company";
 import { ProductUnit } from "@/types/product-unit";
-
-/* ── Constants ─────────────────────────────────────────── */
-const PRODUCT_STATUSES: ProductStatus[] = [
-  "In Stock",
-  "Out of Stock",
-  "Low stock",
-];
 
 /* ── Form state (Fixed keys to match interface names) ── */
 interface ProductFormState {
@@ -62,13 +54,6 @@ interface ProductFormState {
   costPerUnit: number;
   pricePerUnit: number | undefined;
   supplierId: string;
-  status: ProductStatus;
-  minStock: number;
-  begStock: number;
-  qtyIn: number;
-  actualStock: number;
-  reservedUnits: number;
-  qtyOut: number;
 }
 
 const EMPTY_FORM: ProductFormState = {
@@ -80,13 +65,6 @@ const EMPTY_FORM: ProductFormState = {
   costPerUnit: 0,
   pricePerUnit: undefined,
   supplierId: "",
-  status: "In Stock",
-  minStock: 0,
-  begStock: 0,
-  qtyIn: 0,
-  actualStock: 0,
-  reservedUnits: 0,
-  qtyOut: 0,
 };
 
 /* ── Excel export ─────────────────────────────────────────── */
@@ -95,40 +73,26 @@ async function exportToExcel(rows: Product[]) {
     !rows || rows.length === 0
       ? [
           {
-            Code: "",
-            Name: "",
-            Category: "",
-            Description: "",
-            Unit: "",
-            "Cost Per Unit": "",
-            "Price Per Unit": "",
-            Supplier: "",
-            "Min Stock": "",
-            "Beg Stock": "",
-            "Quantity In": "",
-            "Actual Stock": "",
-            "Reserved Units": "",
-            "Quantity Out": "",
-            Status: "",
+            ProductCode: "",
+            ProductName: "",
+            ProductCategoryCode: "",
+            ProductDescription: "",
+            UnitCode: "",
+            "Cost/Unit": "",
+            "Price/Unit": "",
+            SupplierId: "",
           },
         ]
       : rows.map((r) => {
           return {
-            Code: r.code,
-            Name: r.name,
-            Category: r.category?.name || "",
-            Description: r.description || "",
-            Unit: r.unit?.name || "",
-            "Cost Per Unit": r.costPerUnit,
-            "Price Per Unit": r.pricePerUnit ?? "",
-            "Supplier Name": r.supplier?.supplierName || "",
-            "Min Stock": r.minStock,
-            "Beg Stock": r.begStock,
-            "Quantity In": r.qtyIn,
-            "Actual Stock": r.actualStock,
-            "Reserved Units": r.reservedUnits,
-            "Quantity Out": r.qtyOut,
-            Status: r.status,
+            ProductCode: r.code,
+            ProductName: r.name,
+            ProductCategoryCode: r.category?.code || "",
+            ProductDescription: r.description || "",
+            UnitCode: r.unit?.code || "",
+            "Cost/Unit": r.costPerUnit,
+            "Price/Unit": r.pricePerUnit ?? "",
+            SupplierId: r.supplier?.companyId || "",
           };
         });
 
@@ -274,7 +238,7 @@ const columns: ColumnDef<Product>[] = [
   },
   {
     id: "supplierName",
-    accessorFn: (row) => row.supplier?.supplierName || "",
+    accessorFn: (row) => row.supplier?.companyName || "",
     header: ({ column }) => (
       <Button
         variant="ghost"
@@ -286,101 +250,6 @@ const columns: ColumnDef<Product>[] = [
       </Button>
     ),
   },
-  {
-    accessorKey: "minStock",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Min Stock <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-    cell: ({ row }) => row.original.minStock ?? "—",
-  },
-  {
-    accessorKey: "begStock",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Beg Stock <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-    cell: ({ row }) => row.original.begStock ?? "—",
-  },
-  {
-    accessorKey: "qtyIn",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Qty In <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-    cell: ({ row }) => row.original.qtyIn ?? "—",
-  },
-  {
-    accessorKey: "actualStock",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Actual Stock <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-  },
-  {
-    accessorKey: "reservedUnits",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Reserved Units <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-  },
-  {
-    accessorKey: "qtyOut",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Qty Out <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-  },
-  {
-    accessorKey: "status",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Status <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-    cell: ({ row }) => row.original.status ?? "—",
-  },
 ];
 
 /* ── Helper: Fixed lookup state assignment mapping variables ── */
@@ -389,12 +258,12 @@ function buildCreatePayload(
   lookup: {
     categories: ProductCategory[];
     units: ProductUnit[];
-    suppliers: Supplier[];
+    companies: Company[];
   },
 ): CreateProductPayload {
   const cat = lookup.categories.find((c) => c.id === form.categoryId);
   const u = lookup.units.find((unit) => unit.id === form.productUnitId);
-  const supp = lookup.suppliers.find((s) => String(s.id) === form.supplierId);
+  const supp = lookup.companies.find((s) => String(s.id) === form.supplierId);
 
   return {
     code: form.code, // Fixed string target
@@ -406,30 +275,21 @@ function buildCreatePayload(
     pricePerUnit: form.pricePerUnit ?? 0,
     supplier: supp || {
       id: form.supplierId,
-      supplierId: "",
-      supplierName: "",
+      row: 0,
+      companyId: "",
+      companyType: "Supplier",
+      companyName: "",
       tin: "",
-      addressLine: "",
-      city: "",
-      province: "",
-      country: "",
-      deliveryLeadTime: "",
-      deliveryTerms: "",
-      paymentTerms: "",
+      address: "",
+      latitude: undefined,
+      longitude: undefined,
       status: "active" as const,
     },
-    minStock: form.minStock,
-    begStock: form.begStock,
-    qtyIn: form.qtyIn,
-    actualStock: form.actualStock,
-    reservedUnits: form.reservedUnits,
-    qtyOut: form.qtyOut,
-    status: form.status,
   };
 }
 
-function supplierLabel(s: Supplier): string {
-  return s.supplierName?.trim() || `Supplier #${s.id}`;
+function supplierLabel(s: Company): string {
+  return s.companyName?.trim() || `Supplier #${s.id}`;
 }
 
 export default function ProductsPage() {
@@ -441,7 +301,7 @@ export default function ProductsPage() {
   const [editTarget, setEditTarget] = useState<Product | null>(null);
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [suppliers, setSuppliers] = useState<Company[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
     [],
@@ -477,7 +337,7 @@ export default function ProductsPage() {
       })
       .catch(console.error);
 
-    supplierService
+    companyService
       .getAll()
       .then((r: any) => {
         if (r?.isSuccess) setSuppliers(r.result);
@@ -538,8 +398,8 @@ export default function ProductsPage() {
 
     const matchedSupplier = suppliers.find(
       (s) =>
-        s.supplierName.toLowerCase() ===
-          (row.supplier?.supplierName || "").toLowerCase() ||
+s.companyName.toLowerCase() ===
+          (row.supplier?.companyName || "").toLowerCase() ||
         String(s.id) === String(row.supplier?.id),
     );
 
@@ -557,13 +417,6 @@ export default function ProductsPage() {
       supplierId: matchedSupplier
         ? String(matchedSupplier.id)
         : row.supplier?.id || "",
-      minStock: row.minStock,
-      begStock: row.begStock,
-      qtyIn: row.qtyIn,
-      actualStock: row.actualStock,
-      reservedUnits: row.reservedUnits,
-      qtyOut: row.qtyOut,
-      status: row.status || "In Stock",
     });
   }, [editTarget, productCategories, productUnits, suppliers]);
 
@@ -571,7 +424,7 @@ export default function ProductsPage() {
     () => ({
       categories: productCategories,
       units: productUnits,
-      suppliers,
+      companies: suppliers,
     }),
     [productCategories, productUnits, suppliers],
   );
@@ -674,74 +527,89 @@ export default function ProductsPage() {
           }
         });
 
-        const categoryName = String(rowData["Category"] || "").trim();
-        const matchedCategory = productCategories.find(
-          (c) => c.name.toLowerCase() === categoryName.toLowerCase(),
-        );
-
-        const unitName = String(rowData["Unit"] || "").trim();
-        const matchedUnit = productUnits.find(
-          (u) => u.name.toLowerCase() === unitName.toLowerCase(),
-        );
-
-        const supplierName = String(
-          rowData["Supplier"] || rowData["Supplier Name"] || "",
+        const categoryCode = String(
+          rowData["ProductCategoryCode"] || rowData["Category"] || "",
         ).trim();
-        const matchedSupplier = suppliers.find(
-          (s) => s.supplierName.toLowerCase() === supplierName.toLowerCase(),
-        );
+        const matchedCategory =
+          productCategories.find(
+            (c) =>
+              c.code.toLowerCase() === categoryCode.toLowerCase() ||
+              c.name.toLowerCase() === categoryCode.toLowerCase(),
+          ) || undefined;
 
-        const importCategoryCode =
-          matchedCategory?.code || categoryName.toUpperCase().substring(0, 4);
+        const unitCode = String(
+          rowData["UnitCode"] || rowData["Unit"] || "",
+        ).trim();
+        const matchedUnit =
+          productUnits.find(
+            (u) =>
+              u.code.toLowerCase() === unitCode.toLowerCase() ||
+              u.name.toLowerCase() === unitCode.toLowerCase(),
+          ) || undefined;
+
+        const supplierId = String(
+          rowData["SupplierId"] || rowData["Supplier"] || "",
+        ).trim();
+        const matchedSupplier =
+          suppliers.find(
+            (s) =>
+              s.companyId === supplierId ||
+              s.id === supplierId ||
+              s.companyName.toLowerCase() === supplierId.toLowerCase(),
+          ) || undefined;
 
         const importCode = String(
-          rowData["Product Code"] || rowData["Code"] || "",
+          rowData["ProductCode"] ||
+            rowData["Product Code"] ||
+            rowData["Code"] ||
+            "",
         ).trim();
         const importName = String(
-          rowData["Product Name"] || rowData["Name"] || "",
+          rowData["ProductName"] ||
+            rowData["Product Name"] ||
+            rowData["Name"] ||
+            "",
         ).trim();
 
-        if (!importCode || !importName) return;
+        if (!importName) return;
+
+        const categoryName =
+          matchedCategory?.name ||
+          categoryCode ||
+          importCode.toUpperCase().substring(0, 4);
 
         productsImport.push({
           code: importCode,
           name: importName,
           category: matchedCategory || {
-            id: categoryName,
-            code: importCategoryCode,
+            id: categoryCode,
+            code: categoryCode,
             name: categoryName,
           },
-          description: String(rowData["Description"] || "").trim(),
+          description: String(
+            rowData["ProductDescription"] || rowData["Description"] || "",
+          ).trim(),
           unit: matchedUnit || {
-            id: unitName,
-            code: "",
-            name: unitName,
+            id: unitCode,
+            code: unitCode,
+            name: unitCode,
           },
           costPerUnit:
             parseFloat(rowData["Cost/Unit"] || rowData["Cost Per Unit"]) || 0,
           pricePerUnit:
             parseFloat(rowData["Price/Unit"] || rowData["Price Per Unit"]) || 0,
           supplier: matchedSupplier || {
-            id: supplierName,
-            supplierId: "",
-            supplierName: supplierName,
+            id: supplierId,
+            row: 0,
+            companyId: supplierId,
+            companyType: "Supplier",
+            companyName: supplierId,
             tin: "",
-            addressLine: "",
-            city: "",
-            province: "",
-            country: "",
-            deliveryLeadTime: "",
-            deliveryTerms: "",
-            paymentTerms: "",
+            address: "",
+            latitude: undefined,
+            longitude: undefined,
             status: "active" as const,
           },
-          minStock: parseInt(rowData["Min Stock"]) || 0,
-          begStock: parseInt(rowData["Beg Stock"]) || 0,
-          qtyIn: parseInt(rowData["Qty In"] || rowData["Quantity In"]) || 0,
-          actualStock: parseInt(rowData["Actual Stock"]) || 0,
-          reservedUnits: parseInt(rowData["Reserved Units"]) || 0,
-          qtyOut: parseInt(rowData["Qty Out"] || rowData["Quantity Out"]) || 0,
-          status: "In Stock",
         });
       });
 
@@ -757,12 +625,7 @@ export default function ProductsPage() {
       );
 
       try {
-        const currentProducts = await productService.getAll();
-        if (Array.isArray(currentProducts)) {
-          for (const existingProduct of currentProducts) {
-            await productService.delete(existingProduct.id);
-          }
-        }
+        await productService.clearAll();
       } catch (clearErr) {
         console.error("Failed to clear previous records:", clearErr);
         toast.error("Failed to reset existing product list. Import aborted.", {
@@ -966,114 +829,6 @@ export default function ProductsPage() {
                 placeholder="Select supplier"
                 searchPlaceholder="Search suppliers..."
                 disabled={saving}
-              />
-            </div>
-
-            {/* Min Stock */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-min-stock">Min Stock</Label>
-              <Input
-                id="p-min-stock"
-                type="number"
-                min={0}
-                value={form.minStock}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    minStock: parseInt(e.target.value) || 0,
-                  }))
-                }
-              />
-            </div>
-
-            {/* Beg Stock */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-beg-stock">Beg Stock</Label>
-              <Input
-                id="p-beg-stock"
-                type="number"
-                min={0}
-                value={form.begStock}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    begStock: parseInt(e.target.value) || 0,
-                  }))
-                }
-              />
-            </div>
-
-            {/* Qty In */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-qtyIn">Qty In</Label>
-              <Input
-                id="p-qtyIn"
-                type="number"
-                min={0}
-                value={form.qtyIn}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    qtyIn: parseInt(e.target.value) || 0,
-                  }))
-                }
-              />
-            </div>
-
-            {/* Actual Stock */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-actual-stock">Actual Stock</Label>
-              <Input
-                id="p-actual-stock"
-                type="number"
-                min={0}
-                value={form.actualStock}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    actualStock: parseInt(e.target.value) || 0,
-                  }))
-                }
-              />
-            </div>
-
-            {/* Reserved Units */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-reserved-units">Reserved Units</Label>
-              <Input
-                id="p-reserved-units"
-                type="number"
-                min={0}
-                value={form.reservedUnits}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    reservedUnits: parseInt(e.target.value) || 0,
-                  }))
-                }
-              />
-            </div>
-
-            {/* Qty Out */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-qty-out">Qty Out</Label>
-              <Input
-                id="p-qty-out"
-                type="number"
-                min={0}
-                value={form.qtyOut}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    qtyOut: parseInt(e.target.value) || 0,
-                  }))
-                }
               />
             </div>
           </div>

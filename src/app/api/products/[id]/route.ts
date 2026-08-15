@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 
-const PRODUCTS_SHEET = "ProductsTest";
+const PRODUCTS_SHEET = "Products";
 
 interface RouteParams {
   params: Promise<{
@@ -24,7 +24,7 @@ function getRowNumber(id: string): number {
 }
 
 /**
- * PUT: Update an existing product row in the ProductsTest sheet.
+ * PUT: Update an existing product row in the Products sheet.
  * Endpoint: /api/products/[id]
  */
 export async function PUT(request: Request, { params }: RouteParams) {
@@ -47,27 +47,21 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
     const body = await request.json();
 
-    // Map fields to match the 15-column layout defined in productSheets.ts:
-    // [code, name, category, description, unit, cost, price, supplier, minStock, begStock, qtyIn, actualStock, reservedUnits, qtyOut, status]
+    // Map fields to match the 8-column layout defined in productSheets.ts:
+    // A=ProductCode, B=ProductName, C=ProductCategoryCode,
+    // D=ProductDescription, E=UnitCode, F=Cost/Unit, G=Price/Unit, H=SupplierId
     const updatedRow = [
       body.code || "",
       body.name || "",
-      body.category?.name || "",
+      body.category?.code || body.category?.name || "",
       body.description || "",
-      body.unit?.name || "",
+      body.unit?.code || body.unit?.name || "",
       body.costPerUnit || 0,
       body.pricePerUnit ?? "",
-      body.supplier?.supplierName || "",
-      body.minStock ?? 0,
-      body.begStock ?? 0,
-      body.qtyIn ?? 0,
-      body.actualStock ?? 0,
-      body.reservedUnits ?? 0,
-      body.qtyOut ?? 0,
-      body.status || "In Stock",
+      body.supplier?.supplierId || body.supplier?.id || "",
     ];
 
-    const updateRange = `${PRODUCTS_SHEET}!A${rowNumber}:O${rowNumber}`;
+    const updateRange = `${PRODUCTS_SHEET}!A${rowNumber}:H${rowNumber}`;
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
@@ -89,7 +83,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
 }
 
 /**
- * DELETE: Clear a product row from the ProductsTest sheet.
+ * DELETE: Clear a product row from the Products sheet.
  * Endpoint: /api/products/[id]
  */
 export async function DELETE(request: Request, { params }: RouteParams) {
@@ -110,8 +104,8 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // Clear cells in the specified row (15 columns: A-O)
-    const deleteRange = `${PRODUCTS_SHEET}!A${rowNumber}:O${rowNumber}`;
+    // Clear cells in the specified row (8 columns: A-H)
+    const deleteRange = `${PRODUCTS_SHEET}!A${rowNumber}:H${rowNumber}`;
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId,

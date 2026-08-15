@@ -9,6 +9,24 @@ const PRODUCT_UNITS_SHEET = "ProductUnits";
 const PRODUCT_UNITS_RANGE = `${PRODUCT_UNITS_SHEET}!A2:C`; // Covers columns A to C
 
 /**
+ * DELETE: Clears all product unit rows from the Google Sheet.
+ */
+export async function clearAllProductUnits(): Promise<void> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: PRODUCT_UNITS_RANGE,
+    });
+  } catch (error) {
+    console.error("Failed to clear all product units from Google Sheets:", error);
+    throw error;
+  }
+}
+
+/**
  * Utility helper to extract the raw Excel/Google Sheets row number from our custom string ID.
  * Example: "unit_5" -> 5
  */

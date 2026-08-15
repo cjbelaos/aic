@@ -240,10 +240,7 @@ export default function ProductUnitsPage() {
       );
 
       try {
-        const currentData = await productUnitService.getAll();
-        for (const existingUnit of currentData) {
-          await productUnitService.delete(existingUnit.id);
-        }
+        await productUnitService.clearAll();
       } catch (clearErr) {
         console.error("Failed to clear previous records:", clearErr);
         toast.error("Failed to reset existing list. Import aborted.", {

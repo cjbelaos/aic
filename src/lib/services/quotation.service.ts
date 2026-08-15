@@ -6,13 +6,19 @@ import {
   QuotationNotation,
   CreateQuotationPayload,
 } from "@/types/quotation";
-import { Customer } from "@/types/customer";
+import { Company } from "@/types/company";
+
+/** Customer snapshot used by the quotation editor/template. Extends Company with contact details from CompanyContacts. */
+export interface QuotationCustomer extends Company {
+  contactPerson?: string;
+  email?: string;
+}
 
 const API_BASE_URL = "/api/quotations";
 
 // Matches what the save-and-email API endpoint expects
 export interface SaveAndEmailPayload {
-  customer?: Customer;
+  customer?: Company;
   quotationDescription: string;
   items: QuotationDetail[];
   terms: string;
@@ -39,7 +45,7 @@ export interface SaveAndEmailResponse {
 
 // Updated: Separate payload for saving only (no email)
 export interface SaveQuotationPayload {
-  customer?: Customer;
+  customer?: Company;
   quotationDescription: string;
   items: QuotationDetail[];
   terms: string;

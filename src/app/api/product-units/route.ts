@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { getProductUnits, addProductUnit } from "@/lib/productUnitSheets";
+import {
+  getProductUnits,
+  addProductUnit,
+  clearAllProductUnits,
+} from "@/lib/productUnitSheets";
 import { CreateProductUnitPayload } from "@/types/product-unit";
 
 export async function GET() {
@@ -28,6 +32,20 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to create product.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE() {
+  const session = await requireAuthenticatedSession();
+  if (session instanceof Response) return session;
+
+  try {
+    await clearAllProductUnits();
+    return NextResponse.json({ success: true }, { status: 200 });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to clear product units.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

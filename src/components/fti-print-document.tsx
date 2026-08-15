@@ -20,6 +20,12 @@ export interface DestinationPreview {
   distanceKm?: number;
 }
 
+export interface MiscExpensePreview {
+  code: string;
+  description?: string;
+  amount: number;
+}
+
 export interface DraftItinerary {
   id: string;
   date: string;
@@ -31,6 +37,8 @@ export interface DraftItinerary {
   miscellaneous: string;
   miscellaneousDescription?: string;
   miscAmount: number;
+  /** Multiple miscellaneous expenses per itinerary (optional, overrides legacy single fields). */
+  miscExpenses?: MiscExpensePreview[];
   fuelAmount?: number;
   totalAmount: number;
   origin: string;
@@ -81,6 +89,17 @@ export default function FTIPrintDocument({
   const getItemTotal = (item: DraftItinerary) => {
     const fuel = getItemFuel(item);
     return (item.tollFee || 0) + (item.miscAmount || 0) + fuel;
+  };
+
+  // Prefer the multi-expense array; fall back to the legacy single fields.
+  const getItemMiscDescription = (item: DraftItinerary): string => {
+    if (item.miscExpenses && item.miscExpenses.length > 0) {
+      return item.miscExpenses
+        .map((e) => e.description || e.code)
+        .filter(Boolean)
+        .join(", ");
+    }
+    return item.miscellaneousDescription || "";
   };
 
   const totalToll = batchItems.reduce((s, i) => s + (i.tollFee || 0), 0);
@@ -226,7 +245,17 @@ export default function FTIPrintDocument({
                   {item.tollFee || ""}
                 </td>
                 <td className="border-r border-black px-1.5 py-0.5 text-left">
-                  {item.miscellaneousDescription || ""}
+                  {item.miscExpenses && item.miscExpenses.length > 0 ? (
+                    <div className="space-y-0.5">
+                      {item.miscExpenses.map((e, idx) => (
+                        <div key={idx}>
+                          {e.description || e.code}: {toFixed2(e.amount)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    getItemMiscDescription(item)
+                  )}
                 </td>
                 <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
                   {item.miscAmount ? item.miscAmount : ""}

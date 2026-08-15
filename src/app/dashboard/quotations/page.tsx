@@ -16,7 +16,7 @@ import quotationService, {
   SaveQuotationPayload,
 } from "@/lib/services/quotation.service";
 import { Quotation } from "@/types/quotation";
-import { Customer } from "@/types/customer";
+import { QuotationCustomer } from "@/lib/services/quotation.service";
 
 // Exports data safely using ExcelJS buffer streams
 function exportToExcel(rows: Quotation[]) {
@@ -44,7 +44,7 @@ function exportToExcel(rows: Quotation[]) {
 
   rows.forEach((r) => {
     worksheet.addRow({
-      customer: (r.customer as any)?.customerName || r.customer,
+      customer: (r.customer as any)?.companyName || r.customer,
       description: r.description,
       amount: r.amount,
       discount: r.discount || 0,
@@ -126,17 +126,27 @@ export default function QuotationsPage() {
       parsedDate = new Date();
     }
 
-    const customer: Customer = {
-      id: "",
-      customerName:
-        typeof quot.customer === "object" && quot.customer !== null
-          ? (quot.customer as any).customerName || String(quot.customer)
-          : String(quot.customer || ""),
-      contactPerson: "",
-      address: "",
-      email: "",
-      contactNumber: "",
-      tin: "",
+    const rawCustomer =
+      typeof quot.customer === "object" && quot.customer !== null
+        ? (quot.customer as any)
+        : null;
+
+    const customer: QuotationCustomer = {
+      id: rawCustomer?.id || "",
+      row: rawCustomer?.row || 0,
+      companyId: rawCustomer?.companyId || "",
+      companyType: rawCustomer?.companyType || "Customer",
+      companyName:
+        rawCustomer?.companyName ||
+        rawCustomer?.customerName ||
+        String(quot.customer || ""),
+      tin: rawCustomer?.tin || "",
+      address: rawCustomer?.address || "",
+      latitude: rawCustomer?.latitude,
+      longitude: rawCustomer?.longitude,
+      status: rawCustomer?.status || "active",
+      contactPerson: rawCustomer?.contactPerson || "",
+      email: rawCustomer?.email || "",
     };
 
     if (typeof quot.customer === "object" && quot.customer !== null) {
@@ -144,7 +154,7 @@ export default function QuotationsPage() {
       customer.contactPerson = c.contactPerson || "";
       customer.address = c.address || "";
       customer.email = c.email || "";
-      customer.contactNumber = c.contactNumber || "";
+      // contactNumber removed - Company has no such field
       customer.tin = c.tin || "";
       customer.id = c.id || "";
     }
@@ -278,7 +288,7 @@ export default function QuotationsPage() {
         // Send email if PDF blob is provided
         if (pdfBlob) {
           try {
-            const customerName = formPayload.customer?.customerName || "";
+            const customerName = formPayload.customer?.companyName || "";
             const customerEmail = formPayload.customer?.email || "";
 
             if (customerEmail) {
@@ -324,7 +334,7 @@ export default function QuotationsPage() {
         const quotationNo = selectedQuotation.quotationNo;
 
         const updatePayload = {
-          customer: formPayload.customer?.customerName || "",
+          customer: formPayload.customer?.companyName || "",
           description: formPayload.quotationDescription || "",
           amount: formPayload.grandTotal || 0,
           discount: formPayload.discount || 0,
@@ -410,7 +420,7 @@ export default function QuotationsPage() {
       // If status is SENT and we have a PDF blob, also send the email
       if (finalStatus === "SENT" && pdfBlob) {
         try {
-          const customerName = formPayload.customer?.customerName || "";
+          const customerName = formPayload.customer?.companyName || "";
           const customerEmail = formPayload.customer?.email || "";
 
           if (!customerEmail) {
@@ -533,12 +543,17 @@ export default function QuotationsPage() {
             validity: new Date(),
             customer: {
               id: "",
-              customerName: quotation.customer,
-              contactPerson: "",
-              address: "",
-              email: "",
-              contactNumber: "",
+              row: 0,
+              companyId: "",
+              companyType: "Customer",
+              companyName: quotation.customer,
               tin: "",
+              address: "",
+              latitude: undefined,
+              longitude: undefined,
+              status: "active",
+              contactPerson: "",
+              email: "",
             },
             quotationDescription: quotation.description || "",
             items: [],
@@ -650,7 +665,7 @@ export default function QuotationsPage() {
       ),
       cell: ({ row }) => (
         <span className="text-blue-600 font-medium">
-          {(row.original.customer as any)?.customerName ??
+          {(row.original.customer as any)?.companyName ??
             row.original.customer ??
             ""}
         </span>
