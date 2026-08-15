@@ -194,6 +194,8 @@ export default function FieldTravelItineraryPage() {
   const [batchItems, setBatchItems] = useState<DraftItinerary[]>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingImage, setDownloadingImage] = useState(false);
+  const [sharingImage, setSharingImage] = useState(false);
   const [batchSubmitting, setBatchSubmitting] = useState(false);
   const [savingRow, setSavingRow] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -921,73 +923,107 @@ export default function FieldTravelItineraryPage() {
   const handleDownloadPdf = async () => {
     setDownloadingPdf(true);
     try {
-      // html2canvas-pro handles Tailwind v4's oklch() colors (html2canvas can't).
-      const html2canvas = (await import("html2canvas-pro")).default;
-      const { jsPDF } = await import("jspdf");
-      const element = document.getElementById("fti-preview-content");
-      if (!element) {
-        toast.error("Preview content not found.");
-        return;
-      }
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-      });
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "in",
-        format: "letter",
-        compress: true,
-      });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 0.5;
-      const imgWidth = pageWidth - margin * 2;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      const totalPages = Math.ceil((imgHeight + margin * 2) / pageHeight);
-
-      for (let page = 0; page < totalPages; page++) {
-        if (page > 0) pdf.addPage();
-        const srcY = page * (element.scrollHeight / totalPages);
-        // Slice the canvas per page for reliable multi-page output
-        const sliceCanvas = document.createElement("canvas");
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = Math.min(
-          canvas.height - srcY * (canvas.height / element.scrollHeight),
-          (canvas.height * (pageHeight - margin * 2)) / imgWidth,
-        );
-        const ctx = sliceCanvas.getContext("2d");
-        if (!ctx) throw new Error("Canvas context unavailable");
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-        ctx.drawImage(
-          canvas,
-          0,
-          srcY * (canvas.height / element.scrollHeight),
-          sliceCanvas.width,
-          sliceCanvas.height,
-          0,
-          0,
-          sliceCanvas.width,
-          sliceCanvas.height,
-        );
-        pdf.addImage(
-          sliceCanvas.toDataURL("image/jpeg", 0.98),
-          "JPEG",
-          margin,
-          margin,
-          imgWidth,
-          (sliceCanvas.height * imgWidth) / sliceCanvas.width,
-        );
-      }
-
-      pdf.save(`FTI_${formData.ftiRef}.pdf`);
+      const blob = await generatePdfBlob();
+      const filename = `FTI_${formData.ftiRef}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1500);
       toast.success("PDF downloaded successfully.");
     } catch {
       toast.error("Failed to generate PDF.");
     } finally {
       setDownloadingPdf(false);
+    }
+  };
+
+  /** Capture the visible FTI document as a PNG canvas. */
+  const captureDocumentImage = async (): Promise<HTMLCanvasElement> => {
+    const element =
+      document.getElementById("fti-preview-content") ||
+      document.getElementById("fti-print-content");
+    if (!element) {
+      throw new Error("FTI print document not found.");
+    }
+    // Mobile-safe scale; keeps canvas within mobile browser limits.
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    const html2canvas = (await import("html2canvas-pro")).default;
+    return await html2canvas(element, {
+      scale: isMobile ? 1 : 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      windowWidth: 850,
+      windowHeight: element.scrollHeight,
+    });
+  };
+
+  const handleDownloadImage = async () => {
+    setDownloadingImage(true);
+    try {
+      const canvas = await captureDocumentImage();
+      const url = canvas.toDataURL("image/png");
+      const filename = `FTI_${formData.ftiRef}.png`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+      }, 1000);
+      toast.success("Image downloaded successfully.");
+    } catch {
+      toast.error("Failed to generate image.");
+    } finally {
+      setDownloadingImage(false);
+    }
+  };
+
+  const handleShareImage = async () => {
+    setSharingImage(true);
+    try {
+      const canvas = await captureDocumentImage();
+      const blob: Blob | null = await new Promise((resolve) =>
+        canvas.toBlob(resolve, "image/png"),
+      );
+      if (!blob) {
+        throw new Error("Could not create image blob.");
+      }
+      const filename = `FTI_${formData.ftiRef}.png`;
+      const file = new File([blob], filename, { type: "image/png" });
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({
+          files: [file],
+          title: `FTI ${formData.ftiRef}`,
+        });
+        toast.success("Shared successfully.");
+      } else {
+        // Fallback: Web Share API not available (e.g. desktop) → download instead
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 1000);
+        toast.success("Sharing not supported — image downloaded instead.");
+      }
+    } catch (err) {
+      // user-cancelled or failure
+      if (err instanceof Error && err.name !== "AbortError") {
+        toast.error("Failed to share image.");
+      }
+    } finally {
+      setSharingImage(false);
     }
   };
 
@@ -1044,10 +1080,15 @@ export default function FieldTravelItineraryPage() {
     if (!element) {
       throw new Error("FTI print document not found.");
     }
+    // Reduce render scale on small screens so the canvas stays within mobile
+    // browser limits (~16MP). Desktop keeps scale 2 for crisp output.
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
     const canvas = await html2canvas(element, {
-      scale: 2,
+      scale: isMobile ? 1 : 2,
       useCORS: true,
       backgroundColor: "#ffffff",
+      windowWidth: 850,
+      windowHeight: element.scrollHeight,
     });
     const pdf = new jsPDF({
       orientation: "portrait",
@@ -1726,6 +1767,10 @@ export default function FieldTravelItineraryPage() {
             kmPerLiter={kmPerLiter}
             onDownloadPdf={handleDownloadPdf}
             downloadingPdf={downloadingPdf}
+            onDownloadImage={handleDownloadImage}
+            downloadingImage={downloadingImage}
+            onShareImage={handleShareImage}
+            sharingImage={sharingImage}
             readOnly
             approvalActions={
               viewRequest.status.toUpperCase() === "SENT" &&
@@ -2539,6 +2584,10 @@ export default function FieldTravelItineraryPage() {
         kmPerLiter={kmPerLiter}
         onDownloadPdf={handleDownloadPdf}
         downloadingPdf={downloadingPdf}
+        onDownloadImage={handleDownloadImage}
+        downloadingImage={downloadingImage}
+        onShareImage={handleShareImage}
+        sharingImage={sharingImage}
         onSaveData={handleSaveDraft}
         savingData={batchSubmitting}
       />

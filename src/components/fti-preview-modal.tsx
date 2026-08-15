@@ -10,6 +10,8 @@ import {
   MessageSquareWarning,
   XCircle,
   ReceiptText,
+  ImageIcon,
+  Share2,
 } from "lucide-react";
 import {
   Dialog,
@@ -40,6 +42,10 @@ interface FTIPreviewModalProps {
   kmPerLiter?: number;
   onDownloadPdf?: () => void;
   downloadingPdf?: boolean;
+  onDownloadImage?: () => void;
+  downloadingImage?: boolean;
+  onShareImage?: () => void;
+  sharingImage?: boolean;
   onSaveData?: () => void;
   savingData?: boolean;
   readOnly?: boolean;
@@ -67,6 +73,10 @@ export default function FTIPreviewModal({
   kmPerLiter = 12,
   onDownloadPdf,
   downloadingPdf = false,
+  onDownloadImage,
+  downloadingImage = false,
+  onShareImage,
+  sharingImage = false,
   onSaveData,
   savingData = false,
   readOnly = false,
@@ -104,46 +114,83 @@ export default function FTIPreviewModal({
 
         {/* ── Actions ── */}
         {(onDownloadPdf ||
+          onDownloadImage ||
+          onShareImage ||
           (!readOnly && onSaveData) ||
           approvalActions ||
           readOnly) && (
-          <DialogFooter className="flex flex-wrap gap-2 pt-3 border-t">
+          <DialogFooter className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t">
+            {/* Left aligned items */}
             {readOnly && (
-              <Link
-                href={`/dashboard/expense-liquidation?controlNo=${encodeURIComponent(
-                  ftiRef,
-                )}`}
-              >
-                <Button variant="outline">
-                  <ReceiptText className="mr-2 h-4 w-4" />
-                  Add Expense Liquidation
+              <div className="sm:mr-auto">
+                <Link
+                  href={`/dashboard/expense-liquidation?controlNo=${encodeURIComponent(
+                    ftiRef,
+                  )}`}
+                >
+                  <Button variant="outline">
+                    <ReceiptText className="mr-2 h-4 w-4" />
+                    Add Expense Liquidation
+                  </Button>
+                </Link>
+              </div>
+            )}
+
+            {/* Right aligned action buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              {onDownloadPdf && (
+                <Button
+                  variant="outline"
+                  onClick={onDownloadPdf}
+                  disabled={downloadingPdf}
+                >
+                  {downloadingPdf ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Download PDF
                 </Button>
-              </Link>
-            )}
-            {onDownloadPdf && (
-              <Button
-                variant="outline"
-                onClick={onDownloadPdf}
-                disabled={downloadingPdf}
-              >
-                {downloadingPdf ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Download PDF
-              </Button>
-            )}
-            {!readOnly && onSaveData && (
-              <Button onClick={onSaveData} disabled={savingData}>
-                {savingData ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="mr-2 h-4 w-4" />
-                )}
-                Save Data
-              </Button>
-            )}
+              )}
+              {onDownloadImage && (
+                <Button
+                  variant="outline"
+                  onClick={onDownloadImage}
+                  disabled={downloadingImage}
+                >
+                  {downloadingImage ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ImageIcon className="mr-2 h-4 w-4" />
+                  )}
+                  Download as Image
+                </Button>
+              )}
+              {onShareImage && (
+                <Button
+                  variant="outline"
+                  onClick={onShareImage}
+                  disabled={sharingImage}
+                >
+                  {sharingImage ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Share2 className="mr-2 h-4 w-4" />
+                  )}
+                  Share to Messenger
+                </Button>
+              )}
+              {!readOnly && onSaveData && (
+                <Button onClick={onSaveData} disabled={savingData}>
+                  {savingData ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Save Data
+                </Button>
+              )}
+            </div>
 
             {/* ── Approval action area ── */}
             {approvalActions && (
