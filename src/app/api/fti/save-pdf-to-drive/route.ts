@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
-import { getSheetsAndDriveClient } from "@/lib/googleSheets";
+import { getDriveUploadClient } from "@/lib/googleSheets";
 import { getSession } from "@/lib/auth/session";
 
 const FTI_DRIVE_FOLDER_ID = "1Lzr8kqlrZ94RPVwhVfCgt2H6p5nFORzG";
@@ -39,8 +39,9 @@ export async function POST(req: NextRequest) {
     const pdfBuffer = Buffer.from(arrayBuffer);
     const pdfStream = Readable.from(pdfBuffer);
 
-    // Get Drive client
-    const { drive } = await getSheetsAndDriveClient();
+    // Use the OAuth2 user-based Drive client (service accounts have no
+    // storage quota, so uploads must act as a real user).
+    const drive = await getDriveUploadClient();
 
     // Check if folder exists, if not create it
     let folderId = FTI_DRIVE_FOLDER_ID;
