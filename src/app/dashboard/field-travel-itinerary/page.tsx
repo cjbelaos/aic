@@ -10,7 +10,6 @@ import {
   FileX,
   Pencil,
   ArrowUpDown,
-  Save,
   Send,
   X,
 } from "lucide-react";
@@ -2409,85 +2408,109 @@ export default function FieldTravelItineraryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {batchItems.map((item) => (
-                    <tr key={item.id} className="border-b hover:bg-muted/30">
-                      <td className="px-3 py-2">{item.date}</td>
-                      <td className="px-3 py-2 uppercase">{item.itinerary}</td>
-                      <td className="px-3 py-2 uppercase">
-                        {item.description}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {item.km.toFixed(2)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {item.fuelPrice.toFixed(2)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {item.tollFee.toFixed(2)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {computeFuelCost(
-                          item.km,
-                          item.fuelPrice,
-                          kmPerLiter,
-                        ).toFixed(2)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {item.miscExpenses && item.miscExpenses.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {item.miscExpenses.map((m, idx) => (
-                              <Badge key={idx} variant="secondary" className="whitespace-nowrap">
+                  {batchItems.map((item) => {
+                    const expenses =
+                      item.miscExpenses && item.miscExpenses.length > 0
+                        ? item.miscExpenses
+                        : item.miscellaneous
+                          ? [
+                              {
+                                code: item.miscellaneous,
+                                description: item.miscellaneousDescription,
+                                amount: item.miscAmount,
+                              },
+                            ]
+                          : [];
+                    const rowCount = Math.max(1, expenses.length);
+                    return Array.from({ length: rowCount }).map((_, idx) => {
+                      const isMainRow = idx === 0;
+                      const exp = expenses[idx];
+                      return (
+                        <tr
+                          key={`${item.id}-${idx}`}
+                          className="border-b hover:bg-muted/30"
+                        >
+                          <td className="px-3 py-2">
+                            {isMainRow ? item.date : ""}
+                          </td>
+                          <td className="px-3 py-2 uppercase">
+                            {isMainRow ? item.itinerary : ""}
+                          </td>
+                          <td className="px-3 py-2 uppercase">
+                            {isMainRow ? item.description : ""}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {isMainRow ? item.km.toFixed(2) : ""}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {isMainRow ? item.fuelPrice.toFixed(2) : ""}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {isMainRow ? item.tollFee.toFixed(2) : ""}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {isMainRow
+                              ? computeFuelCost(
+                                  item.km,
+                                  item.fuelPrice,
+                                  kmPerLiter,
+                                ).toFixed(2)
+                              : ""}
+                          </td>
+                          <td className="px-3 py-2">
+                            {exp ? (
+                              <Badge
+                                variant="secondary"
+                                className="whitespace-nowrap"
+                              >
                                 {miscellaneousFull.find(
-                                  (x) => x.code === m.code,
+                                  (x) => x.code === exp.code,
                                 )?.description ||
-                                  m.description ||
-                                  m.code}{" "}
-                                · ₱{m.amount.toFixed(2)}
+                                  exp.description ||
+                                  exp.code}
                               </Badge>
-                            ))}
-                          </div>
-                        ) : item.miscellaneous ? (
-                          <Badge variant="secondary">
-                            {miscellaneousFull.find(
-                              (m) => m.code === item.miscellaneous,
-                            )?.description || item.miscellaneous}{" "}
-                          </Badge>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {item.miscAmount.toFixed(2)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono font-bold">
-                        {item.totalAmount.toFixed(2)}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => handleEditBatchItem(item)}
-                            title="Edit"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive"
-                            onClick={() => handleRemoveBatchItem(item.id)}
-                            title="Remove"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {exp ? exp.amount.toFixed(2) : ""}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-bold">
+                            {isMainRow ? item.totalAmount.toFixed(2) : ""}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {isMainRow ? (
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => handleEditBatchItem(item)}
+                                  title="Edit"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-destructive"
+                                  onClick={() => handleRemoveBatchItem(item.id)}
+                                  title="Remove"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              ""
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 font-semibold bg-muted/40">
@@ -2522,19 +2545,6 @@ export default function FieldTravelItineraryPage() {
                 disabled={batchItems.length === 0}
               >
                 <Eye className="mr-1 h-4 w-4" /> Preview
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleSaveDraft}
-                disabled={batchSubmitting || batchItems.length === 0}
-              >
-                {batchSubmitting ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="mr-1 h-4 w-4" />
-                )}
-                Save Draft
               </Button>
               <Button
                 type="button"
@@ -2588,8 +2598,6 @@ export default function FieldTravelItineraryPage() {
         downloadingImage={downloadingImage}
         onShareImage={handleShareImage}
         sharingImage={sharingImage}
-        onSaveData={handleSaveDraft}
-        savingData={batchSubmitting}
       />
 
       {/* Location Picker Dialog */}

@@ -91,10 +91,13 @@ export default function FTIPrintDocument({
     return (item.tollFee || 0) + (item.miscAmount || 0) + fuel;
   };
 
+  const hasMultiExpenses = (item: DraftItinerary) =>
+    !!item.miscExpenses && item.miscExpenses.length > 0;
+
   // Prefer the multi-expense array; fall back to the legacy single fields.
   const getItemMiscDescription = (item: DraftItinerary): string => {
-    if (item.miscExpenses && item.miscExpenses.length > 0) {
-      return item.miscExpenses
+    if (hasMultiExpenses(item)) {
+      return item.miscExpenses!
         .map((e) => e.description || e.code)
         .filter(Boolean)
         .join(", ");
@@ -111,7 +114,12 @@ export default function FTIPrintDocument({
   const totalAmount = batchItems.reduce((s, i) => s + getItemTotal(i), 0);
 
   const TOTAL_ROWS = 18;
-  const emptyRowsCount = Math.max(0, TOTAL_ROWS - batchItems.length);
+  // Each itinerary expands into 1 main row + N misc sub-rows (one per expense).
+  const effectiveRowCount = batchItems.reduce(
+    (s, item) => s + 1 + (hasMultiExpenses(item) ? item.miscExpenses!.length : 0),
+    0,
+  );
+  const emptyRowsCount = Math.max(0, TOTAL_ROWS - effectiveRowCount);
 
   const nowFormatted = format(new Date(), "EEEE, dd MMMM yyyy, HH:mm:ss");
 
@@ -220,54 +228,74 @@ export default function FTIPrintDocument({
           </tr>
         </thead>
         <tbody>
-          {/* Active Batch Items */}
+          {/* Active Batch Items (each misc expense = its own row) */}
           {batchItems.map((item) => {
             const itemFuel = getItemFuel(item);
             const itemTotal = getItemTotal(item);
-            return (
-              <tr key={item.id} className="border-b border-black text-black">
-                <td className="border-r border-black px-1.5 py-0.5 text-left">
-                  {item.date}
-                </td>
-                <td className="border-r border-black px-1.5 py-0.5 text-left">
-                  {item.itinerary}
-                </td>
-                <td className="border-r border-black px-1.5 py-0.5 text-left">
-                  {item.description}
-                </td>
-                <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
-                  {item.km}
-                </td>
-                <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
-                  {item.fuelPrice}
-                </td>
-                <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
-                  {item.tollFee || ""}
-                </td>
-                <td className="border-r border-black px-1.5 py-0.5 text-left">
-                  {item.miscExpenses && item.miscExpenses.length > 0 ? (
-                    <div className="space-y-0.5">
-                      {item.miscExpenses.map((e, idx) => (
-                        <div key={idx}>
-                          {e.description || e.code}: {toFixed2(e.amount)}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    getItemMiscDescription(item)
-                  )}
-                </td>
-                <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
-                  {item.miscAmount ? item.miscAmount : ""}
-                </td>
-                <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
-                  {toFixed2(itemFuel)}
-                </td>
-                <td className="px-1.5 py-0.5 text-right font-mono font-semibold">
-                  {toFixed2(itemTotal)}
-                </td>
-              </tr>
-            );
+            const expenses = hasMultiExpenses(item)
+              ? item.miscExpenses!
+              : item.miscellaneous
+                ? [
+                    {
+                      code: item.miscellaneous,
+                      description: item.miscellaneousDescription,
+                      amount: item.miscAmount,
+                    } as MiscExpensePreview,
+                  ]
+                : [];
+            const rowCount = Math.max(1, expenses.length);
+
+            return Array.from({ length: rowCount }).map((_, idx) => {
+              const isMainRow = idx === 0;
+              const exp = expenses[idx];
+              return (
+                <tr
+                  key={`${item.id}-${idx}`}
+                  className="border-b border-black text-black"
+                >
+                  {/* Date — only on the main row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-left">
+                    {isMainRow ? item.date : ""}
+                  </td>
+                  {/* Itinerary — only on the main row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-left">
+                    {isMainRow ? item.itinerary : ""}
+                  </td>
+                  {/* Description — only on the main row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-left">
+                    {isMainRow ? item.description : ""}
+                  </td>
+                  {/* KM — only on the main row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
+                    {isMainRow ? item.km : ""}
+                  </td>
+                  {/* Fuel Price — only on the main row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
+                    {isMainRow ? item.fuelPrice : ""}
+                  </td>
+                  {/* Toll — only on the main row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
+                    {isMainRow ? item.tollFee || "" : ""}
+                  </td>
+                  {/* Misc — each expense gets its own row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-left">
+                    {exp ? exp.description || exp.code : ""}
+                  </td>
+                  {/* Misc Amount — each expense gets its own row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
+                    {exp ? toFixed2(exp.amount) : ""}
+                  </td>
+                  {/* Fuel — only on the main row */}
+                  <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
+                    {isMainRow ? toFixed2(itemFuel) : ""}
+                  </td>
+                  {/* Total — only on the main/last row of the group */}
+                  <td className="px-1.5 py-0.5 text-right font-mono font-semibold">
+                    {isMainRow ? toFixed2(itemTotal) : ""}
+                  </td>
+                </tr>
+              );
+            });
           })}
 
           {/* Clean Empty Rows */}
