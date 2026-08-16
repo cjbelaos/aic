@@ -1,0 +1,254 @@
+"use client";
+
+import { format } from "date-fns";
+import type { ReceiptItemInput } from "@/types/liquidation";
+
+interface LiquidationPrintDocumentProps {
+  controlNo: string;
+  fullName: string;
+  items: ReceiptItemInput[];
+  /** Category column names derived from miscellaneousService.getAll() descriptions. */
+  categories: string[];
+  /** FTI Total Amount of the linked ControlNo. */
+  advances: number;
+  id?: string;
+}
+
+function toFixed2(n: number): string {
+  return (n || 0).toFixed(2);
+}
+
+/**
+ * Reusable printable Expense Liquidation report.
+ * Renders the pivot table (Date | Description | <categories...> | Others | Total),
+ * a subtotal row per category, a grand total row, and the
+ * Subtotal / Advances / Total Reimbursement summary block.
+ */
+export default function LiquidationPrintDocument({
+  controlNo,
+  fullName,
+  items,
+  categories,
+  advances,
+  id = "liquidation-preview-content",
+}: LiquidationPrintDocumentProps) {
+  const activeCategories = categories.filter(Boolean);
+  // Anything whose category is not a known miscellaneous description falls
+  // into the "Others" catch-all column (legacy Meal/Fare/Fuel/etc.).
+  const isKnown = (cat: string) => activeCategories.includes(cat);
+
+  const subtotal = items.reduce((s, i) => s + (i.amount || 0), 0);
+  const totalReimbursement = advances - subtotal;
+
+  const catTotal = (cat: string) =>
+    items
+      .filter((i) => i.category === cat)
+      .reduce((s, i) => s + (i.amount || 0), 0);
+
+  const othersTotal = items
+    .filter((i) => !isKnown(i.category))
+    .reduce((s, i) => s + (i.amount || 0), 0);
+
+  const nowFormatted = format(new Date(), "EEEE, dd MMMM yyyy, HH:mm:ss");
+
+  return (
+    <div
+      id={id}
+      className="bg-white text-black p-8 rounded border space-y-4 text-xs select-none min-w-[850px] mx-auto shadow-sm"
+      style={{ fontFamily: "Arial, sans-serif" }}
+    >
+      {/* ── Header (mirrors FTI printable document) ── */}
+      <div className="bg-white border-t-4 border-b-2 border-[#00a2e8] py-4 px-6 relative flex items-center justify-between shadow-xs rounded-t">
+        <div className="absolute left-6 top-1/2 -translate-y-1/2 flex items-center">
+          <img
+            src="/logo.png"
+            alt="Company Logo"
+            className="h-20 w-auto object-contain"
+          />
+        </div>
+        <div className="text-center w-full px-28 space-y-0.5">
+          <h1 className="text-2xl font-black tracking-wider text-slate-900 uppercase">
+            AERICH INNOVATION CORP.
+          </h1>
+          <p className="text-xs text-slate-700 font-medium">
+            BLK 4, LOT 2 Bamboo Orchard Subdivision, Brgy. Banay Banay, Cabuyao
+            City, Laguna
+          </p>
+          <div className="flex justify-center gap-4 text-[11px] text-slate-600 font-normal pt-0.5">
+            <p>
+              <span className="font-semibold text-slate-800">Email:</span>{" "}
+              aerichinnovationcorp@gmail.com
+            </p>
+            <p>
+              <span className="font-semibold text-slate-800">Contact:</span>{" "}
+              09171832745 / 09399063645
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Meta Header ── */}
+      <div className="flex justify-between items-start text-xs pt-2">
+        <div className="space-y-1">
+          <p>
+            <span className="inline-block w-20 text-gray-700 font-medium">
+              Technician
+            </span>
+            <span className="font-semibold text-slate-900">{fullName}</span>
+          </p>
+          <p>
+            <span className="inline-block w-20 text-gray-700 font-medium">
+              Date:
+            </span>
+            <span>{nowFormatted}</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-gray-700 whitespace-nowrap">
+            FTI REF
+          </span>
+          <div className="bg-gray-100 border border-gray-300 rounded px-3 h-7 flex items-center justify-center text-xs font-mono text-gray-900 min-w-[200px] text-center font-bold leading-none select-text">
+            {controlNo}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Title ── */}
+      <h2 className="text-center font-bold text-base pt-2 pb-1 uppercase tracking-wide text-slate-800">
+        Expense Liquidation Form
+      </h2>
+
+      {/* ── Pivot Table ── */}
+      <table className="w-full border-collapse border border-black text-[11px]">
+        <thead>
+          <tr className="bg-gray-100 text-gray-800 border-b border-black font-semibold">
+            <th className="border-r border-black px-1.5 py-1 text-center w-[12%]">
+              Date
+            </th>
+            <th className="border-r border-black px-1.5 py-1 text-center w-[22%]">
+              Description
+            </th>
+            {activeCategories.map((cat) => (
+              <th
+                key={cat}
+                className="border-r border-black px-1.5 py-1 text-center"
+              >
+                {cat}
+              </th>
+            ))}
+            <th className="border-r border-black px-1.5 py-1 text-center">
+              Others
+            </th>
+            <th className="px-1.5 py-1 text-center">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => (
+            <tr
+              key={`${item.date}-${item.category}-${index}`}
+              className="border-b border-black text-black"
+            >
+              <td className="border-r border-black px-1.5 py-0.5 text-left whitespace-nowrap">
+                {item.date}
+              </td>
+              <td className="border-r border-black px-1.5 py-0.5 text-left">
+                {item.description}
+              </td>
+              {activeCategories.map((cat) => (
+                <td
+                  key={cat}
+                  className="border-r border-black px-1.5 py-0.5 text-right font-mono"
+                >
+                  {item.category === cat ? toFixed2(item.amount) : ""}
+                </td>
+              ))}
+              <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
+                {!isKnown(item.category) ? toFixed2(item.amount) : ""}
+              </td>
+              <td className="px-1.5 py-0.5 text-right font-mono font-semibold">
+                {toFixed2(item.amount)}
+              </td>
+            </tr>
+          ))}
+
+          {/* ── Subtotal row (per-category sums) ── */}
+          <tr className="border-b border-black font-semibold bg-gray-50">
+            <td className="border-r border-black px-1.5 py-1" colSpan={2}>
+              Subtotal
+            </td>
+            {activeCategories.map((cat) => (
+              <td
+                key={cat}
+                className="border-r border-black px-1.5 py-1 text-right font-mono"
+              >
+                {catTotal(cat) ? toFixed2(catTotal(cat)) : ""}
+              </td>
+            ))}
+            <td className="border-r border-black px-1.5 py-1 text-right font-mono">
+              {othersTotal ? toFixed2(othersTotal) : ""}
+            </td>
+            <td className="px-1.5 py-1 text-right font-mono font-bold">
+              {toFixed2(subtotal)}
+            </td>
+          </tr>
+
+          {/* ── Grand Total row ── */}
+          <tr className="font-semibold bg-gray-50">
+            <td
+              className="border-r border-black px-1.5 py-1 text-left text-gray-800 font-bold"
+              colSpan={activeCategories.length + 3}
+            >
+              Grand Total
+            </td>
+            <td className="px-1.5 py-1 text-right font-mono text-black font-bold text-xs">
+              {toFixed2(subtotal)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ── Summary block (bottom right) ── */}
+      <div className="flex justify-end pt-2">
+        <div className="w-72 space-y-1 border border-black rounded-sm px-4 py-3">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-800 font-medium">Subtotal</span>
+            <span className="font-mono font-semibold">
+              {toFixed2(subtotal)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-800 font-medium">Advances</span>
+            <span className="font-mono font-semibold">
+              {toFixed2(advances)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between border-t border-black pt-1 mt-1">
+            <span className="text-gray-800 font-bold">Total Reimbursement</span>
+            <span className="font-mono font-bold">
+              {toFixed2(totalReimbursement)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Signature Section ── */}
+      <div className="pt-12 text-xs flex justify-between items-start">
+        <div className="w-1/3">
+          <p className="font-normal text-gray-800">
+            Prepared by:{" "}
+            <span className="font-semibold text-slate-900">{fullName}</span>
+          </p>
+        </div>
+        <div className="w-1/3">
+          <p className="font-normal text-gray-800">Approved by:</p>
+        </div>
+        <div className="w-1/3 space-y-8">
+          <p className="font-normal text-gray-800">Released Cash by:</p>
+          <p className="font-normal text-gray-800">
+            Received And Acknowledge by:
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

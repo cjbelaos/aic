@@ -15,6 +15,7 @@ import {
   FileText,
   CheckCircle2,
   Lock,
+  Eye,
 } from "lucide-react";
 import {
   Card,
@@ -44,17 +45,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DatePicker } from "@/components/ui/date-picker";
-import { RECEIPT_CATEGORIES } from "@/types/liquidation";
 import type { LiquidationStatus, ReceiptItemInput } from "@/types/liquidation";
 import { liquidationService } from "@/lib/services/liquidation.service";
 import { ftiService } from "@/lib/services/fti.service";
+import { miscellaneousService } from "@/lib/services/miscellaneous.service";
+import { userService } from "@/lib/services/user.service";
 import type { FTIRequestSummary } from "@/types/fti";
-
-interface StoredUser {
-  userId?: string;
-  fullName?: string;
-  userName?: string;
-}
+import LiquidationPreviewModal from "@/components/liquidation-preview-modal";
+import LiquidationPrintDocument from "@/components/liquidation-print-document";
 
 /** Maps FTI request statuses to badge tailwind classes (matches FTI page). */
 function statusBadgeClass(status: string): string {
@@ -80,10 +78,10 @@ const EDITABLE_STATUSES: LiquidationStatus[] = [
 ];
 
 export function LiquidationForm({
-  user,
+  userId,
   initialControlNo = "",
 }: {
-  user: StoredUser | null;
+  userId: string;
   initialControlNo?: string;
 }) {
   const [items, setItems] = useState<ReceiptItemInput[]>([]);
@@ -98,6 +96,15 @@ export function LiquidationForm({
   const [loadingLiquidation, setLoadingLiquidation] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [lastLoadedControlNo, setLastLoadedControlNo] = useState("");
+  // Miscellaneous category options (fetched via the same source as the FTI page).
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  // Preview / export state
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingImage, setDownloadingImage] = useState(false);
+  // Full name resolved from the Users sheet (fallback to localStorage).
+  const [resolvedFullName, setResolvedFullName] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -114,7 +121,7 @@ export function LiquidationForm({
           // Technicians can only link to their own FTI requests (the API
           // already restricts to session user for non-admins). Disregard
           // DRAFT and SAVED, and sort latest to oldest by dateCreated.
-          const myId = user?.userId;
+          const myId = userId;
           const usable = requests
             .filter((r) => r.status !== "SAVED" && (!myId || r.userId === myId))
             .sort((a, b) =>
@@ -137,6 +144,52 @@ export function LiquidationForm({
       cancelled = true;
     };
   }, []);
+
+  // Load miscellaneous categories (same source as the FTI page dropdown).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await miscellaneousService.getAll();
+        if (!cancelled) {
+          setCategories(all.map((m) => m.description).filter(Boolean));
+        }
+      } catch (error) {
+        console.error("Failed to load miscellaneous categories:", error);
+        if (!cancelled) {
+          toast.error("Failed to load receipt categories.");
+        }
+      } finally {
+        if (!cancelled) setLoadingCategories(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Resolve the technician's full name from the Users sheet so the printed /
+  // previewed document shows the real name (not just the localStorage copy).
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!userId) return;
+    (async () => {
+      try {
+        const profile = await userService.getUserById(userId);
+
+        if (!cancelled && profile?.fullName) {
+          setResolvedFullName(profile.fullName);
+        }
+      } catch (error) {
+        // Fall back to the localStorage fullName/userName.
+        console.debug("Failed to resolve user fullName:", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   // When the selected FTI ControlNo changes, restore the existing
   // liquidation (its liquidationId + receipt items). This is the core fix
@@ -221,9 +274,22 @@ export function LiquidationForm({
 
   const totalAmount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
 
-  const displayName =
-    user?.fullName || user?.userName || user?.userId || "User";
-  const displayUserId = user?.userId || user?.userName || "—";
+  // The FTI request currently linked via the ControlNo (used for Advances).
+  const selectedFti = ftiRequests.find((r) => r.controlNo === controlNo);
+  const advances = selectedFti?.totalAmount || 0;
+
+  // Per-category column subtotals for the pivot table.
+  const categoryTotals = Object.fromEntries(
+    categories.map((cat) => [
+      cat,
+      items
+        .filter((i) => i.category === cat)
+        .reduce((s, i) => s + (i.amount || 0), 0),
+    ]),
+  );
+  const othersTotal = items
+    .filter((i) => !categories.includes(i.category))
+    .reduce((s, i) => s + (i.amount || 0), 0);
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-PH", {
@@ -284,7 +350,9 @@ export function LiquidationForm({
   // ── Line-item add / update (uploads photo to Drive only at this point) ──
   const handleAddOrUpdateItem = async () => {
     if (isLocked) {
-      toast.error("This liquidation has been submitted and can no longer be edited.");
+      toast.error(
+        "This liquidation has been submitted and can no longer be edited.",
+      );
       return;
     }
     if (!controlNo.trim()) {
@@ -356,6 +424,7 @@ export function LiquidationForm({
         await liquidationService.replace(liquidationId, updated);
         setItems(updated);
         toast.success("Receipt item updated.");
+        resetDraft();
       } else {
         let activeId = liquidationId;
         if (!activeId) {
@@ -366,22 +435,26 @@ export function LiquidationForm({
         await liquidationService.addItem(activeId, [item]);
         setItems((prev) => [...prev, item]);
         toast.success("Receipt item added.");
+        resetDraft();
       }
     } catch (error) {
       console.error("Failed to persist receipt item:", error);
+      // Keep the draft intact (date/description/category/amount and the
+      // already-uploaded Drive receipt URL) so the user can simply click
+      // "Add Item" again and retry WITHOUT re-uploading the receipt.
       toast.error("Failed to save receipt item. Please try again.");
     } finally {
       setUploading(false);
     }
-
-    resetDraft();
   };
 
   const handleEditItem = (index: number) => {
     const item = items[index];
     if (!item) return;
     if (isLocked) {
-      toast.error("This liquidation has been submitted and can no longer be edited.");
+      toast.error(
+        "This liquidation has been submitted and can no longer be edited.",
+      );
       return;
     }
     // Clear any locally-held photo from a previous unattached draft so the
@@ -407,7 +480,9 @@ export function LiquidationForm({
 
   const handleDeleteItem = async (index: number) => {
     if (isLocked) {
-      toast.error("This liquidation has been submitted and can no longer be edited.");
+      toast.error(
+        "This liquidation has been submitted and can no longer be edited.",
+      );
       return;
     }
     const remaining = items.filter((_, idx) => idx !== index);
@@ -466,6 +541,89 @@ export function LiquidationForm({
     setSubmittedTotal(0);
   };
 
+  // ── Preview → PDF / Image export (mirrors the FTI page flow) ──
+  const getLiquidationPrintElement = () =>
+    document.getElementById("liquidation-print-content");
+
+  const generatePdfBlob = async (): Promise<Blob> => {
+    const element = getLiquidationPrintElement();
+    if (!element) throw new Error("Liquidation document not found.");
+    await new Promise((r) => setTimeout(r, 150));
+    const html2canvas = (await import("html2canvas-pro")).default;
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+    });
+    const { jsPDF } = await import("jspdf");
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "mm",
+      format: "a4",
+    });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    let position = 0;
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    let heightLeft = imgHeight - pageHeight;
+    while (heightLeft > 0) {
+      position -= pageHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+    return pdf.output("blob");
+  };
+
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      const blob = await generatePdfBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `LIQUIDATION_${controlNo || "draft"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Liquidation PDF downloaded.");
+    } catch (error) {
+      console.error("Liquidation PDF export failed:", error);
+      toast.error("Failed to generate liquidation PDF.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const handleDownloadImage = async () => {
+    setDownloadingImage(true);
+    try {
+      const element = getLiquidationPrintElement();
+      if (!element) throw new Error("Liquidation document not found.");
+      await new Promise((r) => setTimeout(r, 150));
+      const html2canvas = (await import("html2canvas-pro")).default;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+      });
+      const link = document.createElement("a");
+      link.download = `LIQUIDATION_${controlNo || "draft"}.png`;
+      link.href = canvas.toDataURL("image/png");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success("Liquidation image downloaded.");
+    } catch (error) {
+      console.error("Liquidation image export failed:", error);
+      toast.error("Failed to generate liquidation image.");
+    } finally {
+      setDownloadingImage(false);
+    }
+  };
+
   // ── Success feedback screen ──
   if (successLiquidationId) {
     return (
@@ -520,10 +678,7 @@ export function LiquidationForm({
         <CardContent className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <Label className="text-xs text-muted-foreground">Technician</Label>
-            <p className="truncate font-medium">{displayName}</p>
-            <p className="truncate text-xs text-muted-foreground">
-              ID: {displayUserId}
-            </p>
+            <p className="truncate font-medium">{resolvedFullName}</p>
           </div>
           <div className="shrink-0 rounded-lg border bg-muted px-4 py-2 text-right">
             <Label className="text-[10px] text-muted-foreground">Total</Label>
@@ -576,9 +731,7 @@ export function LiquidationForm({
 
             {/* ── ControlNo preview panel ── */}
             {(() => {
-              const selected = ftiRequests.find(
-                (r) => r.controlNo === controlNo,
-              );
+              const selected = selectedFti;
               if (!selected) return null;
               return (
                 <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3 text-sm">
@@ -633,11 +786,22 @@ export function LiquidationForm({
                 <SelectValue placeholder="Select category" />
               </SelectTrigger>
               <SelectContent>
-                {RECEIPT_CATEGORIES.map((category) => (
-                  <SelectItem key={category} value={category}>
-                    {category}
-                  </SelectItem>
-                ))}
+                {loadingCategories ? (
+                  <div className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading categories...
+                  </div>
+                ) : categories.length === 0 ? (
+                  <p className="px-4 py-2 text-sm text-muted-foreground">
+                    No miscellaneous categories available.
+                  </p>
+                ) : (
+                  categories.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -783,7 +947,12 @@ export function LiquidationForm({
             onClick={handleAddOrUpdateItem}
             disabled={uploading || isLocked}
           >
-            {editingIndex !== null ? (
+            {uploading ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                {editingIndex !== null ? "Updating..." : "Adding..."}
+              </>
+            ) : editingIndex !== null ? (
               <>
                 <Pencil className="mr-2 h-5 w-5" />
                 Update Item
@@ -798,19 +967,33 @@ export function LiquidationForm({
         </CardContent>
       </Card>
 
-      {/* ── Itemized summary (table: Date | Category | Description | Amount | Receipt | Actions) ── */}
+      {/* ── Itemized summary (pivot table: Date | Description | <categories> | Others | Total) ── */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Receipt Items</CardTitle>
-          <CardDescription>
-            {items.length === 0
-              ? "No items added yet."
-              : `${items.length} item(s) — Total: ${formatCurrency(totalAmount)}`}
-            {isLocked && " (Locked — already submitted)"}
-            {loadingLiquidation && " (Loading…)"}
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Receipt Items</CardTitle>
+              <CardDescription>
+                {items.length === 0
+                  ? "No items added yet."
+                  : `${items.length} item(s) — Total: ${formatCurrency(totalAmount)}`}
+                {isLocked && " (Locked — already submitted)"}
+                {loadingLiquidation && " (Loading…)"}
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPreviewOpen(true)}
+              disabled={items.length === 0 || loadingLiquidation}
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              Preview
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {loadingLiquidation ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -821,116 +1004,213 @@ export function LiquidationForm({
               Add receipt items above to build your liquidation batch.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-center">Receipt</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.map((item, index) => {
-                    const isImage =
-                      item.receiptIsImage ??
-                      (item.receiptImageUrl
-                        ? isImageUrl(item.receiptImageUrl)
-                        : true);
-                    return (
-                      <TableRow key={`${item.date}-${index}`}>
-                        <TableCell className="whitespace-nowrap font-medium">
-                          {item.date}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className="text-xs">
-                            {item.category}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {item.description}
-                        </TableCell>
-                        <TableCell className="text-right font-bold">
-                          {formatCurrency(item.amount)}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {item.receiptImageUrl ? (
-                            <a
-                              href={item.receiptImageUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              aria-label="Open receipt"
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Description</TableHead>
+                      {categories.map((cat) => (
+                        <TableHead key={cat} className="text-right">
+                          {cat}
+                        </TableHead>
+                      ))}
+                      <TableHead className="text-right">Others</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-center">Receipt</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.map((item, index) => {
+                      const isKnownCategory = categories.includes(
+                        item.category,
+                      );
+                      const isImage =
+                        item.receiptIsImage ??
+                        (item.receiptImageUrl
+                          ? isImageUrl(item.receiptImageUrl)
+                          : true);
+                      return (
+                        <TableRow key={`${item.date}-${index}`}>
+                          <TableCell className="whitespace-nowrap font-medium">
+                            {item.date}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {item.description}
+                          </TableCell>
+                          {categories.map((cat) => (
+                            <TableCell
+                              key={cat}
+                              className="text-right font-mono"
                             >
-                              {isImage ? (
-                                <img
-                                  src={
-                                    item.receiptPreviewUrl ||
-                                    item.receiptImageUrl
-                                  }
-                                  alt="Receipt"
-                                  className="mx-auto h-12 w-12 rounded-lg border object-cover"
-                                />
-                              ) : (
-                                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg border bg-muted">
-                                  <FileText className="h-5 w-5 text-muted-foreground" />
-                                </div>
-                              )}
-                            </a>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              — 
-                            </span>
-                          )}
+                              {item.category === cat
+                                ? formatCurrency(item.amount)
+                                : ""}
+                            </TableCell>
+                          ))}
+                          <TableCell className="text-right font-mono">
+                            {!isKnownCategory
+                              ? formatCurrency(item.amount)
+                              : ""}
+                          </TableCell>
+                          <TableCell className="text-right font-bold">
+                            {formatCurrency(item.amount)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {item.receiptImageUrl ? (
+                              <a
+                                href={item.receiptImageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label="Open receipt"
+                              >
+                                {isImage ? (
+                                  <img
+                                    src={
+                                      item.receiptPreviewUrl ||
+                                      item.receiptImageUrl
+                                    }
+                                    alt="Receipt"
+                                    className="mx-auto h-12 w-12 rounded-lg border object-cover"
+                                  />
+                                ) : (
+                                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg border bg-muted">
+                                    <FileText className="h-5 w-5 text-muted-foreground" />
+                                  </div>
+                                )}
+                              </a>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                —
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9"
+                                aria-label="Edit item"
+                                onClick={() => handleEditItem(index)}
+                                disabled={isLocked || uploading}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 text-destructive"
+                                aria-label="Delete item"
+                                onClick={() => handleDeleteItem(index)}
+                                disabled={isLocked || uploading}
+                              >
+                                {uploading ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                  <TableFooter>
+                    {/* ── Subtotal row (per-category sums) ── */}
+                    <TableRow>
+                      <TableCell colSpan={2} className="font-semibold">
+                        Subtotal
+                      </TableCell>
+                      {categories.map((cat) => (
+                        <TableCell key={cat} className="text-right font-mono">
+                          {categoryTotals[cat]
+                            ? formatCurrency(categoryTotals[cat])
+                            : ""}
                         </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-9 w-9"
-                              aria-label="Edit item"
-                              onClick={() => handleEditItem(index)}
-                              disabled={isLocked || uploading}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-9 w-9 text-destructive"
-                              aria-label="Delete item"
-                              onClick={() => handleDeleteItem(index)}
-                              disabled={isLocked || uploading}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-                <TableFooter>
-                  <TableRow>
-                    <TableCell colSpan={3} className="font-semibold">
-                      Total
-                    </TableCell>
-                    <TableCell className="text-right font-bold">
+                      ))}
+                      <TableCell className="text-right font-mono">
+                        {othersTotal ? formatCurrency(othersTotal) : ""}
+                      </TableCell>
+                      <TableCell className="text-right font-bold">
+                        {formatCurrency(totalAmount)}
+                      </TableCell>
+                      <TableCell colSpan={2} />
+                    </TableRow>
+                    {/* ── Grand Total row ── */}
+                    <TableRow>
+                      <TableCell
+                        colSpan={categories.length + 3}
+                        className="font-semibold"
+                      >
+                        Grand Total
+                      </TableCell>
+                      <TableCell className="text-right font-bold">
+                        {formatCurrency(totalAmount)}
+                      </TableCell>
+                      <TableCell colSpan={2} />
+                    </TableRow>
+                  </TableFooter>
+                </Table>
+              </div>
+
+              {/* ── Summary block (bottom right) ── */}
+              <div className="flex justify-end">
+                <div className="w-full max-w-xs space-y-1 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="font-mono font-semibold">
                       {formatCurrency(totalAmount)}
-                    </TableCell>
-                    <TableCell colSpan={2} />
-                  </TableRow>
-                </TableFooter>
-              </Table>
-            </div>
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Advances</span>
+                    <span className="font-mono font-semibold">
+                      {formatCurrency(advances)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-t pt-1">
+                    <span className="font-semibold">Total Reimbursement</span>
+                    <span className="font-mono font-bold">
+                      {formatCurrency(advances - totalAmount)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
+
+      {/* ── Preview modal + off-screen printable document ── */}
+      <LiquidationPreviewModal
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        controlNo={controlNo}
+        fullName={resolvedFullName}
+        items={items}
+        categories={categories}
+        advances={advances}
+        onDownloadPdf={handleDownloadPdf}
+        downloadingPdf={downloadingPdf}
+        onDownloadImage={handleDownloadImage}
+        downloadingImage={downloadingImage}
+      />
+      <div className="fixed -left-[9999px] top-0" aria-hidden="true">
+        <LiquidationPrintDocument
+          controlNo={controlNo}
+          fullName={resolvedFullName}
+          items={items}
+          categories={categories}
+          advances={advances}
+          id="liquidation-print-content"
+        />
+      </div>
 
       {/* ── Sticky bottom submit bar (always reachable on mobile) ── */}
       <div className="sticky bottom-0 z-10 -mx-1 border-t bg-background/95 px-3 py-3 backdrop-blur">

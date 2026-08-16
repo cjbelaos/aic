@@ -19,8 +19,11 @@ export async function GET(request: NextRequest) {
 
   try {
     // Support username lookup via query parameter: /api/users?username=xxx
+    // Support userId lookup via query parameter: /api/users?userId=xxx
+    // (authenticated-only, so any logged-in user can resolve their name)
     const { searchParams } = new URL(request.url);
     const usernameQuery = searchParams.get("username");
+    const userIdQuery = searchParams.get("userId");
 
     if (usernameQuery) {
       const user = await getUserByUsername(usernameQuery);
@@ -31,6 +34,18 @@ export async function GET(request: NextRequest) {
     }
 
     const users = await getUsers();
+
+    if (userIdQuery) {
+      const user = users.find(
+        (u) => u.userId === (userIdQuery || "").toString().trim(),
+      );
+      if (user) {
+        // users are already PublicUser objects (getUsers() maps them).
+        return NextResponse.json(user, { status: 200 });
+      }
+      return NextResponse.json({ error: "User not found." }, { status: 404 });
+    }
+
     return NextResponse.json(users, { status: 200 });
   } catch (error) {
     const message =

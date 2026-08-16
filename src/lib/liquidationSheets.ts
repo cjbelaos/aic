@@ -226,24 +226,20 @@ export async function getLiquidationsFullByUser(
 }
 
 // ── Validation ──
+// Categories are no longer restricted to the legacy hardcoded list. The
+// liquidation form sources them dynamically from the Miscellaneous sheet
+// (same as the FTI page). Hardcoding the old set caused updates with new
+// categories (e.g. "Meal Allowance", "Emergency Cash") to fail — after
+// rows had already been deleted — permanently losing receipt data.
 function validateItems(items: ReceiptItemInput[]): ReceiptItemInput[] {
   if (!items || items.length === 0) {
     throw new Error("At least one receipt item is required.");
   }
 
-  const validCategories = new Set([
-    "Meal",
-    "Fare",
-    "Materials",
-    "Fuel",
-    "Hotel",
-    "Others",
-  ]);
-
   return items.map((item) => {
     const category = (item.category || "").toString().trim();
-    if (!validCategories.has(category)) {
-      throw new Error(`Invalid category "${category}".`);
+    if (!category) {
+      throw new Error("Category is required for every receipt item.");
     }
     const amount = parseFloat(String(item.amount));
     if (isNaN(amount) || amount < 0) {
@@ -411,6 +407,11 @@ export async function replaceReceiptItems(
     );
   }
 
+  // IMPORTANT: Validate BEFORE deleting any existing rows. If validation
+  // fails we must abort with the old data still intact, never wipe rows
+  // first (that caused permanent receipt-data loss on failed updates).
+  const validItems = itemsToSave.length > 0 ? validateItems(itemsToSave) : [];
+
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
 
@@ -427,8 +428,7 @@ export async function replaceReceiptItems(
   });
   await deleteSheetRows(RECEIPT_ITEMS_SHEET, rowNumbers);
 
-  if (itemsToSave.length > 0) {
-    const validItems = validateItems(itemsToSave);
+  if (validItems.length > 0) {
     const added: ReceiptItem[] = validItems.map((item) => ({
       receiptItemId: generateUUID(),
       liquidationId,

@@ -3,20 +3,19 @@
 import { Suspense, useState } from "react";
 import { LiquidationForm } from "@/components/liquidation-form";
 
-interface StoredUser {
-  userId?: string;
-  fullName?: string;
-  userName?: string;
-}
-
-function getStoredUser(): StoredUser | null {
-  if (typeof window === "undefined") return null;
+function getStoredUser(): string {
+  if (typeof window === "undefined") return "";
   try {
     const raw = window.localStorage.getItem("auth:user");
-    return raw ? (JSON.parse(raw) as StoredUser) : null;
+    if (!raw) return "";
+    // auth:user is a JSON object (e.g. { userId, fullName, userName }).
+    // Extract ONLY the userId string — passing the parsed object down
+    // broke userService.getUserById and left the technician name blank.
+    const parsed = JSON.parse(raw) as { userId?: string; userName?: string };
+    return parsed?.userId || parsed?.userName || "";
   } catch {
     // ignore parse errors
-    return null;
+    return "";
   }
 }
 
@@ -26,7 +25,7 @@ function getStoredUser(): StoredUser | null {
  * when writing to the database is captured server-side from the session.
  */
 function ExpenseLiquidationPageInner() {
-  const [user] = useState<StoredUser | null>(getStoredUser);
+  const [userId] = useState<string | "">(getStoredUser);
 
   // Deep-link support: /dashboard/expense-liquidation?controlNo=CTRL-...
   // (e.g. "Add Liquidation" from the FTI preview modal).
@@ -36,7 +35,9 @@ function ExpenseLiquidationPageInner() {
       new URLSearchParams(window.location.search).get("controlNo") || "";
   }
 
-  return <LiquidationForm user={user} initialControlNo={initialControlNo} />;
+  return (
+    <LiquidationForm userId={userId} initialControlNo={initialControlNo} />
+  );
 }
 
 export default function ExpenseLiquidationPage() {

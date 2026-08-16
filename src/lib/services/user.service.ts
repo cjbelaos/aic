@@ -92,13 +92,17 @@ export const userService = {
   },
 
   /**
-   * Fetches a user by their ID
+   * Fetches a user by their ID.
+   *
+   * Uses the authenticated base route with a ?userId= filter instead of
+   * /users/{id} — that route is admin-only and has no GET handler, which
+   * caused 405 Method Not Allowed for technicians resolving their name.
    */
   async getUserById(id: string): Promise<PublicUser | null> {
     try {
-      const response = await api.get<PublicUser>(
-        `/users/${encodeURIComponent(id)}`,
-      );
+      const response = await api.get<PublicUser>("/users", {
+        params: { userId: id },
+      });
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 404) return null;
