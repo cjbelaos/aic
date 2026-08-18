@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Receipt,
   ReceiptText,
+  CalendarCheck, // Added icon for Collections
 } from "lucide-react";
 import {
   Sidebar,
@@ -62,9 +63,6 @@ export function AppSidebar() {
   const [departmentId] = useState<number | null>(getStoredDepartmentId);
   const canSeeTravel = departmentId === 1;
 
-  // Determine whether a nav item is active. Items with query-string hrefs
-  // (e.g. /dashboard/companies?type=customer) match only when both the base
-  // path and the full query string are active.
   const isItemActive = (href: string): boolean => {
     if (href.includes("?")) {
       const [base, query] = href.split("?");
@@ -186,8 +184,6 @@ export function AppSidebar() {
           <SidebarGroupLabel>Contacts & Parties</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {/* Companies (master view) with Customers/Suppliers as
-                  filter shortcuts nested underneath */}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
@@ -249,11 +245,23 @@ export function AppSidebar() {
 
         <SidebarSeparator />
 
-        {/* ── Sales ─────────────────────────────────────────────────── */}
+        {/* ── Sales & Collections ─────────────────────────────────── */}
         <SidebarGroup>
-          <SidebarGroupLabel>Sales</SidebarGroupLabel>
+          <SidebarGroupLabel>Sales & Collections</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/collections")}
+                  tooltip="Customer Collections"
+                >
+                  <Link href="/dashboard/collections">
+                    <CalendarCheck />
+                    <span>Collections</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
