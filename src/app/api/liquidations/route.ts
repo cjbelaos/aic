@@ -10,6 +10,7 @@ import {
   getLiquidationsFullByUser,
   replaceReceiptItems,
   updateLiquidationApproval,
+  updateLiquidationRequestedAmount,
   updateLiquidationStatus,
 } from "@/lib/liquidationSheets";
 import { getUsers } from "@/lib/userSheets";
@@ -21,6 +22,7 @@ interface LiquidationActionBody {
   controlNo?: string;
   liquidationId?: string;
   items?: ReceiptItemInput[];
+  totalAmountRequested?: number;
   approval?: {
     action: "approve" | "request_change" | "reject";
     comment?: string;
@@ -41,23 +43,38 @@ export async function POST(req: NextRequest) {
   const action = body.action || "create";
 
   try {
-    // create → SAVED parent row
+    // create → SAVED parent row (ControlNo optional for "Other" liquidations)
     if (action === "create") {
       const controlNo = (body.controlNo || "").toString().trim();
-      if (!controlNo)
-        return NextResponse.json(
-          { error: "Missing required field: controlNo (FTI reference)." },
-          { status: 400 },
-        );
       const liquidation = await createLiquidationDraft({
         userId: session.userId,
         controlNo,
+        totalAmountRequested: body.totalAmountRequested,
       });
       return NextResponse.json({
         success: true,
         liquidationId: liquidation.liquidationId,
         status: liquidation.status,
+        totalAmountRequested: liquidation.totalAmountRequested,
       });
+    }
+
+    // update → persist TotalAmountRequested (manual amount for "Other")
+    if (action === "update") {
+      const liquidationId = (body.liquidationId || "").toString().trim();
+      if (!liquidationId)
+        return NextResponse.json(
+          { error: "Missing required field: liquidationId." },
+          { status: 400 },
+        );
+      const amount = Number(body.totalAmountRequested);
+      if (isNaN(amount) || amount < 0)
+        return NextResponse.json(
+          { error: "totalAmountRequested must be a non-negative number." },
+          { status: 400 },
+        );
+      await updateLiquidationRequestedAmount(liquidationId, amount);
+      return NextResponse.json({ success: true, liquidationId });
     }
 
     // add-item → append to ReceiptItems + recompute TotalAmount

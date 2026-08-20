@@ -10,7 +10,7 @@ import type {
 // ── Constants ──
 const LIQUIDATIONS_SHEET = "Liquidations";
 const RECEIPT_ITEMS_SHEET = "ReceiptItems";
-const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:J`; // A=liquidationId, B=controlNo, C=userId, D=totalAmount, E=status, F=approvedByUserId, G=approvedByName, H=approvedBySignatureUrl, I=approvedDate, J=approvalComment
+const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:K`; // A=liquidationId, B=controlNo, C=userId, D=totalAmount, E=status, F=approvedByUserId, G=approvedByName, H=approvedBySignatureUrl, I=approvedDate, J=approvalComment, K=totalAmountRequested
 const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:G`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=category, F=amount, G=receiptImageUrl
 
 // ── Simple TTL Cache (matches ftiSheets.ts pattern) ──
@@ -111,6 +111,9 @@ async function getAllLiquidationsRaw(): Promise<Liquidation[]> {
       approvedBySignatureUrl: (row[7] || "").toString().trim(),
       approvedDate: (row[8] || "").toString().trim(),
       approvalComment: (row[9] || "").toString().trim(),
+      totalAmountRequested: (row[10] || "").toString().trim()
+        ? parseFloat((row[10] || "0").toString().trim())
+        : undefined,
     }))
     .filter((entry) => entry.liquidationId.length > 0);
 }
@@ -271,6 +274,8 @@ function validateItems(items: ReceiptItemInput[]): ReceiptItemInput[] {
 export async function createLiquidationDraft(input: {
   userId: string;
   controlNo: string;
+  /** Manually entered amount for "Other" (no ControlNo) liquidations. Ignored when a ControlNo exists. */
+  totalAmountRequested?: number;
 }): Promise<Liquidation> {
   // Enforce one FTI ControlNo → one liquidation. If the technician already
   // has a liquidation for this ControlNo, return it instead of creating a
@@ -285,17 +290,31 @@ export async function createLiquidationDraft(input: {
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
 
+  // When a ControlNo exists the TotalAmountRequested comes from the FTI's
+  // TotalAmount. Otherwise it is manually provided by the user.
+  let totalAmountRequested: number | undefined;
+  if (controlNo) {
+    const { getAllFTIRequests } = await import("@/lib/ftiSheets");
+    const requests = await getAllFTIRequests().catch(() => []);
+    const matched = requests.find((r) => r.controlNo === controlNo);
+    totalAmountRequested = matched?.totalAmount ?? undefined;
+  } else {
+    const manual = parseFloat(String(input.totalAmountRequested ?? "0"));
+    totalAmountRequested = isNaN(manual) || manual < 0 ? 0 : manual;
+  }
+
   const liquidation: Liquidation = {
     liquidationId: generateUUID(),
     controlNo: (input.controlNo || "").toString().trim(),
     userId: input.userId,
     totalAmount: 0,
+    totalAmountRequested,
     status: "SAVED",
   };
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${LIQUIDATIONS_SHEET}!A:J`,
+    range: `${LIQUIDATIONS_SHEET}!A:K`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [
@@ -310,6 +329,9 @@ export async function createLiquidationDraft(input: {
           "",
           "",
           "",
+          totalAmountRequested !== undefined
+            ? String(totalAmountRequested)
+            : "",
         ],
       ],
     },
@@ -317,6 +339,30 @@ export async function createLiquidationDraft(input: {
 
   invalidateLiquidationCache();
   return liquidation;
+}
+
+/**
+ * Updates TotalAmountRequested (column K) for a liquidation. Used to persist
+ * the manual amount for "Other" liquidations or to sync from the FTI once a
+ * ControlNo is later assigned.
+ */
+export async function updateLiquidationRequestedAmount(
+  liquidationId: string,
+  totalAmountRequested: number,
+): Promise<void> {
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const all = await getAllLiquidations();
+  const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
+  if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found`);
+  const sheets = await getSheetsClient();
+  const safe = Math.max(0, parseFloat(String(totalAmountRequested)) || 0);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${LIQUIDATIONS_SHEET}!K${idx + 2}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[String(safe)]] },
+  });
+  invalidateLiquidationCache();
 }
 
 /**

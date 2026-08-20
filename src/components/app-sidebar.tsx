@@ -22,7 +22,10 @@ import {
   ShieldCheck,
   Receipt,
   ReceiptText,
-  CalendarCheck, // Added icon for Collections
+  CalendarCheck,
+  Truck, // Icon for Delivery Release
+  FileSignature, // Icon for Contracts
+  ShieldAlert, // Icon for Contract Entitlements
 } from "lucide-react";
 import {
   Sidebar,
@@ -239,6 +242,18 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/customer-contracts")}
+                  tooltip="Customer Contracts"
+                >
+                  <Link href="/dashboard/customer-contracts">
+                    <FileSignature />
+                    <span>Customer Contracts</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -250,6 +265,42 @@ export function AppSidebar() {
           <SidebarGroupLabel>Sales & Collections</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/delivery-releases")}
+                  tooltip="Delivery Release"
+                >
+                  <Link href="/dashboard/delivery-releases">
+                    <Truck />
+                    <span>Delivery Release</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/contract-releases")}
+                  tooltip="Contract Releases"
+                >
+                  <Link href="/dashboard/contract-releases">
+                    <CalendarCheck />
+                    <span>Contract Releases</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/customer-contracts")}
+                  tooltip="Contract Entitlements"
+                >
+                  <Link href="/dashboard/customer-contracts">
+                    <ShieldAlert />
+                    <span>Contract Entitlements</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild

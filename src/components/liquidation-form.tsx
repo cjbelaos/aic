@@ -45,7 +45,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DatePicker } from "@/components/ui/date-picker";
-import type { LiquidationStatus, ReceiptItemInput } from "@/types/liquidation";
+import type {
+  LiquidationFull,
+  LiquidationStatus,
+  ReceiptItemInput,
+} from "@/types/liquidation";
 import { liquidationService } from "@/lib/services/liquidation.service";
 import { ftiService } from "@/lib/services/fti.service";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
@@ -89,13 +93,24 @@ export function LiquidationForm({
   // Active SAVED liquidation returned by createDraft (first Add Item click).
   const [liquidationId, setLiquidationId] = useState("");
 
-  // FTI link (ControlNo)
+  // FTI link (ControlNo) — empty means an "Other" liquidation without an FTI.
   const [ftiRequests, setFtiRequests] = useState<FTIRequestSummary[]>([]);
+  // Liquidation type: "fti" (linked to an FTI) or "other" (no FTI).
+  const [liqType, setLiqType] = useState<"fti" | "other">(
+    initialControlNo ? "fti" : "fti",
+  );
   const [controlNo, setControlNo] = useState(initialControlNo);
   const [loadingFti, setLoadingFti] = useState(true);
   const [loadingLiquidation, setLoadingLiquidation] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [lastLoadedControlNo, setLastLoadedControlNo] = useState("");
+  // Manual TotalAmountRequested for "Other" liquidations (no FTI ControlNo).
+  const [totalAmountRequested, setTotalAmountRequested] = useState("");
+  // Existing "Other" (no-FTI) liquidations the user can reopen and edit.
+  const [otherLiquidations, setOtherLiquidations] = useState<LiquidationFull[]>(
+    [],
+  );
+  const [selectedOtherId, setSelectedOtherId] = useState("");
   // Miscellaneous category options (fetched via the same source as the FTI page).
   const [categories, setCategories] = useState<string[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
@@ -144,6 +159,30 @@ export function LiquidationForm({
       cancelled = true;
     };
   }, []);
+
+  // Load the user's existing "Other" (no-FTI) liquidations so they can be
+  // reopened and further edited.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const others = await liquidationService.getOtherLiquidations();
+        if (!cancelled) {
+          // Only show the signed-in user's OWN no-FTI liquidations to
+          // reopen/edit. getMyLiquidations() may also include liquidations
+          // the user approves on behalf of others.
+          setOtherLiquidations(
+            others.filter((l) => !l.controlNo && l.userId === userId),
+          );
+        }
+      } catch (error) {
+        console.error("Failed to load other liquidations:", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   // Load miscellaneous categories (same source as the FTI page dropdown).
   useEffect(() => {
@@ -194,10 +233,19 @@ export function LiquidationForm({
   // When the selected FTI ControlNo changes, restore the existing
   // liquidation (its liquidationId + receipt items). This is the core fix
   // for the bug where re-selecting an FTI showed an empty receipt list.
+  // When ControlNo is empty ("Other" liquidation), we start fresh.
   useEffect(() => {
     let cancelled = false;
     const controlNoToLoad = controlNo.trim();
-    if (!controlNoToLoad) return;
+    if (!controlNoToLoad) {
+      // Switching to an "Other" liquidation without an FTI: reset batch.
+      setLiquidationId("");
+      setItems([]);
+      setIsLocked(false);
+      setLastLoadedControlNo("");
+      setTotalAmountRequested("");
+      return;
+    }
 
     // If we already restored this ControlNo, don't re-fetch.
     if (lastLoadedControlNo === controlNoToLoad) return;
@@ -251,6 +299,40 @@ export function LiquidationForm({
     };
   }, [controlNo, lastLoadedControlNo]);
 
+  // When returning to "Other" (no FTI) with an existing "Other" liquidation
+  // still selected (selectedOtherId), re-load its receipt items AFTER the FTI
+  // effect above clears state on controlNo="" (switching back to "Other").
+  useEffect(() => {
+    if (liqType === "other" && selectedOtherId) {
+      const found = otherLiquidations.find(
+        (l) => l.liquidationId === selectedOtherId,
+      );
+      if (found) {
+        setLiquidationId(found.liquidationId);
+        setItems(
+          found.items.map((item) => ({
+            date: item.date,
+            description: item.description,
+            category: item.category,
+            amount: item.amount,
+            receiptImageUrl: item.receiptImageUrl || undefined,
+          })),
+        );
+        setTotalAmountRequested(
+          found.totalAmountRequested != null
+            ? String(found.totalAmountRequested)
+            : "",
+        );
+        setIsLocked(
+          !EDITABLE_STATUSES.includes(
+            (found.status || "").toUpperCase() as LiquidationStatus,
+          ),
+        );
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liqType, selectedOtherId, otherLiquidations]);
+
   // Line-item input draft
   const [draftDate, setDraftDate] = useState<Date | undefined>(undefined);
   const [draftDescription, setDraftDescription] = useState("");
@@ -277,6 +359,37 @@ export function LiquidationForm({
   // The FTI request currently linked via the ControlNo (used for Advances).
   const selectedFti = ftiRequests.find((r) => r.controlNo === controlNo);
   const advances = selectedFti?.totalAmount || 0;
+  // The manual TotalAmountRequested to persist for an "Other" liquidation.
+  const requestedAmountParsed = parseFloat(totalAmountRequested);
+  const isOther = liqType === "other";
+  const effectiveRequestedAmount = isOther
+    ? isNaN(requestedAmountParsed) || requestedAmountParsed < 0
+      ? 0
+      : requestedAmountParsed
+    : advances || 0;
+
+  // Dynamic settlement label/value based on comparison of expenses vs advances.
+  const difference = totalAmount - advances;
+  const hasAdvances = advances > 0;
+  const hasAmountToReturn = hasAdvances && difference < 0;
+  const settlement =
+    hasAmountToReturn
+      ? { label: "Amount to Return" }
+      : !hasAdvances
+        ? { label: "Total Reimbursement" }
+        : difference > 0
+          ? {
+              label: "Total Reimbursement",
+              hint: "(Positive Amount — Company pays employee)",
+            }
+          : { label: "Net Amount Due / Settled", hint: "(₱0.00)" };
+  const settlementValue = hasAmountToReturn
+    ? difference
+    : !hasAdvances || difference === 0
+      ? difference === 0
+        ? 0
+        : totalAmount
+      : difference;
 
   // Per-category column subtotals for the pivot table.
   const categoryTotals = Object.fromEntries(
@@ -355,8 +468,8 @@ export function LiquidationForm({
       );
       return;
     }
-    if (!controlNo.trim()) {
-      toast.error("Please select an FTI control number first.");
+    if (isOther && requestedAmountParsed < 0) {
+      toast.error("Please enter a valid Total Amount Requested.");
       return;
     }
     if (!draftDate) {
@@ -428,7 +541,10 @@ export function LiquidationForm({
       } else {
         let activeId = liquidationId;
         if (!activeId) {
-          const draft = await liquidationService.createDraft(controlNo);
+          const draft = await liquidationService.createDraft(
+            controlNo,
+            isOther ? effectiveRequestedAmount : undefined,
+          );
           activeId = draft.liquidationId;
           setLiquidationId(activeId);
         }
@@ -689,76 +805,204 @@ export function LiquidationForm({
         </CardContent>
       </Card>
 
-      {/* ── Link to FTI (ControlNo) ── */}
+      {/* ── Link to FTI (ControlNo) or "Other" liquidation ── */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Link to FTI</CardTitle>
+          <CardTitle className="text-base">Liquidation Type</CardTitle>
           <CardDescription>
-            Select the Field Travel Itinerary this liquidation belongs to.
+            Link to an FTI, or create an "Other" liquidation without an FTI
+            ControlNo.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <Label>FTI Control Number</Label>
-            {loadingFti ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading FTI requests...
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={!isOther ? "default" : "outline"}
+                onClick={() => {
+                  setLiqType("fti");
+                  // Clear any loaded "Other" state so the FTI view starts fresh.
+                  setLiquidationId("");
+                  setItems([]);
+                  setSelectedOtherId("");
+                  setTotalAmountRequested("");
+                  setIsLocked(false);
+                  setLastLoadedControlNo("");
+                }}
+              >
+                FTI Linked
+              </Button>
+              <Button
+                type="button"
+                variant={isOther ? "default" : "outline"}
+                onClick={() => {
+                  setLiqType("other");
+                  setControlNo("");
+                  setLastLoadedControlNo("");
+                  // Clear any loaded FTI state so the Other view starts fresh.
+                  setLiquidationId("");
+                  setItems([]);
+                  setSelectedOtherId("");
+                  setTotalAmountRequested("");
+                  setIsLocked(false);
+                }}
+              >
+                Other (No FTI)
+              </Button>
+            </div>
+
+            {isOther ? (
+              <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
+                {/* ── Reopen an existing no-FTI liquidation ── */}
+                <div className="space-y-2">
+                  <Label>Existing "Other" Liquidation</Label>
+                  <Select
+                    value={selectedOtherId}
+                    onValueChange={(id) => {
+                      const found = otherLiquidations.find(
+                        (l) => l.liquidationId === id,
+                      );
+                      if (!found) return;
+                      setSelectedOtherId(id);
+                      setLiquidationId(id);
+                      setItems(
+                        found.items.map((item) => ({
+                          date: item.date,
+                          description: item.description,
+                          category: item.category,
+                          amount: item.amount,
+                          receiptImageUrl: item.receiptImageUrl || undefined,
+                        })),
+                      );
+                      setTotalAmountRequested(
+                        found.totalAmountRequested != null
+                          ? String(found.totalAmountRequested)
+                          : "",
+                      );
+                      setIsLocked(
+                        !EDITABLE_STATUSES.includes(
+                          (found.status || "").toUpperCase() as LiquidationStatus,
+                        ),
+                      );
+                      toast.success(
+                        `Opened liquidation (${found.items.length} receipt item(s)).`,
+                      );
+                    }}
+                  >
+                    <SelectTrigger className="h-11 text-base">
+                      <SelectValue placeholder="Select existing liquidation" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {otherLiquidations.length === 0 ? (
+                        <p className="px-4 py-2 text-sm text-muted-foreground">
+                          No existing "Other" liquidations yet.
+                        </p>
+                      ) : (
+                        otherLiquidations.map((liq) => (
+                          <SelectItem
+                            key={liq.liquidationId}
+                            value={liq.liquidationId}
+                          >
+                            {liq.status} • ₱{liq.totalAmount?.toFixed?.(2) ??
+                              (0).toFixed(2)}{" "}
+                            • {liq.items.length} item(s)
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Pick an existing no-FTI liquidation to reopen and add/edit
+                    its receipts, or leave blank to start a new one.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Total Amount Requested (₱)</Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={totalAmountRequested}
+                    onChange={(e) => setTotalAmountRequested(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter the total amount requested for this liquidation since
+                    there is no FTI ControlNo.
+                  </p>
+                </div>
               </div>
             ) : (
-              <Select value={controlNo} onValueChange={setControlNo}>
-                <SelectTrigger className="h-11 text-base">
-                  <SelectValue placeholder="Select FTI control no." />
-                </SelectTrigger>
-                <SelectContent>
-                  {ftiRequests.length === 0 ? (
-                    <p className="px-4 py-2 text-sm text-muted-foreground">
-                      No available FTI requests to link.
-                    </p>
-                  ) : (
-                    ftiRequests.map((request) => (
-                      <SelectItem
-                        key={request.controlNo}
-                        value={request.controlNo}
-                      >
-                        {request.controlNo}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            )}
+              <div className="space-y-2">
+                <Label>FTI Control Number</Label>
+                {loadingFti ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading FTI requests...
+                  </div>
+                ) : (
+                  <Select value={controlNo} onValueChange={setControlNo}>
+                    <SelectTrigger className="h-11 text-base">
+                      <SelectValue placeholder="Select FTI control no." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ftiRequests.length === 0 ? (
+                        <p className="px-4 py-2 text-sm text-muted-foreground">
+                          No available FTI requests to link.
+                        </p>
+                      ) : (
+                        ftiRequests.map((request) => (
+                          <SelectItem
+                            key={request.controlNo}
+                            value={request.controlNo}
+                          >
+                            {request.controlNo}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
 
-            {/* ── ControlNo preview panel ── */}
-            {(() => {
-              const selected = selectedFti;
-              if (!selected) return null;
-              return (
-                <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Status</span>
-                    <Badge
-                      className={statusBadgeClass(selected.status)}
-                      variant="outline"
-                    >
-                      {selected.status}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Date Created</span>
-                    <span className="font-medium">{selected.dateCreated}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">
-                      FTI Total Amount
-                    </span>
-                    <span className="font-bold">
-                      {formatCurrency(selected.totalAmount || 0)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
+                {/* ── ControlNo preview panel ── */}
+                {(() => {
+                  const selected = selectedFti;
+                  if (!selected) return null;
+                  return (
+                    <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Status</span>
+                        <Badge
+                          className={statusBadgeClass(selected.status)}
+                          variant="outline"
+                        >
+                          {selected.status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">
+                          Date Created
+                        </span>
+                        <span className="font-medium">
+                          {selected.dateCreated}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">
+                          FTI Total Amount
+                        </span>
+                        <span className="font-bold">
+                          {formatCurrency(selected.totalAmount || 0)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1163,21 +1407,30 @@ export function LiquidationForm({
               <div className="flex justify-end">
                 <div className="w-full max-w-xs space-y-1 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-muted-foreground">
+                      Total Expenses
+                    </span>
                     <span className="font-mono font-semibold">
                       {formatCurrency(totalAmount)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Advances</span>
+                    <span className="text-muted-foreground">Cash Advances</span>
                     <span className="font-mono font-semibold">
                       {formatCurrency(advances)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between border-t pt-1">
-                    <span className="font-semibold">Total Reimbursement</span>
-                    <span className="font-mono font-bold">
-                      {formatCurrency(advances - totalAmount)}
+                  <div className="flex items-start justify-between gap-2 border-t pt-1">
+                    <span className="font-semibold">
+                      {settlement.label}
+                      {settlement.hint && (
+                        <span className="block text-[10px] font-normal text-muted-foreground">
+                          {settlement.hint}
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 font-mono font-bold">
+                      {formatCurrency(settlementValue)}
                     </span>
                   </div>
                 </div>

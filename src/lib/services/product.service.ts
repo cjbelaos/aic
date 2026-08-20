@@ -25,6 +25,16 @@ const productService = {
   },
 
   /**
+   * Helper method to look up the full Product object by code from a list of products
+   */
+  getProductByCode: (
+    code: string,
+    products: Product[],
+  ): Product | undefined => {
+    return products.find((p) => p.code === code);
+  },
+
+  /**
    * Appends a new product row to the Google Sheet
    */
   create: async (payload: CreateProductPayload): Promise<Product | null> => {

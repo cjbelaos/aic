@@ -73,26 +73,25 @@ async function exportToExcel(rows: Product[]) {
     !rows || rows.length === 0
       ? [
           {
-            ProductCode: "",
             ProductName: "",
-            ProductCategoryCode: "",
+            "Product Category": "",
             ProductDescription: "",
-            UnitCode: "",
+            Unit: "",
             "Cost/Unit": "",
             "Price/Unit": "",
-            SupplierId: "",
+            "Supplier Name": "",
           },
         ]
       : rows.map((r) => {
           return {
-            ProductCode: r.code,
-            ProductName: r.name,
-            ProductCategoryCode: r.category?.code || "",
+            ProductName: r.name || "",
+            "Product Category": r.category?.name || r.category?.code || "",
             ProductDescription: r.description || "",
-            UnitCode: r.unit?.code || "",
-            "Cost/Unit": r.costPerUnit,
+            Unit: r.unit?.name || r.unit?.code || "",
+            "Cost/Unit": r.costPerUnit ?? 0,
             "Price/Unit": r.pricePerUnit ?? "",
-            SupplierId: r.supplier?.companyId || "",
+            "Supplier Name":
+              r.supplier?.companyName || r.supplier?.companyId || "",
           };
         });
 
@@ -398,7 +397,7 @@ export default function ProductsPage() {
 
     const matchedSupplier = suppliers.find(
       (s) =>
-s.companyName.toLowerCase() ===
+        s.companyName.toLowerCase() ===
           (row.supplier?.companyName || "").toLowerCase() ||
         String(s.id) === String(row.supplier?.id),
     );
@@ -527,43 +526,53 @@ s.companyName.toLowerCase() ===
           }
         });
 
-        const categoryCode = String(
-          rowData["ProductCategoryCode"] || rowData["Category"] || "",
-        ).trim();
-        const matchedCategory =
-          productCategories.find(
-            (c) =>
-              c.code.toLowerCase() === categoryCode.toLowerCase() ||
-              c.name.toLowerCase() === categoryCode.toLowerCase(),
-          ) || undefined;
-
-        const unitCode = String(
-          rowData["UnitCode"] || rowData["Unit"] || "",
-        ).trim();
-        const matchedUnit =
-          productUnits.find(
-            (u) =>
-              u.code.toLowerCase() === unitCode.toLowerCase() ||
-              u.name.toLowerCase() === unitCode.toLowerCase(),
-          ) || undefined;
-
-        const supplierId = String(
-          rowData["SupplierId"] || rowData["Supplier"] || "",
-        ).trim();
-        const matchedSupplier =
-          suppliers.find(
-            (s) =>
-              s.companyId === supplierId ||
-              s.id === supplierId ||
-              s.companyName.toLowerCase() === supplierId.toLowerCase(),
-          ) || undefined;
-
-        const importCode = String(
-          rowData["ProductCode"] ||
-            rowData["Product Code"] ||
-            rowData["Code"] ||
+        // 1. Match Product Category by Name or Code
+        const categoryInput = String(
+          rowData["Product Category"] ||
+            rowData["ProductCategory"] ||
+            rowData["ProductCategoryCode"] ||
+            rowData["Category"] ||
             "",
         ).trim();
+
+        const matchedCategory = productCategories.find(
+          (c) =>
+            c.name.toLowerCase() === categoryInput.toLowerCase() ||
+            c.code.toLowerCase() === categoryInput.toLowerCase() ||
+            String(c.id) === categoryInput,
+        );
+
+        // 2. Match Unit by Name or Code
+        const unitInput = String(
+          rowData["Unit"] ||
+            rowData["UnitCode"] ||
+            rowData["Product Unit"] ||
+            "",
+        ).trim();
+
+        const matchedUnit = productUnits.find(
+          (u) =>
+            u.name.toLowerCase() === unitInput.toLowerCase() ||
+            u.code.toLowerCase() === unitInput.toLowerCase() ||
+            String(u.id) === unitInput,
+        );
+
+        // 3. Match Supplier by Name, Company ID, or Sheet Row ID
+        const supplierInput = String(
+          rowData["Supplier Name"] ||
+            rowData["SupplierName"] ||
+            rowData["SupplierId"] ||
+            rowData["Supplier"] ||
+            "",
+        ).trim();
+
+        const matchedSupplier = suppliers.find(
+          (s) =>
+            s.companyName.toLowerCase() === supplierInput.toLowerCase() ||
+            s.companyId.toLowerCase() === supplierInput.toLowerCase() ||
+            String(s.id) === supplierInput,
+        );
+
         const importName = String(
           rowData["ProductName"] ||
             rowData["Product Name"] ||
@@ -573,43 +582,45 @@ s.companyName.toLowerCase() ===
 
         if (!importName) return;
 
-        const categoryName =
-          matchedCategory?.name ||
-          categoryCode ||
-          importCode.toUpperCase().substring(0, 4);
+        const importCategory: ProductCategory = matchedCategory || {
+          id: categoryInput,
+          code: categoryInput,
+          name: categoryInput,
+        };
+        const importUnit: ProductUnit = matchedUnit || {
+          id: unitInput,
+          code: unitInput,
+          name: unitInput,
+        };
+        const importSupplier: Company = matchedSupplier || {
+          id: supplierInput,
+          row: 0,
+          companyId: supplierInput,
+          companyType: "Supplier",
+          companyName: supplierInput,
+          tin: "",
+          address: "",
+          latitude: undefined,
+          longitude: undefined,
+          status: "active" as const,
+        };
 
         productsImport.push({
-          code: importCode,
+          code: "", // Omitted from import layout; set to empty for backend auto-generation
           name: importName,
-          category: matchedCategory || {
-            id: categoryCode,
-            code: categoryCode,
-            name: categoryName,
-          },
+          category: importCategory,
           description: String(
-            rowData["ProductDescription"] || rowData["Description"] || "",
+            rowData["ProductDescription"] ||
+              rowData["Product Description"] ||
+              rowData["Description"] ||
+              "",
           ).trim(),
-          unit: matchedUnit || {
-            id: unitCode,
-            code: unitCode,
-            name: unitCode,
-          },
+          unit: importUnit,
           costPerUnit:
             parseFloat(rowData["Cost/Unit"] || rowData["Cost Per Unit"]) || 0,
           pricePerUnit:
             parseFloat(rowData["Price/Unit"] || rowData["Price Per Unit"]) || 0,
-          supplier: matchedSupplier || {
-            id: supplierId,
-            row: 0,
-            companyId: supplierId,
-            companyType: "Supplier",
-            companyName: supplierId,
-            tin: "",
-            address: "",
-            latitude: undefined,
-            longitude: undefined,
-            status: "active" as const,
-          },
+          supplier: importSupplier,
         });
       });
 

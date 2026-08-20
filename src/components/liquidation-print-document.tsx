@@ -38,7 +38,28 @@ export default function LiquidationPrintDocument({
   const isKnown = (cat: string) => activeCategories.includes(cat);
 
   const subtotal = items.reduce((s, i) => s + (i.amount || 0), 0);
-  const totalReimbursement = advances - subtotal;
+  // Dynamic settlement label/value based on comparison of expenses vs advances.
+  const difference = subtotal - advances;
+  const hasAdvances = advances > 0;
+  const hasAmountToReturn = hasAdvances && difference < 0;
+  const settlement =
+    hasAmountToReturn
+      ? { label: "Amount to Return" }
+      : !hasAdvances
+        ? { label: "Total Reimbursement" }
+        : difference > 0
+          ? {
+              label: "Total Reimbursement",
+              hint: "(Positive Amount — Company pays employee)",
+            }
+          : { label: "Net Amount Due / Settled", hint: "(₱0.00)" };
+  const settlementValue = hasAmountToReturn
+    ? difference
+    : !hasAdvances || difference === 0
+      ? difference === 0
+        ? 0
+        : subtotal
+      : difference;
 
   const catTotal = (cat: string) =>
     items
@@ -211,21 +232,32 @@ export default function LiquidationPrintDocument({
       <div className="flex justify-end pt-2">
         <div className="w-72 space-y-1 border border-black rounded-sm px-4 py-3">
           <div className="flex items-center justify-between">
-            <span className="text-gray-800 font-medium">Subtotal</span>
+            <span className="text-gray-800 font-medium">Total Expenses</span>
             <span className="font-mono font-semibold">
               {toFixed2(subtotal)}
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-800 font-medium">Advances</span>
+            <span className="text-gray-800 font-medium">Cash Advances</span>
             <span className="font-mono font-semibold">
               {toFixed2(advances)}
             </span>
           </div>
           <div className="flex items-center justify-between border-t border-black pt-1 mt-1">
-            <span className="text-gray-800 font-bold">Total Reimbursement</span>
+            <span className="text-gray-800 font-bold">
+              {settlement.label}
+              {settlement.hint && (
+                <span className="block text-[9px] font-normal text-gray-600">
+                  {settlement.hint}
+                </span>
+              )}
+            </span>
             <span className="font-mono font-bold">
-              {toFixed2(totalReimbursement)}
+              {settlementValue === 0
+                ? toFixed2(0)
+                : `${settlementValue > 0 ? "" : "-"}${toFixed2(
+                    Math.abs(settlementValue),
+                  )}`}
             </span>
           </div>
         </div>

@@ -92,6 +92,20 @@ export const userService = {
   },
 
   /**
+   * Fetches the full name of a user by their username.
+   * Returns the username as fallback if not found, so callers can still proceed.
+   */
+  async getFullnameByUserName(username: string): Promise<string> {
+    try {
+      const user = await this.getUserByUsername(username);
+      return user?.fullName || username;
+    } catch (error: any) {
+      console.error("Failed to fetch full name by username:", error);
+      return username;
+    }
+  },
+
+  /**
    * Fetches a user by their ID.
    *
    * Uses the authenticated base route with a ?userId= filter instead of

@@ -6,6 +6,10 @@
  *   ReceiptItems : ReceiptItemId | LiquidationId | Date | Description | Category | Amount | ReceiptImageUrl
  *
  * ControlNo links the liquidation to an FTI (Field Travel Itinerary) request.
+ * When a ControlNo exists, TotalAmountRequested is taken from the FTI's
+ * TotalAmount. When there is no ControlNo ("Other" liquidation), the
+ * TotalAmountRequested is entered manually.
+ *
  * Status lifecycle mirrors FTI: SAVED (items being added) → SUBMITTED (sent
  * for approval) → APPROVED / REQUESTED_FOR_CHANGE / REJECTED.
  */
@@ -31,10 +35,16 @@ export type LiquidationStatus =
 /** Parent row in the `Liquidations` sheet. */
 export interface Liquidation {
   liquidationId: string;
-  /** Links the liquidation to an FTI request (e.g. CTRL-20260812...). */
+  /** Links the liquidation to an FTI request (e.g. CTRL-20260812...). Empty for "Other" liquidations. */
   controlNo: string;
   userId: string;
   totalAmount: number;
+  /**
+   * The total amount being requested for liquidation. Auto-filled from the
+   * FTI request's TotalAmount when a ControlNo exists; manually entered when
+   * the liquidation has no ControlNo.
+   */
+  totalAmountRequested?: number;
   status: LiquidationStatus | string;
   /** Auto-assigned approver when submitted (mirrors FTI). */
   approvedByUserId?: string;
@@ -73,7 +83,7 @@ export interface ReceiptItemInput {
 export interface NewLiquidationInput {
   /** The authenticated user's ID (set server-side from the session). */
   userId: string;
-  /** The FTI ControlNo this liquidation is linked to. */
+  /** The FTI ControlNo this liquidation is linked to. Empty for "Other" liquidations. */
   controlNo: string;
   items: ReceiptItemInput[];
 }

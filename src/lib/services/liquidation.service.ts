@@ -81,10 +81,33 @@ export const liquidationService = {
   /**
    * Creates a new liquidation batch. UserId is captured server-side.
    * controlNo links the liquidation to the technician's FTI request.
+   * totalAmountRequested is the manual amount for "Other" liquidations
+   * (ignored when a ControlNo exists — the FTI TotalAmount is used instead).
    */
-  async createDraft(controlNo: string) {
-    return (await api.post("/liquidations", { action: "create", controlNo }))
-      .data;
+  async createDraft(controlNo: string, totalAmountRequested?: number) {
+    return (
+      await api.post("/liquidations", {
+        action: "create",
+        controlNo,
+        totalAmountRequested,
+      })
+    ).data;
+  },
+  /**
+   * Updates the TotalAmountRequested (manual amount for "Other" liquidations
+   * without an FTI ControlNo).
+   */
+  async updateRequestedAmount(
+    liquidationId: string,
+    totalAmountRequested: number,
+  ) {
+    return (
+      await api.post("/liquidations", {
+        action: "update",
+        liquidationId,
+        totalAmountRequested,
+      })
+    ).data;
   },
   async addItem(liquidationId: string, items: ReceiptItemInput[]) {
     return (
@@ -147,6 +170,16 @@ export const liquidationService = {
       params: { controlNo },
     });
     return res.data.liquidations[0] || null;
+  },
+
+  /**
+   * Returns the current user's "Other" liquidations (no FTI ControlNo),
+   * with their receipt items, so an existing no-FTI draft can be reopened
+   * and further edited.
+   */
+  async getOtherLiquidations(): Promise<LiquidationFull[]> {
+    const mine = await this.getMyLiquidations();
+    return mine.filter((l) => !l.controlNo);
   },
 
   /**
