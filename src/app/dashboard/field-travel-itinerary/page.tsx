@@ -190,6 +190,7 @@ export default function FieldTravelItineraryPage() {
   const coordsMapRef = useRef<Record<string, { lat: number; lng: number }>>({});
 
   // ── Batch state ──────────────────────────────
+  const [isMiscOnly, setIsMiscOnly] = useState(false);
   const [batchItems, setBatchItems] = useState<DraftItinerary[]>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
@@ -598,204 +599,220 @@ export default function FieldTravelItineraryPage() {
       toast.error("Description is required.");
       return;
     }
-    if (!formData.origin) {
-      toast.error("Please select an origin.");
-      return;
-    }
-    if (destinations.length === 0 || !destinations.some((d) => d.name)) {
-      toast.error("Please add at least one destination with a name.");
-      return;
-    }
-    if (isCalculating) {
-      toast.error("Please wait — leg distance is still being calculated.");
-      return;
-    }
-    if (!formData.fuelPrice || parseFloat(formData.fuelPrice) <= 0) {
-      toast.error("Fuel Price is required.");
-      return;
-    }
-    for (const dest of destinations) {
-      if (typeof dest.distanceKm !== "number" || dest.distanceKm <= 0) {
-        toast.error(`Leg distance is required for "${dest.name}".`);
+    if (!isMiscOnly) {
+      if (!formData.origin) {
+        toast.error("Please select an origin.");
         return;
       }
-      // Toll is only required if the destination has expressway segments.
-      // Destinations without expressway segments can be saved with toll = 0.
-      if (dest.segments.length > 0) {
-        const legToll = dest.segments.reduce(
-          (s, seg) => s + (seg.tollFee || 0),
-          0,
-        );
-        if (legToll <= 0) {
-          toast.error(`Toll fee is required for leg "${dest.name}".`);
+      if (destinations.length === 0 || !destinations.some((d) => d.name)) {
+        toast.error("Please add at least one destination with a name.");
+        return;
+      }
+      if (isCalculating) {
+        toast.error("Please wait — leg distance is still being calculated.");
+        return;
+      }
+      if (!formData.fuelPrice || parseFloat(formData.fuelPrice) <= 0) {
+        toast.error("Fuel Price is required.");
+        return;
+      }
+      for (const dest of destinations) {
+        if (typeof dest.distanceKm !== "number" || dest.distanceKm <= 0) {
+          toast.error(`Leg distance is required for "${dest.name}".`);
           return;
         }
+        // Toll is only required if the destination has expressway segments.
+        // Destinations without expressway segments can be saved with toll = 0.
+        if (dest.segments.length > 0) {
+          const legToll = dest.segments.reduce(
+            (s, seg) => s + (seg.tollFee || 0),
+            0,
+          );
+          if (legToll <= 0) {
+            toast.error(`Toll fee is required for leg "${dest.name}".`);
+            return;
+          }
+        }
       }
-    }
-    if (totalTollFee <= 0 && destinations.some((d) => d.segments.length > 0)) {
+      if (
+        totalTollFee <= 0 &&
+        destinations.some((d) => d.segments.length > 0)
+      ) {
+        toast.error(
+          "Total toll fee is required before adding the itinerary row.",
+        );
+        return;
+      }
+    } else if (
+      !formData.miscellaneousExpenses.some(
+        (m) => m.code && parseFloat(m.amount) > 0,
+      )
+    ) {
       toast.error(
-        "Total toll fee is required before adding the itinerary row.",
+        "Please add at least one miscellaneous expense with an amount.",
       );
       return;
     }
 
     setSavingRow(true);
     try {
-    const km = totalKm ?? 0;
-    const tollFee = totalTollFee;
-    const miscExpenses = formData.miscellaneousExpenses
-      .filter((m) => m.code && parseFloat(m.amount) > 0)
-      .map((m) => ({
-        code: m.code,
-        description:
-          formInfo?.miscellaneousFull.find((x) => x.code === m.code)
-            ?.description || m.code,
-        amount: parseFloat(m.amount) || 0,
-      }));
-    const miscAmount = miscExpenses.reduce((s, m) => s + m.amount, 0);
-    const fuelPrice = parseFloat(formData.fuelPrice) || 0;
-    const fuelAmount = computeFuelCost(km, fuelPrice, kmPerLiter);
-    const totalAmount = parseFloat(
-      (fuelAmount + tollFee + miscAmount).toFixed(2),
-    );
-
-    const newItem: DraftItinerary = {
-      id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
-      date: formData.date,
-      itinerary: formData.itinerary,
-      description: formData.description,
-      km: parseFloat(km.toFixed(2)),
-      fuelPrice,
-      tollFee,
-      miscellaneous: miscExpenses.map((m) => m.code).join(", "),
-      miscellaneousDescription: miscExpenses
-        .map((m) => m.description)
-        .join(", "),
-      miscAmount,
-      miscExpenses,
-      fuelAmount,
-      totalAmount,
-      origin: formData.origin,
-      originAddress: addressMapRef.current[formData.origin] || "",
-      destinations: destinations.map((d) => ({
-        id: d.id,
-        name: d.name,
-        address: addressMapRef.current[d.name] || "",
-        distanceKm: d.distanceKm,
-        segments: d.segments.map((s) => ({
-          id: s.id,
-          group: s.group,
-          entry: s.entry,
-          exit: s.exit,
-          tollFee: s.tollFee,
-        })),
-      })),
-    };
-
-    // ── Persist immediately to the database (DRAFT request) ──
-    const detailPayload = {
-      date: newItem.date,
-      itinerary: newItem.itinerary,
-      description: newItem.description,
-      km: newItem.km,
-      fuelPrice: newItem.fuelPrice,
-      tollFee: newItem.tollFee,
-      expenses:
-        newItem.miscExpenses && newItem.miscExpenses.length > 0
-          ? newItem.miscExpenses.map((m) => ({
-              miscCode: m.code,
-              amount: m.amount,
-            }))
-          : [],
-      legs: (newItem.destinations || []).map((dest, index) => ({
-        originName:
-          index === 0 ? newItem.origin : newItem.destinations[index - 1].name,
-        originAddress:
-          index === 0
-            ? newItem.originAddress || ""
-            : newItem.destinations[index - 1].address || "",
-        destName: dest.name,
-        destAddress: dest.address || "",
-        tollFee: dest.segments.reduce((s, seg) => s + seg.tollFee, 0),
-        distanceKm: dest.distanceKm || 0,
-        segments: (dest.segments || []).map((seg) => ({
-          group: seg.group,
-          entry: seg.entry,
-          exit: seg.exit,
-          tollFee: seg.tollFee || 0,
-        })),
-      })),
-    };
-
-    let ref = formData.ftiRef;
-    if (!ref) {
-      const created = await ftiService.createRequest({
-        userId: formInfo?.currentUserId,
-      });
-      ref = created.controlNo;
-      setFormData((prev) => ({ ...prev, ftiRef: ref }));
-      setCurrentStatus(created.status);
-      setRequestDateCreated(created.dateCreated);
-    }
-    try {
-      localStorage.setItem(LS_ACTIVE_REF, ref);
-    } catch {}
-
-    if (editingItemId) {
-      try {
-        await ftiService.updateDetail(
-          ref,
-          editingItemId,
-          detailPayload,
-          formInfo?.currentUserId,
-        );
-        newItem.id = editingItemId;
-      } catch (err) {
-        toast.error(
-          err instanceof Error
-            ? err.message
-            : "Failed to update itinerary row.",
-        );
-        return;
-      }
-    } else {
-      try {
-        const saved = await ftiService.appendDetail(
-          ref,
-          detailPayload,
-          formInfo?.currentUserId,
-        );
-        newItem.id = saved.detailId;
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Failed to save itinerary row.",
-        );
-        return;
-      }
-    }
-
-    if (editingItemId) {
-      setBatchItems((prev) =>
-        prev.map((item) => (item.id === editingItemId ? newItem : item)),
+      const km = isMiscOnly ? 0 : (totalKm ?? 0);
+      const tollFee = isMiscOnly ? 0 : totalTollFee;
+      const miscExpenses = formData.miscellaneousExpenses
+        .filter((m) => m.code && parseFloat(m.amount) > 0)
+        .map((m) => ({
+          code: m.code,
+          description:
+            formInfo?.miscellaneousFull.find((x) => x.code === m.code)
+              ?.description || m.code,
+          amount: parseFloat(m.amount) || 0,
+        }));
+      const miscAmount = miscExpenses.reduce((s, m) => s + m.amount, 0);
+      const fuelPrice = isMiscOnly ? 0 : parseFloat(formData.fuelPrice) || 0;
+      const fuelAmount = computeFuelCost(km, fuelPrice, kmPerLiter);
+      const totalAmount = parseFloat(
+        (fuelAmount + tollFee + miscAmount).toFixed(2),
       );
-      setEditingItemId(null);
-      toast.success("Itinerary updated in batch.");
-    } else {
-      setBatchItems((prev) => [...prev, newItem]);
-      toast.success("Itinerary added to list.");
-    }
 
-    setDestinations([]);
-    setTotalKm(null);
-    setFormData((prev) => ({
-      ...prev,
-      date: format(new Date(), "yyyy-MM-dd"),
-      // origin and fuelPrice are intentionally preserved after adding a row
-      itinerary: "",
-      description: "",
-      miscellaneousExpenses: [],
-    }));
-    setSelectedDate(new Date());
+      const newItem: DraftItinerary = {
+        id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+        date: formData.date,
+        itinerary: formData.itinerary,
+        description: formData.description,
+        km: parseFloat(km.toFixed(2)),
+        fuelPrice,
+        tollFee,
+        miscellaneous: miscExpenses.map((m) => m.code).join(", "),
+        miscellaneousDescription: miscExpenses
+          .map((m) => m.description)
+          .join(", "),
+        miscAmount,
+        miscExpenses,
+        fuelAmount,
+        totalAmount,
+        origin: formData.origin,
+        originAddress: addressMapRef.current[formData.origin] || "",
+        destinations: destinations.map((d) => ({
+          id: d.id,
+          name: d.name,
+          address: addressMapRef.current[d.name] || "",
+          distanceKm: d.distanceKm,
+          segments: d.segments.map((s) => ({
+            id: s.id,
+            group: s.group,
+            entry: s.entry,
+            exit: s.exit,
+            tollFee: s.tollFee,
+          })),
+        })),
+      };
+
+      // ── Persist immediately to the database (DRAFT request) ──
+      const detailPayload = {
+        date: newItem.date,
+        itinerary: newItem.itinerary,
+        description: newItem.description,
+        km: newItem.km,
+        fuelPrice: newItem.fuelPrice,
+        tollFee: newItem.tollFee,
+        expenses:
+          newItem.miscExpenses && newItem.miscExpenses.length > 0
+            ? newItem.miscExpenses.map((m) => ({
+                miscCode: m.code,
+                amount: m.amount,
+              }))
+            : [],
+        legs: (newItem.destinations || []).map((dest, index) => ({
+          originName:
+            index === 0 ? newItem.origin : newItem.destinations[index - 1].name,
+          originAddress:
+            index === 0
+              ? newItem.originAddress || ""
+              : newItem.destinations[index - 1].address || "",
+          destName: dest.name,
+          destAddress: dest.address || "",
+          tollFee: dest.segments.reduce((s, seg) => s + seg.tollFee, 0),
+          distanceKm: dest.distanceKm || 0,
+          segments: (dest.segments || []).map((seg) => ({
+            group: seg.group,
+            entry: seg.entry,
+            exit: seg.exit,
+            tollFee: seg.tollFee || 0,
+          })),
+        })),
+      };
+
+      let ref = formData.ftiRef;
+      if (!ref) {
+        const created = await ftiService.createRequest({
+          userId: formInfo?.currentUserId,
+        });
+        ref = created.controlNo;
+        setFormData((prev) => ({ ...prev, ftiRef: ref }));
+        setCurrentStatus(created.status);
+        setRequestDateCreated(created.dateCreated);
+      }
+      try {
+        localStorage.setItem(LS_ACTIVE_REF, ref);
+      } catch {}
+
+      if (editingItemId) {
+        try {
+          await ftiService.updateDetail(
+            ref,
+            editingItemId,
+            detailPayload,
+            formInfo?.currentUserId,
+          );
+          newItem.id = editingItemId;
+        } catch (err) {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : "Failed to update itinerary row.",
+          );
+          return;
+        }
+      } else {
+        try {
+          const saved = await ftiService.appendDetail(
+            ref,
+            detailPayload,
+            formInfo?.currentUserId,
+          );
+          newItem.id = saved.detailId;
+        } catch (err) {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : "Failed to save itinerary row.",
+          );
+          return;
+        }
+      }
+
+      if (editingItemId) {
+        setBatchItems((prev) =>
+          prev.map((item) => (item.id === editingItemId ? newItem : item)),
+        );
+        setEditingItemId(null);
+        toast.success("Itinerary updated in batch.");
+      } else {
+        setBatchItems((prev) => [...prev, newItem]);
+        toast.success("Itinerary added to list.");
+      }
+
+      setDestinations([]);
+      setTotalKm(null);
+      setFormData((prev) => ({
+        ...prev,
+        date: format(new Date(), "yyyy-MM-dd"),
+        // origin and fuelPrice are intentionally preserved after adding a row
+        itinerary: "",
+        description: "",
+        miscellaneousExpenses: [],
+      }));
+      setSelectedDate(new Date());
     } finally {
       setSavingRow(false);
     }
@@ -861,6 +878,14 @@ export default function FieldTravelItineraryPage() {
     } else {
       setDestinations([]);
     }
+    // Detect misc-only rows (no fuel/toll/destinations) so the form
+    // switches back into "Misc Only" mode when editing them.
+    const isMiscOnlyRow =
+      item.km === 0 &&
+      item.fuelPrice === 0 &&
+      item.tollFee === 0 &&
+      (!item.destinations || item.destinations.length === 0);
+    setIsMiscOnly(isMiscOnlyRow);
     setEditingItemId(item.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
     toast.info(
@@ -1341,6 +1366,7 @@ export default function FieldTravelItineraryPage() {
       setBatchItems([]);
       setDestinations([]);
       setTotalKm(null);
+      setIsMiscOnly(false);
       setSelectedDate(new Date());
       setViewMode("create");
     } catch {
@@ -1849,12 +1875,41 @@ export default function FieldTravelItineraryPage() {
 
       {/* ── Entry Form ──────────────────────── */}
       <Card>
-        <CardHeader>
-          <CardTitle>Itinerary & Travel Details</CardTitle>
-          <CardDescription>
-            Add itinerary rows with route details, toll fees, and miscellaneous
-            expenses.
-          </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle>Itinerary & Travel Details</CardTitle>
+            <CardDescription>
+              {isMiscOnly
+                ? "Request budget for miscellaneous expenses only — fuel and toll are skipped."
+                : "Add itinerary rows with route details, toll fees, and miscellaneous expenses."}
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40">
+            <Button
+              type="button"
+              variant={isMiscOnly ? "ghost" : "default"}
+              size="sm"
+              className="h-8"
+              disabled={isReadOnlyForm}
+              onClick={() => setIsMiscOnly(false)}
+            >
+              Travel + Misc
+            </Button>
+            <Button
+              type="button"
+              variant={isMiscOnly ? "default" : "ghost"}
+              size="sm"
+              className="h-8"
+              disabled={isReadOnlyForm}
+              onClick={() => {
+                setIsMiscOnly(true);
+                setDestinations([]);
+                setTotalKm(null);
+              }}
+            >
+              Misc Only
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -1866,21 +1921,23 @@ export default function FieldTravelItineraryPage() {
                 </Label>
                 <DatePicker value={selectedDate} onChange={handleDateChange} />
               </div>
-              <div className="space-y-2">
-                <Label>
-                  Fuel Price (₱/L) <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.fuelPrice}
-                  onChange={(e) =>
-                    handleFieldChange("fuelPrice", e.target.value)
-                  }
-                  placeholder="0.00"
-                />
-              </div>
+              {!isMiscOnly && (
+                <div className="space-y-2">
+                  <Label>
+                    Fuel Price (₱/L) <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.fuelPrice}
+                    onChange={(e) =>
+                      handleFieldChange("fuelPrice", e.target.value)
+                    }
+                    placeholder="0.00"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1913,251 +1970,255 @@ export default function FieldTravelItineraryPage() {
             </div>
 
             {/* Origin Group */}
-            <div className="space-y-4">
-              <div className="space-y-1.5 w-full">
-                <Label>
-                  Origin <span className="text-destructive">*</span>
-                </Label>
-                <LocationSearchableSelect
-                  value={formData.origin}
-                  onValueChange={(v) => handleFieldChange("origin", v)}
-                  options={locationOptions}
-                  placeholder="Select origin location"
-                  searchPlaceholder="Search locations..."
-                  onAddLocation={() => setLocationPickerOpen(true)}
-                  onAddCompany={() => setCompanyPickerOpen(true)}
-                />
-                <Input
-                  value={getAddress(formData.origin)}
-                  readOnly
-                  disabled
-                  className="bg-muted text-xs w-full"
-                  placeholder="Origin address will appear here"
-                />
+            {!isMiscOnly && (
+              <div className="space-y-4">
+                <div className="space-y-1.5 w-full">
+                  <Label>
+                    Origin <span className="text-destructive">*</span>
+                  </Label>
+                  <LocationSearchableSelect
+                    value={formData.origin}
+                    onValueChange={(v) => handleFieldChange("origin", v)}
+                    options={locationOptions}
+                    placeholder="Select origin location"
+                    searchPlaceholder="Search locations..."
+                    onAddLocation={() => setLocationPickerOpen(true)}
+                    onAddCompany={() => setCompanyPickerOpen(true)}
+                  />
+                  <Input
+                    value={getAddress(formData.origin)}
+                    readOnly
+                    disabled
+                    className="bg-muted text-xs w-full"
+                    placeholder="Origin address will appear here"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Destinations with Expressway Segments */}
-            <div className="space-y-4">
-              <Label className="text-base font-semibold">
-                Destinations & Expressway Segments
-              </Label>
-              {destinations.length === 0 && (
-                <p className="text-sm text-muted-foreground italic">
-                  No destinations added yet.
-                </p>
-              )}
-              {/* Add Destination Button when list is EMPTY */}
-              {destinations.length === 0 && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="w-full py-3 flex items-center justify-center gap-1.5 font-medium"
-                  onClick={handleAddDestination}
-                >
-                  <Plus className="h-4 w-4" /> Add Destination
-                </Button>
-              )}
-              {/* Render Destination Items */}
-              {destinations.map((dest, index) => (
-                <div
-                  key={dest.id}
-                  className="border rounded-lg p-4 space-y-4 relative bg-card"
-                >
-                  <div className="flex items-center justify-between border-b pb-2">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Segment #{index + 1}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-destructive"
-                      onClick={() => handleRemoveDestination(dest.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="space-y-1.5 w-full">
-                    <Label className="text-xs font-medium">
-                      Destination Name{" "}
-                      <span className="text-destructive">*</span>
-                    </Label>
-                    <LocationSearchableSelect
-                      value={dest.name}
-                      onValueChange={(v) =>
-                        handleDestinationNameChange(dest.id, v)
-                      }
-                      options={locationOptions}
-                      placeholder="Select destination location"
-                      searchPlaceholder="Search locations..."
-                      onAddLocation={() => setLocationPickerOpen(true)}
-                      onAddCompany={() => setCompanyPickerOpen(true)}
-                    />
-                    <Input
-                      value={getAddress(dest.name)}
-                      readOnly
-                      disabled
-                      className="bg-muted text-xs w-full"
-                      placeholder="Destination address will appear here"
-                    />
-                  </div>
-                  <div className="space-y-3 w-full">
-                    {dest.segments.map((seg) => {
-                      const gateOptions = getGatesForGroup(seg.group).map(
-                        (g) => ({ value: g, label: g }),
-                      );
-                      return (
-                        <div
-                          key={seg.id}
-                          className="border rounded-md p-3 space-y-2 w-full bg-muted/20"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-muted-foreground uppercase">
-                              {seg.group || "Expressway"}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 text-destructive"
-                              onClick={() =>
-                                handleRemoveSegment(dest.id, seg.id)
-                              }
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div className="space-y-1">
-                              <Label className="text-[10px]">Group</Label>
-                              <SearchableSelect
-                                value={seg.group}
-                                onValueChange={(v) => {
-                                  handleSegmentChange(
-                                    dest.id,
-                                    seg.id,
-                                    "group",
-                                    v,
-                                  );
-                                  handleSegmentChange(
-                                    dest.id,
-                                    seg.id,
-                                    "entry",
-                                    "",
-                                  );
-                                  handleSegmentChange(
-                                    dest.id,
-                                    seg.id,
-                                    "exit",
-                                    "",
-                                  );
-                                  handleSegmentTollLookup(
-                                    dest.id,
-                                    seg.id,
-                                    "",
-                                    "",
-                                  );
-                                }}
-                                options={expresswayOptions}
-                                placeholder="Select expressway"
-                                searchPlaceholder="Search expressway..."
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px]">Entry</Label>
-                              <SearchableSelect
-                                value={seg.entry}
-                                onValueChange={(v) => {
-                                  handleSegmentChange(
-                                    dest.id,
-                                    seg.id,
-                                    "entry",
-                                    v,
-                                  );
-                                  handleSegmentTollLookup(
-                                    dest.id,
-                                    seg.id,
-                                    v,
-                                    seg.exit,
-                                  );
-                                }}
-                                options={gateOptions}
-                                placeholder="Select entry gate"
-                                searchPlaceholder="Search gates..."
-                                disabled={!seg.group}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px]">Exit</Label>
-                              <SearchableSelect
-                                value={seg.exit}
-                                onValueChange={(v) => {
-                                  handleSegmentChange(
-                                    dest.id,
-                                    seg.id,
-                                    "exit",
-                                    v,
-                                  );
-                                  handleSegmentTollLookup(
-                                    dest.id,
-                                    seg.id,
-                                    seg.entry,
-                                    v,
-                                  );
-                                }}
-                                options={gateOptions}
-                                placeholder="Select exit gate"
-                                searchPlaceholder="Search gates..."
-                                disabled={!seg.group}
-                              />
-                            </div>
-                          </div>
-                          <div className="text-xs text-right text-muted-foreground pt-1">
-                            Toll Fee:{" "}
-                            <span className="font-mono font-medium text-foreground">
-                              ₱{seg.tollFee.toFixed(2)}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {dest.segments.length < 5 && (
+            {!isMiscOnly && (
+              <div className="space-y-4">
+                <Label className="text-base font-semibold">
+                  Destinations & Expressway Segments
+                </Label>
+                {destinations.length === 0 && (
+                  <p className="text-sm text-muted-foreground italic">
+                    No destinations added yet.
+                  </p>
+                )}
+                {/* Add Destination Button when list is EMPTY */}
+                {destinations.length === 0 && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="w-full py-3 flex items-center justify-center gap-1.5 font-medium"
+                    onClick={handleAddDestination}
+                  >
+                    <Plus className="h-4 w-4" /> Add Destination
+                  </Button>
+                )}
+                {/* Render Destination Items */}
+                {destinations.map((dest, index) => (
+                  <div
+                    key={dest.id}
+                    className="border rounded-lg p-4 space-y-4 relative bg-card"
+                  >
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Segment #{index + 1}
+                      </span>
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
-                        className="h-8 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 -ml-1"
-                        onClick={() => handleAddSegment(dest.id)}
+                        size="icon"
+                        className="h-6 w-6 text-destructive"
+                        onClick={() => handleRemoveDestination(dest.id)}
                       >
-                        <Plus className="h-4 w-4" /> Add Expressway Segment
+                        <Trash2 className="h-4 w-4" />
                       </Button>
+                    </div>
+                    <div className="space-y-1.5 w-full">
+                      <Label className="text-xs font-medium">
+                        Destination Name{" "}
+                        <span className="text-destructive">*</span>
+                      </Label>
+                      <LocationSearchableSelect
+                        value={dest.name}
+                        onValueChange={(v) =>
+                          handleDestinationNameChange(dest.id, v)
+                        }
+                        options={locationOptions}
+                        placeholder="Select destination location"
+                        searchPlaceholder="Search locations..."
+                        onAddLocation={() => setLocationPickerOpen(true)}
+                        onAddCompany={() => setCompanyPickerOpen(true)}
+                      />
+                      <Input
+                        value={getAddress(dest.name)}
+                        readOnly
+                        disabled
+                        className="bg-muted text-xs w-full"
+                        placeholder="Destination address will appear here"
+                      />
+                    </div>
+                    <div className="space-y-3 w-full">
+                      {dest.segments.map((seg) => {
+                        const gateOptions = getGatesForGroup(seg.group).map(
+                          (g) => ({ value: g, label: g }),
+                        );
+                        return (
+                          <div
+                            key={seg.id}
+                            className="border rounded-md p-3 space-y-2 w-full bg-muted/20"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-muted-foreground uppercase">
+                                {seg.group || "Expressway"}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 text-destructive"
+                                onClick={() =>
+                                  handleRemoveSegment(dest.id, seg.id)
+                                }
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-[10px]">Group</Label>
+                                <SearchableSelect
+                                  value={seg.group}
+                                  onValueChange={(v) => {
+                                    handleSegmentChange(
+                                      dest.id,
+                                      seg.id,
+                                      "group",
+                                      v,
+                                    );
+                                    handleSegmentChange(
+                                      dest.id,
+                                      seg.id,
+                                      "entry",
+                                      "",
+                                    );
+                                    handleSegmentChange(
+                                      dest.id,
+                                      seg.id,
+                                      "exit",
+                                      "",
+                                    );
+                                    handleSegmentTollLookup(
+                                      dest.id,
+                                      seg.id,
+                                      "",
+                                      "",
+                                    );
+                                  }}
+                                  options={expresswayOptions}
+                                  placeholder="Select expressway"
+                                  searchPlaceholder="Search expressway..."
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[10px]">Entry</Label>
+                                <SearchableSelect
+                                  value={seg.entry}
+                                  onValueChange={(v) => {
+                                    handleSegmentChange(
+                                      dest.id,
+                                      seg.id,
+                                      "entry",
+                                      v,
+                                    );
+                                    handleSegmentTollLookup(
+                                      dest.id,
+                                      seg.id,
+                                      v,
+                                      seg.exit,
+                                    );
+                                  }}
+                                  options={gateOptions}
+                                  placeholder="Select entry gate"
+                                  searchPlaceholder="Search gates..."
+                                  disabled={!seg.group}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[10px]">Exit</Label>
+                                <SearchableSelect
+                                  value={seg.exit}
+                                  onValueChange={(v) => {
+                                    handleSegmentChange(
+                                      dest.id,
+                                      seg.id,
+                                      "exit",
+                                      v,
+                                    );
+                                    handleSegmentTollLookup(
+                                      dest.id,
+                                      seg.id,
+                                      seg.entry,
+                                      v,
+                                    );
+                                  }}
+                                  options={gateOptions}
+                                  placeholder="Select exit gate"
+                                  searchPlaceholder="Search gates..."
+                                  disabled={!seg.group}
+                                />
+                              </div>
+                            </div>
+                            <div className="text-xs text-right text-muted-foreground pt-1">
+                              Toll Fee:{" "}
+                              <span className="font-mono font-medium text-foreground">
+                                ₱{seg.tollFee.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {dest.segments.length < 5 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 -ml-1"
+                          onClick={() => handleAddSegment(dest.id)}
+                        >
+                          <Plus className="h-4 w-4" /> Add Expressway Segment
+                        </Button>
+                      )}
+                    </div>
+                    {dest.distanceKm !== undefined && (
+                      <p className="text-xs text-muted-foreground text-right border-t pt-2">
+                        Leg distance:{" "}
+                        <span className="font-medium text-foreground">
+                          {dest.distanceKm} km
+                        </span>
+                      </p>
                     )}
                   </div>
-                  {dest.distanceKm !== undefined && (
-                    <p className="text-xs text-muted-foreground text-right border-t pt-2">
-                      Leg distance:{" "}
-                      <span className="font-medium text-foreground">
-                        {dest.distanceKm} km
-                      </span>
-                    </p>
-                  )}
-                </div>
-              ))}
-              {/* Add Destination Button AFTER all destination cards */}
-              {destinations.length > 0 && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="w-full py-3 flex items-center justify-center gap-1.5 font-medium"
-                  onClick={handleAddDestination}
-                >
-                  <Plus className="h-4 w-4" /> Add Destination
-                </Button>
-              )}
-            </div>
+                ))}
+                {/* Add Destination Button AFTER all destination cards */}
+                {destinations.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="w-full py-3 flex items-center justify-center gap-1.5 font-medium"
+                    onClick={handleAddDestination}
+                  >
+                    <Plus className="h-4 w-4" /> Add Destination
+                  </Button>
+                )}
+              </div>
+            )}
 
             {/* Totals */}
             {destinations.length > 0 && (
@@ -2336,10 +2397,11 @@ export default function FieldTravelItineraryPage() {
                     {editingItemId ? "Updating..." : "Adding..."}
                   </>
                 ) : editingItemId ? (
-                  <>Update Itinerary Row</>
+                  <>Update Row</>
                 ) : (
                   <>
-                    <Plus className="mr-1 h-4 w-4" /> Add Itinerary Row
+                    <Plus className="mr-1 h-4 w-4" />{" "}
+                    {isMiscOnly ? "Add Misc-Only Row" : "Add Itinerary Row"}
                   </>
                 )}
               </Button>
