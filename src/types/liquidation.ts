@@ -93,4 +93,6 @@ export interface LiquidationFull extends Liquidation {
   items: ReceiptItem[];
   /** Resolved full name of the requester (populated server-side for admin/BOD views). */
   requesterName?: string;
+  /** Resolved department ID of the requester (populated server-side for admin filtering). */
+  requesterDepartmentId?: number;
 }

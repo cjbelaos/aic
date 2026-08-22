@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Loader2,
@@ -13,6 +13,7 @@ import {
   MessageSquareWarning,
   XCircle,
   Filter,
+  Eye,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,8 @@ import { toast } from "sonner";
 import { liquidationService } from "@/lib/services/liquidation.service";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import type { LiquidationFull } from "@/types/liquidation";
+import LiquidationPreviewModal from "@/components/liquidation-preview-modal";
+import LiquidationPrintDocument from "@/components/liquidation-print-document";
 
 interface StoredUser {
   userId?: string;
@@ -88,8 +91,14 @@ export function LiquidationHistory() {
   const [comment, setComment] = useState("");
   const [storedUser] = useState<StoredUser>(getStoredUser);
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+  // Preview modal state
+  const [previewLiquidation, setPreviewLiquidation] = useState<LiquidationFull | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingImage, setDownloadingImage] = useState(false);
   // Lookup map for miscellaneous code → description
   const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
+  // Set of requester userIds for which the current user is the mapped approver
+  const [mappedRequesterIds, setMappedRequesterIds] = useState<Set<string>>(new Set());
 
   const currentUserId = storedUser.userId || "";
   const userRoleId = storedUser.userRoleId || 0;
@@ -112,6 +121,32 @@ export function LiquidationHistory() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Fetch the approver mappings so the current user can approve liquidations
+  // even when approvedByUserId wasn't persisted on the liquidation row.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { default: userApproverService } = await import(
+          "@/lib/services/userApprover.service"
+        );
+        const all = await userApproverService.getAll();
+        if (!cancelled) {
+          const mapped = new Set<string>();
+          for (const a of all) {
+            if (a.approverUserId === currentUserId) {
+              mapped.add(a.requesterUserId);
+            }
+          }
+          setMappedRequesterIds(mapped);
+        }
+      } catch {
+        // Non-critical; fall back to approvedByUserId check only.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentUserId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,10 +207,8 @@ export function LiquidationHistory() {
   const filteredLiquidations =
     isAdmin && departmentFilter !== "all"
       ? liquidations.filter((l) => {
-          // We don't have departmentId on the liquidation directly,
-          // but we can infer from requesterName or other data.
-          // For now, just show all since we don't have dept on each liq.
-          return true;
+          const deptId = l.requesterDepartmentId;
+          return deptId != null && String(deptId) === departmentFilter;
         })
       : liquidations;
 
@@ -184,11 +217,98 @@ export function LiquidationHistory() {
     if (isBod && (liquidation.status || "").toUpperCase() === "SUBMITTED") {
       return true;
     }
-    return (
-      currentUserId !== "" &&
-      liquidation.approvedByUserId === currentUserId &&
-      (liquidation.status || "").toUpperCase() === "SUBMITTED"
-    );
+    if ((liquidation.status || "").toUpperCase() !== "SUBMITTED") {
+      return false;
+    }
+    if (currentUserId === "") return false;
+    // Directly assigned approver (approvedByUserId was set on submit)
+    if (liquidation.approvedByUserId === currentUserId) return true;
+    // Fallback: check if the current user is the mapped approver for the
+    // requester (handles cases where approvedByUserId wasn't persisted).
+    return mappedRequesterIds.has(liquidation.userId);
+  };
+
+  // ── Preview → PDF / Image export (mirrors the FTI page flow) ──
+  const getLiquidationPrintElement = () =>
+    document.getElementById("liquidation-print-content");
+
+  const generatePdfBlob = async (): Promise<Blob> => {
+    const element = getLiquidationPrintElement();
+    if (!element) throw new Error("Liquidation document not found.");
+    await new Promise((r) => setTimeout(r, 150));
+    const html2canvas = (await import("html2canvas-pro")).default;
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+    });
+    const { jsPDF } = await import("jspdf");
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "mm",
+      format: "a4",
+    });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    let position = 0;
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    let heightLeft = imgHeight - pageHeight;
+    while (heightLeft > 0) {
+      position -= pageHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+    return pdf.output("blob");
+  };
+
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      const blob = await generatePdfBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `LIQUIDATION_${previewLiquidation?.controlNo || "draft"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Liquidation PDF downloaded.");
+    } catch (error) {
+      console.error("Liquidation PDF export failed:", error);
+      toast.error("Failed to generate liquidation PDF.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const handleDownloadImage = async () => {
+    setDownloadingImage(true);
+    try {
+      const element = getLiquidationPrintElement();
+      if (!element) throw new Error("Liquidation document not found.");
+      await new Promise((r) => setTimeout(r, 150));
+      const html2canvas = (await import("html2canvas-pro")).default;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+      });
+      const link = document.createElement("a");
+      link.download = `LIQUIDATION_${previewLiquidation?.controlNo || "draft"}.png`;
+      link.href = canvas.toDataURL("image/png");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success("Liquidation image downloaded.");
+    } catch (error) {
+      console.error("Liquidation image export failed:", error);
+      toast.error("Failed to generate liquidation image.");
+    } finally {
+      setDownloadingImage(false);
+    }
   };
 
   if (loading) {
@@ -271,6 +391,45 @@ export function LiquidationHistory() {
         </Card>
       )}
 
+      {/* ── Preview modal ── */}
+      <LiquidationPreviewModal
+        open={previewLiquidation !== null}
+        onOpenChange={(open) => { if (!open) setPreviewLiquidation(null); }}
+        controlNo={previewLiquidation?.controlNo || ""}
+        fullName={previewLiquidation?.requesterName || ""}
+        items={previewLiquidation?.items?.map((item) => ({
+          date: item.date,
+          description: item.description,
+          category: item.category,
+          amount: item.amount,
+          receiptImageUrl: item.receiptImageUrl || undefined,
+        })) || []}
+        categories={[...miscLookup.keys()]}
+        miscLookup={miscLookup}
+        advances={previewLiquidation?.totalAmountRequested || 0}
+        onDownloadPdf={handleDownloadPdf}
+        downloadingPdf={downloadingPdf}
+        onDownloadImage={handleDownloadImage}
+        downloadingImage={downloadingImage}
+      />
+      <div className="fixed -left-[9999px] top-0" aria-hidden="true">
+        <LiquidationPrintDocument
+          controlNo={previewLiquidation?.controlNo || ""}
+          fullName={previewLiquidation?.requesterName || ""}
+          items={previewLiquidation?.items?.map((item) => ({
+            date: item.date,
+            description: item.description,
+            category: item.category,
+            amount: item.amount,
+            receiptImageUrl: item.receiptImageUrl || undefined,
+          })) || []}
+          categories={[...miscLookup.keys()]}
+          miscLookup={miscLookup}
+          advances={previewLiquidation?.totalAmountRequested || 0}
+          id="liquidation-print-content"
+        />
+      </div>
+
       {filteredLiquidations.map((liquidation) => {
         const isExpanded = expandedId === liquidation.liquidationId;
         const showApproval = canApprove(liquidation);
@@ -316,6 +475,15 @@ export function LiquidationHistory() {
                       {formatCurrency(liquidation.totalAmount)}
                     </p>
                   </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPreviewLiquidation(liquidation)}
+                  >
+                    <Eye className="mr-1 h-4 w-4" />
+                    Preview
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"

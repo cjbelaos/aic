@@ -248,10 +248,14 @@ export async function GET(req: NextRequest) {
       import("@/lib/userSheets").then((m) => m.getUsers()).catch(() => []),
     ]);
 
-    // Build a userId → fullName map for display
+    // Build userId → fullName and userId → departmentId maps for display/filtering
     const userNames = new Map<string, string>();
+    const userDepts = new Map<string, number>();
     for (const u of users) {
-      if (u.userId) userNames.set(u.userId, u.fullName || u.userId);
+      if (u.userId) {
+        userNames.set(u.userId, u.fullName || u.userId);
+        if (u.departmentId != null) userDepts.set(u.userId, u.departmentId);
+      }
     }
 
     // Admin: return ALL liquidations
@@ -259,6 +263,7 @@ export async function GET(req: NextRequest) {
       const allFull = all.map((liquidation) => ({
         ...liquidation,
         requesterName: userNames.get(liquidation.userId) || "",
+        requesterDepartmentId: userDepts.get(liquidation.userId),
         items: items.filter(
           (item) => item.liquidationId === liquidation.liquidationId,
         ),
@@ -274,6 +279,7 @@ export async function GET(req: NextRequest) {
         .map((liquidation) => ({
           ...liquidation,
           requesterName: userNames.get(liquidation.userId) || "",
+          requesterDepartmentId: userDepts.get(liquidation.userId),
           items: items.filter(
             (item) => item.liquidationId === liquidation.liquidationId,
           ),
