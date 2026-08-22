@@ -207,6 +207,19 @@ export const liquidationService = {
   },
 
   /**
+   * Deletes a liquidation (parent + receipt items). Only the original owner
+   * can delete their own SAVED or REQUESTED_FOR_CHANGE liquidation.
+   */
+  async deleteLiquidation(liquidationId: string) {
+    return (
+      await api.post("/liquidations", {
+        action: "delete",
+        liquidationId,
+      })
+    ).data;
+  },
+
+  /**
    * Uploads a single receipt file (image/PDF) and returns its public URL.
    * Images above 1.5 MB are compressed client-side to avoid hitting
    * request-body/upload size limits, which is the most common failure for

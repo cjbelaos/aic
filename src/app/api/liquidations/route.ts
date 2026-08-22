@@ -3,6 +3,7 @@ import { requireAuthenticatedSession } from "@/lib/auth/session";
 import {
   addReceiptItems,
   createLiquidationDraft,
+  deleteLiquidation,
   getAllLiquidations,
   getAllReceiptItems,
   getLiquidationById,
@@ -135,6 +136,18 @@ export async function POST(req: NextRequest) {
         liquidationId,
         status: "SUBMITTED",
       });
+    }
+
+    // delete → remove liquidation + receipt items (owner only, SAVED or REQUESTED_FOR_CHANGE)
+    if (action === "delete") {
+      const liquidationId = (body.liquidationId || "").toString().trim();
+      if (!liquidationId)
+        return NextResponse.json(
+          { error: "Missing required field: liquidationId." },
+          { status: 400 },
+        );
+      await deleteLiquidation(liquidationId, session.userId);
+      return NextResponse.json({ success: true, liquidationId });
     }
 
     // approve / request_change / reject

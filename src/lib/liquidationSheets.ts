@@ -644,3 +644,51 @@ export async function updateLiquidationApproval(
 
   invalidateLiquidationCache();
 }
+
+/**
+ * Deletes a liquidation (parent row + all child receipt items) from the
+ * Google Sheet. Only the original owner can delete their own liquidation
+ * when it's in SAVED or REQUESTED_FOR_CHANGE status.
+ */
+export async function deleteLiquidation(
+  liquidationId: string,
+  requestingUserId: string,
+): Promise<void> {
+  const all = await getAllLiquidations();
+  const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
+  if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found.`);
+
+  const liquidation = all[idx];
+
+  // Ownership check
+  if (liquidation.userId !== requestingUserId) {
+    throw new Error("You can only delete your own liquidations.");
+  }
+
+  // Status check — only allow delete for drafts / change-requested
+  const status = (liquidation.status || "").toUpperCase();
+  if (!["SAVED", "REQUESTED_FOR_CHANGE"].includes(status)) {
+    throw new Error(
+      `Cannot delete liquidation with status "${liquidation.status}". Only SAVED or REQUESTED_FOR_CHANGE liquidations can be deleted.`,
+    );
+  }
+
+  // 1. Delete all receipt items for this liquidation
+  const receiptItems = await getAllReceiptItems();
+  const receiptRowNumbers: number[] = [];
+  receiptItems.forEach((item, i) => {
+    // Row index = i + 2 (header + 1-based)
+    if (item.liquidationId === liquidationId) {
+      receiptRowNumbers.push(i + 2);
+    }
+  });
+  if (receiptRowNumbers.length > 0) {
+    await deleteSheetRows(RECEIPT_ITEMS_SHEET, receiptRowNumbers);
+  }
+
+  // 2. Delete the liquidation parent row
+  const liquidationRowNumber = idx + 2;
+  await deleteSheetRows(LIQUIDATIONS_SHEET, [liquidationRowNumber]);
+
+  invalidateLiquidationCache();
+}

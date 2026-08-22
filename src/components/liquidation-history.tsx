@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Loader2,
@@ -14,6 +14,8 @@ import {
   XCircle,
   Filter,
   Eye,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,6 +101,10 @@ export function LiquidationHistory() {
   const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
   // Set of requester userIds for which the current user is the mapped approver
   const [mappedRequesterIds, setMappedRequesterIds] = useState<Set<string>>(new Set());
+  // Delete confirmation state
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const currentUserId = storedUser.userId || "";
   const userRoleId = storedUser.userRoleId || 0;
@@ -194,6 +200,31 @@ export function LiquidationHistory() {
       toast.error("Failed to update liquidation status.");
     } finally {
       setApprovingId(null);
+    }
+  };
+
+  const canDelete = (liquidation: LiquidationFull): boolean => {
+    if (liquidation.userId !== currentUserId) return false;
+    const status = (liquidation.status || "").toUpperCase();
+    return status === "SAVED" || status === "REQUESTED_FOR_CHANGE";
+  };
+
+  const handleDeleteConfirm = async () => {
+    const id = deleteTargetId;
+    if (!id) return;
+    setDeletingId(id);
+    try {
+      await liquidationService.deleteLiquidation(id);
+      toast.success("Liquidation deleted.");
+      setDeleteTargetId(null);
+      setDeleteConfirmInput("");
+      // Remove from local state
+      setLiquidations((prev) => prev.filter((l) => l.liquidationId !== id));
+    } catch (err) {
+      console.error("Delete liquidation failed:", err);
+      toast.error("Failed to delete liquidation.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -499,6 +530,21 @@ export function LiquidationHistory() {
                     )}
                     {isExpanded ? "Hide Items" : "View Items"}
                   </Button>
+                  {canDelete(liquidation) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => {
+                        setDeleteTargetId(liquidation.liquidationId);
+                        setDeleteConfirmInput("");
+                      }}
+                    >
+                      <Trash2 className="mr-1 h-4 w-4" />
+                      Delete
+                    </Button>
+                  )}
                 </div>
               </div>
               <CardDescription>
@@ -646,6 +692,69 @@ export function LiquidationHistory() {
         );
       })}
 
+      {/* ── Delete Confirmation Dialog ── */}
+      {deleteTargetId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+                Delete Liquidation
+              </CardTitle>
+              <CardDescription>
+                This action <strong>cannot be undone</strong>. This will permanently
+                delete the liquidation and all its receipt items from the database.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Label htmlFor="delete-confirm-input">
+                Type <span className="font-bold text-red-600">delete</span> to
+                confirm:
+              </Label>
+              <Input
+                id="delete-confirm-input"
+                value={deleteConfirmInput}
+                onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                placeholder='Type "delete" to confirm'
+                disabled={deletingId === deleteTargetId}
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDeleteTargetId(null);
+                    setDeleteConfirmInput("");
+                  }}
+                  disabled={deletingId === deleteTargetId}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={
+                    deleteConfirmInput.trim().toLowerCase() !== "delete" ||
+                    deletingId === deleteTargetId
+                  }
+                  onClick={handleDeleteConfirm}
+                >
+                  {deletingId === deleteTargetId ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
