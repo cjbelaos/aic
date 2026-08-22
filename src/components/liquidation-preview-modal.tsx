@@ -19,6 +19,7 @@ interface LiquidationPreviewModalProps {
   fullName: string;
   items: ReceiptItemInput[];
   categories: string[];
+  miscLookup?: Map<string, string>;
   advances: number;
   onDownloadPdf?: () => void;
   downloadingPdf?: boolean;
@@ -33,6 +34,7 @@ export default function LiquidationPreviewModal({
   fullName,
   items,
   categories,
+  miscLookup,
   advances,
   onDownloadPdf,
   downloadingPdf = false,
@@ -53,6 +55,7 @@ export default function LiquidationPreviewModal({
             fullName={fullName}
             items={items}
             categories={categories}
+            miscLookup={miscLookup}
             advances={advances}
             id="liquidation-preview-content"
           />

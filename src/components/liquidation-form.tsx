@@ -188,13 +188,17 @@ export function LiquidationForm({
   }, [userId]);
 
   // Load miscellaneous categories (same source as the FTI page dropdown).
+  // Stores the code (e.g. "MEAL") as the category value; the description
+  // (e.g. "Meal") is resolved for display via a lookup map.
+  const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const all = await miscellaneousService.getAll();
         if (!cancelled) {
-          setCategories(all.map((m) => m.description).filter(Boolean));
+          setCategories(all.map((m) => m.code).filter(Boolean));
+          setMiscLookup(new Map(all.map((m) => [m.code, m.description])));
         }
       } catch (error) {
         console.error("Failed to load miscellaneous categories:", error);
@@ -376,17 +380,16 @@ export function LiquidationForm({
   const difference = totalAmount - advances;
   const hasAdvances = advances > 0;
   const hasAmountToReturn = hasAdvances && difference < 0;
-  const settlement =
-    hasAmountToReturn
-      ? { label: "Amount to Return" }
-      : !hasAdvances
-        ? { label: "Total Reimbursement" }
-        : difference > 0
-          ? {
-              label: "Total Reimbursement",
-              hint: "(Positive Amount — Company pays employee)",
-            }
-          : { label: "Net Amount Due / Settled", hint: "(₱0.00)" };
+  const settlement = hasAmountToReturn
+    ? { label: "Amount to Return" }
+    : !hasAdvances
+      ? { label: "Total Reimbursement" }
+      : difference > 0
+        ? {
+            label: "Total Reimbursement",
+            hint: "(Positive Amount — Company pays employee)",
+          }
+        : { label: "Net Amount Due / Settled", hint: "(₱0.00)" };
   const settlementValue = hasAmountToReturn
     ? difference
     : !hasAdvances || difference === 0
@@ -397,19 +400,23 @@ export function LiquidationForm({
 
   // Categories used as column headers — exclude "Others" since there's a
   // dedicated catch-all "Others" column in the pivot table.
-  const displayCategories = categories.filter((c) => c !== "Others");
+  const allCategories = categories.filter((c) => c !== "Others");
 
   // Per-category column subtotals for the pivot table.
   const categoryTotals = Object.fromEntries(
-    displayCategories.map((cat) => [
+    allCategories.map((cat) => [
       cat,
       items
         .filter((i) => i.category === cat)
         .reduce((s, i) => s + (i.amount || 0), 0),
     ]),
   );
+
+  // Only show columns that have at least one item using them.
+  const displayCategories = allCategories.filter((cat) => categoryTotals[cat] > 0);
+
   const othersTotal = items
-    .filter((i) => !displayCategories.includes(i.category))
+    .filter((i) => !allCategories.includes(i.category))
     .reduce((s, i) => s + (i.amount || 0), 0);
 
   // Sort items by date ascending for display.
@@ -823,7 +830,7 @@ export function LiquidationForm({
           <CardDescription>
             {restrictToOther
               ? "Create an expense liquidation without an FTI ControlNo."
-              : "Link to an FTI, or create an \"Other\" liquidation without an FTI ControlNo."}
+              : 'Link to an FTI, or create an "Other" liquidation without an FTI ControlNo.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -896,7 +903,9 @@ export function LiquidationForm({
                       );
                       setIsLocked(
                         !EDITABLE_STATUSES.includes(
-                          (found.status || "").toUpperCase() as LiquidationStatus,
+                          (
+                            found.status || ""
+                          ).toUpperCase() as LiquidationStatus,
                         ),
                       );
                       toast.success(
@@ -918,9 +927,9 @@ export function LiquidationForm({
                             key={liq.liquidationId}
                             value={liq.liquidationId}
                           >
-                            {liq.status} • ₱{liq.totalAmount?.toFixed?.(2) ??
-                              (0).toFixed(2)}{" "}
-                            • {liq.items.length} item(s)
+                            {liq.status} • ₱
+                            {liq.totalAmount?.toFixed?.(2) ?? (0).toFixed(2)} •{" "}
+                            {liq.items.length} item(s)
                           </SelectItem>
                         ))
                       )}
@@ -1056,7 +1065,7 @@ export function LiquidationForm({
                 ) : (
                   categories.map((category) => (
                     <SelectItem key={category} value={category}>
-                      {category}
+                      {miscLookup.get(category) || category}
                     </SelectItem>
                   ))
                 )}
@@ -1271,10 +1280,9 @@ export function LiquidationForm({
                       <TableHead>Description</TableHead>
                       {displayCategories.map((cat) => (
                         <TableHead key={cat} className="text-right">
-                          {cat}
+                          {miscLookup.get(cat) || cat}
                         </TableHead>
                       ))}
-                      <TableHead className="text-right">Others</TableHead>
                       <TableHead className="text-right">Total</TableHead>
                       <TableHead className="text-center">Receipt</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -1282,6 +1290,9 @@ export function LiquidationForm({
                   </TableHeader>
                   <TableBody>
                     {sortedItems.map((item, index) => {
+                      // Resolve the original index in the unsorted items array
+                      // so edit/delete operations target the correct item.
+                      const originalIndex = items.indexOf(item);
                       const isKnownCategory = displayCategories.includes(
                         item.category,
                       );
@@ -1291,7 +1302,7 @@ export function LiquidationForm({
                           ? isImageUrl(item.receiptImageUrl)
                           : true);
                       return (
-                        <TableRow key={`${item.date}-${index}`}>
+                        <TableRow key={`${item.date}-${originalIndex}`}>
                           <TableCell className="whitespace-nowrap font-medium">
                             {item.date}
                           </TableCell>
@@ -1353,7 +1364,7 @@ export function LiquidationForm({
                                 size="icon"
                                 className="h-9 w-9"
                                 aria-label="Edit item"
-                                onClick={() => handleEditItem(index)}
+                                onClick={() => handleEditItem(originalIndex)}
                                 disabled={isLocked || uploading}
                               >
                                 <Pencil className="h-4 w-4" />
@@ -1364,7 +1375,7 @@ export function LiquidationForm({
                                 size="icon"
                                 className="h-9 w-9 text-destructive"
                                 aria-label="Delete item"
-                                onClick={() => handleDeleteItem(index)}
+                                onClick={() => handleDeleteItem(originalIndex)}
                                 disabled={isLocked || uploading}
                               >
                                 {uploading ? (
@@ -1462,6 +1473,7 @@ export function LiquidationForm({
         fullName={resolvedFullName}
         items={items}
         categories={categories}
+        miscLookup={miscLookup}
         advances={advances}
         onDownloadPdf={handleDownloadPdf}
         downloadingPdf={downloadingPdf}
@@ -1474,6 +1486,7 @@ export function LiquidationForm({
           fullName={resolvedFullName}
           items={items}
           categories={categories}
+          miscLookup={miscLookup}
           advances={advances}
           id="liquidation-print-content"
         />

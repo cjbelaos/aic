@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { liquidationService } from "@/lib/services/liquidation.service";
+import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import type { LiquidationFull } from "@/types/liquidation";
 
 interface StoredUser {
@@ -87,12 +88,30 @@ export function LiquidationHistory() {
   const [comment, setComment] = useState("");
   const [storedUser] = useState<StoredUser>(getStoredUser);
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+  // Lookup map for miscellaneous code → description
+  const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
 
   const currentUserId = storedUser.userId || "";
   const userRoleId = storedUser.userRoleId || 0;
   const departmentId = storedUser.departmentId || 0;
   const isAdmin = userRoleId === 1;
   const isBod = departmentId === 4;
+
+  // Fetch miscellaneous lookup map to resolve codes to descriptions.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await miscellaneousService.getAll();
+        if (!cancelled) {
+          setMiscLookup(new Map(all.map((m) => [m.code, m.description])));
+        }
+      } catch {
+        // Non-critical; fall back to showing the code.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -419,7 +438,7 @@ export function LiquidationHistory() {
                                   {item.date}
                                 </span>
                                 <Badge variant="secondary" className="text-xs">
-                                  {item.category}
+                                  {miscLookup.get(item.category) || item.category}
                                 </Badge>
                               </div>
                               <p className="mt-1 truncate text-sm text-muted-foreground">

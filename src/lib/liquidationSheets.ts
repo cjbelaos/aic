@@ -11,7 +11,7 @@ import type {
 const LIQUIDATIONS_SHEET = "Liquidations";
 const RECEIPT_ITEMS_SHEET = "ReceiptItems";
 const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:K`; // A=liquidationId, B=controlNo, C=userId, D=totalAmount, E=status, F=approvedByUserId, G=approvedByName, H=approvedBySignatureUrl, I=approvedDate, J=approvalComment, K=totalAmountRequested
-const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:G`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=category, F=amount, G=receiptImageUrl
+const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:G`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=miscellaneousCode, F=amount, G=receiptImageUrl
 
 // ── Simple TTL Cache (matches ftiSheets.ts pattern) ──
 const cache = new Map<string, { value: unknown; expires: number }>();

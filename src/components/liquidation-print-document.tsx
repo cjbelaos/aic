@@ -7,8 +7,10 @@ interface LiquidationPrintDocumentProps {
   controlNo: string;
   fullName: string;
   items: ReceiptItemInput[];
-  /** Category column names derived from miscellaneousService.getAll() descriptions. */
+  /** Category codes (e.g. "MEAL") derived from miscellaneousService.getAll(). */
   categories: string[];
+  /** Maps miscellaneous code → description (e.g. "MEAL" → "Meal") for display. */
+  miscLookup?: Map<string, string>;
   /** FTI Total Amount of the linked ControlNo. */
   advances: number;
   id?: string;
@@ -29,6 +31,7 @@ export default function LiquidationPrintDocument({
   fullName,
   items,
   categories,
+  miscLookup,
   advances,
   id = "liquidation-preview-content",
 }: LiquidationPrintDocumentProps) {
@@ -68,9 +71,13 @@ export default function LiquidationPrintDocument({
       .filter((i) => i.category === cat)
       .reduce((s, i) => s + (i.amount || 0), 0);
 
+  // Only include category columns that have at least one item using them.
+  const usedCategories = activeCategories.filter((cat) => catTotal(cat) > 0);
+
   const othersTotal = items
     .filter((i) => !isKnown(i.category))
     .reduce((s, i) => s + (i.amount || 0), 0);
+  const showOthersColumn = othersTotal > 0;
 
   // Sort items by date ascending for display.
   const sortedItems = [...items].sort((a, b) => a.date.localeCompare(b.date));
@@ -129,14 +136,16 @@ export default function LiquidationPrintDocument({
             <span>{nowFormatted}</span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-gray-700 whitespace-nowrap">
-            FTI REF
-          </span>
-          <div className="bg-gray-100 border border-gray-300 rounded px-3 h-7 flex items-center justify-center text-xs font-mono text-gray-900 min-w-[200px] text-center font-bold leading-none select-text">
-            {controlNo}
+        {advances > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-gray-700 whitespace-nowrap">
+              FTI REF
+            </span>
+            <div className="bg-gray-100 border border-gray-300 rounded px-3 h-7 flex items-center justify-center text-xs font-mono text-gray-900 min-w-[200px] text-center font-bold leading-none select-text">
+              {controlNo}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── Title ── */}
@@ -147,25 +156,27 @@ export default function LiquidationPrintDocument({
       {/* ── Pivot Table ── */}
       <table className="w-full border-collapse border border-black text-[11px]">
         <thead>
-          <tr className="bg-gray-100 text-gray-800 border-b border-black font-semibold">
-            <th className="border-r border-black px-1.5 py-1 text-center w-[12%]">
+          <tr className="border-b border-black">
+            <th className="border-r border-black px-1.5 py-1 text-center w-[12%] font-medium text-gray-800">
               Date
             </th>
-            <th className="border-r border-black px-1.5 py-1 text-center w-[22%]">
+            <th className="border-r border-black px-1.5 py-1 text-center w-[22%] font-medium text-gray-800">
               Description
             </th>
-            {activeCategories.map((cat) => (
+            {usedCategories.map((cat) => (
               <th
                 key={cat}
-                className="border-r border-black px-1.5 py-1 text-center"
+                className="border-r border-black px-1.5 py-1 text-center font-medium text-gray-800"
               >
-                {cat}
+                {miscLookup?.get(cat) || cat}
               </th>
             ))}
-            <th className="border-r border-black px-1.5 py-1 text-center">
-              Others
-            </th>
-            <th className="px-1.5 py-1 text-center">Total</th>
+            {showOthersColumn && (
+              <th className="border-r border-black px-1.5 py-1 text-center font-medium text-gray-800">
+                Others
+              </th>
+            )}
+            <th className="px-1.5 py-1 text-center font-medium text-gray-800">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -180,7 +191,7 @@ export default function LiquidationPrintDocument({
               <td className="border-r border-black px-1.5 py-0.5 text-left">
                 {item.description}
               </td>
-              {activeCategories.map((cat) => (
+              {usedCategories.map((cat) => (
                 <td
                   key={cat}
                   className="border-r border-black px-1.5 py-0.5 text-right font-mono"
@@ -188,9 +199,11 @@ export default function LiquidationPrintDocument({
                   {item.category === cat ? toFixed2(item.amount) : ""}
                 </td>
               ))}
-              <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
-                {!isKnown(item.category) ? toFixed2(item.amount) : ""}
-              </td>
+              {showOthersColumn && (
+                <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
+                  {!isKnown(item.category) ? toFixed2(item.amount) : ""}
+                </td>
+              )}
               <td className="px-1.5 py-0.5 text-right font-mono font-semibold">
                 {toFixed2(item.amount)}
               </td>
@@ -202,7 +215,7 @@ export default function LiquidationPrintDocument({
             <td className="border-r border-black px-1.5 py-1" colSpan={2}>
               Subtotal
             </td>
-            {activeCategories.map((cat) => (
+            {usedCategories.map((cat) => (
               <td
                 key={cat}
                 className="border-r border-black px-1.5 py-1 text-right font-mono"
@@ -210,9 +223,11 @@ export default function LiquidationPrintDocument({
                 {catTotal(cat) ? toFixed2(catTotal(cat)) : ""}
               </td>
             ))}
-            <td className="border-r border-black px-1.5 py-1 text-right font-mono">
-              {othersTotal ? toFixed2(othersTotal) : ""}
-            </td>
+            {showOthersColumn && (
+              <td className="border-r border-black px-1.5 py-1 text-right font-mono">
+                {othersTotal ? toFixed2(othersTotal) : ""}
+              </td>
+            )}
             <td className="px-1.5 py-1 text-right font-mono font-bold">
               {toFixed2(subtotal)}
             </td>
@@ -222,7 +237,7 @@ export default function LiquidationPrintDocument({
           <tr className="font-semibold bg-gray-50">
             <td
               className="border-r border-black px-1.5 py-1 text-left text-gray-800 font-bold"
-              colSpan={activeCategories.length + 3}
+              colSpan={usedCategories.length + 2 + (showOthersColumn ? 1 : 0)}
             >
               Grand Total
             </td>
