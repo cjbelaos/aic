@@ -163,7 +163,9 @@ export async function POST(req: NextRequest) {
       );
       const isAssignedApprover =
         liquidation.approvedByUserId === session.userId;
-      if (!isAssignedApprover && !mapped)
+      // BOD (departmentId === 4) can approve any SUBMITTED liquidation
+      const isBod = session.departmentId === 4;
+      if (!isAssignedApprover && !mapped && !isBod)
         return NextResponse.json(
           {
             error: "Forbidden. You are not the approver for this liquidation.",
@@ -232,13 +234,53 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ?all=true — Admin (userRoleId === 1) sees ALL liquidations
+  const allParam = req.nextUrl.searchParams.get("all") === "true";
+  // ?bod=true — BOD (departmentId === 4) sees all SUBMITTED liquidations
+  const bodParam = req.nextUrl.searchParams.get("bod") === "true";
+
   try {
-    const [mine, all, items, approvers] = await Promise.all([
+    const [mine, all, items, approvers, users] = await Promise.all([
       getLiquidationsFullByUser(session.userId),
       getAllLiquidations(),
       getAllReceiptItems(),
       getUserApprovers().catch(() => []),
+      import("@/lib/userSheets").then((m) => m.getUsers()).catch(() => []),
     ]);
+
+    // Build a userId → fullName map for display
+    const userNames = new Map<string, string>();
+    for (const u of users) {
+      if (u.userId) userNames.set(u.userId, u.fullName || u.userId);
+    }
+
+    // Admin: return ALL liquidations
+    if (allParam && session.userRoleId === 1) {
+      const allFull = all.map((liquidation) => ({
+        ...liquidation,
+        requesterName: userNames.get(liquidation.userId) || "",
+        items: items.filter(
+          (item) => item.liquidationId === liquidation.liquidationId,
+        ),
+      }));
+      allFull.sort((a, b) => b.controlNo.localeCompare(a.controlNo));
+      return NextResponse.json({ success: true, liquidations: allFull });
+    }
+
+    // BOD: return all SUBMITTED liquidations
+    if (bodParam && session.departmentId === 4) {
+      const submitted = all
+        .filter((l) => (l.status || "").toUpperCase() === "SUBMITTED")
+        .map((liquidation) => ({
+          ...liquidation,
+          requesterName: userNames.get(liquidation.userId) || "",
+          items: items.filter(
+            (item) => item.liquidationId === liquidation.liquidationId,
+          ),
+        }));
+      submitted.sort((a, b) => b.controlNo.localeCompare(a.controlNo));
+      return NextResponse.json({ success: true, liquidations: submitted });
+    }
 
     const mappedRequesterIds = new Set<string>();
     for (const m of approvers)
@@ -256,6 +298,7 @@ export async function GET(req: NextRequest) {
       ) {
         visible.push({
           ...liquidation,
+          requesterName: userNames.get(liquidation.userId) || "",
           items: items.filter(
             (item) => item.liquidationId === liquidation.liquidationId,
           ),

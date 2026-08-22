@@ -84,9 +84,12 @@ const EDITABLE_STATUSES: LiquidationStatus[] = [
 export function LiquidationForm({
   userId,
   initialControlNo = "",
+  restrictToOther = false,
 }: {
   userId: string;
   initialControlNo?: string;
+  /** When true, forces "Other (No FTI)" mode and hides the FTI type selector. */
+  restrictToOther?: boolean;
 }) {
   const [items, setItems] = useState<ReceiptItemInput[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -356,17 +359,18 @@ export function LiquidationForm({
 
   const totalAmount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
 
+  const isOther = liqType === "other";
   // The FTI request currently linked via the ControlNo (used for Advances).
   const selectedFti = ftiRequests.find((r) => r.controlNo === controlNo);
-  const advances = selectedFti?.totalAmount || 0;
+  const ftiAdvances = selectedFti?.totalAmount || 0;
   // The manual TotalAmountRequested to persist for an "Other" liquidation.
   const requestedAmountParsed = parseFloat(totalAmountRequested);
-  const isOther = liqType === "other";
   const effectiveRequestedAmount = isOther
     ? isNaN(requestedAmountParsed) || requestedAmountParsed < 0
       ? 0
       : requestedAmountParsed
-    : advances || 0;
+    : ftiAdvances;
+  const advances = isOther ? effectiveRequestedAmount : ftiAdvances;
 
   // Dynamic settlement label/value based on comparison of expenses vs advances.
   const difference = totalAmount - advances;
@@ -391,9 +395,13 @@ export function LiquidationForm({
         : totalAmount
       : difference;
 
+  // Categories used as column headers — exclude "Others" since there's a
+  // dedicated catch-all "Others" column in the pivot table.
+  const displayCategories = categories.filter((c) => c !== "Others");
+
   // Per-category column subtotals for the pivot table.
   const categoryTotals = Object.fromEntries(
-    categories.map((cat) => [
+    displayCategories.map((cat) => [
       cat,
       items
         .filter((i) => i.category === cat)
@@ -401,8 +409,11 @@ export function LiquidationForm({
     ]),
   );
   const othersTotal = items
-    .filter((i) => !categories.includes(i.category))
+    .filter((i) => !displayCategories.includes(i.category))
     .reduce((s, i) => s + (i.amount || 0), 0);
+
+  // Sort items by date ascending for display.
+  const sortedItems = [...items].sort((a, b) => a.date.localeCompare(b.date));
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-PH", {
@@ -810,49 +821,52 @@ export function LiquidationForm({
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Liquidation Type</CardTitle>
           <CardDescription>
-            Link to an FTI, or create an "Other" liquidation without an FTI
-            ControlNo.
+            {restrictToOther
+              ? "Create an expense liquidation without an FTI ControlNo."
+              : "Link to an FTI, or create an \"Other\" liquidation without an FTI ControlNo."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={!isOther ? "default" : "outline"}
-                onClick={() => {
-                  setLiqType("fti");
-                  // Clear any loaded "Other" state so the FTI view starts fresh.
-                  setLiquidationId("");
-                  setItems([]);
-                  setSelectedOtherId("");
-                  setTotalAmountRequested("");
-                  setIsLocked(false);
-                  setLastLoadedControlNo("");
-                }}
-              >
-                FTI Linked
-              </Button>
-              <Button
-                type="button"
-                variant={isOther ? "default" : "outline"}
-                onClick={() => {
-                  setLiqType("other");
-                  setControlNo("");
-                  setLastLoadedControlNo("");
-                  // Clear any loaded FTI state so the Other view starts fresh.
-                  setLiquidationId("");
-                  setItems([]);
-                  setSelectedOtherId("");
-                  setTotalAmountRequested("");
-                  setIsLocked(false);
-                }}
-              >
-                Other (No FTI)
-              </Button>
-            </div>
+            {!restrictToOther && (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={!isOther ? "default" : "outline"}
+                  onClick={() => {
+                    setLiqType("fti");
+                    // Clear any loaded "Other" state so the FTI view starts fresh.
+                    setLiquidationId("");
+                    setItems([]);
+                    setSelectedOtherId("");
+                    setTotalAmountRequested("");
+                    setIsLocked(false);
+                    setLastLoadedControlNo("");
+                  }}
+                >
+                  FTI Linked
+                </Button>
+                <Button
+                  type="button"
+                  variant={isOther ? "default" : "outline"}
+                  onClick={() => {
+                    setLiqType("other");
+                    setControlNo("");
+                    setLastLoadedControlNo("");
+                    // Clear any loaded FTI state so the Other view starts fresh.
+                    setLiquidationId("");
+                    setItems([]);
+                    setSelectedOtherId("");
+                    setTotalAmountRequested("");
+                    setIsLocked(false);
+                  }}
+                >
+                  Other (No FTI)
+                </Button>
+              </div>
+            )}
 
-            {isOther ? (
+            {isOther || restrictToOther ? (
               <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
                 {/* ── Reopen an existing no-FTI liquidation ── */}
                 <div className="space-y-2">
@@ -1255,7 +1269,7 @@ export function LiquidationForm({
                     <TableRow>
                       <TableHead>Date</TableHead>
                       <TableHead>Description</TableHead>
-                      {categories.map((cat) => (
+                      {displayCategories.map((cat) => (
                         <TableHead key={cat} className="text-right">
                           {cat}
                         </TableHead>
@@ -1267,8 +1281,8 @@ export function LiquidationForm({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {items.map((item, index) => {
-                      const isKnownCategory = categories.includes(
+                    {sortedItems.map((item, index) => {
+                      const isKnownCategory = displayCategories.includes(
                         item.category,
                       );
                       const isImage =
@@ -1284,7 +1298,7 @@ export function LiquidationForm({
                           <TableCell className="text-muted-foreground">
                             {item.description}
                           </TableCell>
-                          {categories.map((cat) => (
+                          {displayCategories.map((cat) => (
                             <TableCell
                               key={cat}
                               className="text-right font-mono"
@@ -1371,7 +1385,7 @@ export function LiquidationForm({
                       <TableCell colSpan={2} className="font-semibold">
                         Subtotal
                       </TableCell>
-                      {categories.map((cat) => (
+                      {displayCategories.map((cat) => (
                         <TableCell key={cat} className="text-right font-mono">
                           {categoryTotals[cat]
                             ? formatCurrency(categoryTotals[cat])
@@ -1389,7 +1403,7 @@ export function LiquidationForm({
                     {/* ── Grand Total row ── */}
                     <TableRow>
                       <TableCell
-                        colSpan={categories.length + 3}
+                        colSpan={displayCategories.length + 3}
                         className="font-semibold"
                       >
                         Grand Total

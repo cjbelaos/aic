@@ -32,9 +32,11 @@ export default function LiquidationPrintDocument({
   advances,
   id = "liquidation-preview-content",
 }: LiquidationPrintDocumentProps) {
-  const activeCategories = categories.filter(Boolean);
+  // Categories used as column headers — exclude "Others" since there's a
+  // dedicated catch-all "Others" column in the pivot table.
+  const activeCategories = categories.filter((c) => c !== "Others" && c);
   // Anything whose category is not a known miscellaneous description falls
-  // into the "Others" catch-all column (legacy Meal/Fare/Fuel/etc.).
+  // into the "Others" catch-all column.
   const isKnown = (cat: string) => activeCategories.includes(cat);
 
   const subtotal = items.reduce((s, i) => s + (i.amount || 0), 0);
@@ -69,6 +71,9 @@ export default function LiquidationPrintDocument({
   const othersTotal = items
     .filter((i) => !isKnown(i.category))
     .reduce((s, i) => s + (i.amount || 0), 0);
+
+  // Sort items by date ascending for display.
+  const sortedItems = [...items].sort((a, b) => a.date.localeCompare(b.date));
 
   const nowFormatted = format(new Date(), "EEEE, dd MMMM yyyy, HH:mm:ss");
 
@@ -164,7 +169,7 @@ export default function LiquidationPrintDocument({
           </tr>
         </thead>
         <tbody>
-          {items.map((item, index) => (
+          {sortedItems.map((item, index) => (
             <tr
               key={`${item.date}-${item.category}-${index}`}
               className="border-b border-black text-black"

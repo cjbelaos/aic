@@ -3,19 +3,32 @@
 import { Suspense, useState } from "react";
 import { LiquidationForm } from "@/components/liquidation-form";
 
+interface StoredUser {
+  userId?: string;
+  departmentId?: number;
+}
+
 function getStoredUser(): string {
   if (typeof window === "undefined") return "";
   try {
     const raw = window.localStorage.getItem("auth:user");
     if (!raw) return "";
-    // auth:user is a JSON object (e.g. { userId, fullName, userName }).
-    // Extract ONLY the userId string — passing the parsed object down
-    // broke userService.getUserById and left the technician name blank.
-    const parsed = JSON.parse(raw) as { userId?: string; userName?: string };
-    return parsed?.userId || parsed?.userName || "";
+    const parsed = JSON.parse(raw) as StoredUser;
+    return parsed?.userId || "";
   } catch {
-    // ignore parse errors
     return "";
+  }
+}
+
+function getStoredDepartmentId(): number {
+  if (typeof window === "undefined") return 1;
+  try {
+    const raw = window.localStorage.getItem("auth:user");
+    if (!raw) return 1;
+    const parsed = JSON.parse(raw) as StoredUser;
+    return typeof parsed.departmentId === "number" ? parsed.departmentId : 1;
+  } catch {
+    return 1;
   }
 }
 
@@ -23,9 +36,14 @@ function getStoredUser(): string {
  * Fetches the current user from localStorage (set by the login flow) and
  * renders the expense liquidation submission form. The actual UserId used
  * when writing to the database is captured server-side from the session.
+ *
+ * Non-After Sales departments (departmentId !== 1) are restricted to
+ * "Other (No FTI)" mode only.
  */
 function ExpenseLiquidationPageInner() {
   const [userId] = useState<string | "">(getStoredUser);
+  const [departmentId] = useState<number>(getStoredDepartmentId);
+  const restrictToOther = departmentId !== 1;
 
   // Deep-link support: /dashboard/expense-liquidation?controlNo=CTRL-...
   // (e.g. "Add Liquidation" from the FTI preview modal).
@@ -36,7 +54,11 @@ function ExpenseLiquidationPageInner() {
   }
 
   return (
-    <LiquidationForm userId={userId} initialControlNo={initialControlNo} />
+    <LiquidationForm
+      userId={userId}
+      initialControlNo={initialControlNo}
+      restrictToOther={restrictToOther}
+    />
   );
 }
 

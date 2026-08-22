@@ -158,6 +158,30 @@ export const liquidationService = {
   },
 
   /**
+   * Returns ALL liquidations across all departments (admin only).
+   * Requires userRoleId === 1 on the server.
+   */
+  async getAllLiquidations(): Promise<LiquidationFull[]> {
+    const res = await api.get<{
+      success: boolean;
+      liquidations: LiquidationFull[];
+    }>("/liquidations", { params: { all: "true" } });
+    return res.data.liquidations;
+  },
+
+  /**
+   * Returns all SUBMITTED liquidations (BOD view).
+   * Requires departmentId === 4 on the server.
+   */
+  async getBodLiquidations(): Promise<LiquidationFull[]> {
+    const res = await api.get<{
+      success: boolean;
+      liquidations: LiquidationFull[];
+    }>("/liquidations", { params: { bod: "true" } });
+    return res.data.liquidations;
+  },
+
+  /**
    * Returns the current user's liquidation (with receipt items) for an FTI
    * ControlNo. Used to restore existing receipts when a ControlNo that
    * already has a SAVED/SUBMITTED/… liquidation is re-selected.

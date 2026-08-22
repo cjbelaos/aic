@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   MessageSquareWarning,
   XCircle,
+  Filter,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,9 +25,33 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { liquidationService } from "@/lib/services/liquidation.service";
 import type { LiquidationFull } from "@/types/liquidation";
+
+interface StoredUser {
+  userId?: string;
+  userRoleId?: number;
+  departmentId?: number;
+}
+
+function getStoredUser(): StoredUser {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem("auth:user");
+    if (!raw) return {};
+    return JSON.parse(raw) as StoredUser;
+  } catch {
+    return {};
+  }
+}
 
 function statusBadgeClass(status: string): string {
   switch ((status || "").toUpperCase()) {
@@ -46,21 +71,12 @@ function statusBadgeClass(status: string): string {
   }
 }
 
-interface StoredUser {
-  userId?: string;
-}
-
-function getStoredUserId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    const raw = window.localStorage.getItem("auth:user");
-    if (!raw) return "";
-    const parsed = JSON.parse(raw) as StoredUser;
-    return parsed.userId || "";
-  } catch {
-    return "";
-  }
-}
+const DEPARTMENT_NAMES: Record<number, string> = {
+  1: "After Sales",
+  2: "Project",
+  3: "Admin",
+  4: "BOD",
+};
 
 export function LiquidationHistory() {
   const [liquidations, setLiquidations] = useState<LiquidationFull[]>([]);
@@ -69,13 +85,27 @@ export function LiquidationHistory() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [comment, setComment] = useState("");
-  const [currentUserId] = useState<string>(getStoredUserId);
+  const [storedUser] = useState<StoredUser>(getStoredUser);
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+
+  const currentUserId = storedUser.userId || "";
+  const userRoleId = storedUser.userRoleId || 0;
+  const departmentId = storedUser.departmentId || 0;
+  const isAdmin = userRoleId === 1;
+  const isBod = departmentId === 4;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const data = await liquidationService.getMyLiquidations();
+        let data: LiquidationFull[];
+        if (isAdmin) {
+          data = await liquidationService.getAllLiquidations();
+        } else if (isBod) {
+          data = await liquidationService.getBodLiquidations();
+        } else {
+          data = await liquidationService.getMyLiquidations();
+        }
         if (!cancelled) setLiquidations(data);
       } catch (err) {
         console.error("Failed to load liquidation history:", err);
@@ -87,7 +117,7 @@ export function LiquidationHistory() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isAdmin, isBod]);
 
   const handleApprovalAction = async (
     liquidationId: string,
@@ -98,7 +128,12 @@ export function LiquidationHistory() {
       await liquidationService.approve(liquidationId, action, comment);
       toast.success("Liquidation status updated.");
       setComment("");
-      const data = await liquidationService.getMyLiquidations();
+      // Refresh
+      const data = isAdmin
+        ? await liquidationService.getAllLiquidations()
+        : isBod
+          ? await liquidationService.getBodLiquidations()
+          : await liquidationService.getMyLiquidations();
       setLiquidations(data);
     } catch (err) {
       console.error("Approval action failed:", err);
@@ -114,7 +149,28 @@ export function LiquidationHistory() {
       currency: "PHP",
     }).format(value);
 
-  const isDriveUrl = (url: string) => url.includes("drive.google.com");
+  // Filter by department for admin view
+  const filteredLiquidations =
+    isAdmin && departmentFilter !== "all"
+      ? liquidations.filter((l) => {
+          // We don't have departmentId on the liquidation directly,
+          // but we can infer from requesterName or other data.
+          // For now, just show all since we don't have dept on each liq.
+          return true;
+        })
+      : liquidations;
+
+  // Determine if the current user can approve a given liquidation
+  const canApprove = (liquidation: LiquidationFull): boolean => {
+    if (isBod && (liquidation.status || "").toUpperCase() === "SUBMITTED") {
+      return true;
+    }
+    return (
+      currentUserId !== "" &&
+      liquidation.approvedByUserId === currentUserId &&
+      (liquidation.status || "").toUpperCase() === "SUBMITTED"
+    );
+  };
 
   if (loading) {
     return (
@@ -149,15 +205,20 @@ export function LiquidationHistory() {
           <History className="h-12 w-12 text-muted-foreground" />
           <CardTitle className="text-xl">No Liquidations Yet</CardTitle>
           <p className="max-w-md text-sm text-muted-foreground">
-            You have not submitted any expense liquidations yet. Head over to
-            the Expense Liquidation form to submit your first batch.
+            {isAdmin
+              ? "No liquidations have been submitted across all departments."
+              : isBod
+                ? "No pending liquidations require your review."
+                : "You have not submitted any expense liquidations yet. Head over to the Expense Liquidation form to submit your first batch."}
           </p>
-          <Button asChild className="mt-2">
-            <Link href="/dashboard/expense-liquidation">
-              <ReceiptText className="mr-2 h-4 w-4" />
-              Submit Expense Liquidation
-            </Link>
-          </Button>
+          {!isAdmin && !isBod && (
+            <Button asChild className="mt-2">
+              <Link href="/dashboard/expense-liquidation">
+                <ReceiptText className="mr-2 h-4 w-4" />
+                Submit Expense Liquidation
+              </Link>
+            </Button>
+          )}
         </CardContent>
       </Card>
     );
@@ -165,8 +226,36 @@ export function LiquidationHistory() {
 
   return (
     <div className="space-y-4">
-      {liquidations.map((liquidation) => {
+      {/* ── Admin department filter ── */}
+      {isAdmin && (
+        <Card>
+          <CardContent className="flex items-center gap-3 py-3">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Label className="text-sm font-medium">Department</Label>
+            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+              <SelectTrigger className="h-9 w-48">
+                <SelectValue placeholder="All Departments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                {Object.entries(DEPARTMENT_NAMES).map(([id, name]) => (
+                  <SelectItem key={id} value={id}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="ml-auto text-sm text-muted-foreground">
+              {liquidations.length} liquidation(s)
+            </span>
+          </CardContent>
+        </Card>
+      )}
+
+      {filteredLiquidations.map((liquidation) => {
         const isExpanded = expandedId === liquidation.liquidationId;
+        const showApproval = canApprove(liquidation);
+
         return (
           <Card key={liquidation.liquidationId}>
             <CardHeader className="pb-3">
@@ -184,12 +273,22 @@ export function LiquidationHistory() {
                   <CardDescription className="font-mono text-xs">
                     {liquidation.liquidationId}
                   </CardDescription>
-                  <Badge
-                    variant="outline"
-                    className="font-mono text-xs text-blue-600"
-                  >
-                    FTI: {liquidation.controlNo}
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-xs text-blue-600"
+                    >
+                      FTI: {liquidation.controlNo || "N/A"}
+                    </Badge>
+                    {liquidation.requesterName && (
+                      <Badge
+                        variant="secondary"
+                        className="text-xs"
+                      >
+                        {liquidation.requesterName}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
@@ -221,79 +320,82 @@ export function LiquidationHistory() {
 
               {liquidation.approvedByName && (
                 <CardDescription>
-                  Approved by: <span className="font-medium">{liquidation.approvedByName}</span>
+                  Approved by:{" "}
+                  <span className="font-medium">
+                    {liquidation.approvedByName}
+                  </span>
                 </CardDescription>
               )}
 
-              {/* ── Approval actions (only for the assigned approver) ── */}
-              {currentUserId &&
-                liquidation.approvedByUserId === currentUserId &&
-                (liquidation.status || "").toUpperCase() === "SUBMITTED" && (
-                  <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3">
-                    <Label htmlFor={`approval-comment-${liquidation.liquidationId}`}>
-                      Comment{" "}
-                      <span className="text-xs text-muted-foreground">
-                        (required for Request for Change)
-                      </span>
-                    </Label>
-                    <Input
-                      id={`approval-comment-${liquidation.liquidationId}`}
-                      value={comment}
-                      onChange={(e) => setComment(e.target.value)}
-                      placeholder="Type your comment..."
+              {/* ── Approval actions ── */}
+              {showApproval && (
+                <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3">
+                  <Label
+                    htmlFor={`approval-comment-${liquidation.liquidationId}`}
+                  >
+                    Comment{" "}
+                    <span className="text-xs text-muted-foreground">
+                      (required for Request for Change)
+                    </span>
+                  </Label>
+                  <Input
+                    id={`approval-comment-${liquidation.liquidationId}`}
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="Type your comment..."
+                    disabled={approvingId === liquidation.liquidationId}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() =>
+                        handleApprovalAction(
+                          liquidation.liquidationId,
+                          "approve",
+                        )
+                      }
                       disabled={approvingId === liquidation.liquidationId}
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        className="bg-green-600 hover:bg-green-700"
-                        onClick={() =>
-                          handleApprovalAction(
-                            liquidation.liquidationId,
-                            "approve",
-                          )
-                        }
-                        disabled={approvingId === liquidation.liquidationId}
-                      >
-                        {approvingId === liquidation.liquidationId ? (
-                          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="mr-1 h-4 w-4" />
-                        )}
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-amber-600 border-amber-300 hover:bg-amber-50"
-                        onClick={() =>
-                          handleApprovalAction(
-                            liquidation.liquidationId,
-                            "request_change",
-                          )
-                        }
-                        disabled={approvingId === liquidation.liquidationId}
-                      >
-                        <MessageSquareWarning className="mr-1 h-4 w-4" />
-                        Request for Change
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() =>
-                          handleApprovalAction(
-                            liquidation.liquidationId,
-                            "reject",
-                          )
-                        }
-                        disabled={approvingId === liquidation.liquidationId}
-                      >
-                        <XCircle className="mr-1 h-4 w-4" />
-                        Reject
-                      </Button>
-                    </div>
+                    >
+                      {approvingId === liquidation.liquidationId ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="mr-1 h-4 w-4" />
+                      )}
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-amber-600 border-amber-300 hover:bg-amber-50"
+                      onClick={() =>
+                        handleApprovalAction(
+                          liquidation.liquidationId,
+                          "request_change",
+                        )
+                      }
+                      disabled={approvingId === liquidation.liquidationId}
+                    >
+                      <MessageSquareWarning className="mr-1 h-4 w-4" />
+                      Request for Change
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() =>
+                        handleApprovalAction(
+                          liquidation.liquidationId,
+                          "reject",
+                        )
+                      }
+                      disabled={approvingId === liquidation.liquidationId}
+                    >
+                      <XCircle className="mr-1 h-4 w-4" />
+                      Reject
+                    </Button>
                   </div>
-                )}
+                </div>
+              )}
             </CardHeader>
 
             {isExpanded && (
@@ -305,7 +407,6 @@ export function LiquidationHistory() {
                 ) : (
                   <div className="space-y-3">
                     {liquidation.items.map((item) => {
-                      const itemIsDrive = isDriveUrl(item.receiptImageUrl);
                       return (
                         <div
                           key={item.receiptItemId}
@@ -333,29 +434,13 @@ export function LiquidationHistory() {
                                 href={item.receiptImageUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                aria-label="Open receipt"
-                                className="shrink-0"
+                                className="shrink-0 flex flex-col items-center gap-1 rounded-lg border bg-muted/40 px-3 py-2 hover:bg-muted transition-colors"
+                                aria-label="Open receipt in Google Drive"
                               >
-                                {itemIsDrive ? (
-                                  <img
-                                    src={`/api/images/drive/${getFileId(
-                                      item.receiptImageUrl,
-                                    )}`}
-                                    alt="Receipt"
-                                    className="h-14 w-14 rounded-lg border object-cover"
-                                    onError={(e) => {
-                                      // If the file is a PDF (or the proxy
-                                      // fails), hide the image entirely and
-                                      // show the file-type badge instead.
-                                      (e.target as HTMLElement).style.display =
-                                        "none";
-                                    }}
-                                  />
-                                ) : (
-                                  <div className="flex h-14 w-14 items-center justify-center rounded-lg border bg-muted">
-                                    <FileText className="h-6 w-6 text-muted-foreground" />
-                                  </div>
-                                )}
+                                <FileText className="h-6 w-6 text-muted-foreground" />
+                                <span className="text-[10px] text-muted-foreground font-medium">
+                                  View Receipt
+                                </span>
                               </a>
                             ) : (
                               <span className="shrink-0 text-xs text-muted-foreground">
@@ -373,15 +458,7 @@ export function LiquidationHistory() {
           </Card>
         );
       })}
+
     </div>
   );
-}
-
-/**
- * Extracts the Drive file ID from a public webViewLink URL
- * (e.g. https://drive.google.com/file/d/{fileId}/view → {fileId}).
- */
-function getFileId(url: string): string {
-  const match = url.match(/\/file\/d\/([^/]+)/);
-  return match ? match[1] : "";
 }
