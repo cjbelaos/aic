@@ -59,7 +59,7 @@ export default function LiquidationPrintDocument({
             }
           : { label: "Net Amount Due / Settled", hint: "(₱0.00)" };
   const settlementValue = hasAmountToReturn
-    ? difference
+    ? Math.abs(difference)
     : !hasAdvances || difference === 0
       ? difference === 0
         ? 0

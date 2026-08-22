@@ -13,8 +13,10 @@ import {
   updateLiquidationRequestedAmount,
   updateLiquidationStatus,
 } from "@/lib/liquidationSheets";
+import { getAllFTIRequests } from "@/lib/ftiSheets";
 import { getUsers } from "@/lib/userSheets";
 import { getUserApprovers } from "@/lib/userApproverSheets";
+import type { LiquidationFull } from "@/types/liquidation";
 import type { ReceiptItemInput } from "@/types/liquidation";
 
 interface LiquidationActionBody {
@@ -205,6 +207,45 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * Enriches liquidations that have a controlNo (FTI-linked) but no
+ * totalAmountRequested by looking up the FTI request's totalAmount.
+ * This ensures clients always see the correct cash advances value even
+ * when column K in the Liquidations sheet was not persisted (e.g. if
+ * the FTI lookup failed at draft creation time).
+ */
+async function enrichMissingTotalAmountRequested(
+  liquidations: LiquidationFull[],
+): Promise<LiquidationFull[]> {
+  const needsEnrichment = liquidations.filter(
+    (l) => l.controlNo && (!l.totalAmountRequested || l.totalAmountRequested <= 0),
+  );
+  if (needsEnrichment.length === 0) return liquidations;
+
+  let ftiMap: Map<string, number> | null = null;
+  try {
+    const ftiRequests = await getAllFTIRequests();
+    ftiMap = new Map(
+      ftiRequests
+        .filter((r): r is typeof r & { totalAmount: number } => r.totalAmount != null)
+        .map((r) => [r.controlNo, r.totalAmount]),
+    );
+  } catch {
+    // Non-critical: return original data if FTI fetch fails
+    return liquidations;
+  }
+
+  return liquidations.map((l) => {
+    if (l.controlNo && (!l.totalAmountRequested || l.totalAmountRequested <= 0)) {
+      const ftiAmount = ftiMap?.get(l.controlNo);
+      if (ftiAmount != null && ftiAmount > 0) {
+        return { ...l, totalAmountRequested: ftiAmount };
+      }
+    }
+    return l;
+  });
+}
+
 export async function GET(req: NextRequest) {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
@@ -217,10 +258,14 @@ export async function GET(req: NextRequest) {
     .trim();
   if (controlNo) {
     try {
-      const liquidation = await getLiquidationFullByControlNoForUser(
+      let liquidation = await getLiquidationFullByControlNoForUser(
         session.userId,
         controlNo,
       );
+      if (liquidation) {
+        const enriched = await enrichMissingTotalAmountRequested([liquidation]);
+        liquidation = enriched[0];
+      }
       return NextResponse.json({
         success: true,
         liquidations: liquidation ? [liquidation] : [],
@@ -269,7 +314,8 @@ export async function GET(req: NextRequest) {
         ),
       }));
       allFull.sort((a, b) => b.controlNo.localeCompare(a.controlNo));
-      return NextResponse.json({ success: true, liquidations: allFull });
+      const enriched = await enrichMissingTotalAmountRequested(allFull);
+      return NextResponse.json({ success: true, liquidations: enriched });
     }
 
     // BOD: return all SUBMITTED liquidations
@@ -285,7 +331,8 @@ export async function GET(req: NextRequest) {
           ),
         }));
       submitted.sort((a, b) => b.controlNo.localeCompare(a.controlNo));
-      return NextResponse.json({ success: true, liquidations: submitted });
+      const enriched = await enrichMissingTotalAmountRequested(submitted);
+      return NextResponse.json({ success: true, liquidations: enriched });
     }
 
     const mappedRequesterIds = new Set<string>();
@@ -312,7 +359,8 @@ export async function GET(req: NextRequest) {
       }
     }
     visible.sort((a, b) => b.controlNo.localeCompare(a.controlNo));
-    return NextResponse.json({ success: true, liquidations: visible });
+    const enriched = await enrichMissingTotalAmountRequested(visible);
+    return NextResponse.json({ success: true, liquidations: enriched });
   } catch (error) {
     console.error("Liquidations list error:", error);
     return NextResponse.json(
