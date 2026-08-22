@@ -398,13 +398,9 @@ export function LiquidationForm({
         : totalAmount
       : difference;
 
-  // Categories used as column headers — exclude "Others" since there's a
-  // dedicated catch-all "Others" column in the pivot table.
-  const allCategories = categories.filter((c) => c !== "Others");
-
   // Per-category column subtotals for the pivot table.
   const categoryTotals = Object.fromEntries(
-    allCategories.map((cat) => [
+    categories.map((cat) => [
       cat,
       items
         .filter((i) => i.category === cat)
@@ -413,11 +409,7 @@ export function LiquidationForm({
   );
 
   // Only show columns that have at least one item using them.
-  const displayCategories = allCategories.filter((cat) => categoryTotals[cat] > 0);
-
-  const othersTotal = items
-    .filter((i) => !allCategories.includes(i.category))
-    .reduce((s, i) => s + (i.amount || 0), 0);
+  const displayCategories = categories.filter((cat) => categoryTotals[cat] > 0);
 
   // Sort items by date ascending for display.
   const sortedItems = [...items].sort((a, b) => a.date.localeCompare(b.date));
@@ -1234,7 +1226,7 @@ export function LiquidationForm({
         </CardContent>
       </Card>
 
-      {/* ── Itemized summary (pivot table: Date | Description | <categories> | Others | Total) ── */}
+      {/* ── Itemized summary (pivot table: Date | Description | <categories> | Total | Receipt | Actions) ── */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1293,9 +1285,6 @@ export function LiquidationForm({
                       // Resolve the original index in the unsorted items array
                       // so edit/delete operations target the correct item.
                       const originalIndex = items.indexOf(item);
-                      const isKnownCategory = displayCategories.includes(
-                        item.category,
-                      );
                       const isImage =
                         item.receiptIsImage ??
                         (item.receiptImageUrl
@@ -1319,11 +1308,6 @@ export function LiquidationForm({
                                 : ""}
                             </TableCell>
                           ))}
-                          <TableCell className="text-right font-mono">
-                            {!isKnownCategory
-                              ? formatCurrency(item.amount)
-                              : ""}
-                          </TableCell>
                           <TableCell className="text-right font-bold">
                             {formatCurrency(item.amount)}
                           </TableCell>
@@ -1403,9 +1387,6 @@ export function LiquidationForm({
                             : ""}
                         </TableCell>
                       ))}
-                      <TableCell className="text-right font-mono">
-                        {othersTotal ? formatCurrency(othersTotal) : ""}
-                      </TableCell>
                       <TableCell className="text-right font-bold">
                         {formatCurrency(totalAmount)}
                       </TableCell>
@@ -1414,7 +1395,7 @@ export function LiquidationForm({
                     {/* ── Grand Total row ── */}
                     <TableRow>
                       <TableCell
-                        colSpan={displayCategories.length + 3}
+                        colSpan={displayCategories.length + 2}
                         className="font-semibold"
                       >
                         Grand Total
