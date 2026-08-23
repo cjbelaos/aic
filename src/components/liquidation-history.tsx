@@ -472,23 +472,25 @@ export function LiquidationHistory() {
       {/* ── Admin department filter ── */}
       {isAdmin && (
         <Card>
-          <CardContent className="flex items-center gap-3 py-3">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <Label className="text-sm font-medium">Department</Label>
-            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-              <SelectTrigger className="h-9 w-48">
-                <SelectValue placeholder="All Departments" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Departments</SelectItem>
-                {Object.entries(DEPARTMENT_NAMES).map(([id, name]) => (
-                  <SelectItem key={id} value={id}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="ml-auto text-sm text-muted-foreground">
+          <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-3">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <Label className="shrink-0 text-sm font-medium">Department</Label>
+              <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                <SelectTrigger className="h-9 w-full sm:w-48">
+                  <SelectValue placeholder="All Departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {Object.entries(DEPARTMENT_NAMES).map(([id, name]) => (
+                    <SelectItem key={id} value={id}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap sm:ml-auto">
               {liquidations.length} liquidation(s)
             </span>
           </CardContent>
@@ -541,9 +543,10 @@ export function LiquidationHistory() {
         return (
           <Card key={liquidation.liquidationId}>
             <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <CardTitle className="text-base flex items-center gap-2">
+              {/* ── Top: info & metadata ── */}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                     Liquidation #{liquidation.liquidationId.slice(0, 8)}
                     <Badge
                       className={statusBadgeClass(liquidation.status)}
@@ -552,84 +555,89 @@ export function LiquidationHistory() {
                       {liquidation.status || "SAVED"}
                     </Badge>
                   </CardTitle>
-                  <CardDescription className="font-mono text-xs">
+                  <CardDescription className="font-mono text-xs break-all">
                     {liquidation.liquidationId}
                   </CardDescription>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge
                       variant="outline"
-                      className="font-mono text-xs text-blue-600"
+                      className="font-mono text-xs text-blue-600 max-w-full truncate"
                     >
                       FTI: {liquidation.controlNo || "N/A"}
                     </Badge>
                     {liquidation.requesterName && (
                       <Badge
                         variant="secondary"
-                        className="text-xs"
+                        className="text-xs max-w-full truncate"
                       >
                         {liquidation.requesterName}
                       </Badge>
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <CardDescription>Total Amount</CardDescription>
-                    <p className="text-lg font-bold tracking-tight">
-                      {formatCurrency(liquidation.totalAmount)}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPreviewLiquidation(liquidation)}
-                  >
-                    <Eye className="mr-1 h-4 w-4" />
-                    Preview
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setExpandedId(isExpanded ? null : liquidation.liquidationId)
-                    }
-                  >
-                    {isExpanded ? (
-                      <ChevronUp className="mr-1 h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="mr-1 h-4 w-4" />
-                    )}
-                    {isExpanded ? "Hide Items" : "View Items"}
-                  </Button>
-                  {canEditFtiLinkage(liquidation) && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenEditFti(liquidation)}
-                    >
-                      <ReceiptText className="mr-1 h-4 w-4" />
-                      Edit FTI
-                    </Button>
-                  )}
-                  {canDelete(liquidation) && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-red-600 border-red-200 hover:bg-red-50"
-                      onClick={() => {
-                        setDeleteTargetId(liquidation.liquidationId);
-                        setDeleteConfirmInput("");
-                      }}
-                    >
-                      <Trash2 className="mr-1 h-4 w-4" />
-                      Delete
-                    </Button>
-                  )}
+                <div className="text-right shrink-0">
+                  <CardDescription>Total Amount</CardDescription>
+                  <p className="text-lg font-bold tracking-tight">
+                    {formatCurrency(liquidation.totalAmount)}
+                  </p>
                 </div>
+              </div>
+
+              {/* ── Bottom: action buttons ── */}
+              <div className="grid grid-cols-2 gap-2 pt-3 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={() => setPreviewLiquidation(liquidation)}
+                >
+                  <Eye className="mr-1 h-4 w-4" />
+                  Preview
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={() =>
+                    setExpandedId(isExpanded ? null : liquidation.liquidationId)
+                  }
+                >
+                  {isExpanded ? (
+                    <ChevronUp className="mr-1 h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="mr-1 h-4 w-4" />
+                  )}
+                  {isExpanded ? "Hide Items" : "View Items"}
+                </Button>
+                {canEditFtiLinkage(liquidation) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() => handleOpenEditFti(liquidation)}
+                  >
+                    <ReceiptText className="mr-1 h-4 w-4" />
+                    Edit FTI
+                  </Button>
+                )}
+                {canDelete(liquidation) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto text-red-600 border-red-200 hover:bg-red-50"
+                    onClick={() => {
+                      setDeleteTargetId(liquidation.liquidationId);
+                      setDeleteConfirmInput("");
+                    }}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" />
+                    Delete
+                  </Button>
+                )}
               </div>
               <CardDescription>
                 {liquidation.items.length} receipt item(s)
@@ -781,11 +789,11 @@ export function LiquidationHistory() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <Card className="w-full max-w-md">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                 <ReceiptText className="h-5 w-5" />
                 Edit FTI Linkage
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm">
                 Change the FTI ControlNo linked to this liquidation. Receipt
                 items will be preserved. Only SAVED or REQUESTED_FOR_CHANGE
                 liquidations can be updated.
@@ -793,16 +801,16 @@ export function LiquidationHistory() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Current FTI ControlNo</Label>
-                <p className="font-mono text-sm font-medium">
+                <Label className="text-xs sm:text-sm">Current FTI ControlNo</Label>
+                <p className="font-mono text-xs sm:text-sm font-medium break-all">
                   {editFtiTarget.controlNo || "N/A (Other / No FTI)"}
                 </p>
               </div>
 
               <div className="space-y-2">
-                <Label>New FTI ControlNo</Label>
+                <Label className="text-xs sm:text-sm">New FTI ControlNo</Label>
                 {editFtiLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Loading FTI requests...
                   </div>
@@ -812,15 +820,15 @@ export function LiquidationHistory() {
                       value={editFtiControlNo}
                       onValueChange={setEditFtiControlNo}
                     >
-                      <SelectTrigger className="h-11 text-base">
+                      <SelectTrigger className="h-11 text-sm sm:text-base">
                         <SelectValue placeholder="Select FTI control no." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">
+                        <SelectItem value="" className="text-xs sm:text-sm">
                           No FTI (Other)
                         </SelectItem>
                         {editFtiRequests.length === 0 ? (
-                          <p className="px-4 py-2 text-sm text-muted-foreground">
+                          <p className="px-4 py-2 text-xs sm:text-sm text-muted-foreground">
                             No available FTI requests.
                           </p>
                         ) : (
@@ -843,14 +851,14 @@ export function LiquidationHistory() {
                     </Select>
 
                     {editFtiControlNo && usedControlNos.has(editFtiControlNo) && (
-                      <p className="text-xs font-medium text-amber-600">
+                      <p className="text-xs sm:text-sm font-medium text-amber-600">
                         ⚠ This FTI is already linked to another liquidation.
                         Each FTI can only be linked to one liquidation.
                       </p>
                     )}
                   </>
                 )}
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   Select "No FTI (Other)" to clear the FTI linkage, or pick an
                   FTI request to link this liquidation to.
                 </p>
@@ -900,17 +908,17 @@ export function LiquidationHistory() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <Card className="w-full max-w-md">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-red-600">
+              <CardTitle className="flex items-center gap-2 text-red-600 text-base sm:text-lg">
                 <AlertTriangle className="h-5 w-5" />
                 Delete Liquidation
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm">
                 This action <strong>cannot be undone</strong>. This will permanently
                 delete the liquidation and all its receipt items from the database.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Label htmlFor="delete-confirm-input">
+              <Label htmlFor="delete-confirm-input" className="text-xs sm:text-sm">
                 Type <span className="font-bold text-red-600">delete</span> to
                 confirm:
               </Label>

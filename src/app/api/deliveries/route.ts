@@ -3,11 +3,6 @@ import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { processDeliveryReceipt } from "@/lib/deliverySheets";
 import { CreateDeliveryPayload } from "@/types/delivery";
 
-/**
- * POST /api/deliveries
- * Records a new delivery receipt, writes to the DeliveryReceipts sheet,
- * populates the Google Sheets print template cells, and returns a response.
- */
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
@@ -15,9 +10,21 @@ export async function POST(request: Request) {
   try {
     const body: CreateDeliveryPayload = await request.json();
 
-    if (!body.companyName?.trim()) {
+    if (!body.companyId?.trim()) {
       return NextResponse.json(
-        { error: "Customer name is required." },
+        { error: "Company is required." },
+        { status: 400 },
+      );
+    }
+    if (!body.preparedBy?.trim()) {
+      return NextResponse.json(
+        { error: "Prepared by is required." },
+        { status: 400 },
+      );
+    }
+    if (!body.deliveredBy?.trim()) {
+      return NextResponse.json(
+        { error: "Delivered by is required." },
         { status: 400 },
       );
     }

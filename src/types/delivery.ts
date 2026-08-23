@@ -6,17 +6,29 @@ export interface DeliveryItem {
 }
 
 export interface CreateDeliveryPayload {
-  companyName: string;
+  companyId: string;
   date: string;
   poNo?: string;
   trNo?: string;
+  preparedBy: string;
   deliveredBy: string;
   comments?: string;
   items: DeliveryItem[];
 }
 
 export interface DeliveryReceiptResponse {
-  drNumber: number;
-  printUrl?: string;
   success: boolean;
+  drNumber: number;
+  companyName: string;
+  address: string;
+  tin: string;
+  date: string;
+  poNo?: string;
+  trNo?: string;
+  preparedBy: string;
+  deliveredBy: string;
+  comments?: string;
+  items: DeliveryItem[];
+  printUrl?: string;
+  pdfBase64?: string;
 }

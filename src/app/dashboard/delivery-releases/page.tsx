@@ -14,6 +14,9 @@ import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
+import userService from "@/lib/services/user.service";
+import { DeliveryReceiptPreviewModal } from "@/components/delivery-receipt-preview-modal";
+import { DeliveryReceiptResponse } from "@/types/delivery";
 
 interface LineItem {
   productCode: string;
@@ -34,10 +37,12 @@ export default function DeliveryReleasePage() {
   );
   const [poNo, setPoNo] = useState("");
   const [trNo, setTrNo] = useState("");
+  const [preparedBy, setPreparedBy] = useState("");
   const [deliveredBy, setDeliveredBy] = useState("");
   const [comments, setComments] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [drResult, setDrResult] = useState<DeliveryReceiptResponse | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -49,6 +54,23 @@ export default function DeliveryReleasePage() {
       setProducts(Array.isArray(pData) ? pData : []);
       setDrivers(Array.isArray(dData) ? dData : []);
     });
+
+    // Auto-populate Prepared By from logged-in user (resolved via API)
+    (async () => {
+      try {
+        const raw = window.localStorage.getItem("auth:user");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const username = parsed.userName || "";
+          if (username) {
+            const fullName = await userService.getFullnameByUserName(username);
+            setPreparedBy(fullName);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
   }, []);
 
   // Fetch contract entitlements & usage when company changes
@@ -64,7 +86,7 @@ export default function DeliveryReleasePage() {
 
   const companyOptions = useMemo(
     () =>
-      companies.map((c) => ({ value: c.companyName, label: c.companyName })),
+      companies.map((c) => ({ value: c.companyId, label: c.companyName })),
     [companies],
   );
 
@@ -107,6 +129,10 @@ export default function DeliveryReleasePage() {
   };
 
   const handleSaveAndPrint = async () => {
+    if (!preparedBy.trim()) {
+      toast.error("Prepared by is required.");
+      return;
+    }
     if (!deliveredBy.trim()) {
       toast.error("Delivered by is required.");
       return;
@@ -119,23 +145,19 @@ export default function DeliveryReleasePage() {
     setSubmitting(true);
     try {
       const payload = {
-        companyName: selectedCompany,
+        companyId: selectedCompany,
         date: deliveryDate,
         poNo,
         trNo,
+        preparedBy,
         deliveredBy,
         comments,
         items: lineItems,
       };
 
-      // 1. Write to DeliveryReceipts & update Google Sheets Template
       const res = await deliveryService.createAndPopulateSheet(payload);
       toast.success("Delivery receipt recorded!");
-
-      // 2. Open print window / export URL from Google Sheets API
-      if (res.printUrl) {
-        window.open(res.printUrl, "_blank");
-      }
+      setDrResult(res);
     } catch (err: any) {
       toast.error(err.message || "Failed to process delivery receipt.");
     } finally {
@@ -144,16 +166,19 @@ export default function DeliveryReleasePage() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
+    <>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
       {/* Left 2 Columns: Delivery Form */}
       <Card className="lg:col-span-2">
         <CardHeader>
           <CardTitle>Create Delivery Receipt</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Customer Name *</Label>
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="lg:col-span-2 space-y-1.5 w-full">
+              <Label>
+                Customer Name <span className="text-destructive">*</span>
+              </Label>
               <SearchableSelect
                 value={selectedCompany}
                 onValueChange={setSelectedCompany}
@@ -161,15 +186,17 @@ export default function DeliveryReleasePage() {
                 placeholder="Select Customer"
               />
             </div>
-            <div>
-              <Label>Date *</Label>
+            <div className="space-y-2">
+              <Label>
+                Date <span className="text-destructive">*</span>
+              </Label>
               <Input
                 type="date"
                 value={deliveryDate}
                 onChange={(e) => setDeliveryDate(e.target.value)}
               />
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>PO NO.</Label>
               <Input
                 value={poNo}
@@ -177,7 +204,7 @@ export default function DeliveryReleasePage() {
                 placeholder="e.g. PO-10293"
               />
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>TR#</Label>
               <Input
                 value={trNo}
@@ -189,7 +216,7 @@ export default function DeliveryReleasePage() {
 
           <div className="space-y-2">
             <div className="flex justify-between items-center">
-              <Label className="font-semibold">Products / Consumables</Label>
+              <Label className="text-base font-semibold">Products / Consumables</Label>
               <Button size="sm" variant="outline" onClick={addLineItem}>
                 <Plus className="h-4 w-4 mr-1" /> Add Item
               </Button>
@@ -197,7 +224,7 @@ export default function DeliveryReleasePage() {
 
             {lineItems.map((item, idx) => (
               <div key={idx} className="flex gap-2 items-center">
-                <div className="w-1/2">
+                <div className="flex-1 min-w-[200px]">
                   <SearchableSelect
                     value={item.productCode}
                     onValueChange={(v) => updateLineItem(idx, "productCode", v)}
@@ -206,13 +233,13 @@ export default function DeliveryReleasePage() {
                   />
                 </div>
                 <Input
-                  className="w-20"
+                  className="w-20 shrink-0"
                   value={item.unit}
                   readOnly
                   placeholder="Unit"
                 />
                 <Input
-                  className="w-24"
+                  className="w-24 shrink-0"
                   type="number"
                   min="1"
                   value={item.quantity}
@@ -227,7 +254,7 @@ export default function DeliveryReleasePage() {
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="text-destructive"
+                  className="text-destructive shrink-0"
                   onClick={() => removeLineItem(idx)}
                 >
                   <Trash2 className="h-4 w-4" />
@@ -236,9 +263,21 @@ export default function DeliveryReleasePage() {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Delivered By *</Label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>
+                Prepared By <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                value={preparedBy}
+                readOnly
+                placeholder="Full name"
+              />
+            </div>
+            <div className="space-y-1.5 w-full">
+              <Label>
+                Delivered By <span className="text-destructive">*</span>
+              </Label>
               <SearchableSelect
                 value={deliveredBy}
                 onValueChange={setDeliveredBy}
@@ -246,20 +285,22 @@ export default function DeliveryReleasePage() {
                 placeholder="Select Personnel"
               />
             </div>
-            <div>
-              <Label>Comments / Special Instructions</Label>
-              <Textarea
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                placeholder="e.g. MONTHLY PMS FOR THE MONTH OF AUGUST"
+          </div>
+
+          <div className="space-y-2">
+            <Label>Comments / Special Instructions</Label>
+            <Textarea
+              rows={3}
+              value={comments}
+              onChange={(e) => setComments(e.target.value)}
+              placeholder="e.g. MONTHLY PMS FOR THE MONTH OF AUGUST"
               />
-            </div>
           </div>
 
           <Button
             onClick={handleSaveAndPrint}
             disabled={submitting}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            className="w-full"
           >
             {submitting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -308,5 +349,14 @@ export default function DeliveryReleasePage() {
         </CardContent>
       </Card>
     </div>
+
+    <DeliveryReceiptPreviewModal
+      dr={drResult}
+      open={!!drResult}
+      onOpenChange={(v) => {
+        if (!v) setDrResult(null);
+      }}
+    />
+  </>
   );
 }

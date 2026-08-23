@@ -178,3 +178,19 @@ export async function getNewFlowSpreadsheetId(): Promise<string> {
   }
   return spreadsheetId;
 }
+
+/**
+ * Obtains an OAuth access token suitable for fetching the Sheets export URL
+ * (e.g. https://docs.google.com/spreadsheets/d/{id}/export?format=pdf) server-side.
+ */
+export async function getAccessTokenForFetch(): Promise<string> {
+  const client = await createOAuth2Client();
+  const result = await client.getAccessToken();
+  const token = typeof result === "string" ? result : result?.token ?? null;
+  if (!token) {
+    throw new Error(
+      "Failed to obtain access token for Google Sheets export.",
+    );
+  }
+  return token;
+}

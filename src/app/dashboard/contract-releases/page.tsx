@@ -41,12 +41,15 @@ import contractReleaseService from "@/lib/services/contractRelease.service";
 import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
 import userService from "@/lib/services/user.service";
+import deliveryService from "@/lib/services/delivery.service";
 
 // Types
 import { ContractWithItems } from "@/types/contract";
 import { ContractPeriodSummary } from "@/types/contract-release";
 import { Product } from "@/types/product";
+import { DeliveryReceiptResponse } from "@/types/delivery";
 import { format } from "date-fns";
+import { DeliveryReceiptPreviewModal } from "@/components/delivery-receipt-preview-modal";
 
 /* ── Status Badge Helper ─────────────────────────────── */
 function StatusBadge({ status }: { status: string }) {
@@ -143,6 +146,9 @@ export default function ContractReleasesPage() {
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [periodSummaries, setPeriodSummaries] = useState<ContractPeriodSummary[]>([]);
   const [summariesLoading, setSummariesLoading] = useState(false);
+
+  // DR preview
+  const [drResult, setDrResult] = useState<DeliveryReceiptResponse | null>(null);
 
   // Overdue releases
   const [overdueReleases, setOverdueReleases] = useState<ContractPeriodSummary[]>([]);
@@ -370,6 +376,34 @@ export default function ContractReleasesPage() {
       toast.success(`${validRows.length} release(s) processed successfully.`);
       setReleaseOpen(false);
 
+      // Auto-generate Delivery Receipt
+      try {
+        const contract = contracts.find((c) => c.id === releaseContractId);
+        const companyId = contract?.companyId || "";
+        if (companyId) {
+          const drPayload = {
+            companyId,
+            date: format(releaseDate, "yyyy-MM-dd"),
+            poNo: "",
+            trNo: "",
+            preparedBy: releasedBy,
+            deliveredBy: releasedBy,
+            comments: remarks || undefined,
+            items: validRows.map((row) => ({
+              productCode: row.productCode,
+              unit: row.unit,
+              description: row.productName,
+              quantity: row.quantity,
+            })),
+          };
+          const drRes = await deliveryService.createAndPopulateSheet(drPayload);
+          setDrResult(drRes);
+        }
+      } catch (drErr: any) {
+        console.warn("DR generation after contract release failed:", drErr);
+        toast.error("Release processed, but DR generation failed.");
+      }
+
       // Refresh data
       if (selectedContractId) loadPeriodSummaries(selectedContractId);
       loadOverdue();
@@ -428,7 +462,8 @@ export default function ContractReleasesPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6">
       {/* ── Header ───────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
@@ -673,5 +708,14 @@ export default function ContractReleasesPage() {
         </DialogContent>
       </Dialog>
     </div>
+
+    <DeliveryReceiptPreviewModal
+      dr={drResult}
+      open={!!drResult}
+      onOpenChange={(v) => {
+        if (!v) setDrResult(null);
+      }}
+    />
+  </>
   );
 }

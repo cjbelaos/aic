@@ -7,9 +7,6 @@ import {
 const API_BASE_URL = "/api/deliveries";
 
 const deliveryService = {
-  /**
-   * Fetches personnel names from the DeliveriesName sheet for driver dropdowns
-   */
   getDrivers: async (): Promise<string[]> => {
     try {
       const response = await axios.get<string[]>(`${API_BASE_URL}/drivers`);
@@ -20,9 +17,6 @@ const deliveryService = {
     }
   },
 
-  /**
-   * Appends delivery records, updates template cells, and returns printable PDF link
-   */
   createAndPopulateSheet: async (
     payload: CreateDeliveryPayload,
   ): Promise<DeliveryReceiptResponse> => {
@@ -37,6 +31,24 @@ const deliveryService = {
         "Failed to create delivery receipt in service layer:",
         error,
       );
+      throw error;
+    }
+  },
+
+  savePdfToDrive: async (
+    drNumber: number,
+    companyName: string,
+    deliveryDate: string,
+  ): Promise<{ fileLink: string; fileName: string }> => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/save-pdf`, {
+        drNumber,
+        companyName,
+        deliveryDate,
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to save DR PDF to Drive:", error);
       throw error;
     }
   },

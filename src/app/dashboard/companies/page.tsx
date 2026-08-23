@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Loader2, MapPin, Search, Users } from "lucide-react";
+import { ArrowUpDown, Loader2, MapPin, Plus, Search, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import companyService from "@/lib/services/company.service";
-import { Company, CompanyType, CreateCompanyPayload } from "@/types/company";
+import { Company, CompanyType, CreateCompanyPayload, CreateCompanyWithContactsPayload } from "@/types/company";
+import { CreateCompanyContactPayload } from "@/types/companyContact";
 import { CompanyContactsDrawer } from "@/components/company-contacts-drawer";
+import { Switch } from "@/components/ui/switch";
 import "leaflet/dist/leaflet.css";
 import {
   MapContainer,
@@ -129,6 +131,15 @@ const EMPTY_FORM: CreateCompanyPayload = {
 };
 
 const COMPANY_TYPES: CompanyType[] = ["Supplier", "Customer", "Both"];
+
+const EMPTY_CONTACT: CreateCompanyContactPayload = {
+  contactId: "",
+  companyId: "",
+  fullName: "",
+  email: "",
+  phone: "",
+  isPrimary: false,
+};
 
 type TypeFilter = "all" | "supplier" | "customer" | "both";
 
@@ -249,6 +260,7 @@ function CompaniesPageInner() {
   const [editTarget, setEditTarget] = useState<Company | null>(null);
   const [form, setForm] = useState<CreateCompanyPayload>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
+  const [contacts, setContacts] = useState<CreateCompanyContactPayload[]>([]);
   const [contactsCompany, setContactsCompany] = useState<Company | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [mounted, setMounted] = useState(false);
@@ -335,6 +347,7 @@ function CompaniesPageInner() {
       ...EMPTY_FORM,
       companyType: lockedType ?? EMPTY_FORM.companyType,
     });
+    setContacts([]);
     setPosition(null);
     setError("");
     setModalOpen(true);
@@ -432,7 +445,11 @@ function CompaniesPageInner() {
         await loadCompanies();
         toast.success("Company updated successfully.");
       } else {
-        await companyService.create(payload);
+        const contactsPayload = contacts.filter((c) => c.fullName.trim());
+        await companyService.create({
+          ...payload,
+          contacts: contactsPayload.length > 0 ? contactsPayload : undefined,
+        } as CreateCompanyWithContactsPayload);
         await loadCompanies();
         toast.success("Company created successfully.");
       }
@@ -782,6 +799,117 @@ function CompaniesPageInner() {
               </Select>
             </div>
           </div>
+
+          {/* ── Contacts section (create only) ──────────────────────── */}
+          {!editTarget && (
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">Contacts</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() =>
+                    setContacts((prev) => [...prev, { ...EMPTY_CONTACT }])
+                  }
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Add Contact
+                </Button>
+              </div>
+
+              {contacts.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No contacts added yet. Click "Add Contact" to include one.
+                </p>
+              )}
+
+              {contacts.map((c, idx) => (
+                <div
+                  key={idx}
+                  className="space-y-2 rounded-md border p-3 relative"
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1 h-6 w-6 text-muted-foreground hover:text-destructive"
+                    disabled={saving}
+                    onClick={() =>
+                      setContacts((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1 col-span-2 sm:col-span-1">
+                      <Label htmlFor={`co-contact-name-${idx}`}>
+                        Full Name <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id={`co-contact-name-${idx}`}
+                        value={c.fullName}
+                        disabled={saving}
+                        onChange={(e) => {
+                          const updated = [...contacts];
+                          updated[idx] = { ...updated[idx], fullName: e.target.value };
+                          setContacts(updated);
+                        }}
+                        placeholder="Contact name"
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-2 sm:col-span-1">
+                      <Label htmlFor={`co-contact-email-${idx}`}>Email</Label>
+                      <Input
+                        id={`co-contact-email-${idx}`}
+                        type="email"
+                        value={c.email}
+                        disabled={saving}
+                        onChange={(e) => {
+                          const updated = [...contacts];
+                          updated[idx] = { ...updated[idx], email: e.target.value };
+                          setContacts(updated);
+                        }}
+                        placeholder="email@example.com"
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-2 sm:col-span-1">
+                      <Label htmlFor={`co-contact-phone-${idx}`}>Phone</Label>
+                      <Input
+                        id={`co-contact-phone-${idx}`}
+                        value={c.phone}
+                        disabled={saving}
+                        onChange={(e) => {
+                          const updated = [...contacts];
+                          updated[idx] = { ...updated[idx], phone: e.target.value };
+                          setContacts(updated);
+                        }}
+                        placeholder="+63 9XX XXX XXXX"
+                      />
+                    </div>
+                    <div className="flex items-end pb-1.5 col-span-2 sm:col-span-1">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`co-contact-primary-${idx}`}
+                          checked={c.isPrimary}
+                          disabled={saving}
+                          onCheckedChange={(v) => {
+                            const updated = [...contacts];
+                            updated[idx] = { ...updated[idx], isPrimary: v };
+                            setContacts(updated);
+                          }}
+                        />
+                        <Label htmlFor={`co-contact-primary-${idx}`}>
+                          Primary Contact
+                        </Label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <DialogFooter>
             <Button
               variant="outline"

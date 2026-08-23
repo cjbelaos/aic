@@ -5,7 +5,9 @@ import {
   addCompany,
   clearAllCompanies,
 } from "@/lib/companySheets";
+import { addCompanyContact } from "@/lib/companyContactSheets";
 import { CreateCompanyPayload } from "@/types/company";
+import { CreateCompanyContactPayload } from "@/types/companyContact";
 
 export async function GET() {
   const session = await requireAuthenticatedSession();
@@ -26,8 +28,23 @@ export async function POST(request: Request) {
   if (session instanceof Response) return session;
 
   try {
-    const body: CreateCompanyPayload = await request.json();
-    const created = await addCompany(body);
+    const body = (await request.json()) as CreateCompanyPayload & {
+      contacts?: CreateCompanyContactPayload[];
+    };
+    const { contacts, ...companyPayload } = body;
+
+    const created = await addCompany(companyPayload);
+
+    // Create contacts if provided, linking them to the new companyId
+    if (contacts && contacts.length > 0) {
+      for (const contact of contacts) {
+        await addCompanyContact({
+          ...contact,
+          companyId: created.companyId,
+        });
+      }
+    }
+
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
     const message =

@@ -15,5 +15,9 @@ export interface Company {
 
 export type CreateCompanyPayload = Omit<Company, "id" | "row">;
 
+export type CreateCompanyWithContactsPayload = CreateCompanyPayload & {
+  contacts?: import("./companyContact").CreateCompanyContactPayload[];
+};
+
 export type UpdateCompanyPayload = Pick<Company, "id"> &
   Partial<Omit<Company, "id" | "row">>;
