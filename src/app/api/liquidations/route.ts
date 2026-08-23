@@ -11,6 +11,7 @@ import {
   getLiquidationsFullByUser,
   replaceReceiptItems,
   updateLiquidationApproval,
+  updateLiquidationControlNo,
   updateLiquidationRequestedAmount,
   updateLiquidationStatus,
 } from "@/lib/liquidationSheets";
@@ -135,6 +136,27 @@ export async function POST(req: NextRequest) {
         success: true,
         liquidationId,
         status: "SUBMITTED",
+      });
+    }
+
+    // update-controlno → change the FTI linkage on an existing liquidation
+    if (action === "update-controlno") {
+      const liquidationId = (body.liquidationId || "").toString().trim();
+      const newControlNo = (body.controlNo || "").toString().trim();
+      if (!liquidationId)
+        return NextResponse.json(
+          { error: "Missing required field: liquidationId." },
+          { status: 400 },
+        );
+      await updateLiquidationControlNo(
+        liquidationId,
+        newControlNo,
+        session.userId,
+      );
+      return NextResponse.json({
+        success: true,
+        liquidationId,
+        controlNo: newControlNo,
       });
     }
 

@@ -207,6 +207,23 @@ export const liquidationService = {
   },
 
   /**
+   * Updates the ControlNo (FTI linkage) on an existing liquidation. Allows
+   * the user to fix a mistake where they created a liquidation with the
+   * wrong FTI linkage (e.g. "Other" when it should be FTI-linked, or vice
+   * versa). Only SAVED or REQUESTED_FOR_CHANGE liquidations can be updated.
+   * Pass an empty string for newControlNo to switch to "Other" (no FTI).
+   */
+  async updateControlNo(liquidationId: string, newControlNo: string) {
+    return (
+      await api.post("/liquidations", {
+        action: "update-controlno",
+        liquidationId,
+        controlNo: newControlNo,
+      })
+    ).data;
+  },
+
+  /**
    * Deletes a liquidation (parent + receipt items). Only the original owner
    * can delete their own SAVED or REQUESTED_FOR_CHANGE liquidation.
    */

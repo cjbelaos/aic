@@ -646,6 +646,98 @@ export async function updateLiquidationApproval(
 }
 
 /**
+ * Updates the ControlNo (column B) on an existing liquidation. Allows the
+ * user to fix a mistake where they created a liquidation with the wrong FTI
+ * linkage (e.g. "Other" when it should be FTI-linked, or vice versa).
+ * Only SAVED or REQUESTED_FOR_CHANGE liquidations can be updated.
+ * When switching from FTI-linked to "Other" (empty controlNo), the
+ * totalAmountRequested is cleared so the user can enter a manual amount.
+ * When switching to an FTI, totalAmountRequested is auto-filled from the
+ * FTI's totalAmount (the enrichment on read handles this, but we also
+ * persist it here for consistency).
+ */
+export async function updateLiquidationControlNo(
+  liquidationId: string,
+  newControlNo: string,
+  requestingUserId: string,
+): Promise<void> {
+  const all = await getAllLiquidations();
+  const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
+  if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found.`);
+
+  const liquidation = all[idx];
+
+  // Ownership check
+  if (liquidation.userId !== requestingUserId) {
+    throw new Error("You can only update your own liquidations.");
+  }
+
+  // Status check
+  const status = (liquidation.status || "").toUpperCase();
+  if (!["SAVED", "REQUESTED_FOR_CHANGE"].includes(status)) {
+    throw new Error(
+      `Cannot update FTI linkage: liquidation status is "${liquidation.status}". Only SAVED or REQUESTED_FOR_CHANGE liquidations can be updated.`,
+    );
+  }
+
+  // Duplicate check — prevent linking to an FTI ControlNo already used by
+  // another liquidation (different liquidationId). Empty controlNo ("Other")
+  // is always allowed — multiple liquidations can have no FTI.
+  const trimmed = newControlNo.trim();
+  if (trimmed) {
+    const existing = all.find(
+      (entry) =>
+        entry.controlNo === trimmed &&
+        entry.liquidationId !== liquidationId,
+    );
+    if (existing) {
+      throw new Error(
+        `FTI ControlNo "${trimmed}" is already linked to another liquidation (${existing.liquidationId.slice(0, 8)}…). Each FTI can only be linked to one liquidation.`,
+      );
+    }
+  }
+
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const sheets = await getSheetsClient();
+  const rowNumber = idx + 2;
+
+  // Update ControlNo (column B)
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${LIQUIDATIONS_SHEET}!B${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[newControlNo]] },
+  });
+
+  // If switching to an FTI, auto-fill totalAmountRequested from the FTI.
+  // If switching to "Other" (no FTI), clear totalAmountRequested.
+  if (trimmed) {
+    const { getAllFTIRequests } = await import("@/lib/ftiSheets");
+    const requests = await getAllFTIRequests().catch(() => []);
+    const matched = requests.find((r) => r.controlNo === trimmed);
+    const ftiAmount = matched?.totalAmount;
+    if (ftiAmount != null && ftiAmount > 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${LIQUIDATIONS_SHEET}!K${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[String(ftiAmount)]] },
+      });
+    }
+  } else {
+    // Clear totalAmountRequested for "Other" liquidations
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${LIQUIDATIONS_SHEET}!K${rowNumber}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[""]] },
+    });
+  }
+
+  invalidateLiquidationCache();
+}
+
+/**
  * Deletes a liquidation (parent row + all child receipt items) from the
  * Google Sheet. Only the original owner can delete their own liquidation
  * when it's in SAVED or REQUESTED_FOR_CHANGE status.

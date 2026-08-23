@@ -38,7 +38,9 @@ import {
 import { toast } from "sonner";
 import { liquidationService } from "@/lib/services/liquidation.service";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
+import { ftiService } from "@/lib/services/fti.service";
 import type { LiquidationFull } from "@/types/liquidation";
+import type { FTIRequestSummary } from "@/types/fti";
 import LiquidationPreviewModal from "@/components/liquidation-preview-modal";
 import LiquidationPrintDocument from "@/components/liquidation-print-document";
 
@@ -105,6 +107,14 @@ export function LiquidationHistory() {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Edit FTI linkage state
+  const [editFtiTarget, setEditFtiTarget] = useState<LiquidationFull | null>(null);
+  const [editFtiControlNo, setEditFtiControlNo] = useState("");
+  const [editFtiRequests, setEditFtiRequests] = useState<FTIRequestSummary[]>([]);
+  const [editFtiLoading, setEditFtiLoading] = useState(false);
+  const [editFtiSaving, setEditFtiSaving] = useState(false);
+  // Set of FTI ControlNos already linked to other liquidations (for warning display).
+  const [usedControlNos, setUsedControlNos] = useState<Set<string>>(new Set());
 
   const currentUserId = storedUser.userId || "";
   const userRoleId = storedUser.userRoleId || 0;
@@ -207,6 +217,69 @@ export function LiquidationHistory() {
     if (liquidation.userId !== currentUserId) return false;
     const status = (liquidation.status || "").toUpperCase();
     return status === "SAVED" || status === "REQUESTED_FOR_CHANGE";
+  };
+
+  const canEditFtiLinkage = (liquidation: LiquidationFull): boolean => {
+    if (liquidation.userId !== currentUserId) return false;
+    const status = (liquidation.status || "").toUpperCase();
+    return status === "SAVED" || status === "REQUESTED_FOR_CHANGE";
+  };
+
+  const handleOpenEditFti = async (liquidation: LiquidationFull) => {
+    setEditFtiTarget(liquidation);
+    setEditFtiControlNo(liquidation.controlNo || "");
+    setEditFtiLoading(true);
+    try {
+      const requests = await ftiService.getRequests();
+      const usable = requests
+        .filter((r) => r.status !== "SAVED" && r.userId === currentUserId)
+        .sort((a, b) =>
+          (b.dateCreated || "").localeCompare(a.dateCreated || ""),
+        );
+      setEditFtiRequests(usable);
+      // Build set of FTI control numbers already used by other liquidations
+      // (excluding the current one being edited).
+      const used = new Set<string>();
+      for (const l of liquidations) {
+        if (l.controlNo && l.liquidationId !== liquidation.liquidationId) {
+          used.add(l.controlNo);
+        }
+      }
+      setUsedControlNos(used);
+    } catch (error) {
+      console.error("Failed to load FTI requests:", error);
+      toast.error("Failed to load FTI requests.");
+    } finally {
+      setEditFtiLoading(false);
+    }
+  };
+
+  const handleSaveEditFti = async () => {
+    const target = editFtiTarget;
+    if (!target) return;
+    setEditFtiSaving(true);
+    try {
+      await liquidationService.updateControlNo(
+        target.liquidationId,
+        editFtiControlNo,
+      );
+      toast.success("FTI linkage updated successfully.");
+      setEditFtiTarget(null);
+      setEditFtiControlNo("");
+      setUsedControlNos(new Set());
+      // Refresh the list
+      const data = isAdmin
+        ? await liquidationService.getAllLiquidations()
+        : isBod
+          ? await liquidationService.getBodLiquidations()
+          : await liquidationService.getMyLiquidations();
+      setLiquidations(data);
+    } catch (error) {
+      console.error("Failed to update FTI linkage:", error);
+      toast.error("Failed to update FTI linkage.");
+    } finally {
+      setEditFtiSaving(false);
+    }
   };
 
   const handleDeleteConfirm = async () => {
@@ -530,6 +603,17 @@ export function LiquidationHistory() {
                     )}
                     {isExpanded ? "Hide Items" : "View Items"}
                   </Button>
+                  {canEditFtiLinkage(liquidation) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenEditFti(liquidation)}
+                    >
+                      <ReceiptText className="mr-1 h-4 w-4" />
+                      Edit FTI
+                    </Button>
+                  )}
                   {canDelete(liquidation) && (
                     <Button
                       type="button"
@@ -691,6 +775,125 @@ export function LiquidationHistory() {
           </Card>
         );
       })}
+
+      {/* ── Edit FTI Linkage Dialog ── */}
+      {editFtiTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ReceiptText className="h-5 w-5" />
+                Edit FTI Linkage
+              </CardTitle>
+              <CardDescription>
+                Change the FTI ControlNo linked to this liquidation. Receipt
+                items will be preserved. Only SAVED or REQUESTED_FOR_CHANGE
+                liquidations can be updated.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Current FTI ControlNo</Label>
+                <p className="font-mono text-sm font-medium">
+                  {editFtiTarget.controlNo || "N/A (Other / No FTI)"}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>New FTI ControlNo</Label>
+                {editFtiLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading FTI requests...
+                  </div>
+                ) : (
+                  <>
+                    <Select
+                      value={editFtiControlNo}
+                      onValueChange={setEditFtiControlNo}
+                    >
+                      <SelectTrigger className="h-11 text-base">
+                        <SelectValue placeholder="Select FTI control no." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">
+                          No FTI (Other)
+                        </SelectItem>
+                        {editFtiRequests.length === 0 ? (
+                          <p className="px-4 py-2 text-sm text-muted-foreground">
+                            No available FTI requests.
+                          </p>
+                        ) : (
+                          editFtiRequests.map((request) => {
+                            const isUsed = usedControlNos.has(request.controlNo);
+                            return (
+                              <SelectItem
+                                key={request.controlNo}
+                                value={request.controlNo}
+                                disabled={isUsed}
+                                className={isUsed ? "text-amber-600" : ""}
+                              >
+                                {request.controlNo}
+                                {isUsed && " (Already linked)"}
+                              </SelectItem>
+                            );
+                          })
+                        )}
+                      </SelectContent>
+                    </Select>
+
+                    {editFtiControlNo && usedControlNos.has(editFtiControlNo) && (
+                      <p className="text-xs font-medium text-amber-600">
+                        ⚠ This FTI is already linked to another liquidation.
+                        Each FTI can only be linked to one liquidation.
+                      </p>
+                    )}
+                  </>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Select "No FTI (Other)" to clear the FTI linkage, or pick an
+                  FTI request to link this liquidation to.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditFtiTarget(null);
+                    setEditFtiControlNo("");
+                    setUsedControlNos(new Set());
+                  }}
+                  disabled={editFtiSaving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSaveEditFti}
+                  disabled={
+                    editFtiSaving ||
+                    editFtiLoading ||
+                    editFtiControlNo === (editFtiTarget.controlNo || "") ||
+                    (editFtiControlNo !== "" && usedControlNos.has(editFtiControlNo))
+                  }
+                >
+                  {editFtiSaving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <ReceiptText className="mr-2 h-4 w-4" />
+                      Update Linkage
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* ── Delete Confirmation Dialog ── */}
       {deleteTargetId && (

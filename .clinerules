@@ -2,18 +2,28 @@
 
 You are running on a restricted free-tier API key. Every action you take must be highly calculated to conserve context window tokens. Adhere to the following rules strictly:
 
-## 1. File Access & Searching Constraints
+## 1. Knowledge OS Vault (Shared Context)
+
+This project links to a Knowledge OS vault at `C:\Users\chris\KOS` for durable, reusable context. Use it to reduce token consumption:
+
+- **Router first:** Read `C:\Users\chris\KOS\AGENTS.md` for task routing — it tells you which files to load for each task type.
+- **Progressive loading:** Load only what the task needs (see CONTEXT-POLICY.md Tiers 0-3). Start with `AGENTS.md` + `me.md`, add `memory.md`/`handoff.md` for active work, and project context only when needed.
+- **Token limits:** Root `memory.md` targets under 3K tokens; `handoff.md` under 2K tokens. Warn at 20KB files.
+- **Never bulk-load:** Don't scan entire KOS directories. Use MOC files (Maps of Content) to navigate: `01 - Business/Business-MOC.md`, `02 - Projects/Projects-MOC.md`, `05 - Knowledge/Knowledge-MOC.md`.
+- **Exclusions:** Never load `00 - System/Reports`, `00 - System/State`, `09 - Attachments`, `99 - Archive`, or histories unless explicitly needed.
+
+## 2. File Access & Searching Constraints
 
 - **NEVER blindly search:** Do not run open-ended global searches (like `grep` or `find`) across the entire workspace unless absolutely necessary. Be as specific with paths as possible.
 - **Do NOT read whole files for snippets:** If you need to see a specific function, do not use a tool that reads the entire file. Use targeted line-range reads if available, or ask me to provide the specific section.
 - **Banned Folders:** Never index or read files inside `.git`, `node_modules`, `build`, `dist`, `bin`, `obj`, or any dependency/log directories.
 
-## 2. Terminal & Command Execution
+## 3. Terminal & Command Execution
 
 - **No "Watch" or Long-Running Commands:** Never run commands that stream continuous output (e.g., `npm run dev`, `webpack --watch`). If a build check is needed, run a single compile command (e.g., `npm run build` or compile specific files).
 - **Silence Verbose Outputs:** When running test suites or compilers, append flags to minimize output verbosity (e.g., `--quiet`, `--silent`) so the terminal buffer doesn't inject thousands of lines into the next prompt context.
 
-## 3. Communication & Planning
+## 4. Communication & Planning
 
 - **Think First, Ask Often:** Do not attempt a complex multi-file edit without listing your planned steps first and asking for my confirmation.
 - **The 3-Strike Failure Rule:** If a command or code fix fails 3 times in a row, **STOP immediately**. Do not keep changing lines and retrying. Present the logs to me and ask for guidance. This prevents infinite token-wasting loops.
