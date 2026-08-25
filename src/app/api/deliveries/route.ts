@@ -1,7 +1,31 @@
 import { NextResponse } from "next/server";
+import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { processDeliveryReceipt } from "@/lib/deliverySheets";
-import { CreateDeliveryPayload } from "@/types/delivery";
+import {
+  processDeliveryReceipt,
+  getDeliveryReceipts,
+  exportDeliveryReceiptFormPdf,
+} from "@/lib/deliverySheets";
+import { getDriveUploadClient, getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
+import { CreateDeliveryPayload } from "@/types/deliveryReceipt";
+
+const DR_DRIVE_FOLDER_ID = "1AkcAogFszjBJtB66ySXIszs3LvUQ_46d";
+
+export async function GET() {
+  const session = await requireAuthenticatedSession();
+  if (session instanceof Response) return session;
+
+  try {
+    const receipts = await getDeliveryReceipts();
+    return NextResponse.json(receipts, { status: 200 });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to fetch delivery receipts.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
@@ -36,7 +60,63 @@ export async function POST(request: Request) {
     }
 
     const result = await processDeliveryReceipt(body);
-    return NextResponse.json(result, { status: 201 });
+
+    // ── Auto-save PDF to Google Drive and store link ──
+    let driveFileLink: string | undefined;
+    try {
+      const monthYear = (() => {
+        if (body.date) {
+          const d = new Date(body.date + (body.date.length === 10 ? "T00:00:00" : ""));
+          if (!isNaN(d.getTime())) {
+            return `${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
+          }
+        }
+        return "";
+      })();
+
+      const safeName = result.companyName.replace(/[/\\?%*:|"<> ]+/g, "_");
+      const fileName = `DR-${monthYear}-${result.drNumber}_${safeName}.pdf`;
+
+      const { pdfBase64 } = await exportDeliveryReceiptFormPdf();
+      const pdfBuffer = Buffer.from(pdfBase64, "base64");
+      const pdfStream = Readable.from(pdfBuffer);
+
+      const drive = await getDriveUploadClient();
+      const uploadRes = await drive.files.create({
+        requestBody: { name: fileName, parents: [DR_DRIVE_FOLDER_ID] },
+        media: { mimeType: "application/pdf", body: pdfStream },
+      });
+
+      driveFileLink = `https://drive.google.com/file/d/${uploadRes.data.id}/view`;
+
+      // Store the link in column K of the DR header row
+      const sheets = await getSheetsClient();
+      const spreadsheetId = await getDatabaseSpreadsheetId();
+      const allRows = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "DeliveryReceipts!A2:A",
+      });
+      const rows = allRows.data.values || [];
+      const drRowIdx = rows.findIndex((row) => {
+        const val = parseInt(String(row[0] ?? "").trim(), 10);
+        return val === result.drNumber;
+      });
+      if (drRowIdx >= 0) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `DeliveryReceipts!K${drRowIdx + 2}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [[driveFileLink]] },
+        });
+      }
+    } catch (e) {
+      console.warn("Auto-save DR PDF to Drive failed (non-fatal):", e);
+    }
+
+    return NextResponse.json(
+      { ...result, driveFileLink },
+      { status: 201 },
+    );
   } catch (error) {
     const message =
       error instanceof Error

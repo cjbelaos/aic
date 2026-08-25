@@ -2,7 +2,7 @@ import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { ContractPeriodSummary } from "@/types/contract-release";
 
 const SUMMARY_SHEET = "ContractPeriodSummary";
-const SUMMARY_RANGE = `${SUMMARY_SHEET}!A2:P`;
+const SUMMARY_RANGE = `${SUMMARY_SHEET}!A2:Q`;
 // Columns: A: PeriodId, B: ContractItemId, C: ContractId, D: ProductCode,
 //           E: PeriodYear, F: PeriodMonth, G: PeriodQuarter, H: Frequency,
 //           I: EntitledQty, J: ReleasedQty, K: ReleaseCount, L: FirstReleaseDate,

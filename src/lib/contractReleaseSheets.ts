@@ -2,9 +2,8 @@ import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { ContractRelease } from "@/types/contract-release";
 
 const RELEASES_SHEET = "ContractReleases";
-const RELEASES_RANGE = `${RELEASES_SHEET}!A2:L`;
-// Columns: A: ReleaseId, B: ContractItemId, C: ContractId, D: PeriodYear, E: PeriodMonth,
-//           F: PeriodQuarter, G: Frequency, H: ReleaseDate, I: Quantity, J: ReleasedBy, K: Remarks, L: Status
+const RELEASES_RANGE = `${RELEASES_SHEET}!A2:M`;
+// Columns: A: ReleaseId, B: ContractItemId, C: ContractId, D: PeriodYear, E: PeriodMonth, F: PeriodQuarter, G: Frequency, H: ReleaseDate, I: Quantity, J: ReleasedBy, K: Remarks, L: Status, M: DRNo.
 
 /**
  * GET: Fetches all releases, optionally filtered by contractItemId and period.
@@ -41,6 +40,7 @@ export async function getContractReleases(
         releasedBy: row[9] || "",
         remarks: row[10] || undefined,
         status: (row[11] as ContractRelease["status"]) || "Completed",
+        drNumber: row[12] ? parseInt(row[12], 10) : undefined,
       }));
 
     if (contractItemId) {
@@ -55,7 +55,10 @@ export async function getContractReleases(
 
     return releases;
   } catch (error) {
-    console.error("Failed to fetch contract releases from Google Sheets:", error);
+    console.error(
+      "Failed to fetch contract releases from Google Sheets:",
+      error,
+    );
     throw error;
   }
 }
@@ -100,7 +103,7 @@ export async function addContractRelease(
     }
 
     const rowNumber = firstEmptyRowIndex + 2;
-    const updateRange = `${RELEASES_SHEET}!A${rowNumber}:L${rowNumber}`;
+    const updateRange = `${RELEASES_SHEET}!A${rowNumber}:M${rowNumber}`;
 
     const newRowValues = [
       release.id,
@@ -115,6 +118,7 @@ export async function addContractRelease(
       release.releasedBy,
       release.remarks || "",
       release.status,
+      release.drNumber?.toString() || "",
     ];
 
     await sheets.spreadsheets.values.update({

@@ -12,7 +12,8 @@ export interface ContractRelease {
   quantity: number; // 3
   releasedBy: string; // "john.doe"
   remarks?: string; // "Partial delivery"
-  status: "Completed" | "Pending" | "Cancelled";
+  status: "Completed" | "Pending" | "Cancelled" | "Deleted";
+  drNumber?: number; // Linked Delivery Receipt number (e.g., 3620)
 }
 
 export interface ContractPeriodSummary {

@@ -29,6 +29,24 @@ export interface DeliveryReceiptResponse {
   deliveredBy: string;
   comments?: string;
   items: DeliveryItem[];
+  status: string;
   printUrl?: string;
   pdfBase64?: string;
+  driveFileLink?: string;
+}
+
+export interface DeliveryReceiptSummary {
+  drNumber: number;
+  date: string;
+  companyId: string;
+  companyName: string;
+  poNo: string;
+  trNo: string;
+  items: DeliveryItem[];
+  comments: string;
+  preparedBy: string;
+  deliveredBy: string;
+  createdAt: string;
+  status: string;
+  driveFileLink?: string;
 }

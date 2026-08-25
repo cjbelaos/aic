@@ -8,7 +8,7 @@ import {
 } from "@/types/contract";
 
 const ITEMS_SHEET = "ContractItems";
-const ITEMS_RANGE = `${ITEMS_SHEET}!A2:F`;
+const ITEMS_RANGE = `${ITEMS_SHEET}!A2:F`; // Columns: A: ItemId, B: ContractId, C: ProductCode, D: EntitledQty, E: Frequency, F: Status
 const ITEMS_COLUMNS = {
   A: "ItemId",
   B: "ContractId",
@@ -150,29 +150,31 @@ export async function updateContractItemInSheets(
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    const allItems = await getContractItems();
-    const rowIndex = allItems.findIndex((item) => item.id === payload.id);
+    // Read raw rows directly so row indices map 1:1 to the sheet.
+    // (getContractItems filters empty rows, which shifts indices and would
+    // make us write to the wrong row when gaps exist.)
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: ITEMS_RANGE,
+    });
+    const rows = response.data.values || [];
+
+    const rowIndex = rows.findIndex((row) => row[0] === payload.id);
     if (rowIndex === -1) {
       throw new Error(`Contract item with ID ${payload.id} not found.`);
     }
 
     const rowNumber = rowIndex + 2; // Offset for header row
     const updateRange = `${ITEMS_SHEET}!A${rowNumber}:F${rowNumber}`;
-    const existing = allItems[rowIndex];
+    const existing = rows[rowIndex];
 
     const updatedValues = [
-      existing.id,
-      payload.contractId !== undefined
-        ? payload.contractId
-        : existing.contractId,
-      payload.productCode !== undefined
-        ? payload.productCode
-        : existing.productCode,
-      payload.entitledQty !== undefined
-        ? payload.entitledQty
-        : existing.entitledQty,
-      payload.frequency !== undefined ? payload.frequency : existing.frequency,
-      payload.status !== undefined ? payload.status : existing.status,
+      existing[0] ?? payload.id,
+      payload.contractId !== undefined ? payload.contractId : existing[1],
+      payload.productCode !== undefined ? payload.productCode : existing[2],
+      payload.entitledQty !== undefined ? payload.entitledQty : existing[3],
+      payload.frequency !== undefined ? payload.frequency : existing[4],
+      payload.status !== undefined ? payload.status : existing[5],
     ];
 
     await sheets.spreadsheets.values.update({
@@ -183,7 +185,7 @@ export async function updateContractItemInSheets(
     });
 
     return {
-      id: existing.id,
+      id: String(updatedValues[0]),
       contractId: String(updatedValues[1]),
       productCode: String(updatedValues[2]),
       entitledQty: Number(updatedValues[3]),
@@ -204,8 +206,16 @@ export async function deleteContractItemFromSheets(id: string): Promise<void> {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    const allItems = await getContractItems();
-    const rowIndex = allItems.findIndex((item) => item.id === id);
+    // Read raw rows directly so row indices map 1:1 to the sheet.
+    // (getContractItems filters empty rows, which shifts indices and would
+    // make us clear the wrong row when gaps exist.)
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: ITEMS_RANGE,
+    });
+    const rows = response.data.values || [];
+
+    const rowIndex = rows.findIndex((row) => row[0] === id);
     if (rowIndex === -1) return;
 
     const rowNumber = rowIndex + 2;

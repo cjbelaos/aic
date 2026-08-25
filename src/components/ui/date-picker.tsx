@@ -10,13 +10,23 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import type { Matcher } from "react-day-picker";
 
 type DatePickerProps = {
   value?: Date;
   onChange?: (date: Date | undefined) => void;
+  disabled?: Matcher | Matcher[];
+  startMonth?: Date;
+  endMonth?: Date;
 };
 
-export function DatePicker({ value, onChange }: DatePickerProps) {
+export function DatePicker({
+  value,
+  onChange,
+  disabled,
+  startMonth,
+  endMonth,
+}: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
   const [internalDate, setInternalDate] = React.useState<Date | undefined>(
     value,
@@ -47,6 +57,9 @@ export function DatePicker({ value, onChange }: DatePickerProps) {
             selected={displayDate}
             defaultMonth={displayDate}
             captionLayout="dropdown"
+            disabled={disabled}
+            startMonth={startMonth}
+            endMonth={endMonth}
             onSelect={(date) => {
               setInternalDate(date);
               onChange?.(date);

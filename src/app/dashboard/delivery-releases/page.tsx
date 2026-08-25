@@ -1,13 +1,30 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Plus, Trash2, Printer, Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { EntityTable, ArrowUpDown } from "@/components/ui/entity-table";
+import {
+  Plus,
+  Trash2,
+  Printer,
+  Loader2,
+  Eye,
+  Pencil,
+  ExternalLink,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
@@ -15,8 +32,22 @@ import productService from "@/lib/services/product.service";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
 import userService from "@/lib/services/user.service";
+import contractItemService from "@/lib/services/contract-item.service";
 import { DeliveryReceiptPreviewModal } from "@/components/delivery-receipt-preview-modal";
-import { DeliveryReceiptResponse } from "@/types/delivery";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DeliveryReceiptResponse,
+  DeliveryReceiptSummary,
+  DeliveryItem,
+} from "@/types/deliveryReceipt";
 
 interface LineItem {
   productCode: string;
@@ -25,12 +56,26 @@ interface LineItem {
   quantity: number;
 }
 
+const EMPTY_LINE_ITEM: LineItem = {
+  productCode: "",
+  unit: "PC",
+  description: "",
+  quantity: 1,
+};
+
 export default function DeliveryReleasePage() {
+  /* List state */
+  const [receipts, setReceipts] = useState<DeliveryReceiptSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  /* Reference data (shared) */
   const [companies, setCompanies] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<string[]>([]);
-  const [contracts, setContracts] = useState<any[]>([]);
 
+  /* Create modal state */
+  const [modalOpen, setModalOpen] = useState(false);
+  const [contracts, setContracts] = useState<any[]>([]);
   const [selectedCompany, setSelectedCompany] = useState("");
   const [deliveryDate, setDeliveryDate] = useState(
     new Date().toISOString().split("T")[0],
@@ -42,7 +87,46 @@ export default function DeliveryReleasePage() {
   const [comments, setComments] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [drResult, setDrResult] = useState<DeliveryReceiptResponse | null>(null);
+
+  /* Print / View preview modals */
+  const [drResult, setDrResult] = useState<DeliveryReceiptResponse | null>(
+    null,
+  );
+  const [viewDr, setViewDr] = useState<DeliveryReceiptResponse | null>(null);
+
+  /* Edit / Delete state */
+  const [editTarget, setEditTarget] = useState<DeliveryReceiptSummary | null>(
+    null,
+  );
+  const [deleteTarget, setDeleteTarget] =
+    useState<DeliveryReceiptSummary | null>(null);
+  const [viewItemsTarget, setViewItemsTarget] =
+    useState<DeliveryReceiptSummary | null>(null);
+
+  /* Edit modal form state */
+  const [editDate, setEditDate] = useState("");
+  const [editPoNo, setEditPoNo] = useState("");
+  const [editTrNo, setEditTrNo] = useState("");
+  const [editComments, setEditComments] = useState("");
+  const [editDeliveredBy, setEditDeliveredBy] = useState("");
+  const [editStatus, setEditStatus] = useState("");
+  const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  /* Fetch list + reference data */
+  const fetchList = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await deliveryService.getAll();
+      setReceipts(data);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchList();
+  }, [fetchList]);
 
   useEffect(() => {
     Promise.all([
@@ -55,7 +139,6 @@ export default function DeliveryReleasePage() {
       setDrivers(Array.isArray(dData) ? dData : []);
     });
 
-    // Auto-populate Prepared By from logged-in user (resolved via API)
     (async () => {
       try {
         const raw = window.localStorage.getItem("auth:user");
@@ -73,20 +156,47 @@ export default function DeliveryReleasePage() {
     })();
   }, []);
 
-  // Fetch contract entitlements & usage when company changes
+  // Fetch contract entitlements (items) when company changes in modal
   useEffect(() => {
     if (!selectedCompany) {
       setContracts([]);
       return;
     }
-    contractService.getEntitlementsByCustomer(selectedCompany).then((res) => {
-      setContracts(res);
-    });
+    (async () => {
+      try {
+        const companyContracts =
+          await contractService.getByCompanyId(selectedCompany);
+        if (!companyContracts.length) {
+          setContracts([]);
+          return;
+        }
+
+        const allItems = await contractItemService.getAll();
+        const contractIds = new Set(companyContracts.map((c) => c.id));
+        const companyItems = allItems.filter((item) =>
+          contractIds.has(item.contractId),
+        );
+
+        const mapped = companyItems.map((item) => ({
+          productName: productNameByCode[item.productCode] || item.productCode,
+          entitledQty: item.entitledQty,
+          unit: "",
+          frequency: item.frequency,
+          releasedThisPeriod: 0,
+          productCode: item.productCode,
+          contractId: item.contractId,
+        }));
+
+        setContracts(mapped);
+      } catch {
+        setContracts([]);
+      }
+    })();
   }, [selectedCompany]);
 
+  /* Derived options */
   const companyOptions = useMemo(
-    () =>
-      companies.map((c) => ({ value: c.companyId, label: c.companyName })),
+    () => companies.map((c) => ({ value: c.companyId, label: c.companyName })),
     [companies],
   );
 
@@ -96,16 +206,167 @@ export default function DeliveryReleasePage() {
     [products],
   );
 
+  const productNameByCode = useMemo(() => {
+    const map: Record<string, string> = {};
+    products.forEach((p) => {
+      map[p.code] = p.name;
+    });
+    return map;
+  }, [products]);
+
   const driverOptions = useMemo(
     () => drivers.map((d) => ({ value: d, label: d })),
     [drivers],
   );
 
+  /* Table columns */
+  const columns: ColumnDef<DeliveryReceiptSummary>[] = useMemo(
+    () => [
+      {
+        accessorKey: "drNumber",
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            DR No.
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        cell: ({ getValue }) => (
+          <span className="font-semibold tabular-nums">
+            {String(getValue())}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "date",
+        header: "Date",
+        cell: ({ getValue }) => {
+          const raw = String(getValue() ?? "");
+          try {
+            const d = new Date(raw + (raw.length === 10 ? "T00:00:00" : ""));
+            return d.toLocaleDateString("en-PH", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            });
+          } catch {
+            return raw;
+          }
+        },
+      },
+      {
+        accessorKey: "companyName",
+        header: "Customer",
+      },
+      {
+        id: "itemCount",
+        header: "Items",
+        cell: ({ row }) => `${row.original.items?.length ?? 0} item(s)`,
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ getValue }) => {
+          const s = String(getValue() ?? "created");
+          const map: Record<
+            string,
+            {
+              label: string;
+              variant: "default" | "secondary" | "outline" | "destructive";
+            }
+          > = {
+            created: { label: "Created", variant: "secondary" },
+            printed: { label: "Printed", variant: "outline" },
+            delivered: { label: "Delivered", variant: "default" },
+            signed: { label: "Signed", variant: "secondary" },
+            returned: { label: "Returned", variant: "outline" },
+            deleted: { label: "Deleted", variant: "destructive" },
+          };
+          const cfg = map[s] || map.created;
+          return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
+        },
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const locked = [
+            "delivered",
+            "signed",
+            "returned",
+            "deleted",
+          ].includes(row.original.status);
+          return (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => setViewItemsTarget(row.original)}
+                title="View Items"
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+              {row.original.driveFileLink && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-blue-600 hover:text-blue-800"
+                  onClick={() =>
+                    window.open(row.original.driveFileLink, "_blank")
+                  }
+                  title="View PDF"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              )}
+              {!locked && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                    onClick={() => setEditTarget(row.original)}
+                    title="Edit"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => setDeleteTarget(row.original)}
+                    title="Delete"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+            </div>
+          );
+        },
+      },
+    ],
+    [],
+  );
+
+  /* Create modal handlers */
+  const openCreateModal = () => {
+    setSelectedCompany("");
+    setDeliveryDate(new Date().toISOString().split("T")[0]);
+    setPoNo("");
+    setTrNo("");
+    setDeliveredBy("");
+    setComments("");
+    setLineItems([]);
+    setContracts([]);
+    setModalOpen(true);
+  };
+
   const addLineItem = () => {
-    setLineItems([
-      ...lineItems,
-      { productCode: "", unit: "PC", description: "", quantity: 1 },
-    ]);
+    setLineItems([...lineItems, { ...EMPTY_LINE_ITEM }]);
   };
 
   const updateLineItem = (index: number, field: keyof LineItem, value: any) => {
@@ -115,7 +376,7 @@ export default function DeliveryReleasePage() {
       updated[index] = {
         ...updated[index],
         productCode: value,
-        unit: prod?.unitCode || "PC",
+        unit: prod?.unit?.code || "PC",
         description: prod?.name || prod?.description || "",
       };
     } else {
@@ -158,6 +419,8 @@ export default function DeliveryReleasePage() {
       const res = await deliveryService.createAndPopulateSheet(payload);
       toast.success("Delivery receipt recorded!");
       setDrResult(res);
+      setModalOpen(false);
+      fetchList();
     } catch (err: any) {
       toast.error(err.message || "Failed to process delivery receipt.");
     } finally {
@@ -165,198 +428,556 @@ export default function DeliveryReleasePage() {
     }
   };
 
+  /* Delete handler */
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setSubmitting(true);
+    try {
+      await deliveryService.delete(deleteTarget.drNumber);
+      toast.success(`DR #${deleteTarget.drNumber} deleted.`);
+      setDeleteTarget(null);
+      fetchList();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete delivery receipt.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /* Populate edit form when target changes */
+  useEffect(() => {
+    if (editTarget) {
+      setEditDate(editTarget.date);
+      setEditPoNo(editTarget.poNo);
+      setEditTrNo(editTarget.trNo);
+      setEditComments(editTarget.comments);
+      setEditDeliveredBy(editTarget.deliveredBy);
+      setEditStatus(editTarget.status || "created");
+      setEditLineItems(
+        editTarget.items.map((item) => ({
+          productCode: item.productCode,
+          unit: item.unit,
+          description: item.description,
+          quantity: item.quantity,
+        })),
+      );
+    }
+  }, [editTarget]);
+
+  /* Edit line item helpers */
+  const addEditLineItem = () =>
+    setEditLineItems((prev) => [...prev, { ...EMPTY_LINE_ITEM }]);
+  const removeEditLineItem = (idx: number) =>
+    setEditLineItems((prev) => prev.filter((_, i) => i !== idx));
+  const updateEditLineItem = (
+    idx: number,
+    field: keyof LineItem,
+    value: string | number,
+  ) =>
+    setEditLineItems((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)),
+    );
+
+  /* Edit save handler */
+  const handleEditSave = async () => {
+    if (!editTarget) return;
+    setEditSubmitting(true);
+    try {
+      const payload = {
+        date: editDate,
+        poNo: editPoNo,
+        trNo: editTrNo,
+        comments: editComments,
+        deliveredBy: editDeliveredBy,
+        status: editStatus,
+        items: editLineItems
+          .filter((li) => li.productCode)
+          .map((li) => ({
+            productCode: li.productCode,
+            unit: li.unit,
+            description: li.description,
+            quantity: li.quantity,
+          })),
+      };
+      await deliveryService.update(editTarget.drNumber, payload);
+      toast.success(`DR #${editTarget.drNumber} updated.`);
+      setEditTarget(null);
+      fetchList();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update delivery receipt.");
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
   return (
     <>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
-      {/* Left 2 Columns: Delivery Form */}
-      <Card className="lg:col-span-2">
-        <CardHeader>
-          <CardTitle>Create Delivery Receipt</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="lg:col-span-2 space-y-1.5 w-full">
-              <Label>
-                Customer Name <span className="text-destructive">*</span>
-              </Label>
-              <SearchableSelect
-                value={selectedCompany}
-                onValueChange={setSelectedCompany}
-                options={companyOptions}
-                placeholder="Select Customer"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>
-                Date <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                type="date"
-                value={deliveryDate}
-                onChange={(e) => setDeliveryDate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>PO NO.</Label>
-              <Input
-                value={poNo}
-                onChange={(e) => setPoNo(e.target.value)}
-                placeholder="e.g. PO-10293"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>TR#</Label>
-              <Input
-                value={trNo}
-                onChange={(e) => setTrNo(e.target.value)}
-                placeholder="e.g. TR-8841"
-              />
-            </div>
-          </div>
+      <div className="p-6 space-y-6">
+        <EntityTable
+          title="Delivery Receipts"
+          columns={columns}
+          data={receipts}
+          loading={loading}
+          onCreateNew={openCreateModal}
+        />
+      </div>
 
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <Label className="text-base font-semibold">Products / Consumables</Label>
-              <Button size="sm" variant="outline" onClick={addLineItem}>
-                <Plus className="h-4 w-4 mr-1" /> Add Item
-              </Button>
+      {/* Create DR Dialog */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Delivery Receipt</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Row 1: Customer Name and Date */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5 w-full">
+                <Label>
+                  Customer Name <span className="text-destructive">*</span>
+                </Label>
+                <SearchableSelect
+                  value={selectedCompany}
+                  onValueChange={setSelectedCompany}
+                  options={companyOptions}
+                  placeholder="Select Customer"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>
+                  Date <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  type="date"
+                  value={deliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                />
+              </div>
             </div>
 
-            {lineItems.map((item, idx) => (
-              <div key={idx} className="flex gap-2 items-center">
-                <div className="flex-1 min-w-[200px]">
-                  <SearchableSelect
-                    value={item.productCode}
-                    onValueChange={(v) => updateLineItem(idx, "productCode", v)}
-                    options={productOptions}
-                    placeholder="Select Product"
-                  />
-                </div>
+            {/* Row 2: PO NO. and TR# */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>PO NO.</Label>
                 <Input
-                  className="w-20 shrink-0"
-                  value={item.unit}
-                  readOnly
-                  placeholder="Unit"
+                  value={poNo}
+                  onChange={(e) => setPoNo(e.target.value)}
+                  placeholder="e.g. PO-10293"
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>TR#</Label>
                 <Input
-                  className="w-24 shrink-0"
-                  type="number"
-                  min="1"
-                  value={item.quantity}
-                  onChange={(e) =>
-                    updateLineItem(
-                      idx,
-                      "quantity",
-                      parseInt(e.target.value) || 1,
-                    )
-                  }
+                  value={trNo}
+                  onChange={(e) => setTrNo(e.target.value)}
+                  placeholder="e.g. TR-8841"
                 />
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="text-destructive shrink-0"
-                  onClick={() => removeLineItem(idx)}
-                >
-                  <Trash2 className="h-4 w-4" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label className="text-base font-semibold">
+                  Products / Consumables
+                </Label>
+                <Button size="sm" variant="outline" onClick={addLineItem}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Item
                 </Button>
               </div>
-            ))}
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>
-                Prepared By <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                value={preparedBy}
-                readOnly
-                placeholder="Full name"
-              />
-            </div>
-            <div className="space-y-1.5 w-full">
-              <Label>
-                Delivered By <span className="text-destructive">*</span>
-              </Label>
-              <SearchableSelect
-                value={deliveredBy}
-                onValueChange={setDeliveredBy}
-                options={driverOptions}
-                placeholder="Select Personnel"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Comments / Special Instructions</Label>
-            <Textarea
-              rows={3}
-              value={comments}
-              onChange={(e) => setComments(e.target.value)}
-              placeholder="e.g. MONTHLY PMS FOR THE MONTH OF AUGUST"
-              />
-          </div>
-
-          <Button
-            onClick={handleSaveAndPrint}
-            disabled={submitting}
-            className="w-full"
-          >
-            {submitting ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Printer className="mr-2 h-4 w-4" />
-            )}
-            Save & Print Delivery Receipt
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Right Column: Contract Entitlement Tracker */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Contract Entitlements</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!selectedCompany ? (
-            <p className="text-sm text-muted-foreground">
-              Select a customer to view active consumable entitlements.
-            </p>
-          ) : contracts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No active contract found for this customer.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {contracts.map((c, i) => (
-                <div
-                  key={i}
-                  className="p-3 border rounded-lg space-y-1 bg-muted/40 text-sm"
-                >
-                  <div className="font-semibold text-primary">
-                    {c.productName}
+              {lineItems.map((item, idx) => (
+                <div key={idx} className="flex gap-2 items-center">
+                  <div className="flex-1 min-w-[200px]">
+                    <SearchableSelect
+                      value={item.productCode}
+                      onValueChange={(v) =>
+                        updateLineItem(idx, "productCode", v)
+                      }
+                      options={productOptions}
+                      placeholder="Select Product"
+                    />
                   </div>
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>
-                      Entitled: {c.entitledQty} {c.unit} / {c.frequency}
-                    </span>
-                    <span>Released: {c.releasedThisPeriod}</span>
-                  </div>
+                  <Input
+                    className="w-20 shrink-0"
+                    value={item.unit}
+                    readOnly
+                    placeholder="Unit"
+                  />
+                  <Input
+                    className="w-24 shrink-0"
+                    type="number"
+                    min="1"
+                    value={item.quantity}
+                    onChange={(e) =>
+                      updateLineItem(
+                        idx,
+                        "quantity",
+                        parseInt(e.target.value) || 1,
+                      )
+                    }
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-destructive shrink-0"
+                    onClick={() => removeLineItem(idx)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
 
-    <DeliveryReceiptPreviewModal
-      dr={drResult}
-      open={!!drResult}
-      onOpenChange={(v) => {
-        if (!v) setDrResult(null);
-      }}
-    />
-  </>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>
+                  Prepared By <span className="text-destructive">*</span>
+                </Label>
+                <Input value={preparedBy} readOnly placeholder="Full name" />
+              </div>
+              <div className="space-y-1.5 w-full">
+                <Label>
+                  Delivered By <span className="text-destructive">*</span>
+                </Label>
+                <SearchableSelect
+                  value={deliveredBy}
+                  onValueChange={setDeliveredBy}
+                  options={driverOptions}
+                  placeholder="Select Personnel"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Comments / Special Instructions</Label>
+              <Textarea
+                rows={3}
+                value={comments}
+                onChange={(e) => setComments(e.target.value)}
+                placeholder="e.g. MONTHLY PMS FOR THE MONTH OF AUGUST"
+              />
+            </div>
+
+            {selectedCompany && contracts.length > 0 && (
+              <Card>
+                <CardContent className="pt-4 space-y-2">
+                  {contracts.map((c, i) => (
+                    <div
+                      key={i}
+                      className="p-3 border rounded-lg space-y-1 bg-muted/40 text-sm"
+                    >
+                      <div className="font-semibold text-primary">
+                        {c.productName}
+                      </div>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>
+                          Entitled: {c.entitledQty} {c.unit} / {c.frequency}
+                        </span>
+                        <span>Released: {c.releasedThisPeriod}</span>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setModalOpen(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSaveAndPrint} disabled={submitting}>
+              {submitting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Printer className="mr-2 h-4 w-4" />
+              )}
+              Save &amp; Print Delivery Receipt
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Print Preview Modal (after creation) */}
+      <DeliveryReceiptPreviewModal
+        dr={drResult}
+        open={!!drResult}
+        onOpenChange={(v) => {
+          if (!v) setDrResult(null);
+        }}
+      />
+
+      {/* Delete Confirmation */}
+      <ConfirmDeleteDialog
+        open={!!deleteTarget}
+        title="Delete Delivery Receipt"
+        description={`Are you sure you want to delete DR #${deleteTarget?.drNumber}? This action cannot be undone.`}
+        onConfirm={handleDeleteConfirm}
+        onClose={() => setDeleteTarget(null)}
+      />
+
+      {/* Edit DR Dialog */}
+      <Dialog
+        open={!!editTarget}
+        onOpenChange={(v) => {
+          if (!v) setEditTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit DR #{editTarget?.drNumber}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            {/* Row 1: Customer Name and Date */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Customer</Label>
+                <Input
+                  value={editTarget?.companyName ?? ""}
+                  readOnly
+                  className="bg-muted"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>
+                  Date <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Row 2: PO NO. and TR# */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>PO NO.</Label>
+                <Input
+                  value={editPoNo}
+                  onChange={(e) => setEditPoNo(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>TR#</Label>
+                <Input
+                  value={editTrNo}
+                  onChange={(e) => setEditTrNo(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label className="text-base font-semibold">
+                  Products / Consumables
+                </Label>
+                <Button size="sm" variant="outline" onClick={addEditLineItem}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Item
+                </Button>
+              </div>
+              {editLineItems.map((item, idx) => (
+                <div key={idx} className="flex gap-2 items-center">
+                  <div className="flex-1 min-w-[200px]">
+                    <SearchableSelect
+                      value={item.productCode}
+                      onValueChange={(v) =>
+                        updateEditLineItem(idx, "productCode", v)
+                      }
+                      options={productOptions}
+                      placeholder="Select Product"
+                    />
+                  </div>
+                  <Input
+                    className="w-20 shrink-0"
+                    type="number"
+                    min={1}
+                    value={item.quantity}
+                    onChange={(e) =>
+                      updateEditLineItem(
+                        idx,
+                        "quantity",
+                        parseInt(e.target.value) || 0,
+                      )
+                    }
+                  />
+                  <Input
+                    className="w-16 shrink-0"
+                    value={item.unit}
+                    onChange={(e) =>
+                      updateEditLineItem(idx, "unit", e.target.value)
+                    }
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive shrink-0"
+                    onClick={() => removeEditLineItem(idx)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Prepared By</Label>
+                <Input
+                  value={editTarget?.preparedBy ?? ""}
+                  readOnly
+                  className="bg-muted"
+                />
+              </div>
+              <div className="space-y-1.5 w-full">
+                <Label>
+                  Delivered By <span className="text-destructive">*</span>
+                </Label>
+                <SearchableSelect
+                  value={editDeliveredBy}
+                  onValueChange={setEditDeliveredBy}
+                  options={driverOptions}
+                  placeholder="Select Personnel"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={editStatus} onValueChange={setEditStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="created">Created</SelectItem>
+                  <SelectItem value="printed">Printed</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="signed">Signed</SelectItem>
+                  <SelectItem value="returned">Returned</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Comments / Special Instructions</Label>
+              <Textarea
+                rows={3}
+                value={editComments}
+                onChange={(e) => setEditComments(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditTarget(null)}
+              disabled={editSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleEditSave} disabled={editSubmitting}>
+              {editSubmitting && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View DR Modal */}
+      <DeliveryReceiptPreviewModal
+        dr={viewDr}
+        open={!!viewDr}
+        onOpenChange={(v) => {
+          if (!v) setViewDr(null);
+        }}
+      />
+
+      {/* View Items Dialog */}
+      <Dialog
+        open={!!viewItemsTarget}
+        onOpenChange={(v) => {
+          if (!v) setViewItemsTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>DR #{viewItemsTarget?.drNumber} — Items</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">Customer:</span>{" "}
+                {viewItemsTarget?.companyName}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Date:</span>{" "}
+                {viewItemsTarget?.date}
+              </div>
+              <div>
+                <span className="text-muted-foreground">PO No.:</span>{" "}
+                {viewItemsTarget?.poNo || "—"}
+              </div>
+              <div>
+                <span className="text-muted-foreground">TR#:</span>{" "}
+                {viewItemsTarget?.trNo || "—"}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Status:</span>{" "}
+                <Badge variant="outline">{viewItemsTarget?.status}</Badge>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Delivered By:</span>{" "}
+                {viewItemsTarget?.deliveredBy || "—"}
+              </div>
+            </div>
+            <div className="border rounded-md">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium">#</th>
+                    <th className="text-left px-3 py-2 font-medium">
+                      Product Name
+                    </th>
+                    <th className="text-right px-3 py-2 font-medium">Qty</th>
+                    <th className="text-left px-3 py-2 font-medium">Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewItemsTarget?.items.map((item, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="px-3 py-2">{idx + 1}</td>
+                      <td className="px-3 py-2 text-sm">
+                        {item.description || productNameByCode[item.productCode] || item.productCode}
+                      </td>
+                      <td className="px-3 py-2 text-right">{item.quantity}</td>
+                      <td className="px-3 py-2">{item.unit}</td>
+                    </tr>
+                  ))}
+                  {(!viewItemsTarget?.items ||
+                    viewItemsTarget.items.length === 0) && (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-3 py-4 text-center text-muted-foreground"
+                      >
+                        No items found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

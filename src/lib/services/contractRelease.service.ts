@@ -15,6 +15,7 @@ const contractReleaseService = {
     remarks?: string,
     contractId?: string,
     productCode?: string,
+    drNumber?: number,
   ): Promise<ContractRelease | null> => {
     try {
       const response = await axios.post<ContractRelease>(`${API_BASE_URL}/process`, {
@@ -25,6 +26,7 @@ const contractReleaseService = {
         releaseDate,
         releasedBy,
         remarks,
+        drNumber,
       });
       return response.data;
     } catch (error) {

@@ -40,7 +40,7 @@ async function updatePeriodSummary(
     throw new Error(`Contract item ${contractItemId} not found.`);
   }
 
-  const totalReleased = releases.reduce((sum, r) => sum + r.quantity, 0);
+  const totalReleased = releases.filter((r) => r.status !== "Deleted").reduce((sum, r) => sum + r.quantity, 0);
   const entitledQty = contractItem.entitledQty;
 
   // Determine status
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { contractItemId, contractId, productCode, quantity, releaseDate, releasedBy, remarks } = body;
+    const { contractItemId, contractId, productCode, quantity, releaseDate, releasedBy, remarks, drNumber } = body;
 
     // Validation
     if (!quantity || quantity < 1) {
@@ -155,10 +155,9 @@ export async function POST(request: Request) {
         periodInfo.month,
       );
 
-      const totalReleased = existingReleases.reduce(
-        (sum, r) => sum + r.quantity,
-        0,
-      );
+      const totalReleased = existingReleases
+        .filter((r) => r.status !== "Deleted")
+        .reduce((sum, r) => sum + r.quantity, 0);
       const remaining = contractItem.entitledQty - totalReleased;
 
       if (quantity > remaining) {
@@ -183,6 +182,7 @@ export async function POST(request: Request) {
         releasedBy,
         remarks,
         status: "Completed",
+        drNumber,
       };
 
       // Save release
@@ -229,6 +229,7 @@ export async function POST(request: Request) {
       releasedBy,
       remarks,
       status: "Completed",
+      drNumber,
     };
 
     // Save release

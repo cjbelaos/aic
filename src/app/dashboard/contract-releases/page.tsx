@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { Loader2, Plus, AlertTriangle, Clock, Trash2 } from "lucide-react";
+import {
+  Loader2,
+  Plus,
+  AlertTriangle,
+  Clock,
+  Trash2,
+  Printer,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,13 +54,19 @@ import deliveryService from "@/lib/services/delivery.service";
 import { ContractWithItems } from "@/types/contract";
 import { ContractPeriodSummary } from "@/types/contract-release";
 import { Product } from "@/types/product";
-import { DeliveryReceiptResponse } from "@/types/delivery";
+import { DeliveryReceiptResponse } from "@/types/deliveryReceipt";
 import { format } from "date-fns";
 import { DeliveryReceiptPreviewModal } from "@/components/delivery-receipt-preview-modal";
 
 /* ── Status Badge Helper ─────────────────────────────── */
 function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
+  const config: Record<
+    string,
+    {
+      variant: "default" | "secondary" | "destructive" | "outline";
+      label: string;
+    }
+  > = {
     Completed: { variant: "default", label: "Done" },
     Partial: { variant: "secondary", label: "Partial" },
     Pending: { variant: "outline", label: "Pending" },
@@ -69,7 +82,11 @@ function SimpleTable<T extends Record<string, any>>({
   data,
   loading,
 }: {
-  columns: { key: string; header: string; render?: (row: T) => React.ReactNode }[];
+  columns: {
+    key: string;
+    header: string;
+    render?: (row: T) => React.ReactNode;
+  }[];
   data: T[];
   loading?: boolean;
 }) {
@@ -104,9 +121,7 @@ function SimpleTable<T extends Record<string, any>>({
             <TableRow key={(row as any).periodId || (row as any).id || idx}>
               {columns.map((col) => (
                 <TableCell key={col.key}>
-                  {col.render
-                    ? col.render(row)
-                    : String(row[col.key] ?? "-")}
+                  {col.render ? col.render(row) : String(row[col.key] ?? "-")}
                 </TableCell>
               ))}
             </TableRow>
@@ -143,15 +158,24 @@ export default function ContractReleasesPage() {
   const [remarks, setRemarks] = useState("");
 
   // Period summaries for selected contract
-  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
-  const [periodSummaries, setPeriodSummaries] = useState<ContractPeriodSummary[]>([]);
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(
+    null,
+  );
+  const [periodSummaries, setPeriodSummaries] = useState<
+    ContractPeriodSummary[]
+  >([]);
   const [summariesLoading, setSummariesLoading] = useState(false);
 
   // DR preview
-  const [drResult, setDrResult] = useState<DeliveryReceiptResponse | null>(null);
+  const [drResult, setDrResult] = useState<DeliveryReceiptResponse | null>(
+    null,
+  );
+  const [lastDrNumber, setLastDrNumber] = useState<number | null>(null);
 
   // Overdue releases
-  const [overdueReleases, setOverdueReleases] = useState<ContractPeriodSummary[]>([]);
+  const [overdueReleases, setOverdueReleases] = useState<
+    ContractPeriodSummary[]
+  >([]);
 
   // Product lookup: productCode -> product name
   const productMap = useMemo(() => {
@@ -170,12 +194,13 @@ export default function ContractReleasesPage() {
 
   const loadContracts = useCallback(async () => {
     try {
-      const [contractsData, items, companyResult, productResult] = await Promise.all([
-        contractService.getAll(),
-        contractItemService.getAll(),
-        companyService.getAll(),
-        productService.getAll(),
-      ]);
+      const [contractsData, items, companyResult, productResult] =
+        await Promise.all([
+          contractService.getAll(),
+          contractItemService.getAll(),
+          companyService.getAll(),
+          productService.getAll(),
+        ]);
 
       const contractsWithItems: ContractWithItems[] = contractsData.map(
         (contract) => ({
@@ -360,27 +385,13 @@ export default function ContractReleasesPage() {
 
     setSaving(true);
     try {
-      // Process all releases sequentially (each updates the period summary)
-      for (const row of validRows) {
-        await contractReleaseService.processRelease(
-          row.contractItemId,
-          row.quantity,
-          format(releaseDate, "yyyy-MM-dd"),
-          releasedBy,
-          remarks || undefined,
-          releaseContractId,
-          row.productCode,
-        );
-      }
+      // ── Step 1: Create the Delivery Receipt FIRST ───────────────
+      let drNumber: number | undefined;
+      const contract = contracts.find((c) => c.id === releaseContractId);
+      const companyId = contract?.companyId || "";
 
-      toast.success(`${validRows.length} release(s) processed successfully.`);
-      setReleaseOpen(false);
-
-      // Auto-generate Delivery Receipt
-      try {
-        const contract = contracts.find((c) => c.id === releaseContractId);
-        const companyId = contract?.companyId || "";
-        if (companyId) {
+      if (companyId) {
+        try {
           const drPayload = {
             companyId,
             date: format(releaseDate, "yyyy-MM-dd"),
@@ -397,325 +408,438 @@ export default function ContractReleasesPage() {
             })),
           };
           const drRes = await deliveryService.createAndPopulateSheet(drPayload);
+          drNumber = drRes.drNumber;
           setDrResult(drRes);
+          setLastDrNumber(drRes.drNumber);
+        } catch (drErr: any) {
+          console.warn("DR generation before contract release failed:", drErr);
+          toast.error("Failed to generate Delivery Receipt. Release aborted.");
+          return;
         }
-      } catch (drErr: any) {
-        console.warn("DR generation after contract release failed:", drErr);
-        toast.error("Release processed, but DR generation failed.");
       }
+
+      // ── Step 2: Process all releases with linked DR ────────────
+      for (const row of validRows) {
+        await contractReleaseService.processRelease(
+          row.contractItemId,
+          row.quantity,
+          format(releaseDate, "yyyy-MM-dd"),
+          releasedBy,
+          remarks || undefined,
+          releaseContractId,
+          row.productCode,
+          drNumber,
+        );
+      }
+
+      toast.success(`${validRows.length} release(s) processed successfully.`);
+      setReleaseOpen(false);
 
       // Refresh data
       if (selectedContractId) loadPeriodSummaries(selectedContractId);
       loadOverdue();
     } catch (err: any) {
-      const msg = err?.response?.data?.error || err?.message || "Failed to process releases.";
+      const msg =
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to process releases.";
       toast.error(msg);
     } finally {
       setSaving(false);
     }
   };
 
+  /* ── Re-view last generated DR ─────────────────────── */
+  const viewLastDr = useCallback(async () => {
+    if (!lastDrNumber) {
+      toast.error("No DR has been generated yet.");
+      return;
+    }
+    try {
+      const allDr = await deliveryService.getAll();
+      const found = allDr.find((d) => d.drNumber === lastDrNumber);
+      if (!found) {
+        toast.error(`DR #${lastDrNumber} not found.`);
+        return;
+      }
+      const contract = contracts.find((c) => c.id === selectedContractId);
+      setDrResult({
+        success: true,
+        drNumber: found.drNumber,
+        companyName: found.companyName,
+        address: "",
+        tin: "",
+        date: found.date,
+        poNo: found.poNo,
+        trNo: found.trNo,
+        preparedBy: found.preparedBy,
+        deliveredBy: found.deliveredBy,
+        comments: found.comments,
+        items: found.items,
+        status: found.status,
+        driveFileLink: found.driveFileLink,
+      });
+    } catch {
+      toast.error("Failed to load DR preview.");
+    }
+  }, [lastDrNumber, contracts, selectedContractId]);
+
   /* ── Overdue Columns Config ────────────────────────── */
   const overdueColumns = [
-    { key: "contractId", header: "Contract", render: (row: ContractPeriodSummary) => (
-      <span className="font-mono text-xs">{row.contractId}</span>
-    )},
-    { key: "productCode", header: "Product", render: (row: ContractPeriodSummary) => (
-      <span className="font-mono text-xs">{productMap.get(row.productCode) || row.productCode}</span>
-    )},
-    { key: "period", header: "Period", render: (row: ContractPeriodSummary) => (
-      <span>{`${row.periodYear}-${String(row.periodMonth).padStart(2, "0")}`}</span>
-    )},
+    {
+      key: "contractId",
+      header: "Contract",
+      render: (row: ContractPeriodSummary) => (
+        <span className="font-mono text-xs">{row.contractId}</span>
+      ),
+    },
+    {
+      key: "productCode",
+      header: "Product",
+      render: (row: ContractPeriodSummary) => (
+        <span className="font-mono text-xs">
+          {productMap.get(row.productCode) || row.productCode}
+        </span>
+      ),
+    },
+    {
+      key: "period",
+      header: "Period",
+      render: (row: ContractPeriodSummary) => (
+        <span>{`${row.periodYear}-${String(row.periodMonth).padStart(2, "0")}`}</span>
+      ),
+    },
     { key: "entitledQty", header: "Expected" },
     { key: "releasedQty", header: "Released" },
-    { key: "variance", header: "Variance", render: (row: ContractPeriodSummary) => {
-      const variance = row.entitledQty - row.releasedQty;
-      return <span className="text-destructive font-semibold">-{variance}</span>;
-    }},
+    {
+      key: "variance",
+      header: "Variance",
+      render: (row: ContractPeriodSummary) => {
+        const variance = row.entitledQty - row.releasedQty;
+        return (
+          <span className="text-destructive font-semibold">-{variance}</span>
+        );
+      },
+    },
   ];
 
   /* ── Summary Columns Config ────────────────────────── */
   const summaryColumns = [
-    { key: "productCode", header: "Product", render: (row: ContractPeriodSummary) => (
-      <span className="font-mono text-xs">{productMap.get(row.productCode) || row.productCode}</span>
-    )},
-    { key: "period", header: "Period", render: (row: ContractPeriodSummary) => (
-      <span className="text-xs">
-        {`${row.periodYear}-${String(row.periodMonth).padStart(2, "0")}`}
-      </span>
-    )},
-    { key: "entitledQty", header: "Expected", render: (row: ContractPeriodSummary) => (
-      <span className="font-semibold">{row.entitledQty}</span>
-    )},
-    { key: "releasedQty", header: "Released", render: (row: ContractPeriodSummary) => (
-      <span className="font-semibold">{row.releasedQty}</span>
-    )},
+    {
+      key: "productCode",
+      header: "Product",
+      render: (row: ContractPeriodSummary) => (
+        <span className="font-mono text-xs">
+          {productMap.get(row.productCode) || row.productCode}
+        </span>
+      ),
+    },
+    {
+      key: "period",
+      header: "Period",
+      render: (row: ContractPeriodSummary) => (
+        <span className="text-xs">
+          {`${row.periodYear}-${String(row.periodMonth).padStart(2, "0")}`}
+        </span>
+      ),
+    },
+    {
+      key: "entitledQty",
+      header: "Expected",
+      render: (row: ContractPeriodSummary) => (
+        <span className="font-semibold">{row.entitledQty}</span>
+      ),
+    },
+    {
+      key: "releasedQty",
+      header: "Released",
+      render: (row: ContractPeriodSummary) => (
+        <span className="font-semibold">{row.releasedQty}</span>
+      ),
+    },
     { key: "releaseCount", header: "# Releases" },
-    { key: "status", header: "Status", render: (row: ContractPeriodSummary) => (
-      <StatusBadge status={row.status} />
-    )},
-    { key: "daysToComplete", header: "Days", render: (row: ContractPeriodSummary) => (
-      <span className="text-xs text-muted-foreground">
-        {row.daysToComplete ?? "-"}
-      </span>
-    )},
+    {
+      key: "status",
+      header: "Status",
+      render: (row: ContractPeriodSummary) => (
+        <StatusBadge status={row.status} />
+      ),
+    },
+    {
+      key: "daysToComplete",
+      header: "Days",
+      render: (row: ContractPeriodSummary) => (
+        <span className="text-xs text-muted-foreground">
+          {row.daysToComplete ?? "-"}
+        </span>
+      ),
+    },
   ];
 
   return (
     <>
       <div className="space-y-6">
-      {/* ── Header ───────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Contract Releases</h1>
-          <p className="text-sm text-muted-foreground">
-            Track and manage product releases against contract entitlements.
-          </p>
+        {/* ── Header ───────────────────────────────────────── */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Contract Releases
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Track and manage product releases against contract entitlements.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {lastDrNumber && (
+              <Button variant="outline" onClick={viewLastDr}>
+                <Printer className="mr-2 h-4 w-4" /> View DR #{lastDrNumber}
+              </Button>
+            )}
+            <Button onClick={openReleaseDialog} disabled={!selectedContractId}>
+              <Plus className="mr-2 h-4 w-4" /> New Release
+            </Button>
+          </div>
         </div>
-        <Button onClick={openReleaseDialog} disabled={!selectedContractId}>
-          <Plus className="mr-2 h-4 w-4" /> New Release
-        </Button>
-      </div>
 
-      {/* ── Overdue Alerts ──────────────────────────────── */}
-      {overdueReleases.length > 0 && (
-        <Card className="border-destructive/50 bg-destructive/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-destructive text-sm">
-              <AlertTriangle className="h-4 w-4" />
-              Overdue Releases ({overdueReleases.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SimpleTable
-              columns={overdueColumns}
-              data={overdueReleases}
-            />
-          </CardContent>
-        </Card>
-      )}
+        {/* ── Overdue Alerts ──────────────────────────────── */}
+        {overdueReleases.length > 0 && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-destructive text-sm">
+                <AlertTriangle className="h-4 w-4" />
+                Overdue Releases ({overdueReleases.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SimpleTable columns={overdueColumns} data={overdueReleases} />
+            </CardContent>
+          </Card>
+        )}
 
-      {/* ── Contract Selection ──────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Select Contract to View Period Status</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Select
-            value={selectedContractId || ""}
-            onValueChange={(val) => loadPeriodSummaries(val)}
-          >
-            <SelectTrigger className="w-full max-w-md">
-              <SelectValue placeholder="Choose a contract..." />
-            </SelectTrigger>
-            <SelectContent>
-              {contracts.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.companyName || c.companyId}
-                  {c.description ? ` - ${c.description}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
-
-      {/* ── Period Summary Table ────────────────────────── */}
-      {selectedContractId && (
+        {/* ── Contract Selection ──────────────────────────── */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              Period Status for{" "}
-              {(() => {
-                const c = contracts.find((x) => x.id === selectedContractId);
-                return c
-                  ? `${c.companyName || c.companyId}${c.description ? ` - ${c.description}` : ""}`
-                  : selectedContractId;
-              })()}
+            <CardTitle className="text-sm">
+              Select Contract to View Period Status
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <SimpleTable
-              columns={summaryColumns}
-              data={periodSummaries}
-              loading={summariesLoading}
-            />
+            <Select
+              value={selectedContractId || ""}
+              onValueChange={(val) => loadPeriodSummaries(val)}
+            >
+              <SelectTrigger className="w-full max-w-md">
+                <SelectValue placeholder="Choose a contract..." />
+              </SelectTrigger>
+              <SelectContent>
+                {contracts.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.companyName || c.companyId}
+                    {c.description ? ` - ${c.description}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </CardContent>
         </Card>
-      )}
 
-      {/* ── Release Dialog ──────────────────────────────── */}
-      <Dialog
-        open={releaseOpen}
-        onOpenChange={(v) => {
-          if (!saving) setReleaseOpen(v);
-        }}
-      >
-        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Process New Releases</DialogTitle>
-            <DialogDescription>
-              {(() => {
-                const c = contracts.find((x) => x.id === releaseContractId);
-                return c
-                  ? `Releasing items for ${c.companyName || c.companyId}${c.description ? ` - ${c.description}` : ""}`
-                  : "Record releases of items against a contract entitlement period.";
-              })()}
-            </DialogDescription>
-          </DialogHeader>
+        {/* ── Period Summary Table ────────────────────────── */}
+        {selectedContractId && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Period Status for{" "}
+                {(() => {
+                  const c = contracts.find((x) => x.id === selectedContractId);
+                  return c
+                    ? `${c.companyName || c.companyId}${c.description ? ` - ${c.description}` : ""}`
+                    : selectedContractId;
+                })()}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SimpleTable
+                columns={summaryColumns}
+                data={periodSummaries}
+                loading={summariesLoading}
+              />
+            </CardContent>
+          </Card>
+        )}
 
-          <div className="space-y-4 py-2">
-            {/* Release Rows */}
-            <div className="flex items-center justify-between">
-              <Label className="text-base font-semibold">Release Items</Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addReleaseRow}
-                disabled={saving}
-              >
-                <Plus className="mr-1 h-3.5 w-3.5" /> Add Row
-              </Button>
-            </div>
+        {/* ── Release Dialog ──────────────────────────────── */}
+        <Dialog
+          open={releaseOpen}
+          onOpenChange={(v) => {
+            if (!saving) setReleaseOpen(v);
+          }}
+        >
+          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Process New Releases</DialogTitle>
+              <DialogDescription>
+                {(() => {
+                  const c = contracts.find((x) => x.id === releaseContractId);
+                  return c
+                    ? `Releasing items for ${c.companyName || c.companyId}${c.description ? ` - ${c.description}` : ""}`
+                    : "Record releases of items against a contract entitlement period.";
+                })()}
+              </DialogDescription>
+            </DialogHeader>
 
-            <div className="space-y-3">
-              {releaseRows.map((row, index) => (
-                <div
-                  key={index}
-                  className="p-3 border rounded-lg bg-card/50 space-y-3 relative"
+            <div className="space-y-4 py-2">
+              {/* Release Rows */}
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">Release Items</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addReleaseRow}
+                  disabled={saving}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    {row.contractItemId ? (
-                      /* Contracted item — show product name */
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium">{row.productName}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {row.productCode} | Entitled: {row.entitledQty}
-                        </span>
-                      </div>
-                    ) : (
-                      /* Extra row — allow product selection */
-                      <div className="flex-1 space-y-1">
-                        <Label className="text-xs">Product *</Label>
-                        <SearchableSelect
-                          value={row.productCode}
-                          onValueChange={(val) => updateRowProduct(index, val)}
-                          options={allProductOptions}
-                          placeholder="Select product"
-                          searchPlaceholder="Search products..."
+                  <Plus className="mr-1 h-3.5 w-3.5" /> Add Row
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                {releaseRows.map((row, index) => (
+                  <div
+                    key={index}
+                    className="p-3 border rounded-lg bg-card/50 space-y-3 relative"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      {row.contractItemId ? (
+                        /* Contracted item — show product name */
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium">
+                            {row.productName}
+                          </span>
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {row.productName} | Entitled: {row.entitledQty}
+                          </span>
+                        </div>
+                      ) : (
+                        /* Extra row — allow product selection */
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-xs">Product *</Label>
+                          <SearchableSelect
+                            value={row.productCode}
+                            onValueChange={(val) =>
+                              updateRowProduct(index, val)
+                            }
+                            options={allProductOptions}
+                            placeholder="Select product"
+                            searchPlaceholder="Search products..."
+                            disabled={saving}
+                          />
+                        </div>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => removeReleaseRow(index)}
+                        disabled={saving}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Quantity */}
+                      <div className="space-y-1">
+                        <Label className="text-xs">Quantity *</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={row.quantity || ""}
+                          onChange={(e) =>
+                            updateReleaseRow(
+                              index,
+                              "quantity",
+                              parseInt(e.target.value, 10) || 0,
+                            )
+                          }
+                          placeholder="0"
                           disabled={saving}
                         />
                       </div>
-                    )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive hover:text-destructive"
-                      onClick={() => removeReleaseRow(index)}
-                      disabled={saving}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Quantity */}
-                    <div className="space-y-1">
-                      <Label className="text-xs">Quantity *</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={row.quantity || ""}
-                        onChange={(e) =>
-                          updateReleaseRow(
-                            index,
-                            "quantity",
-                            parseInt(e.target.value, 10) || 0,
-                          )
-                        }
-                        placeholder="0"
-                        disabled={saving}
-                      />
-                    </div>
-
-                    {/* Unit */}
-                    <div className="space-y-1">
-                      <Label className="text-xs">Unit</Label>
-                      <Input
-                        type="text"
-                        value={row.unit}
-                        readOnly
-                        placeholder="—"
-                        disabled={saving}
-                      />
+                      {/* Unit */}
+                      <div className="space-y-1">
+                        <Label className="text-xs">Unit</Label>
+                        <Input
+                          type="text"
+                          value={row.unit}
+                          readOnly
+                          placeholder="—"
+                          disabled={saving}
+                        />
+                      </div>
                     </div>
                   </div>
+                ))}
+              </div>
+
+              {/* Released By, Release Date, Remarks — below release items */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t">
+                {/* Released By */}
+                <div className="space-y-1.5">
+                  <Label>Released By *</Label>
+                  <Input
+                    value={releasedBy}
+                    onChange={(e) => setReleasedBy(e.target.value)}
+                    placeholder="Full name"
+                    disabled={saving}
+                  />
                 </div>
-              ))}
-            </div>
 
-            {/* Released By, Release Date, Remarks — below release items */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t">
-              {/* Released By */}
-              <div className="space-y-1.5">
-                <Label>Released By *</Label>
-                <Input
-                  value={releasedBy}
-                  onChange={(e) => setReleasedBy(e.target.value)}
-                  placeholder="Full name"
-                  disabled={saving}
-                />
-              </div>
+                {/* Release Date */}
+                <div className="space-y-1.5">
+                  <Label>Release Date *</Label>
+                  <DatePicker value={releaseDate} onChange={setReleaseDate} />
+                </div>
 
-              {/* Release Date */}
-              <div className="space-y-1.5">
-                <Label>Release Date *</Label>
-                <DatePicker
-                  value={releaseDate}
-                  onChange={setReleaseDate}
-                />
-              </div>
-
-              {/* Remarks */}
-              <div className="space-y-1.5">
-                <Label>Remarks</Label>
-                <Input
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="e.g. Partial delivery"
-                  disabled={saving}
-                />
+                {/* Remarks */}
+                <div className="space-y-1.5">
+                  <Label>Remarks</Label>
+                  <Input
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="e.g. Partial delivery"
+                    disabled={saving}
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setReleaseOpen(false)}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleProcessReleases} disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Process Releases
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setReleaseOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleProcessReleases} disabled={saving}>
+                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Process Releases
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
 
-    <DeliveryReceiptPreviewModal
-      dr={drResult}
-      open={!!drResult}
-      onOpenChange={(v) => {
-        if (!v) setDrResult(null);
-      }}
-    />
-  </>
+      <DeliveryReceiptPreviewModal
+        dr={drResult}
+        open={!!drResult}
+        onOpenChange={(v) => {
+          if (!v) setDrResult(null);
+        }}
+      />
+    </>
   );
 }

@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import deliveryService from "@/lib/services/delivery.service";
-import { DeliveryReceiptResponse } from "@/types/delivery";
+import { DeliveryReceiptResponse } from "@/types/deliveryReceipt";
 
 interface Props {
   dr: DeliveryReceiptResponse | null;
@@ -31,8 +31,49 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
     : dr.printUrl || "";
 
   const handlePrint = () => {
-    if (iframeRef.current) {
-      iframeRef.current.contentWindow?.print();
+    // Base64 → Blob → object URL gives us a same-origin PDF we can reliably print.
+    if (dr.pdfBase64) {
+      try {
+        const byteCharacters = atob(dr.pdfBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: "application/pdf" });
+        const blobUrl = URL.createObjectURL(blob);
+
+        const printWindow = window.open(blobUrl, "_blank");
+        if (printWindow) {
+          printWindow.addEventListener("load", () => {
+            printWindow.focus();
+            printWindow.print();
+          });
+        } else {
+          toast.error(
+            "Popup blocked. Please allow popups or use \"Open in Sheets\" to print.",
+          );
+        }
+        return;
+      } catch (e) {
+        console.warn("Failed to print from base64, falling back:", e);
+      }
+    }
+
+    // Fallback: try iframe print, then open the Sheets print URL
+    if (iframeRef.current?.contentWindow) {
+      try {
+        iframeRef.current.contentWindow.print();
+        return;
+      } catch {
+        // cross-origin — fall through to open print URL
+      }
+    }
+
+    if (dr.printUrl) {
+      window.open(dr.printUrl, "_blank");
+    } else {
+      toast.error("Unable to print. No PDF source available.");
     }
   };
 
@@ -66,9 +107,7 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
       <DialogContent className="max-w-[900px] h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
-            <span>
-              Delivery Receipt — DR #{dr.drNumber}
-            </span>
+            <span>Delivery Receipt — DR #{dr.drNumber}</span>
             <span className="text-sm font-normal text-muted-foreground">
               {dr.companyName}
             </span>

@@ -356,11 +356,23 @@ export default function CustomerContractsPage() {
   );
 
   const openCreate = () => {
+    const today = new Date();
+    const nextYear = new Date(today);
+    nextYear.setFullYear(today.getFullYear() + 1);
     setEditTarget(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, startDate: today, endDate: nextYear });
     setError("");
     setModalOpen(true);
   };
+
+  // Max end date: 100 years from today
+  const endDateMax = useMemo(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + 100);
+    return d;
+  }, []);
+
+  const todayStart = useMemo(() => new Date(), []);
 
   const openEdit = (row: GroupedCustomerContract) => {
     setEditTarget(row);
@@ -503,49 +515,40 @@ export default function CustomerContractsPage() {
           );
         }
 
-        // Update items that exist in both
-        if (itemsToUpdate.length > 0) {
-          await Promise.all(
-            itemsToUpdate.map((formItem) => {
-              const existingItem = existingItems.find(
-                (e) => e.id === formItem.id,
-              );
-              if (existingItem) {
-                // Only update if there are changes
-                if (
-                  existingItem.productCode !== formItem.productId ||
-                  existingItem.entitledQty !== formItem.entitledQty ||
-                  existingItem.frequency !== formItem.frequency ||
-                  existingItem.status !== formItem.status
-                ) {
-                  return contractItemService.update({
-                    id: formItem.id!,
-                    contractId,
-                    productCode: formItem.productId,
-                    entitledQty: formItem.entitledQty,
-                    frequency: formItem.frequency,
-                    status: formItem.status,
-                  });
-                }
-              }
-              return Promise.resolve();
-            }),
+        // Update items that exist in both (sequential)
+        for (const formItem of itemsToUpdate) {
+          const existingItem = existingItems.find(
+            (e) => e.id === formItem.id,
           );
+          if (existingItem) {
+            // Only update if there are changes
+            if (
+              existingItem.productCode !== formItem.productId ||
+              existingItem.entitledQty !== formItem.entitledQty ||
+              existingItem.frequency !== formItem.frequency ||
+              existingItem.status !== formItem.status
+            ) {
+              await contractItemService.update({
+                id: formItem.id!,
+                contractId,
+                productCode: formItem.productId,
+                entitledQty: formItem.entitledQty,
+                frequency: formItem.frequency,
+                status: formItem.status,
+              });
+            }
+          }
         }
 
-        // Create new items
-        if (itemsToCreate.length > 0) {
-          await Promise.all(
-            itemsToCreate.map((item) =>
-              contractItemService.create({
-                contractId,
-                productCode: item.productId,
-                entitledQty: item.entitledQty,
-                frequency: item.frequency,
-                status: item.status,
-              }),
-            ),
-          );
+        // Create new items (sequential to avoid race conditions)
+        for (const item of itemsToCreate) {
+          await contractItemService.create({
+            contractId,
+            productCode: item.productId,
+            entitledQty: item.entitledQty,
+            frequency: item.frequency,
+            status: item.status,
+          });
         }
       } else {
         // Creating new contract
@@ -562,18 +565,16 @@ export default function CustomerContractsPage() {
         if (!newContract) throw new Error("Failed to create contract.");
         contractId = newContract.id;
 
-        // Create all items for new contract
-        await Promise.all(
-          form.items.map((item) =>
-            contractItemService.create({
-              contractId,
-              productCode: item.productId,
-              entitledQty: item.entitledQty,
-              frequency: item.frequency,
-              status: item.status,
-            }),
-          ),
-        );
+        // Create all items for new contract (sequential to avoid race conditions)
+        for (const item of form.items) {
+          await contractItemService.create({
+            contractId,
+            productCode: item.productId,
+            entitledQty: item.entitledQty,
+            frequency: item.frequency,
+            status: item.status,
+          });
+        }
       }
 
       await loadContracts();
@@ -638,7 +639,7 @@ export default function CustomerContractsPage() {
         }}
       >
         <DialogContent
-          className="sm:max-w-2xl max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-6xl max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>
@@ -727,7 +728,11 @@ export default function CustomerContractsPage() {
                 <DatePicker
                   value={form.startDate}
                   onChange={(date) =>
-                    setForm((f) => ({ ...f, startDate: date }))
+                    setForm((f) => {
+                      const nextYear = date ? new Date(date) : undefined;
+                      if (nextYear) nextYear.setFullYear(nextYear.getFullYear() + 1);
+                      return { ...f, startDate: date, endDate: nextYear };
+                    })
                   }
                 />
               </div>
@@ -738,6 +743,9 @@ export default function CustomerContractsPage() {
                 <DatePicker
                   value={form.endDate}
                   onChange={(date) => setForm((f) => ({ ...f, endDate: date }))}
+                  disabled={form.startDate ? { before: form.startDate } : undefined}
+                  startMonth={todayStart}
+                  endMonth={endDateMax}
                 />
               </div>
 
