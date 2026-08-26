@@ -23,7 +23,7 @@ const DELIVERY_RECEIPT_ITEMS_RANGE = `${DELIVERY_RECEIPT_ITEMS_SHEET}!A2:E`;
 // A:DeliveryReceiptId B:ProductCode C:Quantity D:Unit E:Status
 
 const PRINT_TEMPLATE_SHEET = "DeliveryReceiptForm";
-const DR_SEQUENCE_BASE = 3620;
+const DR_SEQUENCE_BASE = 3638; // last DR number in old system, so next DR starts at 3639
 
 function formatDateMMDDYYYY(dateStr: string): string {
   if (!dateStr) return "";
@@ -94,10 +94,12 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
         spreadsheetId,
         range: DELIVERY_RECEIPTS_RANGE,
       }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: DELIVERY_RECEIPT_ITEMS_RANGE,
-      }).catch(() => ({ data: { values: [] as any[][] } })), // items sheet may not exist yet
+      sheets.spreadsheets.values
+        .get({
+          spreadsheetId,
+          range: DELIVERY_RECEIPT_ITEMS_RANGE,
+        })
+        .catch(() => ({ data: { values: [] as any[][] } })), // items sheet may not exist yet
     ]);
 
     const drRows = drResponse.data.values;
@@ -347,10 +349,12 @@ async function findDrRow(
     range: `${DELIVERY_RECEIPTS_SHEET}!A2:A`,
   });
   const rows = response.data.values || [];
-  return rows.findIndex((row) => {
-    const val = parseInt(String(row[0] ?? "").trim(), 10);
-    return val === drNumber;
-  }) + 2; // +2: 0-based findIndex + header row
+  return (
+    rows.findIndex((row) => {
+      const val = parseInt(String(row[0] ?? "").trim(), 10);
+      return val === drNumber;
+    }) + 2
+  ); // +2: 0-based findIndex + header row
 }
 
 /**
@@ -404,9 +408,15 @@ export async function updateDeliveryReceipt(
       String(drNumber),
       payload.date ?? String(currentRow[1] ?? "").trim(),
       payload.companyId ?? String(currentRow[2] ?? "").trim(),
-      payload.poNo !== undefined ? payload.poNo : String(currentRow[3] ?? "").trim(),
-      payload.trNo !== undefined ? payload.trNo : String(currentRow[4] ?? "").trim(),
-      payload.comments !== undefined ? payload.comments : String(currentRow[5] ?? "").trim(),
+      payload.poNo !== undefined
+        ? payload.poNo
+        : String(currentRow[3] ?? "").trim(),
+      payload.trNo !== undefined
+        ? payload.trNo
+        : String(currentRow[4] ?? "").trim(),
+      payload.comments !== undefined
+        ? payload.comments
+        : String(currentRow[5] ?? "").trim(),
       payload.preparedBy ?? String(currentRow[6] ?? "").trim(),
       payload.deliveredBy ?? String(currentRow[7] ?? "").trim(),
       String(currentRow[8] ?? "").trim(),
@@ -423,22 +433,34 @@ export async function updateDeliveryReceipt(
 
     // Replace items if provided
     if (payload.items) {
-      const existingItemRows = await findDrItemRows(sheets, spreadsheetId, drNumber);
+      const existingItemRows = await findDrItemRows(
+        sheets,
+        spreadsheetId,
+        drNumber,
+      );
       if (existingItemRows.length > 0) {
         const clearRanges = existingItemRows.map(
-          (r) => `${DELIVERY_RECEIPT_ITEMS_SHEET}!A${r.rowNumber}:E${r.rowNumber}`,
+          (r) =>
+            `${DELIVERY_RECEIPT_ITEMS_SHEET}!A${r.rowNumber}:E${r.rowNumber}`,
         );
         await sheets.spreadsheets.values.batchUpdate({
           spreadsheetId,
           requestBody: {
             valueInputOption: "USER_ENTERED",
-            data: clearRanges.map((range) => ({ range, values: [["", "", "", "", ""]] })),
+            data: clearRanges.map((range) => ({
+              range,
+              values: [["", "", "", "", ""]],
+            })),
           },
         });
       }
 
       const itemRows = payload.items.map((item) => [
-        String(drNumber), item.productCode, item.quantity, item.unit, "active",
+        String(drNumber),
+        item.productCode,
+        item.quantity,
+        item.unit,
+        "active",
       ]);
       if (itemRows.length > 0) {
         await sheets.spreadsheets.values.append({
@@ -455,11 +477,16 @@ export async function updateDeliveryReceipt(
       (c) => c.companyId === updatedRow[2] || c.id === updatedRow[2],
     );
     return {
-      drNumber, date: updatedRow[1], companyId: updatedRow[2],
+      drNumber,
+      date: updatedRow[1],
+      companyId: updatedRow[2],
       companyName: company?.companyName || updatedRow[2],
-      poNo: updatedRow[3], trNo: updatedRow[4],
-      comments: updatedRow[5], preparedBy: updatedRow[6],
-      deliveredBy: updatedRow[7], createdAt: updatedRow[8],
+      poNo: updatedRow[3],
+      trNo: updatedRow[4],
+      comments: updatedRow[5],
+      preparedBy: updatedRow[6],
+      deliveredBy: updatedRow[7],
+      createdAt: updatedRow[8],
       status: updatedRow[9],
       items: payload.items || [],
     };
@@ -521,9 +548,11 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
 
     // ── 2. Fetch all ContractReleases linked to this DR ──
     const { getContractReleases } = await import("@/lib/contractReleaseSheets");
-    const { upsertPeriodSummary } = await import("@/lib/contractPeriodSummarySheets");
+    const { upsertPeriodSummary } =
+      await import("@/lib/contractPeriodSummarySheets");
     const { getContractItems } = await import("@/lib/contractItemSheets");
-    const { getPeriodInfo, getPeriodId, formatDate } = await import("@/lib/utils/contractRelease.utils");
+    const { getPeriodInfo, getPeriodId, formatDate } =
+      await import("@/lib/utils/contractRelease.utils");
 
     const allReleases = await getContractReleases();
     const linkedReleases = allReleases.filter((r) => r.drNumber === drNumber);
@@ -553,7 +582,9 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
       }
 
       // ── 3. Rebuild ALL period summaries (including zero-release periods) ──
-      const affectedItems = [...new Set(linkedReleases.map((r) => r.contractItemId))];
+      const affectedItems = [
+        ...new Set(linkedReleases.map((r) => r.contractItemId)),
+      ];
       const items = await getContractItems();
 
       for (const itemId of affectedItems) {
@@ -561,17 +592,27 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
         if (!item) continue;
 
         const remaining = allReleases.filter(
-          (r) => r.contractItemId === itemId && r.drNumber !== drNumber && r.status !== "Deleted",
+          (r) =>
+            r.contractItemId === itemId &&
+            r.drNumber !== drNumber &&
+            r.status !== "Deleted",
         );
 
-        const periodMap = new Map<string, { releases: typeof remaining; start: Date; end: Date }>();
+        const periodMap = new Map<
+          string,
+          { releases: typeof remaining; start: Date; end: Date }
+        >();
 
         for (const rel of remaining) {
           const date = new Date(rel.releaseDate);
           const info = getPeriodInfo(date, rel.frequency);
           const pid = getPeriodId(itemId, info);
           if (!periodMap.has(pid)) {
-            periodMap.set(pid, { releases: [], start: info.periodStart, end: info.periodEnd });
+            periodMap.set(pid, {
+              releases: [],
+              start: info.periodStart,
+              end: info.periodEnd,
+            });
           }
           periodMap.get(pid)!.releases.push(rel);
         }
@@ -582,13 +623,19 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
           const info = getPeriodInfo(date, rel.frequency);
           const pid = getPeriodId(itemId, info);
           if (!periodMap.has(pid)) {
-            periodMap.set(pid, { releases: [], start: info.periodStart, end: info.periodEnd });
+            periodMap.set(pid, {
+              releases: [],
+              start: info.periodStart,
+              end: info.periodEnd,
+            });
           }
         }
 
         for (const [pid, data] of periodMap) {
           const sorted = [...data.releases].sort(
-            (a, b) => new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime(),
+            (a, b) =>
+              new Date(a.releaseDate).getTime() -
+              new Date(b.releaseDate).getTime(),
           );
           const totalReleased = sorted.reduce((s, r) => s + r.quantity, 0);
           const entitledQty = item.entitledQty;
@@ -599,28 +646,39 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
           else status = "Partial";
 
           const today = new Date();
-          if (status !== "Completed" && today > data.end && totalReleased > 0) status = "Overdue";
+          if (status !== "Completed" && today > data.end && totalReleased > 0)
+            status = "Overdue";
 
           const daysToComplete =
             status === "Completed" && sorted.length >= 2
               ? Math.ceil(
                   (new Date(sorted[sorted.length - 1].releaseDate).getTime() -
-                    new Date(sorted[0].releaseDate).getTime()) / 86400000,
+                    new Date(sorted[0].releaseDate).getTime()) /
+                    86400000,
                 )
               : undefined;
 
           await upsertPeriodSummary({
-            periodId: pid, contractItemId: itemId, contractId: item.contractId,
+            periodId: pid,
+            contractItemId: itemId,
+            contractId: item.contractId,
             productCode: item.productCode,
-            periodYear: getPeriodInfo(new Date(data.start), item.frequency).year,
-            periodMonth: getPeriodInfo(new Date(data.start), item.frequency).month,
-            periodQuarter: getPeriodInfo(new Date(data.start), item.frequency).quarter,
-            frequency: item.frequency, entitledQty, releasedQty: totalReleased,
+            periodYear: getPeriodInfo(new Date(data.start), item.frequency)
+              .year,
+            periodMonth: getPeriodInfo(new Date(data.start), item.frequency)
+              .month,
+            periodQuarter: getPeriodInfo(new Date(data.start), item.frequency)
+              .quarter,
+            frequency: item.frequency,
+            entitledQty,
+            releasedQty: totalReleased,
             releaseCount: sorted.length,
             firstReleaseDate: sorted[0]?.releaseDate,
             lastReleaseDate: sorted[sorted.length - 1]?.releaseDate,
-            status, daysToComplete,
-            periodStart: formatDate(data.start), periodEnd: formatDate(data.end),
+            status,
+            daysToComplete,
+            periodStart: formatDate(data.start),
+            periodEnd: formatDate(data.end),
           });
         }
       }
