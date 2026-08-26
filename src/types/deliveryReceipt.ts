@@ -8,6 +8,7 @@ export interface DeliveryItem {
 export interface CreateDeliveryPayload {
   companyId: string;
   date: string;
+  drNumber?: number; // optional — if provided, skips auto-generation; validated for duplicates
   poNo?: string;
   trNo?: string;
   preparedBy: string;
@@ -50,4 +51,15 @@ export interface DeliveryReceiptSummary {
   createdAt: string;
   status: string;
   driveFileLink?: string;
+  createdBy?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export interface DRStatusEntry {
+  drNumber: number;
+  oldStatus: string;
+  newStatus: string;
+  changedBy: string;
+  changedAt: string;
 }

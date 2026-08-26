@@ -82,6 +82,7 @@ export default function DeliveryReleasePage() {
   );
   const [poNo, setPoNo] = useState("");
   const [trNo, setTrNo] = useState("");
+  const [drNo, setDrNo] = useState("");
   const [preparedBy, setPreparedBy] = useState("");
   const [deliveredBy, setDeliveredBy] = useState("");
   const [comments, setComments] = useState("");
@@ -380,6 +381,7 @@ export default function DeliveryReleasePage() {
   const openCreateModal = () => {
     setSelectedCompany("");
     setDeliveryDate(new Date().toISOString().split("T")[0]);
+    setDrNo("");
     setPoNo("");
     setTrNo("");
     setDeliveredBy("");
@@ -432,6 +434,7 @@ export default function DeliveryReleasePage() {
       const payload = {
         companyId: selectedCompany,
         date: deliveryDate,
+        drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
         trNo,
         preparedBy,
@@ -463,6 +466,7 @@ export default function DeliveryReleasePage() {
       const payload = {
         companyId: selectedCompany,
         date: deliveryDate,
+        drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
         trNo,
         preparedBy: preparedBy || "",
@@ -641,8 +645,8 @@ export default function DeliveryReleasePage() {
           </DialogHeader>
 
           <div className="space-y-6">
-            {/* Row 1: Customer Name and Date */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Row 1: Customer Name, DR No., and Date */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5 w-full">
                 <Label>
                   Customer Name <span className="text-destructive">*</span>
@@ -652,6 +656,16 @@ export default function DeliveryReleasePage() {
                   onValueChange={setSelectedCompany}
                   options={companyOptions}
                   placeholder="Select Customer"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>DR No. (optional)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={drNo}
+                  onChange={(e) => setDrNo(e.target.value)}
+                  placeholder="Auto-generated"
                 />
               </div>
               <div className="space-y-2">

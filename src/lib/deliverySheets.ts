@@ -9,18 +9,23 @@ import {
   DeliveryReceiptResponse,
   DeliveryReceiptSummary,
   DeliveryItem,
+  DRStatusEntry,
 } from "@/types/deliveryReceipt";
 
 const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:A`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:K`;
-// A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:Comments G:PreparedBy H:DeliveredBy I:CreatedAt J:Status K:DriveFileLink
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:N`;
+// A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:Comments G:PreparedBy H:DeliveredBy I:CreatedAt J:Status K:DriveFileLink L:CreatedBy M:UpdatedBy N:UpdatedDate
 
 const DELIVERY_RECEIPT_ITEMS_SHEET = "DeliveryReceiptItems";
 const DELIVERY_RECEIPT_ITEMS_RANGE = `${DELIVERY_RECEIPT_ITEMS_SHEET}!A2:E`;
 // A:DeliveryReceiptId B:ProductCode C:Quantity D:Unit E:Status
+
+const DR_STATUS_HISTORY_SHEET = "DeliveryReceiptStatusHistory";
+const DR_STATUS_HISTORY_RANGE = `${DR_STATUS_HISTORY_SHEET}!A2:E`;
+// A:DRNumber B:OldStatus C:NewStatus D:ChangedBy E:ChangedAt
 
 const PRINT_TEMPLATE_SHEET = "DeliveryReceiptForm";
 const DR_SEQUENCE_BASE = 3642; // last DR number in old system, so next DR starts at 3639
@@ -143,6 +148,9 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           createdAt: String(row[8] ?? "").trim(),
           status: String(row[9] ?? "created").trim() || "created",
           driveFileLink: String(row[10] ?? "").trim() || undefined,
+          createdBy: String(row[11] ?? "").trim() || undefined,
+          updatedBy: String(row[12] ?? "").trim() || undefined,
+          updatedAt: String(row[13] ?? "").trim() || undefined,
           items: itemsByDr.get(drNumber) || [],
         };
       })
@@ -191,13 +199,38 @@ async function generateNextDrNumber(
  */
 export async function processDeliveryReceipt(
   payload: CreateDeliveryPayload,
+  userId = "",
 ): Promise<DeliveryReceiptResponse> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // 1. DR Number
-    const drNumber = await generateNextDrNumber(sheets, spreadsheetId);
+    // 1. DR Number — either manual override or auto-generate
+    let drNumber: number;
+    if (payload.drNumber) {
+      // Validate: must be a positive integer
+      if (!Number.isInteger(payload.drNumber) || payload.drNumber <= 0) {
+        throw new Error(
+          `DR Number must be a positive integer, got "${payload.drNumber}".`,
+        );
+      }
+      // Check for duplicates
+      const allRows = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${DELIVERY_RECEIPTS_SHEET}!A2:A`,
+      });
+      const existingNums = (allRows.data.values || [])
+        .map((row) => parseInt(String(row[0] ?? "").trim(), 10))
+        .filter((n) => !isNaN(n));
+      if (existingNums.includes(payload.drNumber)) {
+        throw new Error(
+          `DR #${payload.drNumber} already exists. Please choose a different number.`,
+        );
+      }
+      drNumber = payload.drNumber;
+    } else {
+      drNumber = await generateNextDrNumber(sheets, spreadsheetId);
+    }
 
     // 2. Company details
     const companies = await getCompanies();
@@ -207,7 +240,7 @@ export async function processDeliveryReceipt(
     const address = company.address || "";
     const tin = company.tin || "";
 
-    // 3. Log ONE header row to DeliveryReceipts sheet
+    // 3. Log ONE header row to DeliveryReceipts sheet (columns A–N)
     const createdAt = new Date().toISOString();
     const headerRow = [
       String(drNumber),
@@ -220,6 +253,10 @@ export async function processDeliveryReceipt(
       payload.deliveredBy || "",
       createdAt,
       payload.status || "created",
+      "", // K: DriveFileLink (populated after PDF save)
+      userId, // L: CreatedBy
+      userId, // M: UpdatedBy
+      createdAt, // N: UpdatedDate
     ];
 
     await sheets.spreadsheets.values.append({
@@ -394,6 +431,7 @@ export interface UpdateDeliveryPayload extends Partial<CreateDeliveryPayload> {
 export async function updateDeliveryReceipt(
   drNumber: number,
   payload: UpdateDeliveryPayload,
+  userId = "",
 ): Promise<DeliveryReceiptSummary> {
   try {
     const sheets = await getSheetsClient();
@@ -404,9 +442,12 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:K${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
+    const oldStatus = String(currentRow[9] ?? "created").trim();
+    const newStatus = payload.status ?? oldStatus;
+    const updatedAt = new Date().toISOString();
 
     const updatedRow = [
       String(drNumber),
@@ -424,16 +465,35 @@ export async function updateDeliveryReceipt(
       payload.preparedBy ?? String(currentRow[6] ?? "").trim(),
       payload.deliveredBy ?? String(currentRow[7] ?? "").trim(),
       String(currentRow[8] ?? "").trim(),
-      payload.status ?? String(currentRow[9] ?? "created").trim(),
+      newStatus,
       String(currentRow[10] ?? "").trim(), // K: DriveFileLink (preserved)
+      String(currentRow[11] ?? "").trim(), // L: CreatedBy (preserved)
+      userId || String(currentRow[12] ?? "").trim(), // M: UpdatedBy
+      updatedAt, // N: UpdatedDate
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:K${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
+
+    // ── Log status change to DRStatusHistory if status actually changed ──
+    if (newStatus !== oldStatus) {
+      try {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: DR_STATUS_HISTORY_RANGE,
+          valueInputOption: "USER_ENTERED",
+          requestBody: {
+            values: [[String(drNumber), oldStatus, newStatus, userId || "System", updatedAt]],
+          },
+        });
+      } catch (e) {
+        console.warn("Failed to log DR status change:", e);
+      }
+    }
 
     // Replace items if provided
     if (payload.items) {
@@ -492,6 +552,10 @@ export async function updateDeliveryReceipt(
       deliveredBy: updatedRow[7],
       createdAt: updatedRow[8],
       status: updatedRow[9],
+      driveFileLink: updatedRow[10] || undefined,
+      createdBy: updatedRow[11] || undefined,
+      updatedBy: updatedRow[12] || undefined,
+      updatedAt: updatedRow[13] || undefined,
       items: payload.items || [],
     };
   } catch (error) {
@@ -515,16 +579,16 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
     // ── 1. Soft-delete DR: set status to "deleted" (preserve all data) ──
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:K${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const updatedRow = [...currentRow];
-    while (updatedRow.length < 11) updatedRow.push("");
+    while (updatedRow.length < 14) updatedRow.push("");
     updatedRow[9] = "deleted"; // Column J: Status
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:K${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -713,7 +777,7 @@ export async function populateAndExportDeliveryReceiptFormPdf(
 
   const drResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:K${drRowNumber}`,
+    range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
   });
   const drRow = drResponse.data.values?.[0] || [];
   // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:Comments G:PreparedBy H:DeliveredBy I:CreatedAt J:Status K:DriveFileLink
@@ -813,4 +877,35 @@ export async function exportDeliveryReceiptFormPdf(): Promise<{
   const printUrl = buildExportUrl(spreadsheetId, gid);
   const pdfBase64 = await fetchExportPdfBase64(printUrl);
   return { pdfBase64, printUrl };
+}
+
+/** Retrieves status change history for a specific DR or all DRs. */
+export async function getDRStatusHistory(
+  drNumber?: number,
+): Promise<DRStatusEntry[]> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: DR_STATUS_HISTORY_RANGE,
+    });
+    const rows = response.data.values || [];
+    let entries: DRStatusEntry[] = rows
+      .map((row) => ({
+        drNumber: parseInt(String(row[0] ?? "").trim(), 10) || 0,
+        oldStatus: String(row[1] ?? "").trim(),
+        newStatus: String(row[2] ?? "").trim(),
+        changedBy: String(row[3] ?? "").trim(),
+        changedAt: String(row[4] ?? "").trim(),
+      }))
+      .filter((e) => e.drNumber > 0);
+    if (drNumber) {
+      entries = entries.filter((e) => e.drNumber === drNumber);
+    }
+    return entries;
+  } catch {
+    // Sheet may not exist yet
+    return [];
+  }
 }

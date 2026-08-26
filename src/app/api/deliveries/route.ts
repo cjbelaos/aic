@@ -64,7 +64,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await processDeliveryReceipt(body);
+    const result = await processDeliveryReceipt(body, session.userId);
 
     // ── Auto-save PDF to Google Drive and store link (skip for drafts) ──
     let driveFileLink: string | undefined;

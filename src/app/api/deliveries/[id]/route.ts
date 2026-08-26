@@ -49,7 +49,7 @@ export async function GET(
 
     const drResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:K${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
     });
     const drRow = drResponse.data.values?.[0] || [];
     const deliveryDate = String(drRow[1] ?? "").trim();
@@ -137,7 +137,7 @@ export async function PUT(
     }
 
     const body: UpdateDeliveryPayload = await request.json();
-    const result = await updateDeliveryReceipt(drNumber, body);
+    const result = await updateDeliveryReceipt(drNumber, body, session.userId);
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     const message =
