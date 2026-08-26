@@ -23,7 +23,7 @@ const DELIVERY_RECEIPT_ITEMS_RANGE = `${DELIVERY_RECEIPT_ITEMS_SHEET}!A2:E`;
 // A:DeliveryReceiptId B:ProductCode C:Quantity D:Unit E:Status
 
 const PRINT_TEMPLATE_SHEET = "DeliveryReceiptForm";
-const DR_SEQUENCE_BASE = 3638; // last DR number in old system, so next DR starts at 3639
+const DR_SEQUENCE_BASE = 3642; // last DR number in old system, so next DR starts at 3639
 
 function formatDateMMDDYYYY(dateStr: string): string {
   if (!dateStr) return "";
@@ -219,7 +219,7 @@ export async function processDeliveryReceipt(
       payload.preparedBy || "",
       payload.deliveredBy || "",
       createdAt,
-      "created",
+      payload.status || "created",
     ];
 
     await sheets.spreadsheets.values.append({
@@ -247,69 +247,73 @@ export async function processDeliveryReceipt(
       });
     }
 
-    // 4. Clear then populate DeliveryReceiptForm template
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
-    });
-
-    const templateRows = payload.items.map((item) => [
-      item.quantity,
-      item.unit,
-      item.description,
-    ]);
-    const formattedDate = formatDateMMDDYYYY(payload.date);
-
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        valueInputOption: "USER_ENTERED",
-        data: [
-          { range: `${PRINT_TEMPLATE_SHEET}!F6`, values: [[drNumber]] },
-          { range: `${PRINT_TEMPLATE_SHEET}!B9`, values: [[companyName]] },
-          { range: `${PRINT_TEMPLATE_SHEET}!B10`, values: [[address]] },
-          { range: `${PRINT_TEMPLATE_SHEET}!B11`, values: [[tin]] },
-          { range: `${PRINT_TEMPLATE_SHEET}!F9`, values: [[formattedDate]] },
-          {
-            range: `${PRINT_TEMPLATE_SHEET}!F10`,
-            values: [[payload.poNo || ""]],
-          },
-          {
-            range: `${PRINT_TEMPLATE_SHEET}!F11`,
-            values: [[payload.trNo || ""]],
-          },
-          {
-            range: `${PRINT_TEMPLATE_SHEET}!A13:C${12 + templateRows.length}`,
-            values: templateRows,
-          },
-          {
-            range: `${PRINT_TEMPLATE_SHEET}!A37`,
-            values: [[payload.comments || ""]],
-          },
-          {
-            range: `${PRINT_TEMPLATE_SHEET}!A42`,
-            values: [[payload.preparedBy || ""]],
-          },
-          {
-            range: `${PRINT_TEMPLATE_SHEET}!A47`,
-            values: [[payload.deliveredBy || ""]],
-          },
-        ],
-      },
-    });
-
-    // 5. Export PDF (non-fatal if it fails)
-    const gid = await getSheetTabGid(
-      sheets,
-      spreadsheetId,
-      PRINT_TEMPLATE_SHEET,
-    );
-    const printUrl = buildExportUrl(spreadsheetId, gid);
+    // 4. Populate template and export PDF (skip for drafts)
     let pdfBase64: string | undefined;
-    try {
-      pdfBase64 = await fetchExportPdfBase64(printUrl);
-    } catch (e) {
-      console.warn("PDF export failed (will use print URL fallback):", e);
+    let printUrl: string | undefined;
+
+    if (payload.status !== "draft") {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
+      });
+
+      const templateRows = payload.items.map((item) => [
+        item.quantity,
+        item.unit,
+        item.description,
+      ]);
+      const formattedDate = formatDateMMDDYYYY(payload.date);
+
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          valueInputOption: "USER_ENTERED",
+          data: [
+            { range: `${PRINT_TEMPLATE_SHEET}!F6`, values: [[drNumber]] },
+            { range: `${PRINT_TEMPLATE_SHEET}!B9`, values: [[companyName]] },
+            { range: `${PRINT_TEMPLATE_SHEET}!B10`, values: [[address]] },
+            { range: `${PRINT_TEMPLATE_SHEET}!B11`, values: [[tin]] },
+            { range: `${PRINT_TEMPLATE_SHEET}!F9`, values: [[formattedDate]] },
+            {
+              range: `${PRINT_TEMPLATE_SHEET}!F10`,
+              values: [[payload.poNo || ""]],
+            },
+            {
+              range: `${PRINT_TEMPLATE_SHEET}!F11`,
+              values: [[payload.trNo || ""]],
+            },
+            {
+              range: `${PRINT_TEMPLATE_SHEET}!A13:C${12 + templateRows.length}`,
+              values: templateRows,
+            },
+            {
+              range: `${PRINT_TEMPLATE_SHEET}!A37`,
+              values: [[payload.comments || ""]],
+            },
+            {
+              range: `${PRINT_TEMPLATE_SHEET}!A42`,
+              values: [[payload.preparedBy || ""]],
+            },
+            {
+              range: `${PRINT_TEMPLATE_SHEET}!A47`,
+              values: [[payload.deliveredBy || ""]],
+            },
+          ],
+        },
+      });
+
+      // 5. Export PDF (non-fatal if it fails)
+      const gid = await getSheetTabGid(
+        sheets,
+        spreadsheetId,
+        PRINT_TEMPLATE_SHEET,
+      );
+      printUrl = buildExportUrl(spreadsheetId, gid);
+      try {
+        pdfBase64 = await fetchExportPdfBase64(printUrl);
+      } catch (e) {
+        console.warn("PDF export failed (will use print URL fallback):", e);
+      }
     }
 
     return {
@@ -325,7 +329,7 @@ export async function processDeliveryReceipt(
       deliveredBy: payload.deliveredBy,
       comments: payload.comments,
       items: payload.items,
-      status: "created",
+      status: payload.status || "created",
       printUrl,
       pdfBase64,
     };
@@ -689,8 +693,115 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
   }
 }
 /**
- * Exports the current DeliveryReceiptForm tab as a PDF base64 string.
- * Used by save-to-drive endpoint for re-fetching after initial creation.
+ * Fetches DR data from the database sheets, re-populates the DeliveryReceiptForm
+ * template, and exports it as a PDF base64 string.
+ * Used by save-pdf endpoint to ensure the template always reflects current DB data.
+ */
+export async function populateAndExportDeliveryReceiptFormPdf(
+  drNumber: number,
+): Promise<{
+  pdfBase64: string;
+  printUrl: string;
+}> {
+  const { getProducts } = await import("@/lib/productSheets");
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+
+  // 1. Find DR header row
+  const drRowNumber = await findDrRow(sheets, spreadsheetId, drNumber);
+  if (drRowNumber <= 1) throw new Error(`DR #${drNumber} not found.`);
+
+  const drResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:K${drRowNumber}`,
+  });
+  const drRow = drResponse.data.values?.[0] || [];
+  // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:Comments G:PreparedBy H:DeliveredBy I:CreatedAt J:Status K:DriveFileLink
+  const deliveryDate = String(drRow[1] ?? "").trim();
+  const companyId = String(drRow[2] ?? "").trim();
+  const poNo = String(drRow[3] ?? "").trim();
+  const trNo = String(drRow[4] ?? "").trim();
+  const comments = String(drRow[5] ?? "").trim();
+  const preparedBy = String(drRow[6] ?? "").trim();
+  const deliveredBy = String(drRow[7] ?? "").trim();
+
+  // 2. Fetch DR items (active only)
+  const itemRowsData = await findDrItemRows(sheets, spreadsheetId, drNumber);
+  const activeItems = itemRowsData.filter(
+    ({ rowData }) => String(rowData[4] ?? "active").trim() !== "deleted",
+  );
+
+  // 3. Fetch company details
+  const companies = await getCompanies();
+  const company = companies.find(
+    (c) => c.companyId === companyId || c.id === companyId,
+  );
+  const companyName = company?.companyName || companyId;
+  const address = company?.address || "";
+  const tin = company?.tin || "";
+
+  // 4. Fetch products for descriptions
+  let products: Array<{ code: string; name: string; description?: string }> =
+    [];
+  try {
+    products = await getProducts();
+  } catch {
+    // non-fatal
+  }
+  const productMap = new Map(products.map((p) => [p.code, p]));
+
+  // 5. Clear and populate the DeliveryReceiptForm template
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
+  });
+
+  const templateRows = activeItems.map(({ rowData }) => {
+    const code = String(rowData[1] ?? "").trim();
+    const product = productMap.get(code);
+    const description = product?.description || product?.name || code;
+    return [
+      parseInt(String(rowData[2] ?? "0"), 10) || 0, // quantity
+      String(rowData[3] ?? "").trim(), // unit
+      description,
+    ];
+  });
+
+  const formattedDate = formatDateMMDDYYYY(deliveryDate);
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: [
+        { range: `${PRINT_TEMPLATE_SHEET}!F6`, values: [[drNumber]] },
+        { range: `${PRINT_TEMPLATE_SHEET}!B9`, values: [[companyName]] },
+        { range: `${PRINT_TEMPLATE_SHEET}!B10`, values: [[address]] },
+        { range: `${PRINT_TEMPLATE_SHEET}!B11`, values: [[tin]] },
+        { range: `${PRINT_TEMPLATE_SHEET}!F9`, values: [[formattedDate]] },
+        { range: `${PRINT_TEMPLATE_SHEET}!F10`, values: [[poNo]] },
+        { range: `${PRINT_TEMPLATE_SHEET}!F11`, values: [[trNo]] },
+        {
+          range: `${PRINT_TEMPLATE_SHEET}!A13:C${12 + templateRows.length}`,
+          values: templateRows,
+        },
+        { range: `${PRINT_TEMPLATE_SHEET}!A37`, values: [[comments]] },
+        { range: `${PRINT_TEMPLATE_SHEET}!A42`, values: [[preparedBy]] },
+        { range: `${PRINT_TEMPLATE_SHEET}!A47`, values: [[deliveredBy]] },
+      ],
+    },
+  });
+
+  // 6. Export PDF
+  const gid = await getSheetTabGid(sheets, spreadsheetId, PRINT_TEMPLATE_SHEET);
+  const printUrl = buildExportUrl(spreadsheetId, gid);
+  const pdfBase64 = await fetchExportPdfBase64(printUrl);
+
+  return { pdfBase64, printUrl };
+}
+/**
+ * Thin wrapper: exports whatever is currently in the DeliveryReceiptForm tab.
+ * Used by the create flow where the template was just populated by processDeliveryReceipt().
  */
 export async function exportDeliveryReceiptFormPdf(): Promise<{
   pdfBase64: string;

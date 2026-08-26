@@ -66,6 +66,20 @@ const deliveryService = {
     }
   },
 
+  getPreview: async (
+    drNumber: number,
+  ): Promise<DeliveryReceiptResponse> => {
+    try {
+      const response = await axios.get<DeliveryReceiptResponse>(
+        `${API_BASE_URL}/${drNumber}`,
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch DR preview:", error);
+      throw error;
+    }
+  },
+
   delete: async (drNumber: number): Promise<void> => {
     try {
       await axios.delete(`${API_BASE_URL}/${drNumber}`);

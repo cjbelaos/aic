@@ -14,6 +14,7 @@ export interface CreateDeliveryPayload {
   deliveredBy: string;
   comments?: string;
   items: DeliveryItem[];
+  status?: string; // "draft" for save-without-print, "created" default
 }
 
 export interface DeliveryReceiptResponse {

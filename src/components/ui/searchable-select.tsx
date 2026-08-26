@@ -1,12 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -29,6 +28,8 @@ type SearchableSelectProps = {
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  onAddOption?: (searchText: string) => void;
+  addOptionLabel?: string;
 };
 
 export function SearchableSelect({
@@ -40,12 +41,32 @@ export function SearchableSelect({
   emptyText = "No results found.",
   disabled,
   className,
+  onAddOption,
+  addOptionLabel = "+ Add",
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
   const selected = options.find((o) => o.value === value);
 
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next) setSearch("");
+  };
+
+  const query = search.trim().toLowerCase();
+  const filteredOptions = query
+    ? options.filter(
+        (o) =>
+          o.label.toLowerCase().includes(query) ||
+          o.value.toLowerCase().includes(query),
+      )
+    : options;
+
+  const showAddOption =
+    !!onAddOption && query !== "" && filteredOptions.length === 0;
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -62,38 +83,59 @@ export function SearchableSelect({
         className="w-[var(--radix-popover-trigger-width)] p-0"
         align="start"
       >
-        <Command
-          filter={(value, search) => {
-            // Forces search filtering to safely look at our designated labels instead of raw values
-            if (value.toLowerCase().includes(search.toLowerCase())) return 1;
-            return 0;
-          }}
-        >
-          <CommandInput placeholder={searchPlaceholder} />
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder={searchPlaceholder}
+            value={search}
+            onValueChange={setSearch}
+          />
           <CommandList>
-            <CommandEmpty>{emptyText}</CommandEmpty>
-            <CommandGroup>
-              {options.map((option) => (
-                <CommandItem
-                  key={option.value}
-                  // We map the unique string value so internal tracking handles duplicate titles safely
-                  value={option.label + " " + option.value}
-                  onSelect={() => {
-                    onValueChange(option.value);
-                    setOpen(false);
-                  }}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 size-4",
-                      value === option.value ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  {option.label}
-                </CommandItem>
-              ))}
-            </CommandGroup>
+            {filteredOptions.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                {emptyText}
+              </div>
+            ) : (
+              <CommandGroup>
+                {filteredOptions.map((option) => (
+                  <CommandItem
+                    key={option.value}
+                    value={option.label + " " + option.value}
+                    onSelect={() => {
+                      onValueChange(option.value);
+                      setOpen(false);
+                      setSearch("");
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 size-4",
+                        value === option.value ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    {option.label}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
           </CommandList>
+          {showAddOption && (
+            <div className="border-t p-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-primary font-medium"
+                onClick={() => {
+                  setOpen(false);
+                  setSearch("");
+                  onAddOption?.(search);
+                }}
+              >
+                <Plus className="mr-2 size-4" />
+                {addOptionLabel}
+              </Button>
+            </div>
+          )}
         </Command>
       </PopoverContent>
     </Popover>

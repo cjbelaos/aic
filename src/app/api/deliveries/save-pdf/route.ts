@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
 import { getDriveUploadClient } from "@/lib/googleSheets";
-import { exportDeliveryReceiptFormPdf } from "@/lib/deliverySheets";
+import { populateAndExportDeliveryReceiptFormPdf } from "@/lib/deliverySheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 
 const DR_DRIVE_FOLDER_ID = "1AkcAogFszjBJtB66ySXIszs3LvUQ_46d";
@@ -37,8 +37,8 @@ export async function POST(req: NextRequest) {
     const safeName = body.companyName.replace(/[/\\?%*:|"<> ]+/g, "_");
     const fileName = `DR-${monthYear}-${body.drNumber}_${safeName}.pdf`;
 
-    // Re-fetch the PDF from the populated DeliveryReceiptForm
-    const { pdfBase64 } = await exportDeliveryReceiptFormPdf();
+    // Re-populate the DeliveryReceiptForm template from DB data, then export PDF
+    const { pdfBase64 } = await populateAndExportDeliveryReceiptFormPdf(body.drNumber);
     const pdfBuffer = Buffer.from(pdfBase64, "base64");
     const pdfStream = Readable.from(pdfBuffer);
 

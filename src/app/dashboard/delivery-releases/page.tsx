@@ -94,13 +94,20 @@ export default function DeliveryReleasePage() {
   );
   const [viewDr, setViewDr] = useState<DeliveryReceiptResponse | null>(null);
 
+  const [previewingDr, setPreviewingDr] = useState(false);
+
+  /* Quick Add Product state */
+  const [quickAddProductOpen, setQuickAddProductOpen] = useState(false);
+  const [quickAddCode, setQuickAddCode] = useState("");
+  const [quickAddName, setQuickAddName] = useState("");
+  const [quickAddUnit, setQuickAddUnit] = useState("PC");
+  const [quickAddSaving, setQuickAddSaving] = useState(false);
+
   /* Edit / Delete state */
   const [editTarget, setEditTarget] = useState<DeliveryReceiptSummary | null>(
     null,
   );
   const [deleteTarget, setDeleteTarget] =
-    useState<DeliveryReceiptSummary | null>(null);
-  const [viewItemsTarget, setViewItemsTarget] =
     useState<DeliveryReceiptSummary | null>(null);
 
   /* Edit modal form state */
@@ -304,10 +311,27 @@ export default function DeliveryReleasePage() {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={() => setViewItemsTarget(row.original)}
-                title="View Items"
+                onClick={async () => {
+                  setPreviewingDr(true);
+                  try {
+                    const preview = await deliveryService.getPreview(
+                      row.original.drNumber,
+                    );
+                    setViewDr(preview);
+                  } catch {
+                    toast.error("Failed to load DR preview.");
+                  } finally {
+                    setPreviewingDr(false);
+                  }
+                }}
+                disabled={previewingDr}
+                title="Preview"
               >
-                <Eye className="h-4 w-4" />
+                {previewingDr ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
               </Button>
               {row.original.driveFileLink && (
                 <Button
@@ -349,7 +373,7 @@ export default function DeliveryReleasePage() {
         },
       },
     ],
-    [],
+    [previewingDr],
   );
 
   /* Create modal handlers */
@@ -428,6 +452,83 @@ export default function DeliveryReleasePage() {
     }
   };
 
+  /* Save Draft handler */
+  const handleSaveDraft = async () => {
+    if (!selectedCompany) {
+      toast.error("Please select a customer.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload = {
+        companyId: selectedCompany,
+        date: deliveryDate,
+        poNo,
+        trNo,
+        preparedBy: preparedBy || "",
+        deliveredBy: deliveredBy || "",
+        comments,
+        items: lineItems,
+        status: "draft",
+      };
+      await deliveryService.createAndPopulateSheet(payload);
+      toast.success("Delivery receipt saved as draft.");
+      setModalOpen(false);
+      fetchList();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save draft.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /* Quick Add Product handlers */
+  const handleOpenQuickAddProduct = (searchText: string) => {
+    setQuickAddCode(searchText || "");
+    setQuickAddName("");
+    setQuickAddUnit("PC");
+    setQuickAddProductOpen(true);
+  };
+
+  const handleQuickAddSave = async () => {
+    if (!quickAddCode.trim() || !quickAddName.trim()) {
+      toast.error("Product Code and Name are required.");
+      return;
+    }
+    setQuickAddSaving(true);
+    try {
+      await productService.create({
+        code: quickAddCode.trim(),
+        name: quickAddName.trim(),
+        category: { id: "", code: "", name: "" },
+        description: "",
+        unit: { id: quickAddUnit, code: quickAddUnit, name: quickAddUnit },
+        costPerUnit: 0,
+        pricePerUnit: 0,
+        supplier: {
+          id: "",
+          row: 0,
+          companyId: "",
+          companyType: "Supplier",
+          companyName: "",
+          tin: "",
+          address: "",
+          latitude: undefined,
+          longitude: undefined,
+          status: "active",
+        },
+      });
+      const pData = await productService.getAll();
+      setProducts(Array.isArray(pData) ? pData : []);
+      toast.success(`Product "${quickAddCode.trim()}" added.`);
+      setQuickAddProductOpen(false);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || "Failed to add product.");
+    } finally {
+      setQuickAddSaving(false);
+    }
+  };
+
   /* Delete handler */
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
@@ -501,6 +602,16 @@ export default function DeliveryReleasePage() {
       };
       await deliveryService.update(editTarget.drNumber, payload);
       toast.success(`DR #${editTarget.drNumber} updated.`);
+
+      // Regenerate PDF for the updated DR (skip for drafts)
+      if (editStatus !== "draft") {
+        deliveryService
+          .savePdfToDrive(editTarget.drNumber, editTarget.companyName, editDate)
+          .catch(() => {
+            // PDF regen is best-effort — don't block the update flow
+          });
+      }
+
       setEditTarget(null);
       fetchList();
     } catch (err: any) {
@@ -595,6 +706,8 @@ export default function DeliveryReleasePage() {
                       }
                       options={productOptions}
                       placeholder="Select Product"
+                      onAddOption={handleOpenQuickAddProduct}
+                      addOptionLabel="+ Add Product"
                     />
                   </div>
                   <Input
@@ -689,6 +802,16 @@ export default function DeliveryReleasePage() {
               disabled={submitting}
             >
               Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleSaveDraft}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Save Draft
             </Button>
             <Button onClick={handleSaveAndPrint} disabled={submitting}>
               {submitting ? (
@@ -791,6 +914,8 @@ export default function DeliveryReleasePage() {
                       }
                       options={productOptions}
                       placeholder="Select Product"
+                      onAddOption={handleOpenQuickAddProduct}
+                      addOptionLabel="+ Add Product"
                     />
                   </div>
                   <Input
@@ -854,6 +979,7 @@ export default function DeliveryReleasePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="draft">Draft</SelectItem>
                   <SelectItem value="created">Created</SelectItem>
                   <SelectItem value="printed">Printed</SelectItem>
                   <SelectItem value="delivered">Delivered</SelectItem>
@@ -900,84 +1026,65 @@ export default function DeliveryReleasePage() {
         }}
       />
 
-      {/* View Items Dialog */}
+      {/* Quick Add Product Dialog */}
       <Dialog
-        open={!!viewItemsTarget}
-        onOpenChange={(v) => {
-          if (!v) setViewItemsTarget(null);
-        }}
+        open={quickAddProductOpen}
+        onOpenChange={setQuickAddProductOpen}
       >
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>DR #{viewItemsTarget?.drNumber} — Items</DialogTitle>
+            <DialogTitle>Add Product</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div>
-                <span className="text-muted-foreground">Customer:</span>{" "}
-                {viewItemsTarget?.companyName}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Date:</span>{" "}
-                {viewItemsTarget?.date}
-              </div>
-              <div>
-                <span className="text-muted-foreground">PO No.:</span>{" "}
-                {viewItemsTarget?.poNo || "—"}
-              </div>
-              <div>
-                <span className="text-muted-foreground">TR#:</span>{" "}
-                {viewItemsTarget?.trNo || "—"}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Status:</span>{" "}
-                <Badge variant="outline">{viewItemsTarget?.status}</Badge>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Delivered By:</span>{" "}
-                {viewItemsTarget?.deliveredBy || "—"}
-              </div>
+            <div className="space-y-2">
+              <Label>
+                Product Code <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                value={quickAddCode}
+                onChange={(e) => setQuickAddCode(e.target.value)}
+                placeholder="e.g. PROD-001"
+              />
             </div>
-            <div className="border rounded-md">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-medium">#</th>
-                    <th className="text-left px-3 py-2 font-medium">
-                      Product Name
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium">Qty</th>
-                    <th className="text-left px-3 py-2 font-medium">Unit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {viewItemsTarget?.items.map((item, idx) => (
-                    <tr key={idx} className="border-t">
-                      <td className="px-3 py-2">{idx + 1}</td>
-                      <td className="px-3 py-2 text-sm">
-                        {item.description || productNameByCode[item.productCode] || item.productCode}
-                      </td>
-                      <td className="px-3 py-2 text-right">{item.quantity}</td>
-                      <td className="px-3 py-2">{item.unit}</td>
-                    </tr>
-                  ))}
-                  {(!viewItemsTarget?.items ||
-                    viewItemsTarget.items.length === 0) && (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-3 py-4 text-center text-muted-foreground"
-                      >
-                        No items found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="space-y-2">
+              <Label>
+                Product Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                value={quickAddName}
+                onChange={(e) => setQuickAddName(e.target.value)}
+                placeholder="e.g. Printer Ink"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Unit</Label>
+              <Input
+                value={quickAddUnit}
+                onChange={(e) => setQuickAddUnit(e.target.value)}
+                placeholder="e.g. PC"
+              />
             </div>
           </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setQuickAddProductOpen(false)}
+              disabled={quickAddSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleQuickAddSave} disabled={quickAddSaving}>
+              {quickAddSaving && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Save Product
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+
+      
     </>
   );
 }

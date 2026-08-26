@@ -40,30 +40,36 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    if (!body.preparedBy?.trim()) {
-      return NextResponse.json(
-        { error: "Prepared by is required." },
-        { status: 400 },
-      );
-    }
-    if (!body.deliveredBy?.trim()) {
-      return NextResponse.json(
-        { error: "Delivered by is required." },
-        { status: 400 },
-      );
-    }
-    if (!body.items || body.items.length === 0) {
-      return NextResponse.json(
-        { error: "At least one product item is required." },
-        { status: 400 },
-      );
+
+    const isDraft = body.status === "draft";
+
+    if (!isDraft) {
+      if (!body.preparedBy?.trim()) {
+        return NextResponse.json(
+          { error: "Prepared by is required." },
+          { status: 400 },
+        );
+      }
+      if (!body.deliveredBy?.trim()) {
+        return NextResponse.json(
+          { error: "Delivered by is required." },
+          { status: 400 },
+        );
+      }
+      if (!body.items || body.items.length === 0) {
+        return NextResponse.json(
+          { error: "At least one product item is required." },
+          { status: 400 },
+        );
+      }
     }
 
     const result = await processDeliveryReceipt(body);
 
-    // ── Auto-save PDF to Google Drive and store link ──
+    // ── Auto-save PDF to Google Drive and store link (skip for drafts) ──
     let driveFileLink: string | undefined;
-    try {
+    if (!isDraft) {
+      try {
       const monthYear = (() => {
         if (body.date) {
           const d = new Date(body.date + (body.date.length === 10 ? "T00:00:00" : ""));
@@ -111,6 +117,7 @@ export async function POST(request: Request) {
       }
     } catch (e) {
       console.warn("Auto-save DR PDF to Drive failed (non-fatal):", e);
+    }
     }
 
     return NextResponse.json(
