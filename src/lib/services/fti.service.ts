@@ -157,6 +157,24 @@ export const ftiService = {
     const res = await api.get("/fti/info");
     return res.data;
   },
+
+  // ── Liquidation linkage ──
+  /**
+   * Returns a lightweight map of controlNo → { liquidationId, status } | null
+   * for all requested FTI control numbers in one request.
+   * null means no liquidation is linked to that FTI.
+   */
+  async getLinkedLiquidationSummaries(
+    controlNos: string[],
+  ): Promise<Record<string, { liquidationId: string; status: string; userId: string } | null>> {
+    if (controlNos.length === 0) return {};
+    const res = await api.get<{
+      summaries: Record<string, { liquidationId: string; status: string; userId: string } | null>;
+    }>("/fti/liquidations", {
+      params: { controlNos: controlNos.join(",") },
+    });
+    return res.data.summaries;
+  },
 };
 
 export default ftiService;

@@ -12,6 +12,7 @@ import {
   ArrowUpDown,
   Send,
   X,
+  ReceiptText,
 } from "lucide-react";
 import {
   Card,
@@ -44,11 +45,15 @@ import { format } from "date-fns";
 import FTIPreviewModal from "@/components/fti-preview-modal";
 import FTIPrintDocument from "@/components/fti-print-document";
 import type { DraftItinerary } from "@/components/fti-print-document";
+import LiquidationPreviewModal from "@/components/liquidation-preview-modal";
+import LiquidationPrintDocument from "@/components/liquidation-print-document";
 import { EntityTable } from "@/components/ui/entity-table";
 import ftiService from "@/lib/services/fti.service";
 import { userApproverService } from "@/lib/services/userApprover.service";
 import { userService } from "@/lib/services/user.service";
+import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import type { UserApprover } from "@/types/userApprover";
+import type { LiquidationFull } from "@/types/liquidation";
 
 import {
   FTIRequestSummary,
@@ -220,29 +225,28 @@ export default function FieldTravelItineraryPage() {
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
 
-  // Refs mirror the latest formInfo/approvers so the memoized table columns
-  // (empty dependency array) never read stale permission data.
-  const formInfoRef = useRef<FormInfo | null>(null);
-  const approversRef = useRef<UserApprover[]>([]);
-
-  useEffect(() => {
-    formInfoRef.current = formInfo;
-  }, [formInfo]);
-
-  useEffect(() => {
-    approversRef.current = approvers;
-  }, [approvers]);
+  // ── Liquidation preview state ──
+  const [liquidationsSummary, setLiquidationsSummary] = useState<
+    Record<string, { liquidationId: string; status: string; userId: string } | null>
+  >({});
+  const [liquidationPreview, setLiquidationPreview] =
+    useState<LiquidationFull | null>(null);
+  const [liquidationPreviewOpen, setLiquidationPreviewOpen] = useState(false);
+  const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
+  const [liquidationDownloadingPdf, setLiquidationDownloadingPdf] =
+    useState(false);
+  const [liquidationDownloadingImage, setLiquidationDownloadingImage] =
+    useState(false);
 
   // Only admins and the assigned approver may open the request modal (and thus
   // the screenshot-able document). Plain requesters are excluded to prevent the
   // "screenshot the draft → send in Messenger" approval bypass.
   const canViewListItem = (item: FTIRequestSummary): boolean => {
-    const info = formInfoRef.current;
-    if (info?.isAdmin) return true;
-    const currentUserId = info?.currentUserId;
+    if (formInfo?.isAdmin) return true;
+    const currentUserId = formInfo?.currentUserId;
     if (!currentUserId) return false;
     if (item.approvedByUserId === currentUserId) return true;
-    return approversRef.current.some(
+    return approvers.some(
       (m) =>
         m.approverUserId === currentUserId && m.requesterUserId === item.userId,
     );
@@ -322,6 +326,38 @@ export default function FieldTravelItineraryPage() {
       setLoading(false);
     }
   }, [formInfo, loadFTIRequests]);
+
+  // ── Fetch linked liquidation summaries after requests load ──
+  useEffect(() => {
+    if (ftiRequests.length === 0) return;
+    const controlNos = ftiRequests.map((r) => r.controlNo);
+    let cancelled = false;
+    (async () => {
+      try {
+        const summaries = await ftiService.getLinkedLiquidationSummaries(
+          controlNos,
+        );
+        if (!cancelled) setLiquidationsSummary(summaries);
+      } catch {
+        // Non-critical; liquidation badges simply won't render.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ftiRequests]);
+
+  // Fetch misc lookup for liquidation previews
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await miscellaneousService.getAll();
+        if (!cancelled) setMiscLookup(new Map(all.map((m) => [m.code, m.description])));
+      } catch {
+        // Non-critical
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Calculate distance ─────────────────────────
   const calculateDistance = useCallback(
@@ -1418,6 +1454,37 @@ export default function FieldTravelItineraryPage() {
     }
   };
 
+  const handleViewLiquidation = async (controlNo: string) => {
+    const summary = liquidationsSummary[controlNo];
+    if (!summary) return;
+    try {
+      const isAdmin = formInfo?.isAdmin;
+      // Admins pass the liquidation owner's userId to bypass user scoping
+      const userIdParam = isAdmin ? `&userId=${encodeURIComponent(summary.userId)}` : "";
+      const resp = await fetch(
+        `/api/liquidations?controlNo=${encodeURIComponent(controlNo)}${userIdParam}`,
+      );
+      const data = await resp.json();
+      const full = data?.liquidations?.[0] as LiquidationFull | undefined;
+      if (full) {
+        // getLiquidationFullByControlNoForUser does not resolve requesterName;
+        // fall back to the FTI row's user name for the preview header.
+        if (!full.requesterName) {
+          const ownerRequest = ftiRequests.find(
+            (r) => r.controlNo === controlNo,
+          );
+          full.requesterName = ownerRequest?.userName || "";
+        }
+        setLiquidationPreview(full);
+        setLiquidationPreviewOpen(true);
+      } else {
+        toast.error("Liquidation not found.");
+      }
+    } catch {
+      toast.error("Failed to load liquidation details.");
+    }
+  };
+
   const handleApprovalAction = async (
     action: "approve" | "request_change" | "reject",
     comment: string,
@@ -1477,6 +1544,90 @@ export default function FieldTravelItineraryPage() {
       );
     } finally {
       setApprovalInProgress(false);
+    }
+  };
+
+  // ── Liquidation preview → PDF / Image export ──
+  const getLiquidationPrintElement = () =>
+    document.getElementById("fti-liquidation-print-content");
+
+  const generateLiquidationPdfBlob = async (): Promise<Blob> => {
+    const element = getLiquidationPrintElement();
+    if (!element) throw new Error("Liquidation document not found.");
+    await new Promise((r) => setTimeout(r, 150));
+    const html2canvas = (await import("html2canvas-pro")).default;
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+    });
+    const { jsPDF } = await import("jspdf");
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "mm",
+      format: "a4",
+    });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    let position = 0;
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    let heightLeft = imgHeight - pageHeight;
+    while (heightLeft > 0) {
+      position -= pageHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+    return pdf.output("blob");
+  };
+
+  const handleLiquidationDownloadPdf = async () => {
+    setLiquidationDownloadingPdf(true);
+    try {
+      const blob = await generateLiquidationPdfBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `LIQUIDATION_${liquidationPreview?.controlNo || "draft"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Liquidation PDF downloaded.");
+    } catch (error) {
+      console.error("Liquidation PDF export failed:", error);
+      toast.error("Failed to generate liquidation PDF.");
+    } finally {
+      setLiquidationDownloadingPdf(false);
+    }
+  };
+
+  const handleLiquidationDownloadImage = async () => {
+    setLiquidationDownloadingImage(true);
+    try {
+      const element = getLiquidationPrintElement();
+      if (!element) throw new Error("Liquidation document not found.");
+      await new Promise((r) => setTimeout(r, 150));
+      const html2canvas = (await import("html2canvas-pro")).default;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+      });
+      const url = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `LIQUIDATION_${liquidationPreview?.controlNo || "draft"}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success("Liquidation image downloaded.");
+    } catch (error) {
+      console.error("Liquidation image export failed:", error);
+      toast.error("Failed to generate liquidation image.");
+    } finally {
+      setLiquidationDownloadingImage(false);
     }
   };
 
@@ -1615,6 +1766,47 @@ export default function FieldTravelItineraryPage() {
         },
       },
       {
+        id: "liquidation",
+        header: "Liquidation",
+        cell: ({ row }) => {
+          const item = row.original;
+          const summary = liquidationsSummary[item.controlNo];
+          if (!summary) return <span className="text-muted-foreground">—</span>;
+          const abbreviatedStatus =
+            summary.status.toUpperCase() === "SUBMITTED"
+              ? "Submitted"
+              : summary.status.toUpperCase() === "APPROVED"
+                ? "Approved"
+                : summary.status.toUpperCase() === "REQUESTED_FOR_CHANGE"
+                  ? "For Change"
+                  : summary.status.toUpperCase() === "REJECTED"
+                    ? "Rejected"
+                    : summary.status;
+          // Only the liquidation owner (technician) or an admin can open the
+          // liquidation preview. Approvers see the status badge only.
+          const canOpenLiquidation =
+            formInfo?.isAdmin || formInfo?.currentUserId === summary.userId;
+          return (
+            <div className="flex items-center gap-2">
+              <Badge className={statusBadgeClass(summary.status)}>
+                {abbreviatedStatus}
+              </Badge>
+              {canOpenLiquidation && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => handleViewLiquidation(item.controlNo)}
+                  title="View Liquidation"
+                >
+                  <ReceiptText className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          );
+        },
+      },
+      {
         accessorKey: "totalAmount",
         header: "Total Amount",
         cell: ({ row }) => (
@@ -1668,7 +1860,7 @@ export default function FieldTravelItineraryPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [formInfo, approvers, liquidationsSummary],
   );
 
   // ── Helpers for the form ────────────────────
@@ -1862,6 +2054,47 @@ export default function FieldTravelItineraryPage() {
             approvedBySignatureUrl={approvedBySignatureUrl}
           />
         )}
+        {/* Liquidation preview modal */}
+        {liquidationPreview && (
+          <LiquidationPreviewModal
+            open={liquidationPreviewOpen}
+            onOpenChange={setLiquidationPreviewOpen}
+            controlNo={liquidationPreview.controlNo}
+            fullName={liquidationPreview.requesterName || ""}
+            items={liquidationPreview.items?.map((item) => ({
+              date: item.date,
+              description: item.description,
+              category: item.category,
+              amount: item.amount,
+              receiptImageUrl: item.receiptImageUrl || undefined,
+            })) || []}
+            categories={[...miscLookup.keys()]}
+            miscLookup={miscLookup}
+            advances={liquidationPreview.totalAmountRequested || 0}
+            onDownloadPdf={handleLiquidationDownloadPdf}
+            downloadingPdf={liquidationDownloadingPdf}
+            onDownloadImage={handleLiquidationDownloadImage}
+            downloadingImage={liquidationDownloadingImage}
+          />
+        )}
+        {/* Off-screen printable liquidation document */}
+        <div className="fixed -left-[9999px] top-0" aria-hidden="true">
+          <LiquidationPrintDocument
+            controlNo={liquidationPreview?.controlNo || ""}
+            fullName={liquidationPreview?.requesterName || ""}
+            items={liquidationPreview?.items?.map((item) => ({
+              date: item.date,
+              description: item.description,
+              category: item.category,
+              amount: item.amount,
+              receiptImageUrl: item.receiptImageUrl || undefined,
+            })) || []}
+            categories={[...miscLookup.keys()]}
+            miscLookup={miscLookup}
+            advances={liquidationPreview?.totalAmountRequested || 0}
+            id="fti-liquidation-print-content"
+          />
+        </div>
       </div>
     );
   }

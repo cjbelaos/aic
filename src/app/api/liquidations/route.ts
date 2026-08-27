@@ -291,10 +291,17 @@ export async function GET(req: NextRequest) {
   const controlNo = (req.nextUrl.searchParams.get("controlNo") || "")
     .toString()
     .trim();
+  const adminUserId = (req.nextUrl.searchParams.get("userId") || "")
+    .toString()
+    .trim();
   if (controlNo) {
     try {
+      const isAdmin = session.userRoleId === 1;
+      // Admin can view any user's liquidation by passing ?userId=...
+      const lookupUserId =
+        isAdmin && adminUserId ? adminUserId : session.userId;
       let liquidation = await getLiquidationFullByControlNoForUser(
-        session.userId,
+        lookupUserId,
         controlNo,
       );
       if (liquidation) {
