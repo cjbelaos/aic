@@ -29,6 +29,7 @@ import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
+import productCategoryService from "@/lib/services/product-category.service";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
 import userService from "@/lib/services/user.service";
@@ -48,6 +49,7 @@ import {
   DeliveryReceiptSummary,
   DeliveryItem,
 } from "@/types/deliveryReceipt";
+import { ProductCategory } from "@/types/product-category";
 
 interface LineItem {
   productCode: string;
@@ -71,6 +73,9 @@ export default function DeliveryReleasePage() {
   /* Reference data (shared) */
   const [companies, setCompanies] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [productCategories, setProductCategories] = useState<ProductCategory[]>(
+    [],
+  );
   const [drivers, setDrivers] = useState<string[]>([]);
 
   /* Create modal state */
@@ -99,10 +104,14 @@ export default function DeliveryReleasePage() {
 
   /* Quick Add Product state */
   const [quickAddProductOpen, setQuickAddProductOpen] = useState(false);
-  const [quickAddCode, setQuickAddCode] = useState("");
+  const [quickAddCategoryId, setQuickAddCategoryId] = useState("");
   const [quickAddName, setQuickAddName] = useState("");
   const [quickAddUnit, setQuickAddUnit] = useState("PC");
   const [quickAddSaving, setQuickAddSaving] = useState(false);
+  const [quickAddContext, setQuickAddContext] = useState<{
+    mode: "create" | "edit";
+    index: number;
+  } | null>(null);
 
   /* Edit / Delete state */
   const [editTarget, setEditTarget] = useState<DeliveryReceiptSummary | null>(
@@ -141,10 +150,12 @@ export default function DeliveryReleasePage() {
       companyService.getAll(),
       productService.getAll(),
       deliveryService.getDrivers(),
-    ]).then(([cData, pData, dData]) => {
+      productCategoryService.getAll(),
+    ]).then(([cData, pData, dData, catData]) => {
       setCompanies(Array.isArray(cData) ? cData : []);
       setProducts(Array.isArray(pData) ? pData : []);
       setDrivers(Array.isArray(dData) ? dData : []);
+      setProductCategories(Array.isArray(catData) ? catData : []);
     });
 
     (async () => {
@@ -212,6 +223,12 @@ export default function DeliveryReleasePage() {
     () =>
       products.map((p) => ({ value: p.code, label: `${p.code} - ${p.name}` })),
     [products],
+  );
+
+  const categoryOptions = useMemo(
+    () =>
+      productCategories.map((c) => ({ value: String(c.id), label: c.name })),
+    [productCategories],
   );
 
   const productNameByCode = useMemo(() => {
@@ -487,24 +504,42 @@ export default function DeliveryReleasePage() {
   };
 
   /* Quick Add Product handlers */
-  const handleOpenQuickAddProduct = (searchText: string) => {
-    setQuickAddCode(searchText || "");
-    setQuickAddName("");
+  const handleOpenQuickAddProduct = (
+    searchText: string,
+    mode: "create" | "edit",
+    index: number,
+  ) => {
+    setQuickAddCategoryId("");
+    setQuickAddName(searchText || "");
     setQuickAddUnit("PC");
+    setQuickAddContext({ mode, index });
     setQuickAddProductOpen(true);
   };
 
   const handleQuickAddSave = async () => {
-    if (!quickAddCode.trim() || !quickAddName.trim()) {
-      toast.error("Product Code and Name are required.");
+    if (!quickAddName.trim()) {
+      toast.error("Product Name is required.");
+      return;
+    }
+    if (!quickAddCategoryId) {
+      toast.error("Please select a product category.");
       return;
     }
     setQuickAddSaving(true);
     try {
-      await productService.create({
-        code: quickAddCode.trim(),
+      const category =
+        productCategories.find(
+          (c) => String(c.id) === quickAddCategoryId,
+        ) || {
+          id: quickAddCategoryId,
+          code: "",
+          name: quickAddCategoryId,
+        };
+
+      const created = await productService.create({
+        code: "",
         name: quickAddName.trim(),
-        category: { id: "", code: "", name: "" },
+        category,
         description: "",
         unit: { id: quickAddUnit, code: quickAddUnit, name: quickAddUnit },
         costPerUnit: 0,
@@ -522,10 +557,39 @@ export default function DeliveryReleasePage() {
           status: "active",
         },
       });
+
       const pData = await productService.getAll();
       setProducts(Array.isArray(pData) ? pData : []);
-      toast.success(`Product "${quickAddCode.trim()}" added.`);
+
+      // Auto-select the newly added product in the originating line item.
+      if (quickAddContext) {
+        const code = created?.code || "";
+        const unit = created?.unit?.code || quickAddUnit;
+        const description =
+          created?.name || created?.description || quickAddName.trim();
+
+        if (quickAddContext.mode === "create") {
+          setLineItems((prev) =>
+            prev.map((item, i) =>
+              i === quickAddContext.index
+                ? { ...item, productCode: code, unit, description }
+                : item,
+            ),
+          );
+        } else {
+          setEditLineItems((prev) =>
+            prev.map((item, i) =>
+              i === quickAddContext.index
+                ? { ...item, productCode: code, unit, description }
+                : item,
+            ),
+          );
+        }
+      }
+
+      toast.success(`Product "${quickAddName.trim()}" added.`);
       setQuickAddProductOpen(false);
+      setQuickAddContext(null);
     } catch (err: any) {
       toast.error(err?.response?.data?.error || "Failed to add product.");
     } finally {
@@ -639,7 +703,11 @@ export default function DeliveryReleasePage() {
 
       {/* Create DR Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-6xl max-h-[90vh] overflow-y-auto"
+          onInteractOutside={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Create Delivery Receipt</DialogTitle>
           </DialogHeader>
@@ -720,7 +788,9 @@ export default function DeliveryReleasePage() {
                       }
                       options={productOptions}
                       placeholder="Select Product"
-                      onAddOption={handleOpenQuickAddProduct}
+                      onAddOption={(searchText) =>
+                        handleOpenQuickAddProduct(searchText, "create", idx)
+                      }
                       addOptionLabel="+ Add Product"
                     />
                   </div>
@@ -864,7 +934,11 @@ export default function DeliveryReleasePage() {
           if (!v) setEditTarget(null);
         }}
       >
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-4xl max-h-[90vh] overflow-y-auto"
+          onInteractOutside={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Edit DR #{editTarget?.drNumber}</DialogTitle>
           </DialogHeader>
@@ -928,7 +1002,9 @@ export default function DeliveryReleasePage() {
                       }
                       options={productOptions}
                       placeholder="Select Product"
-                      onAddOption={handleOpenQuickAddProduct}
+                      onAddOption={(searchText) =>
+                        handleOpenQuickAddProduct(searchText, "edit", idx)
+                      }
                       addOptionLabel="+ Add Product"
                     />
                   </div>
@@ -1045,19 +1121,29 @@ export default function DeliveryReleasePage() {
         open={quickAddProductOpen}
         onOpenChange={setQuickAddProductOpen}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-md"
+          onInteractOutside={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Add Product</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
+              <Label>Product Code</Label>
+              <Input value="Auto-Generated" disabled placeholder="Auto-Generated" />
+            </div>
+            <div className="space-y-1.5 w-full">
               <Label>
-                Product Code <span className="text-destructive">*</span>
+                Product Category <span className="text-destructive">*</span>
               </Label>
-              <Input
-                value={quickAddCode}
-                onChange={(e) => setQuickAddCode(e.target.value)}
-                placeholder="e.g. PROD-001"
+              <SearchableSelect
+                value={quickAddCategoryId}
+                onValueChange={setQuickAddCategoryId}
+                options={categoryOptions}
+                placeholder="Select category"
+                searchPlaceholder="Search categories..."
               />
             </div>
             <div className="space-y-2">

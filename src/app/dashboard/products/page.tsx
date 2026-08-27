@@ -19,13 +19,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
 // Services
@@ -260,8 +253,10 @@ function buildCreatePayload(
     companies: Company[];
   },
 ): CreateProductPayload {
-  const cat = lookup.categories.find((c) => c.id === form.categoryId);
-  const u = lookup.units.find((unit) => unit.id === form.productUnitId);
+  const cat = lookup.categories.find((c) => String(c.id) === form.categoryId);
+  const u = lookup.units.find(
+    (unit) => String(unit.id) === form.productUnitId,
+  );
   const supp = lookup.companies.find((s) => String(s.id) === form.supplierId);
 
   return {
@@ -313,6 +308,24 @@ export default function ProductsPage() {
         label: supplierLabel(s),
       })),
     [suppliers],
+  );
+
+  const categoryOptions = useMemo(
+    () =>
+      productCategories.map((cat) => ({
+        value: String(cat.id),
+        label: cat.name,
+      })),
+    [productCategories],
+  );
+
+  const unitOptions = useMemo(
+    () =>
+      productUnits.map((unit) => ({
+        value: String(unit.id),
+        label: unit.name,
+      })),
+    [productUnits],
   );
 
   const loadProducts = async () => {
@@ -699,7 +712,11 @@ export default function ProductsPage() {
           if (!saving) setModalOpen(v);
         }}
       >
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+          onInteractOutside={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>
               {editTarget ? "Edit Product" : "Create Product"}
@@ -734,22 +751,14 @@ export default function ProductsPage() {
             {/* Product Category */}
             <div className="space-y-1.5">
               <Label htmlFor="p-category">Product Category *</Label>
-              <Select
+              <SearchableSelect
                 value={form.categoryId}
-                disabled={saving}
                 onValueChange={(v) => setForm((f) => ({ ...f, categoryId: v }))}
-              >
-                <SelectTrigger id="p-category" className="w-full">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {productCategories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={categoryOptions}
+                placeholder="Select category"
+                searchPlaceholder="Search categories..."
+                disabled={saving}
+              />
             </div>
 
             {/* Description */}
@@ -768,26 +777,16 @@ export default function ProductsPage() {
             {/* Unit */}
             <div className="space-y-1.5">
               <Label>Unit *</Label>
-              <Select
+              <SearchableSelect
                 value={form.productUnitId}
-                disabled={saving}
                 onValueChange={(v) =>
                   setForm((f) => ({ ...f, productUnitId: v }))
                 }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select unit" />
-                </SelectTrigger>
-                <SelectContent>
-                  {productUnits.map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>
-                      {" "}
-                      {/* Force value as string */}
-                      {u.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={unitOptions}
+                placeholder="Select unit"
+                searchPlaceholder="Search units..."
+                disabled={saving}
+              />
             </div>
 
             {/* Cost & Price */}

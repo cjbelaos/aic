@@ -62,8 +62,7 @@ export function SearchableSelect({
       )
     : options;
 
-  const showAddOption =
-    !!onAddOption && query !== "" && filteredOptions.length === 0;
+  const showAddOption = !!onAddOption && query !== "";
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
