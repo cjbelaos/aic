@@ -220,6 +220,34 @@ export default function FieldTravelItineraryPage() {
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
 
+  // Refs mirror the latest formInfo/approvers so the memoized table columns
+  // (empty dependency array) never read stale permission data.
+  const formInfoRef = useRef<FormInfo | null>(null);
+  const approversRef = useRef<UserApprover[]>([]);
+
+  useEffect(() => {
+    formInfoRef.current = formInfo;
+  }, [formInfo]);
+
+  useEffect(() => {
+    approversRef.current = approvers;
+  }, [approvers]);
+
+  // Only admins and the assigned approver may open the request modal (and thus
+  // the screenshot-able document). Plain requesters are excluded to prevent the
+  // "screenshot the draft → send in Messenger" approval bypass.
+  const canViewListItem = (item: FTIRequestSummary): boolean => {
+    const info = formInfoRef.current;
+    if (info?.isAdmin) return true;
+    const currentUserId = info?.currentUserId;
+    if (!currentUserId) return false;
+    if (item.approvedByUserId === currentUserId) return true;
+    return approversRef.current.some(
+      (m) =>
+        m.approverUserId === currentUserId && m.requesterUserId === item.userId,
+    );
+  };
+
   const loadFTIRequests = useCallback(async () => {
     try {
       setListLoading(true);
@@ -1375,6 +1403,10 @@ export default function FieldTravelItineraryPage() {
   };
 
   const handleViewItem = async (item: FTIRequestSummary) => {
+    if (!canViewListItem(item)) {
+      toast.error("You are not authorized to view this request.");
+      return;
+    }
     try {
       const full = await ftiService.getRequest(item.controlNo);
       setViewRequest(full);
@@ -1559,8 +1591,15 @@ export default function FieldTravelItineraryPage() {
         id: "ftiFileLink",
         header: "File Link",
         cell: ({ row }) => {
-          const link = row.original.ftiFileLink;
+          const item = row.original;
+          const link = item.ftiFileLink;
           if (!link) {
+            return <span className="text-muted-foreground">—</span>;
+          }
+          const isApproved = item.status.toUpperCase() === "APPROVED";
+          // Technicians may only open the signed PDF after approval; admins
+          // and the assigned approver may open it at any time.
+          if (!isApproved && !canViewListItem(item)) {
             return <span className="text-muted-foreground">—</span>;
           }
           return (
@@ -1592,15 +1631,17 @@ export default function FieldTravelItineraryPage() {
           const editable = isEditableStatus(item.status);
           return (
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => handleViewItem(item)}
-                title="View"
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
+              {canViewListItem(item) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => handleViewItem(item)}
+                  title="View"
+                >
+                  <Eye className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -2600,14 +2641,16 @@ export default function FieldTravelItineraryPage() {
           </CardContent>
           {!isReadOnlyForm && (
             <div className="flex justify-end gap-3 px-6 pb-6 border-t pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setPreviewOpen(true)}
-                disabled={batchItems.length === 0}
-              >
-                <Eye className="mr-1 h-4 w-4" /> Preview
-              </Button>
+              {formInfo?.isAdmin && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPreviewOpen(true)}
+                  disabled={batchItems.length === 0}
+                >
+                  <Eye className="mr-1 h-4 w-4" /> Preview
+                </Button>
+              )}
               <Button
                 type="button"
                 onClick={handleSubmitRequest}
