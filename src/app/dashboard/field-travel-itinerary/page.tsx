@@ -1447,10 +1447,133 @@ export default function FieldTravelItineraryPage() {
       const full = await ftiService.getRequest(item.controlNo);
       setViewRequest(full);
       setApprovedBy(full.approvedByName || "");
-      setApprovedBySignatureUrl(full.approvedBySignatureUrl || "");
+      // Resolve signature: use stored URL, or try to find it from the Users sheet
+      if (full.approvedBySignatureUrl) {
+        setApprovedBySignatureUrl(full.approvedBySignatureUrl);
+      } else if (full.approvedByName && full.approvedByUserId) {
+        try {
+          const users = await userService.getAllUsers();
+          const approver = users.find(
+            (u) => u.userId === full.approvedByUserId,
+          );
+          if (approver?.signature) {
+            setApprovedBySignatureUrl(
+              `/api/images/drive/${approver.signature}`,
+            );
+          } else {
+            // Fallback: try by username matching approvedByName
+            try {
+              const sig = await userService.getSignatureByUsername(
+                full.approvedByName,
+              );
+              if (sig?.imageUrl) {
+                setApprovedBySignatureUrl(sig.imageUrl);
+              }
+            } catch {
+              setApprovedBySignatureUrl("");
+            }
+          }
+        } catch {
+          setApprovedBySignatureUrl("");
+        }
+      } else {
+        setApprovedBySignatureUrl("");
+      }
       setViewModalOpen(true);
     } catch {
       toast.error("Failed to load FTI details.");
+    }
+  };
+
+  const handleRegenerateFtiPdf = async () => {
+    if (!viewRequest) return;
+    setApprovalInProgress(true);
+    try {
+      // 1. Re-resolve signature if not already present
+      let signatureUrl = approvedBySignatureUrl;
+      if (!signatureUrl && viewRequest.approvedByName) {
+        try {
+          const sig = await userService.getSignatureByUsername(
+            viewRequest.approvedByName,
+          );
+          if (sig?.imageUrl) {
+            signatureUrl = sig.imageUrl;
+            setApprovedBySignatureUrl(signatureUrl);
+          }
+        } catch {
+          // proceed without signature
+        }
+      }
+
+      // 2. Pre-fetch the signature image as a data URL so html2canvas can
+      //    render it without hitting the auth-required proxy endpoint.
+      let signatureDataUrl = "";
+      if (signatureUrl) {
+        try {
+          const imgRes = await fetch(signatureUrl);
+          if (imgRes.ok) {
+            const imgBlob = await imgRes.blob();
+            signatureDataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(imgBlob);
+            });
+            // Temporarily swap the src to the data URL so html2canvas sees it
+            const imgElements = document.querySelectorAll<HTMLImageElement>(
+              'img[alt="Approver Signature"]',
+            );
+            imgElements.forEach((img) => {
+              img.dataset.originalSrc = img.src;
+              img.src = signatureDataUrl;
+            });
+            // Wait for the swap to render
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        } catch {
+          // proceed without signature
+        }
+      }
+
+      // 3. Generate PDF
+      const blob = await generatePdfBlob();
+
+      // 4. Restore original image srcs
+      if (signatureDataUrl) {
+        const imgElements = document.querySelectorAll<HTMLImageElement>(
+          'img[alt="Approver Signature"]',
+        );
+        imgElements.forEach((img) => {
+          if (img.dataset.originalSrc) {
+            img.src = img.dataset.originalSrc;
+          }
+        });
+      }
+
+      // 5. Upload the regenerated PDF to Drive
+      const fileLink = await saveGdToGoogleDrive(blob, viewRequest.controlNo);
+
+      // 6. Update the signature URL in the sheet if it was missing
+      if (!viewRequest.approvedBySignatureUrl && signatureUrl) {
+        await ftiService.approveAction(
+          viewRequest.controlNo,
+          "approve",
+          "",
+          fileLink,
+          viewRequest.approvedByName,
+          signatureUrl,
+        );
+      }
+
+      toast.success("PDF regenerated and saved to Drive successfully.");
+      // Refresh the FTI request data to show updated file link
+      const refreshed = await ftiService.getRequest(viewRequest.controlNo);
+      setViewRequest(refreshed);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to regenerate PDF.",
+      );
+    } finally {
+      setApprovalInProgress(false);
     }
   };
 
@@ -1519,14 +1642,36 @@ export default function FieldTravelItineraryPage() {
         const blob = await generatePdfBlob();
         fileLink = await saveGdToGoogleDrive(blob, viewRequest.controlNo);
       }
-      await ftiService.approveAction(
-        viewRequest.controlNo,
-        action,
-        comment.trim(),
-        fileLink,
-        approvedName,
-        approvedSignature,
-      );
+      // Sheet write — if this fails, the Drive file is orphaned, so we need
+      // to roll it back. We do the sheet write FIRST for non-approve actions
+      // (no file to roll back), and after the Drive upload for approve actions.
+      // If the sheet write fails after the Drive upload, delete the Drive file.
+      try {
+        await ftiService.approveAction(
+          viewRequest.controlNo,
+          action,
+          comment.trim(),
+          fileLink,
+          approvedName,
+          approvedSignature,
+        );
+      } catch (err) {
+        // Roll back the Drive PDF if the sheet write failed
+        if (fileLink) {
+          try {
+            const fileIdMatch = fileLink.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            const fileId = fileIdMatch?.[1];
+            if (fileId) {
+              await fetch(`/api/fti/save-pdf-to-drive?fileId=${encodeURIComponent(fileId)}`, {
+                method: "DELETE",
+              });
+            }
+          } catch {
+            // Non-fatal rollback failure
+          }
+        }
+        throw err; // Re-throw to trigger the outer catch
+      }
       toast.success(
         action === "approve"
           ? "Request approved and PDF saved to Drive."
@@ -2052,6 +2197,12 @@ export default function FieldTravelItineraryPage() {
             approvalStatus={viewRequest.status}
             approvedBy={approvedBy}
             approvedBySignatureUrl={approvedBySignatureUrl}
+            onRegeneratePdf={
+              viewRequest.status.toUpperCase() === "APPROVED"
+                ? handleRegenerateFtiPdf
+                : undefined
+            }
+            regeneratingPdf={approvalInProgress}
           />
         )}
         {/* Liquidation preview modal */}
@@ -2075,6 +2226,8 @@ export default function FieldTravelItineraryPage() {
             downloadingPdf={liquidationDownloadingPdf}
             onDownloadImage={handleLiquidationDownloadImage}
             downloadingImage={liquidationDownloadingImage}
+            approvedBy={liquidationPreview.approvedByName}
+            approvedBySignatureUrl={liquidationPreview.approvedBySignatureUrl}
           />
         )}
         {/* Off-screen printable liquidation document */}
@@ -2093,6 +2246,8 @@ export default function FieldTravelItineraryPage() {
             miscLookup={miscLookup}
             advances={liquidationPreview?.totalAmountRequested || 0}
             id="fti-liquidation-print-content"
+            approvedBy={liquidationPreview?.approvedByName}
+            approvedBySignatureUrl={liquidationPreview?.approvedBySignatureUrl}
           />
         </div>
       </div>

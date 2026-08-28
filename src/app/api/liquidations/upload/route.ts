@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { uploadReceiptFile } from "@/lib/receiptUpload";
+import { uploadReceiptFile, deleteReceiptFile } from "@/lib/receiptUpload";
 
 /**
  * POST /api/liquidations/upload
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      fileId: result.fileId,
       receiptImageUrl: result.webViewLink,
       proxyUrl: result.proxyUrl,
       fileName: file.name,
@@ -61,6 +62,35 @@ export async function POST(req: NextRequest) {
     console.error("Receipt upload error:", error);
     return NextResponse.json(
       { error: (error as Error).message || "Failed to upload receipt." },
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * DELETE /api/liquidations/upload?fileId=...
+ * Deletes a single receipt file from Google Drive. Used as a rollback when a
+ * receipt photo was uploaded but the subsequent Google Sheet write failed.
+ */
+export async function DELETE(req: NextRequest) {
+  const session = await requireAuthenticatedSession();
+  if (session instanceof Response) return session;
+
+  const fileId = (req.nextUrl.searchParams.get("fileId") || "").trim();
+  if (!fileId) {
+    return NextResponse.json(
+      { error: "Missing fileId query parameter." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    await deleteReceiptFile(fileId);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Receipt delete error:", error);
+    return NextResponse.json(
+      { error: (error as Error).message || "Failed to delete receipt." },
       { status: 500 },
     );
   }

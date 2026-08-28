@@ -14,6 +14,8 @@ interface LiquidationPrintDocumentProps {
   /** FTI Total Amount of the linked ControlNo. */
   advances: number;
   id?: string;
+  approvedBy?: string;
+  approvedBySignatureUrl?: string;
 }
 
 function toFixed2(n: number): string {
@@ -34,6 +36,8 @@ export default function LiquidationPrintDocument({
   miscLookup,
   advances,
   id = "liquidation-preview-content",
+  approvedBy,
+  approvedBySignatureUrl,
 }: LiquidationPrintDocumentProps) {
   // Categories used as column headers — exclude "Others" since there's a
   // dedicated catch-all "Others" column in the pivot table.
@@ -292,7 +296,26 @@ export default function LiquidationPrintDocument({
           </p>
         </div>
         <div className="w-1/3">
-          <p className="font-normal text-gray-800">Approved by:</p>
+          <div className="inline-flex items-center gap-1">
+            <span className="font-normal text-gray-800">Approved by:</span>
+            <div className="relative inline-block">
+              {/* Centered signature floating directly above the full name */}
+              {approvedBy && approvedBySignatureUrl && (
+                <img
+                  src={approvedBySignatureUrl}
+                  alt="Approver Signature"
+                  className="absolute left-1/2 -bottom-1 -translate-x-1/2 h-16 w-auto object-contain pointer-events-none filter contrast-125 z-10"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              )}
+              <span className="font-semibold text-slate-900 px-1">
+                {approvedBy || ""}
+              </span>
+            </div>
+          </div>
         </div>
         <div className="w-1/3 space-y-8">
           <p className="font-normal text-gray-800">Released Cash by:</p>

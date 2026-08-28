@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  ArrowLeft,
   Camera,
   Loader2,
   Plus,
@@ -85,35 +86,71 @@ export function LiquidationForm({
   userId,
   initialControlNo = "",
   restrictToOther = false,
+  onCancel,
+  editingLiquidation,
 }: {
   userId: string;
   initialControlNo?: string;
   /** When true, forces "Other (No FTI)" mode and hides the FTI type selector. */
   restrictToOther?: boolean;
+  /** Optional callback rendered as a "Back to list" button. */
+  onCancel?: () => void;
+  /**
+   * When provided, pre-populates the form with an existing liquidation so it
+   * can be edited directly (items, control number, total amount requested...).
+   */
+  editingLiquidation?: LiquidationFull | null;
 }) {
-  const [items, setItems] = useState<ReceiptItemInput[]>([]);
+  const [items, setItems] = useState<ReceiptItemInput[]>(() =>
+    editingLiquidation
+      ? editingLiquidation.items.map((item) => ({
+          date: item.date,
+          description: item.description,
+          category: item.category,
+          amount: item.amount,
+          receiptImageUrl: item.receiptImageUrl || undefined,
+        }))
+      : [],
+  );
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  // Active SAVED liquidation returned by createDraft (first Add Item click).
-  const [liquidationId, setLiquidationId] = useState("");
+  // Active liquidation: created via createDraft (first Add Item click), or the
+  // existing liquidation being edited.
+  const [liquidationId, setLiquidationId] = useState(
+    editingLiquidation?.liquidationId || "",
+  );
 
   // FTI link (ControlNo) — empty means an "Other" liquidation without an FTI.
   const [ftiRequests, setFtiRequests] = useState<FTIRequestSummary[]>([]);
   // Liquidation type: "fti" (linked to an FTI) or "other" (no FTI).
   const [liqType, setLiqType] = useState<"fti" | "other">(
-    initialControlNo ? "fti" : "fti",
+    editingLiquidation
+      ? editingLiquidation.controlNo
+        ? "fti"
+        : "other"
+      : "fti",
   );
-  const [controlNo, setControlNo] = useState(initialControlNo);
+  const [controlNo, setControlNo] = useState(
+    editingLiquidation?.controlNo || initialControlNo,
+  );
   const [loadingFti, setLoadingFti] = useState(true);
   const [loadingLiquidation, setLoadingLiquidation] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
-  const [lastLoadedControlNo, setLastLoadedControlNo] = useState("");
-  // Manual TotalAmountRequested for "Other" liquidations (no FTI ControlNo).
-  const [totalAmountRequested, setTotalAmountRequested] = useState("");
-  // Existing "Other" (no-FTI) liquidations the user can reopen and edit.
-  const [otherLiquidations, setOtherLiquidations] = useState<LiquidationFull[]>(
-    [],
+  const [isLocked, setIsLocked] = useState(() =>
+    editingLiquidation
+      ? !EDITABLE_STATUSES.includes(
+          (editingLiquidation.status || "").toUpperCase() as LiquidationStatus,
+        )
+      : false,
   );
-  const [selectedOtherId, setSelectedOtherId] = useState("");
+  const [lastLoadedControlNo, setLastLoadedControlNo] = useState(
+    editingLiquidation?.controlNo || "",
+  );
+  // Manual TotalAmountRequested for "Other" liquidations (no FTI ControlNo).
+  const [totalAmountRequested, setTotalAmountRequested] = useState(() =>
+    editingLiquidation && !editingLiquidation.controlNo &&
+    editingLiquidation.totalAmountRequested != null
+      ? String(editingLiquidation.totalAmountRequested)
+      : "",
+  );
   // Miscellaneous category options (fetched via the same source as the FTI page).
   const [categories, setCategories] = useState<string[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
@@ -141,14 +178,23 @@ export function LiquidationForm({
           // DRAFT and SAVED, and sort latest to oldest by dateCreated.
           const myId = userId;
           const usable = requests
-            .filter((r) => r.status !== "SAVED" && (!myId || r.userId === myId))
+            .filter(
+              (r) =>
+                r.status === "APPROVED" &&
+                (!myId || r.userId === myId),
+            )
             .sort((a, b) =>
               (b.dateCreated || "").localeCompare(a.dateCreated || ""),
             );
           setFtiRequests(usable);
           // Pre-select the deep-linked ControlNo if it is one of the usable
           // requests (e.g. clicked "Add Liquidation" from the FTI page).
-          if (preselected && usable.some((r) => r.controlNo === preselected)) {
+          // Never override while editing an existing liquidation.
+          if (
+            !isEditing &&
+            preselected &&
+            usable.some((r) => r.controlNo === preselected)
+          ) {
             setControlNo(preselected);
           }
         }
@@ -163,29 +209,7 @@ export function LiquidationForm({
     };
   }, []);
 
-  // Load the user's existing "Other" (no-FTI) liquidations so they can be
-  // reopened and further edited.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const others = await liquidationService.getOtherLiquidations();
-        if (!cancelled) {
-          // Only show the signed-in user's OWN no-FTI liquidations to
-          // reopen/edit. getMyLiquidations() may also include liquidations
-          // the user approves on behalf of others.
-          setOtherLiquidations(
-            others.filter((l) => !l.controlNo && l.userId === userId),
-          );
-        }
-      } catch (error) {
-        console.error("Failed to load other liquidations:", error);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
+  const isEditing = !!editingLiquidation;
 
   // Load miscellaneous categories (same source as the FTI page dropdown).
   // Stores the code (e.g. "MEAL") as the category value; the description
@@ -240,11 +264,14 @@ export function LiquidationForm({
   // When the selected FTI ControlNo changes, restore the existing
   // liquidation (its liquidationId + receipt items). This is the core fix
   // for the bug where re-selecting an FTI showed an empty receipt list.
-  // When ControlNo is empty ("Other" liquidation), we start fresh.
+  // When ControlNo is empty ("Other" liquidation), we start fresh — EXCEPT
+  // when editing an existing "Other" liquidation, where the pre-populated
+  // state must be preserved.
   useEffect(() => {
     let cancelled = false;
     const controlNoToLoad = controlNo.trim();
     if (!controlNoToLoad) {
+      if (isEditing) return;
       // Switching to an "Other" liquidation without an FTI: reset batch.
       setLiquidationId("");
       setItems([]);
@@ -304,41 +331,7 @@ export function LiquidationForm({
     return () => {
       cancelled = true;
     };
-  }, [controlNo, lastLoadedControlNo]);
-
-  // When returning to "Other" (no FTI) with an existing "Other" liquidation
-  // still selected (selectedOtherId), re-load its receipt items AFTER the FTI
-  // effect above clears state on controlNo="" (switching back to "Other").
-  useEffect(() => {
-    if (liqType === "other" && selectedOtherId) {
-      const found = otherLiquidations.find(
-        (l) => l.liquidationId === selectedOtherId,
-      );
-      if (found) {
-        setLiquidationId(found.liquidationId);
-        setItems(
-          found.items.map((item) => ({
-            date: item.date,
-            description: item.description,
-            category: item.category,
-            amount: item.amount,
-            receiptImageUrl: item.receiptImageUrl || undefined,
-          })),
-        );
-        setTotalAmountRequested(
-          found.totalAmountRequested != null
-            ? String(found.totalAmountRequested)
-            : "",
-        );
-        setIsLocked(
-          !EDITABLE_STATUSES.includes(
-            (found.status || "").toUpperCase() as LiquidationStatus,
-          ),
-        );
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liqType, selectedOtherId, otherLiquidations]);
+  }, [controlNo, lastLoadedControlNo, isEditing]);
 
   // Line-item input draft
   const [draftDate, setDraftDate] = useState<Date | undefined>(undefined);
@@ -507,6 +500,8 @@ export function LiquidationForm({
     let finalReceiptUrl = draftReceiptUrl;
     let finalReceiptPreviewUrl = draftReceiptPreviewUrl;
     let finalReceiptIsImage = draftReceiptIsImage;
+    // fileId of a Drive file uploaded during THIS attempt (used for rollback).
+    let uploadedFileId = "";
 
     // Upload the NEW locally-held photo to Drive when the item is committed.
     if (draftReceiptFile && !draftReceiptUrl) {
@@ -516,7 +511,9 @@ export function LiquidationForm({
         finalReceiptUrl = result.receiptImageUrl;
         finalReceiptPreviewUrl = result.proxyUrl;
         finalReceiptIsImage = draftReceiptIsImage;
-        toast.success("Receipt photo saved to Drive.");
+        uploadedFileId = result.fileId || "";
+        // NOTE: no success toast here — we only notify after BOTH the Drive
+        // upload AND the Google Sheet write succeed (see below).
       } catch (error) {
         console.error("Receipt upload failed:", error);
         const message =
@@ -565,10 +562,34 @@ export function LiquidationForm({
       }
     } catch (error) {
       console.error("Failed to persist receipt item:", error);
-      // Keep the draft intact (date/description/category/amount and the
-      // already-uploaded Drive receipt URL) so the user can simply click
-      // "Add Item" again and retry WITHOUT re-uploading the receipt.
-      toast.error("Failed to save receipt item. Please try again.");
+      // Roll back the Drive file uploaded in this attempt so the photo and the
+      // sheet record succeed or fail together (best effort — a failed rollback
+      // is non-fatal and just leaves an orphaned file rather than losing data).
+      if (uploadedFileId) {
+        try {
+          await liquidationService.deleteReceipt(uploadedFileId);
+          console.info("Rolled back orphaned receipt file:", uploadedFileId);
+        } catch (rollbackError) {
+          console.error("Failed to roll back receipt file:", rollbackError);
+        }
+      }
+      // Keep the draft intact (date/description/category/amount) so the user
+      // can retry. The local file reference is cleared so the next attempt
+      // re-uploads rather than re-using a possibly-deleted Drive file.
+      setDraftReceiptFile(null);
+      if (draftPreviewSrc) {
+        URL.revokeObjectURL(draftPreviewSrc);
+        setDraftPreviewSrc("");
+      }
+      setDraftReceiptUrl("");
+      setDraftReceiptPreviewUrl("");
+      setDraftReceiptName("");
+      const message = error instanceof Error ? error.message : "";
+      toast.error(
+        message
+          ? `Failed to save receipt item: ${message}`
+          : "Failed to save receipt item. Please try again.",
+      );
     } finally {
       setUploading(false);
     }
@@ -775,14 +796,23 @@ export function LiquidationForm({
               {formatCurrency(submittedTotal)}
             </span>
           </p>
-          <Button
-            size="lg"
-            className="mt-2 h-12 w-full sm:w-auto"
-            onClick={handleStartNew}
-          >
-            <Plus className="mr-2 h-5 w-5" />
-            New Liquidation
-          </Button>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:justify-center">
+            <Button size="lg" className="h-12" onClick={handleStartNew}>
+              <Plus className="mr-2 h-5 w-5" />
+              New Liquidation
+            </Button>
+            {onCancel && (
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-12"
+                onClick={onCancel}
+              >
+                <ArrowLeft className="mr-2 h-5 w-5" />
+                Back to list
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
     );
@@ -790,6 +820,18 @@ export function LiquidationForm({
 
   return (
     <div className="space-y-4 pb-2">
+      {onCancel && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-ml-2"
+          onClick={onCancel}
+        >
+          <ArrowLeft className="mr-1 h-4 w-4" />
+          Back to list
+        </Button>
+      )}
       {/* ── Header & context ── */}
       <Card>
         <CardHeader className="pb-3">
@@ -822,12 +864,14 @@ export function LiquidationForm({
           <CardDescription>
             {restrictToOther
               ? "Create an expense liquidation without an FTI ControlNo."
-              : 'Link to an FTI, or create an "Other" liquidation without an FTI ControlNo.'}
+              : isEditing
+                ? "Edit the receipts and details for this liquidation."
+                : 'Link to an FTI, or create an "Other" liquidation without an FTI ControlNo.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {!restrictToOther && (
+            {!restrictToOther && !isEditing && (
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   type="button"
@@ -837,7 +881,6 @@ export function LiquidationForm({
                     // Clear any loaded "Other" state so the FTI view starts fresh.
                     setLiquidationId("");
                     setItems([]);
-                    setSelectedOtherId("");
                     setTotalAmountRequested("");
                     setIsLocked(false);
                     setLastLoadedControlNo("");
@@ -855,7 +898,6 @@ export function LiquidationForm({
                     // Clear any loaded FTI state so the Other view starts fresh.
                     setLiquidationId("");
                     setItems([]);
-                    setSelectedOtherId("");
                     setTotalAmountRequested("");
                     setIsLocked(false);
                   }}
@@ -867,72 +909,6 @@ export function LiquidationForm({
 
             {isOther || restrictToOther ? (
               <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
-                {/* ── Reopen an existing no-FTI liquidation ── */}
-                <div className="space-y-2">
-                  <Label>Existing "Other" Liquidation</Label>
-                  <Select
-                    value={selectedOtherId}
-                    onValueChange={(id) => {
-                      const found = otherLiquidations.find(
-                        (l) => l.liquidationId === id,
-                      );
-                      if (!found) return;
-                      setSelectedOtherId(id);
-                      setLiquidationId(id);
-                      setItems(
-                        found.items.map((item) => ({
-                          date: item.date,
-                          description: item.description,
-                          category: item.category,
-                          amount: item.amount,
-                          receiptImageUrl: item.receiptImageUrl || undefined,
-                        })),
-                      );
-                      setTotalAmountRequested(
-                        found.totalAmountRequested != null
-                          ? String(found.totalAmountRequested)
-                          : "",
-                      );
-                      setIsLocked(
-                        !EDITABLE_STATUSES.includes(
-                          (
-                            found.status || ""
-                          ).toUpperCase() as LiquidationStatus,
-                        ),
-                      );
-                      toast.success(
-                        `Opened liquidation (${found.items.length} receipt item(s)).`,
-                      );
-                    }}
-                  >
-                    <SelectTrigger className="h-11 text-base">
-                      <SelectValue placeholder="Select existing liquidation" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {otherLiquidations.length === 0 ? (
-                        <p className="px-4 py-2 text-sm text-muted-foreground">
-                          No existing "Other" liquidations yet.
-                        </p>
-                      ) : (
-                        otherLiquidations.map((liq) => (
-                          <SelectItem
-                            key={liq.liquidationId}
-                            value={liq.liquidationId}
-                          >
-                            {liq.status} • ₱
-                            {liq.totalAmount?.toFixed?.(2) ?? (0).toFixed(2)} •{" "}
-                            {liq.items.length} item(s)
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Pick an existing no-FTI liquidation to reopen and add/edit
-                    its receipts, or leave blank to start a new one.
-                  </p>
-                </div>
-
                 <div className="space-y-2">
                   <Label>Total Amount Requested (₱)</Label>
                   <Input

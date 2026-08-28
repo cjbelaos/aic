@@ -211,12 +211,20 @@ export async function POST(req: NextRequest) {
         );
 
       const approverUser = users.find((u) => u.userId === session.userId);
+      const isApprove = (approval.action || "").toUpperCase() === "APPROVE";
+      // Convert the raw Drive fileId to a proxy image URL that can render in
+      // the browser and in html2canvas. The sheet stores the raw fileId but
+      // we persist the proxied URL for the preview/print document.
+      const signatureUrl =
+        isApprove && approverUser?.signature
+          ? `/api/images/drive/${approverUser.signature}`
+          : "";
       await updateLiquidationApproval(
         liquidationId,
         approval.action,
         session.userId,
         approverUser?.fullName,
-        approverUser?.signature,
+        signatureUrl,
         approval.comment,
       );
 
@@ -382,7 +390,10 @@ export async function GET(req: NextRequest) {
       if (m.approverUserId === session.userId)
         mappedRequesterIds.add(m.requesterUserId);
 
-    const visible = [...mine];
+    const visible = mine.map((liquidation) => ({
+      ...liquidation,
+      requesterName: userNames.get(liquidation.userId) || "",
+    }));
     for (const liquidation of all) {
       const isApprover =
         liquidation.approvedByUserId === session.userId ||

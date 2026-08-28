@@ -372,6 +372,10 @@ export default function FTIPrintDocument({
                   src={approvedBySignatureUrl}
                   alt="Approver Signature"
                   className="absolute left-1/2 -bottom-1 -translate-x-1/2 h-16 w-auto object-contain pointer-events-none filter contrast-125 z-10"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
                 />
               )}
               <span className="font-semibold text-slate-900 px-1">

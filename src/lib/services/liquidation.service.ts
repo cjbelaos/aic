@@ -7,6 +7,22 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Surface the server's actual error message instead of a generic
+// "Request failed with status code 400". The /api/liquidations route wraps
+// ALL handler errors (including Google Sheets API errors) in a 400 with an
+// `error` field, so we must surface it to diagnose real write failures.
+api.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    const serverMessage =
+      (typeof error?.response?.data?.error === "string" &&
+        error.response.data.error) ||
+      error?.message ||
+      "Request failed.";
+    return Promise.reject(new Error(serverMessage));
+  },
+);
+
 export interface CreateLiquidationResponse {
   success: boolean;
   liquidationId: string;
@@ -17,6 +33,7 @@ export interface CreateLiquidationResponse {
 
 export interface UploadReceiptResponse {
   success: boolean;
+  fileId: string;
   receiptImageUrl: string;
   proxyUrl: string;
   fileName: string;
@@ -262,5 +279,17 @@ export const liquidationService = {
       }
       throw error;
     }
+  },
+
+  /**
+   * Deletes a single uploaded receipt file from Google Drive. Used to roll
+   * back a file when the corresponding Google Sheet write failed, so the
+   * photo upload and the sheet record succeed or fail together.
+   */
+  async deleteReceipt(fileId: string) {
+    if (!fileId) return;
+    await api.delete("/liquidations/upload", {
+      params: { fileId },
+    });
   },
 };

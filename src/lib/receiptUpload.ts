@@ -70,3 +70,14 @@ export async function uploadReceiptFile(params: {
     proxyUrl: `/api/images/drive/${fileId}`,
   };
 }
+
+/**
+ * Deletes a previously uploaded receipt file from Google Drive. Used to
+ * roll back an orphaned file when the corresponding Google Sheet write fails,
+ * so the Drive upload and sheet record succeed or fail together.
+ */
+export async function deleteReceiptFile(fileId: string): Promise<void> {
+  if (!fileId) return;
+  const drive = await getDriveUploadClient();
+  await drive.files.delete({ fileId });
+}

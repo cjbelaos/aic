@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { getSheetsAndDriveClient } from "@/lib/googleSheets";
+import { getDriveUploadClient } from "@/lib/googleSheets";
 
 export async function GET(
   request: NextRequest,
@@ -12,7 +12,7 @@ export async function GET(
   try {
     const { fileId } = await params;
 
-    const { drive } = await getSheetsAndDriveClient();
+    const drive = await getDriveUploadClient();
 
     // Download the file content from Drive
     const response = await drive.files.get(

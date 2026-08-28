@@ -46,6 +46,8 @@ interface EntityTableProps<TData> {
   data: TData[];
   loading?: boolean;
   onCreateNew?: () => void;
+  /** Optional custom element rendered in place of the "Create New" button. */
+  headerActions?: React.ReactNode;
   onEdit?: (row: TData) => void;
   onDelete?: (row: TData) => void;
   onExport?: (data: TData[]) => void;
@@ -58,6 +60,7 @@ export function EntityTable<TData>({
   data,
   loading = false,
   onCreateNew,
+  headerActions,
   onEdit,
   onDelete,
   onExport,
@@ -174,7 +177,9 @@ export function EntityTable<TData>({
       {/* Header row */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-lg font-semibold">{title}</h1>
-        {onCreateNew && (
+        {headerActions ? (
+          headerActions
+        ) : onCreateNew ? (
           <Button
             onClick={onCreateNew}
             className="bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-600 text-white w-full sm:w-auto"
@@ -182,7 +187,7 @@ export function EntityTable<TData>({
             <Plus className="mr-2 h-4 w-4" />
             Create New
           </Button>
-        )}
+        ) : null}
       </div>
 
       {/* Card */}

@@ -114,3 +114,44 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+/**
+ * DELETE /api/fti/save-pdf-to-drive?fileId=...
+ * Deletes a previously saved FTI PDF from Google Drive. Used as a rollback
+ * when the Google Sheet approval write fails, so the PDF upload and sheet
+ * record succeed or fail together.
+ */
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json(
+        { error: "Authentication required." },
+        { status: 401 },
+      );
+    }
+
+    const fileId = (req.nextUrl.searchParams.get("fileId") || "").trim();
+    if (!fileId) {
+      return NextResponse.json(
+        { error: "Missing fileId query parameter." },
+        { status: 400 },
+      );
+    }
+
+    const drive = await getDriveUploadClient();
+    await drive.files.delete({ fileId });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Delete FTI PDF error:", error);
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to delete PDF from Google Drive",
+      },
+      { status: 500 },
+    );
+  }
+}

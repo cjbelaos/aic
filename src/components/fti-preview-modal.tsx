@@ -61,6 +61,9 @@ interface FTIPreviewModalProps {
   // ── Approval display on the printed document ──
   approvedBy?: string;
   approvedBySignatureUrl?: string;
+  // ── PDF regeneration (for approved records missing signature) ──
+  onRegeneratePdf?: () => void;
+  regeneratingPdf?: boolean;
 }
 
 export default function FTIPreviewModal({
@@ -85,6 +88,8 @@ export default function FTIPreviewModal({
   approvalStatus,
   approvedBy,
   approvedBySignatureUrl,
+  onRegeneratePdf,
+  regeneratingPdf = false,
 }: FTIPreviewModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const [comment, setComment] = useState("");
@@ -178,6 +183,20 @@ export default function FTIPreviewModal({
                     <Share2 className="mr-2 h-4 w-4" />
                   )}
                   Share to Messenger
+                </Button>
+              )}
+              {onRegeneratePdf && readOnly && (
+                <Button
+                  variant="outline"
+                  onClick={onRegeneratePdf}
+                  disabled={regeneratingPdf}
+                >
+                  {regeneratingPdf ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Regenerate PDF
                 </Button>
               )}
               {!readOnly && onSaveData && (

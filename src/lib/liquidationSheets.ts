@@ -278,14 +278,32 @@ export async function createLiquidationDraft(input: {
   totalAmountRequested?: number;
 }): Promise<Liquidation> {
   // Enforce one FTI ControlNo → one liquidation. If the technician already
-  // has a liquidation for this ControlNo, return it instead of creating a
-  // duplicate parent row. This is the source of the original bug where
-  // re-selecting an FTI showed an empty receipt list.
+  // has an EDITABLE liquidation for this ControlNo, return it instead of
+  // creating a duplicate parent row (this is the source of the original bug
+  // where re-selecting an FTI showed an empty receipt list).
+  //
+  // IMPORTANT: only reuse a draft that can still accept items. For "Other"
+  // (no-ControlNo) liquidations, controlNo is "" and it is shared by every
+  // "Other" liquidation — reusing a SUBMITTED/APPROVED one here caused
+  // addReceiptItems to reject ("liquidation status is SUBMITTED") and
+  // surface as a 400 on a brand-new liquidation. So we only return an
+  // existing row when it is still editable.
+  //
+  // CRITICAL: the reuse below is ONLY valid when there is a real, unique FTI
+  // ControlNo. For empty ControlNo ("Other") we ALWAYS create a fresh SAVED
+  // draft below rather than reusing, because "" is shared by every "Other".
   const controlNo = (input.controlNo || "").toString().trim();
-  const existing = (await getLiquidationsByUser(input.userId)).find(
-    (entry) => entry.controlNo === controlNo,
-  );
-  if (existing) return existing;
+  // ── Reuse (FTI-linked only) ──
+  if (controlNo) {
+    const existing = (await getLiquidationsByUser(input.userId)).find(
+      (entry) =>
+        entry.controlNo === controlNo &&
+        ["SAVED", "REQUESTED_FOR_CHANGE"].includes(
+          (entry.status || "").toUpperCase(),
+        ),
+    );
+    if (existing) return existing;
+  }
 
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
