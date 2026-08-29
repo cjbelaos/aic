@@ -11,6 +11,7 @@ export interface CreateDeliveryPayload {
   drNumber?: number; // optional — if provided, skips auto-generation; validated for duplicates
   poNo?: string;
   trNo?: string;
+  srNo?: string;
   preparedBy: string;
   deliveredBy: string;
   comments?: string;
@@ -44,6 +45,7 @@ export interface DeliveryReceiptSummary {
   companyName: string;
   poNo: string;
   trNo: string;
+  srNo?: string;
   items: DeliveryItem[];
   comments: string;
   preparedBy: string;

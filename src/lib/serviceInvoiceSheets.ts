@@ -1,0 +1,639 @@
+import {
+  getSheetsClient,
+  getDatabaseSpreadsheetId,
+  getAccessTokenForFetch,
+} from "@/lib/googleSheets";
+import { getCustomers, getCompanies } from "@/lib/companySheets";
+import {
+  CreateServiceInvoicePayload,
+  ServiceInvoiceResponse,
+  ServiceInvoiceSummary,
+  ServiceInvoiceItem,
+} from "@/types/serviceInvoice";
+
+const SERVICE_INVOICES_SHEET = "ServiceInvoices";
+const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:J`;
+// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink
+
+const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
+const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
+// A:InvoiceNo B:Description C:Qty D:UnitPrice E:Amount
+
+const PRINT_TEMPLATE_SHEET = "ServiceInvoiceForm";
+// Template cells (ServiceInvoiceForm):
+//   CustomerName -> C5:F5 (write to anchor cell C5)
+//   TIN          -> C6
+//   Address      -> C7
+//   Date         -> E2:F2 (write to anchor cell E2)
+//   Items        -> rows 10-28 (C=Description, D=Qty, E=UnitPrice, F=Amount [formula, not written])
+//   PreparedBy   -> B34:C34 (write to anchor cell B34)
+const TEMPLATE_ITEM_START_ROW = 10;
+const TEMPLATE_ITEM_END_ROW = 28;
+
+function formatDateMMDDYYYY(dateStr: string): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + (dateStr.length === 10 ? "T00:00:00" : ""));
+  if (isNaN(d.getTime())) return dateStr;
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+}
+
+async function getSheetTabGid(
+  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+  sheetName: string,
+): Promise<number> {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    ranges: [sheetName],
+    fields: "sheets.properties(sheetId,title)",
+  });
+  const sheet = meta.data.sheets?.find(
+    (s) => s.properties?.title === sheetName,
+  );
+  if (!sheet?.properties?.sheetId)
+    throw new Error(`Sheet "${sheetName}" not found.`);
+  return sheet.properties.sheetId;
+}
+
+function buildExportUrl(spreadsheetId: string, gid: number): string {
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=pdf&portrait=true&size=letter&gridlines=false&gid=${gid}`;
+}
+
+async function fetchExportPdfBase64(printUrl: string): Promise<string> {
+  const token = await getAccessTokenForFetch();
+  const res = await fetch(printUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Failed to export PDF (HTTP ${res.status}).`);
+  const buf = await res.arrayBuffer();
+  return Buffer.from(buf).toString("base64");
+}
+
+/** Descriptions are stored and printed in ALL CAPS. */
+function normalizeDescription(desc: string): string {
+  return (desc || "").trim().toUpperCase();
+}
+
+/**
+ * Resolves the "Full Name - Position Title" line for the print template by
+ * joining the current user (Users sheet) with their position (Positions sheet).
+ */
+async function resolvePreparedByTitle(
+  userId: string,
+  fallback: string,
+): Promise<string> {
+  if (!userId) return fallback;
+  try {
+    const [{ getUsers }, { getPositions }] = await Promise.all([
+      import("@/lib/userSheets"),
+      import("@/lib/positionSheets"),
+    ]);
+    const users = await getUsers();
+    const user = users.find((u) => u.userId === userId);
+    if (!user) return fallback;
+    let label = user.fullName || fallback;
+    if (user.positionId) {
+      const positions = await getPositions();
+      const pos = positions.find((p) => p.positionId === user.positionId);
+      if (pos?.positionTitle) label += ` - ${pos.positionTitle}`;
+    }
+    return label;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Finds the 1-based row of an invoice in ServiceInvoices (0 if not found). */
+async function findInvoiceRow(
+  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+  invoiceNo: string,
+): Promise<number> {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SERVICE_INVOICES_SHEET}!A2:A`,
+  });
+  const rows = response.data.values || [];
+  return (
+    rows.findIndex(
+      (row) => String(row[0] ?? "").trim() === String(invoiceNo).trim(),
+    ) + 2
+  );
+}
+
+/** Finds all item rows in ServiceInvoiceItems for a given invoice. */
+async function findInvoiceItemRows(
+  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+  invoiceNo: string,
+): Promise<Array<{ rowNumber: number; rowData: string[] }>> {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: SERVICE_INVOICE_ITEMS_RANGE,
+  });
+  const rows = response.data.values || [];
+  const result: Array<{ rowNumber: number; rowData: string[] }> = [];
+  rows.forEach((row, idx) => {
+    if (String(row[0] ?? "").trim() === String(invoiceNo).trim()) {
+      result.push({ rowNumber: idx + 2, rowData: row });
+    }
+  });
+  return result;
+}
+
+/** Fetches and groups service invoice rows into summaries by InvoiceNo. */
+export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+
+    const [invResponse, itemsResponse] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: SERVICE_INVOICES_RANGE,
+      }),
+      sheets.spreadsheets.values
+        .get({
+          spreadsheetId,
+          range: SERVICE_INVOICE_ITEMS_RANGE,
+        })
+        .catch(() => ({ data: { values: [] as any[][] } })),
+    ]);
+
+    const invRows = invResponse.data.values;
+    if (!invRows || invRows.length === 0) return [];
+
+    const itemRows = itemsResponse.data.values || [];
+    const itemsByInvoice = new Map<string, ServiceInvoiceItem[]>();
+    for (const itemRow of itemRows) {
+      const invoiceNo = String(itemRow[0] ?? "").trim();
+      if (!invoiceNo) continue;
+      const item: ServiceInvoiceItem = {
+        description: String(itemRow[1] ?? "").trim(),
+        quantity: parseFloat(String(itemRow[2] ?? "0")) || 0,
+        unitPrice: parseFloat(String(itemRow[3] ?? "0")) || 0,
+        amount: parseFloat(String(itemRow[4] ?? "0")) || 0,
+      };
+      if (!itemsByInvoice.has(invoiceNo)) itemsByInvoice.set(invoiceNo, []);
+      itemsByInvoice.get(invoiceNo)!.push(item);
+    }
+
+    const companies = await getCompanies().catch(() => []);
+
+    return invRows
+      .map((row) => {
+        const invoiceNo = String(row[0] ?? "").trim();
+        if (!invoiceNo) return null;
+        const status = String(row[8] ?? "created").trim() || "created";
+        if (status === "deleted") return null;
+        return {
+          invoiceNo,
+          date: String(row[1] ?? "").trim(),
+          customerId: String(row[2] ?? "").trim(),
+          preparedBy: String(row[3] ?? "").trim(),
+          createdBy: String(row[4] ?? "").trim() || undefined,
+          createdAt: String(row[5] ?? "").trim(),
+          updatedBy: String(row[6] ?? "").trim() || undefined,
+          updatedAt: String(row[7] ?? "").trim() || undefined,
+          status,
+          driveFileLink: String(row[9] ?? "").trim() || undefined,
+          items: itemsByInvoice.get(invoiceNo) || [],
+        };
+      })
+      .filter((d): d is NonNullable<typeof d> => d != null)
+      .map((data) => {
+        const company = companies.find(
+          (c) => c.companyId === data.customerId || c.id === data.customerId,
+        );
+        return {
+          ...data,
+          companyName: company?.companyName || data.customerId,
+        } as ServiceInvoiceSummary;
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } catch (error) {
+    console.error("Failed to fetch service invoices:", error);
+    throw error;
+  }
+}
+
+/** Populates the ServiceInvoiceForm print template with the given data. */
+async function populateServiceInvoiceTemplate(
+  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+  data: {
+    companyName: string;
+    address: string;
+    tin: string;
+    date: string;
+    preparedBy: string;
+    items: ServiceInvoiceItem[];
+  },
+): Promise<void> {
+  // Clear the item area (rows 10-28)
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: `${PRINT_TEMPLATE_SHEET}!C${TEMPLATE_ITEM_START_ROW}:F${TEMPLATE_ITEM_END_ROW}`,
+  });
+
+  const formattedDate = formatDateMMDDYYYY(data.date);
+
+  const descriptions: Array<[string]> = [];
+  const quantities: Array<[string]> = [];
+  const unitPrices: Array<[string]> = [];
+  const maxItems = TEMPLATE_ITEM_END_ROW - TEMPLATE_ITEM_START_ROW + 1;
+  data.items.slice(0, maxItems).forEach((item) => {
+    descriptions.push([normalizeDescription(item.description)]);
+    quantities.push([String(item.quantity)]);
+    unitPrices.push([String(item.unitPrice)]);
+  });
+
+  const itemCount = descriptions.length;
+  const dataValues: Array<{
+    range: string;
+    values: Array<Array<string>>;
+  }> = [
+    { range: `${PRINT_TEMPLATE_SHEET}!C5`, values: [[data.companyName]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!C6`, values: [[data.tin]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!C7`, values: [[data.address]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!E2`, values: [[formattedDate]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!B34`, values: [[data.preparedBy]] },
+  ];
+  if (itemCount > 0) {
+    const lastRow = TEMPLATE_ITEM_START_ROW + itemCount - 1;
+    dataValues.push(
+      {
+        range: `${PRINT_TEMPLATE_SHEET}!C${TEMPLATE_ITEM_START_ROW}:C${lastRow}`,
+        values: descriptions,
+      },
+      {
+        range: `${PRINT_TEMPLATE_SHEET}!D${TEMPLATE_ITEM_START_ROW}:D${lastRow}`,
+        values: quantities,
+      },
+      {
+        range: `${PRINT_TEMPLATE_SHEET}!E${TEMPLATE_ITEM_START_ROW}:E${lastRow}`,
+        values: unitPrices,
+      },
+    );
+  }
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: dataValues,
+    },
+  });
+}
+/**
+ * Processes a new service invoice:
+ * 1. Validates the manually-typed InvoiceNo is unique.
+ * 2. Looks up customer address / TIN from Companies sheet via customerId.
+ * 3. Logs the header + item rows into the database sheets.
+ * 4. Populates the ServiceInvoiceForm template and exports as PDF.
+ * 5. Returns full invoice metadata.
+ */
+export async function processServiceInvoice(
+  payload: CreateServiceInvoicePayload,
+  userId = "",
+): Promise<ServiceInvoiceResponse> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+
+    // 1. InvoiceNo — required, typed from the physical paper (no auto-gen)
+    const invoiceNo = String(payload.invoiceNo ?? "").trim();
+    if (!invoiceNo) {
+      throw new Error("Invoice No. is required.");
+    }
+    const allRows = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${SERVICE_INVOICES_SHEET}!A2:A`,
+    });
+    const existingNos = (allRows.data.values || [])
+      .map((row) => String(row[0] ?? "").trim())
+      .filter(Boolean);
+    if (existingNos.includes(invoiceNo)) {
+      throw new Error(
+        `Invoice No. "${invoiceNo}" already exists. Please check the number on the paper.`,
+      );
+    }
+
+    // 2. Customer details
+    const customers = await getCustomers();
+    const company = customers.find((c) => c.companyId === payload.customerId);
+    if (!company) throw new Error(`Customer "${payload.customerId}" not found.`);
+    const companyName = company.companyName;
+    const address = company.address || "";
+    const tin = company.tin || "";
+
+    // 3. Log header row to ServiceInvoices (cols A-J)
+    const createdAt = new Date().toISOString();
+    const headerRow = [
+      invoiceNo,
+      payload.date,
+      payload.customerId,
+      payload.preparedBy || "",
+      userId, // E: CreatedBy
+      createdAt, // F: CreatedAt
+      userId, // G: UpdatedBy
+      createdAt, // H: UpdatedAt
+      payload.status || "created", // I: Status
+      "", // J: DriveFileLink (populated after PDF save)
+    ];
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: SERVICE_INVOICES_RANGE,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [headerRow] },
+    });
+
+    // 3b. Log item rows to ServiceInvoiceItems (cols A-E)
+    const itemRows = payload.items.map((item) => [
+      invoiceNo,
+      normalizeDescription(item.description),
+      item.quantity,
+      item.unitPrice,
+      (item.quantity || 0) * (item.unitPrice || 0),
+    ]);
+    if (itemRows.length > 0) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: SERVICE_INVOICE_ITEMS_RANGE,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: itemRows },
+      });
+    }
+
+    // 4. Populate template and export PDF (skip for drafts)
+    let pdfBase64: string | undefined;
+    let printUrl: string | undefined;
+
+    if (payload.status !== "draft") {
+      const preparedByDisplay = await resolvePreparedByTitle(
+        userId,
+        payload.preparedBy || "",
+      );
+      await populateServiceInvoiceTemplate(sheets, spreadsheetId, {
+        companyName,
+        address,
+        tin,
+        date: payload.date,
+        preparedBy: preparedByDisplay,
+        items: payload.items,
+      });
+
+      const gid = await getSheetTabGid(
+        sheets,
+        spreadsheetId,
+        PRINT_TEMPLATE_SHEET,
+      );
+      printUrl = buildExportUrl(spreadsheetId, gid);
+      try {
+        pdfBase64 = await fetchExportPdfBase64(printUrl);
+      } catch (e) {
+        console.warn("PDF export failed (will use print URL fallback):", e);
+      }
+    }
+
+    return {
+      success: true,
+      invoiceNo,
+      companyName,
+      address,
+      tin,
+      date: payload.date,
+      preparedBy: payload.preparedBy || "",
+      items: payload.items,
+      status: payload.status || "created",
+      printUrl,
+      pdfBase64,
+    };
+  } catch (error) {
+    console.error("Failed to process service invoice:", error);
+    throw error;
+  }
+}
+
+export interface UpdateServiceInvoicePayload
+  extends Partial<CreateServiceInvoicePayload> {
+  status?: string;
+}
+
+/** Updates an existing service invoice header and its items. */
+export async function updateServiceInvoice(
+  invoiceNo: string,
+  payload: UpdateServiceInvoicePayload,
+  userId = "",
+): Promise<ServiceInvoiceSummary> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+
+    const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+    if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
+
+    const currentResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+    });
+    const currentRow = currentResponse.data.values?.[0] || [];
+    const updatedAt = new Date().toISOString();
+
+    const updatedRow = [
+      invoiceNo,
+      payload.date ?? String(currentRow[1] ?? "").trim(),
+      payload.customerId ?? String(currentRow[2] ?? "").trim(),
+      payload.preparedBy ?? String(currentRow[3] ?? "").trim(),
+      String(currentRow[4] ?? "").trim(), // E: CreatedBy (preserved)
+      String(currentRow[5] ?? "").trim(), // F: CreatedAt (preserved)
+      userId || String(currentRow[6] ?? "").trim(), // G: UpdatedBy
+      updatedAt, // H: UpdatedAt
+      payload.status ?? String(currentRow[8] ?? "created").trim(),
+      String(currentRow[9] ?? "").trim(), // J: DriveFileLink (preserved)
+    ];
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [updatedRow] },
+    });
+
+    // Replace items if provided (items sheet has no status column: clear + re-append)
+    if (payload.items) {
+      const existingItemRows = await findInvoiceItemRows(
+        sheets,
+        spreadsheetId,
+        invoiceNo,
+      );
+      if (existingItemRows.length > 0) {
+        const clearRanges = existingItemRows.map(
+          (r) =>
+            `${SERVICE_INVOICE_ITEMS_SHEET}!A${r.rowNumber}:E${r.rowNumber}`,
+        );
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            valueInputOption: "USER_ENTERED",
+            data: clearRanges.map((range) => ({
+              range,
+              values: [["", "", "", "", ""]],
+            })),
+          },
+        });
+      }
+
+      const itemRows = payload.items.map((item) => [
+        invoiceNo,
+        normalizeDescription(item.description),
+        item.quantity,
+        item.unitPrice,
+        (item.quantity || 0) * (item.unitPrice || 0),
+      ]);
+      if (itemRows.length > 0) {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: SERVICE_INVOICE_ITEMS_RANGE,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: itemRows },
+        });
+      }
+    }
+
+    const companies = await getCompanies().catch(() => []);
+    const company = companies.find(
+      (c) => c.companyId === updatedRow[2] || c.id === updatedRow[2],
+    );
+    return {
+      invoiceNo,
+      date: updatedRow[1],
+      customerId: updatedRow[2],
+      companyName: company?.companyName || updatedRow[2],
+      preparedBy: updatedRow[3],
+      createdBy: String(updatedRow[4] ?? "").trim() || undefined,
+      createdAt: updatedRow[5],
+      updatedBy: String(updatedRow[6] ?? "").trim() || undefined,
+      updatedAt: updatedRow[7] || undefined,
+      status: updatedRow[8],
+      driveFileLink: String(updatedRow[9] ?? "").trim() || undefined,
+      items: payload.items || [],
+    };
+  } catch (error) {
+    console.error("Failed to update service invoice:", error);
+    throw error;
+  }
+}
+/** Soft-deletes a service invoice by setting its status to "deleted". */
+export async function deleteServiceInvoice(invoiceNo: string): Promise<void> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+
+    const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+    if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
+
+    const currentResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+    });
+    const currentRow = currentResponse.data.values?.[0] || [];
+    const updatedRow = [...currentRow];
+    while (updatedRow.length < 10) updatedRow.push("");
+    updatedRow[8] = "deleted"; // I: Status
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [updatedRow] },
+    });
+  } catch (error) {
+    console.error("Failed to delete service invoice:", error);
+    throw error;
+  }
+}
+
+/**
+ * Fetches invoice data from the database sheets, re-populates the
+ * ServiceInvoiceForm template, and exports it as a PDF base64 string.
+ * Used by preview / save-pdf endpoints.
+ */
+export async function populateAndExportServiceInvoiceFormPdf(
+  invoiceNo: string,
+): Promise<{ pdfBase64: string; printUrl: string }> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+
+  // 1. Find header row
+  const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+  if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
+
+  const invResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+  });
+  const invRow = invResponse.data.values?.[0] || [];
+  const date = String(invRow[1] ?? "").trim();
+  const customerId = String(invRow[2] ?? "").trim();
+  const preparedByHeader = String(invRow[3] ?? "").trim();
+  const createdBy = String(invRow[4] ?? "").trim();
+
+  // 2. Fetch items
+  const itemRowsData = await findInvoiceItemRows(
+    sheets,
+    spreadsheetId,
+    invoiceNo,
+  );
+  const items: ServiceInvoiceItem[] = itemRowsData.map(({ rowData }) => ({
+    description: String(rowData[1] ?? "").trim(),
+    quantity: parseFloat(String(rowData[2] ?? "0")) || 0,
+    unitPrice: parseFloat(String(rowData[3] ?? "0")) || 0,
+    amount: parseFloat(String(rowData[4] ?? "0")) || 0,
+  }));
+
+  // 3. Company details
+  const customers = await getCustomers();
+  const company = customers.find(
+    (c) => c.companyId === customerId || c.id === customerId,
+  );
+  const companyName = company?.companyName || customerId;
+  const address = company?.address || "";
+  const tin = company?.tin || "";
+
+  // 4. PreparedBy line: "Full Name - Position Title"
+  const preparedBy = await resolvePreparedByTitle(createdBy, preparedByHeader);
+
+  // 5. Populate template
+  await populateServiceInvoiceTemplate(sheets, spreadsheetId, {
+    companyName,
+    address,
+    tin,
+    date,
+    preparedBy,
+    items,
+  });
+
+  // 6. Export PDF
+  const gid = await getSheetTabGid(sheets, spreadsheetId, PRINT_TEMPLATE_SHEET);
+  const printUrl = buildExportUrl(spreadsheetId, gid);
+  const pdfBase64 = await fetchExportPdfBase64(printUrl);
+
+  return { pdfBase64, printUrl };
+}
+
+/**
+ * Thin wrapper: exports whatever is currently in the ServiceInvoiceForm tab.
+ * Used by the create flow where the template was just populated.
+ */
+export async function exportServiceInvoiceFormPdf(): Promise<{
+  pdfBase64: string;
+  printUrl: string;
+}> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const gid = await getSheetTabGid(sheets, spreadsheetId, PRINT_TEMPLATE_SHEET);
+  const printUrl = buildExportUrl(spreadsheetId, gid);
+  const pdfBase64 = await fetchExportPdfBase64(printUrl);
+  return { pdfBase64, printUrl };
+}

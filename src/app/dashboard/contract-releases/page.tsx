@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Loader2,
   Plus,
@@ -8,6 +9,9 @@ import {
   Clock,
   Trash2,
   Printer,
+  Truck,
+  Eye,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -144,6 +148,7 @@ interface ReleaseRow {
 
 /* ── Page ────────────────────────────────────────────── */
 export default function ContractReleasesPage() {
+  const router = useRouter();
   const [contracts, setContracts] = useState<ContractWithItems[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,6 +170,10 @@ export default function ContractReleasesPage() {
     ContractPeriodSummary[]
   >([]);
   const [summariesLoading, setSummariesLoading] = useState(false);
+
+  // DR list for selected contract
+  const [linkedDrList, setLinkedDrList] = useState<any[]>([]);
+  const [drListLoading, setDrListLoading] = useState(false);
 
   // DR preview
   const [drResult, setDrResult] = useState<DeliveryReceiptResponse | null>(
@@ -237,6 +246,7 @@ export default function ContractReleasesPage() {
 
   const loadPeriodSummaries = useCallback(async (contractId: string) => {
     setSummariesLoading(true);
+    setDrListLoading(true);
     setSelectedContractId(contractId);
     try {
       const summaries = await contractReleaseService.getPeriodSummaries(
@@ -246,12 +256,31 @@ export default function ContractReleasesPage() {
         contractId,
       );
       setPeriodSummaries(summaries);
+
+      try {
+        const contract = contracts.find((c) => c.id === contractId);
+        if (contract) {
+          const allDrs = await deliveryService.getAll();
+          const allReleases = await fetch("/api/contract-releases").then((r) => r.json());
+          const allReleaseRows: any[] = Array.isArray(allReleases) ? allReleases : [];
+          const relevant = allReleaseRows.filter(
+            (r: any) => r.contractId === contractId && r.drNumber,
+          );
+          const uniqueDrs = [
+            ...new Set(relevant.map((r: any) => r.drNumber as number)),
+          ].sort((a: number, b: number) => b - a);
+          setLinkedDrList(allDrs.filter((d) => uniqueDrs.includes(d.drNumber)));
+        }
+      } catch {
+        setLinkedDrList([]);
+      }
     } catch {
       toast.error("Failed to load period summaries.");
     } finally {
       setSummariesLoading(false);
+      setDrListLoading(false);
     }
-  }, []);
+  }, [contracts]);
 
   // Get logged-in user's full name from localStorage username (set at login),
   // resolving to the user's full name via the users API.
@@ -306,6 +335,39 @@ export default function ContractReleasesPage() {
     setReleaseDate(new Date());
     setRemarks("");
     setReleaseOpen(true);
+  };
+
+  // Redirect to Delivery Release page with contract items pre-filled
+  const handleNewRelease = async () => {
+    if (!selectedContractId) {
+      toast.error("Please select a contract first.");
+      return;
+    }
+
+    const contract = contracts.find((c) => c.id === selectedContractId);
+    if (!contract || contract.items.length === 0) {
+      toast.error("No contracted items found for this contract.");
+      return;
+    }
+
+    const rows = contract.items.map((item) => {
+      const product = products.find((p) => p.code === item.productCode);
+      return {
+        productCode: item.productCode,
+        unit: product?.unit?.code || product?.unit?.name || "",
+        description: productMap.get(item.productCode) || item.productCode,
+        quantity: item.entitledQty,
+      };
+    });
+
+    const prefill = {
+      companyId: contract.companyId,
+      companyName: contract.companyName || contract.companyId,
+      items: rows,
+    };
+
+    sessionStorage.setItem("deliveryReleasePrefill", JSON.stringify(prefill));
+    router.push("/dashboard/delivery-releases?fromRelease=true");
   };
 
   // Update a release row
@@ -595,7 +657,7 @@ export default function ContractReleasesPage() {
                 <Printer className="mr-2 h-4 w-4" /> View DR #{lastDrNumber}
               </Button>
             )}
-            <Button onClick={openReleaseDialog} disabled={!selectedContractId}>
+            <Button onClick={handleNewRelease} disabled={!selectedContractId}>
               <Plus className="mr-2 h-4 w-4" /> New Release
             </Button>
           </div>
@@ -664,6 +726,84 @@ export default function ContractReleasesPage() {
                 data={periodSummaries}
                 loading={summariesLoading}
               />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── Linked Delivery Receipts ──────────────────────── */}
+        {selectedContractId && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Truck className="h-4 w-4" />
+                Linked Delivery Receipts
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {drListLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : linkedDrList.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">
+                  No delivery receipts linked yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {linkedDrList.map((dr: any) => (
+                    <div
+                      key={dr.drNumber}
+                      className="flex items-center justify-between border rounded-md p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold tabular-nums">
+                          DR #{dr.drNumber}
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          {dr.date}
+                        </span>
+                        <span className="text-sm">{dr.companyName}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {dr.items?.length ?? 0} item(s)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="View DR Preview"
+                          onClick={async () => {
+                            try {
+                              const preview = await deliveryService.getPreview(
+                                dr.drNumber,
+                              );
+                              setDrResult(preview);
+                            } catch {
+                              toast.error("Failed to load DR preview.");
+                            }
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {dr.driveFileLink && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-blue-600"
+                            title="View PDF"
+                            onClick={() =>
+                              window.open(dr.driveFileLink, "_blank")
+                            }
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

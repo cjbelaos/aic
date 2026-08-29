@@ -8,8 +8,8 @@ import {
 } from "@/types/contract";
 
 const CONTRACTS_SHEET = "Contracts";
-const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:H`;
-// Columns: A: ContractId, B: CompanyId, C: Description, D: AgreementType, E: PONumber, F: StartDate, G: EndDate, H: Status
+const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:I`;
+// Columns: A: ContractId, B: CompanyId, C: Description, D: AgreementType, E: PONumber, F: StartDate, G: EndDate, H: Status, I: MonthlyServiceFee
 
 /**
  * GET: Fetches all contract header rows from Google Sheets.
@@ -37,6 +37,10 @@ export async function getContracts(): Promise<Contract[]> {
         startDate: row[5] || "",
         endDate: row[6] || "",
         status: (row[7] as ContractStatus) || "Active",
+        monthlyServiceFee:
+          row[8] !== undefined && row[8] !== ""
+            ? parseFloat(String(row[8]).replace(/[₱$,]/g, "")) || undefined
+            : undefined,
       };
     });
   } catch (error) {
@@ -73,6 +77,7 @@ export async function addContract(
       payload.startDate || "",
       payload.endDate || "",
       payload.status || "Active",
+      payload.monthlyServiceFee ?? "",
     ];
 
     await sheets.spreadsheets.values.append({
@@ -91,6 +96,7 @@ export async function addContract(
       startDate: payload.startDate,
       endDate: payload.endDate,
       status: payload.status,
+      monthlyServiceFee: payload.monthlyServiceFee,
     };
   } catch (error) {
     console.error("Failed to create contract in Google Sheets:", error);
@@ -115,7 +121,7 @@ export async function updateContractInSheets(
     }
 
     const rowNumber = rowIndex + 2; // Offset for header row
-    const updateRange = `${CONTRACTS_SHEET}!A${rowNumber}:H${rowNumber}`;
+    const updateRange = `${CONTRACTS_SHEET}!A${rowNumber}:I${rowNumber}`;
     const existing = contracts[rowIndex];
 
     const updatedValues = [
@@ -129,6 +135,9 @@ export async function updateContractInSheets(
       payload.startDate !== undefined ? payload.startDate : existing.startDate,
       payload.endDate !== undefined ? payload.endDate : existing.endDate,
       payload.status !== undefined ? payload.status : existing.status,
+      payload.monthlyServiceFee !== undefined
+        ? payload.monthlyServiceFee
+        : (existing.monthlyServiceFee ?? ""),
     ];
 
     await sheets.spreadsheets.values.update({
@@ -147,6 +156,10 @@ export async function updateContractInSheets(
       startDate: String(updatedValues[5]),
       endDate: String(updatedValues[6]),
       status: updatedValues[7] as ContractStatus,
+      monthlyServiceFee:
+        updatedValues[8] !== undefined && updatedValues[8] !== ""
+          ? Number(updatedValues[8]) || undefined
+          : undefined,
     };
   } catch (error) {
     console.error(`Failed to update contract ${payload.id}:`, error);
@@ -167,7 +180,7 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
     if (rowIndex === -1) return;
 
     const rowNumber = rowIndex + 2;
-    const deleteRange = `${CONTRACTS_SHEET}!A${rowNumber}:H${rowNumber}`;
+    const deleteRange = `${CONTRACTS_SHEET}!A${rowNumber}:I${rowNumber}`;
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId,

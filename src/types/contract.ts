@@ -19,6 +19,7 @@ export interface Contract {
   startDate: string; // Sheet: StartDate (ISO Date string: "YYYY-MM-DD")
   endDate: string; // Sheet: EndDate (ISO Date string: "YYYY-MM-DD")
   status: ContractStatus; // Sheet: Status
+  monthlyServiceFee?: number; // Sheet: MonthlyServiceFee (numeric, e.g., 20000)
 }
 
 export interface CreateContractPayload {
@@ -29,6 +30,7 @@ export interface CreateContractPayload {
   startDate: string;
   endDate: string;
   status: ContractStatus;
+  monthlyServiceFee?: number;
 }
 
 export interface UpdateContractPayload extends Partial<CreateContractPayload> {

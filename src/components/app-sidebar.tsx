@@ -23,6 +23,8 @@ import {
   Receipt,
   CalendarCheck,
   Truck,
+  Car,
+  BriefcaseBusiness,
   FileSignature,
   ShieldAlert,
   KeyRound,
@@ -191,6 +193,18 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/vehicles")}
+                  tooltip="Vehicles"
+                >
+                  <Link href="/dashboard/vehicles">
+                    <Car />
+                    <span>Vehicles</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -289,6 +303,18 @@ export function AppSidebar() {
                   <Link href="/dashboard/delivery-releases">
                     <Truck />
                     <span>Delivery Release</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/service-invoices")}
+                  tooltip="Service Invoices"
+                >
+                  <Link href="/dashboard/service-invoices">
+                    <Receipt />
+                    <span>Service Invoices</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -420,6 +446,18 @@ export function AppSidebar() {
                   <Link href="/dashboard/user-approvers">
                     <ShieldCheck />
                     <span>User Approvers</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith("/dashboard/positions")}
+                  tooltip="Positions"
+                >
+                  <Link href="/dashboard/positions">
+                    <BriefcaseBusiness />
+                    <span>Positions</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

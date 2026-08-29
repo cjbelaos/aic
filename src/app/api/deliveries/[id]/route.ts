@@ -49,17 +49,17 @@ export async function GET(
 
     const drResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
     });
     const drRow = drResponse.data.values?.[0] || [];
     const deliveryDate = String(drRow[1] ?? "").trim();
     const companyId = String(drRow[2] ?? "").trim();
     const poNo = String(drRow[3] ?? "").trim();
     const trNo = String(drRow[4] ?? "").trim();
-    const comments = String(drRow[5] ?? "").trim();
-    const preparedBy = String(drRow[6] ?? "").trim();
-    const deliveredBy = String(drRow[7] ?? "").trim();
-    const status = String(drRow[9] ?? "created").trim();
+    const comments = String(drRow[6] ?? "").trim();
+    const preparedBy = String(drRow[7] ?? "").trim();
+    const deliveredBy = String(drRow[8] ?? "").trim();
+    const status = String(drRow[10] ?? "created").trim();
 
     // 2. Fetch DR items (active only)
     const itemsResponse = await sheets.spreadsheets.values.get({

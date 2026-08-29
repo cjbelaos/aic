@@ -1,0 +1,123 @@
+﻿Γû▓ Next.js 16.2.10 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 19.1s
+  Running TypeScript ...
+  Finished TypeScript in 14.7s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/83) ...
+  Generating static pages using 15 workers (20/83) 
+  Generating static pages using 15 workers (41/83) 
+  Generating static pages using 15 workers (62/83) 
+Γ£ô Generating static pages using 15 workers (83/83) in 744ms
+  Finalizing page optimization ...
+
+Route (app)
+Γöî Γùï /
+Γö£ Γùï /_not-found
+Γö£ ╞Æ /api/admin/google-token
+Γö£ ╞Æ /api/admin/verify-access
+Γö£ ╞Æ /api/auth/google
+Γö£ ╞Æ /api/auth/login
+Γö£ ╞Æ /api/auth/logout
+Γö£ ╞Æ /api/auth/me
+Γö£ ╞Æ /api/calculate-distance
+Γö£ ╞Æ /api/collections/history
+Γö£ ╞Æ /api/collections/scheduled
+Γö£ ╞Æ /api/companies
+Γö£ ╞Æ /api/companies/[id]
+Γö£ ╞Æ /api/company-contacts
+Γö£ ╞Æ /api/company-contacts/[id]
+Γö£ ╞Æ /api/contract-items
+Γö£ ╞Æ /api/contract-items/[id]
+Γö£ ╞Æ /api/contract-period-summaries
+Γö£ ╞Æ /api/contract-period-summaries/current
+Γö£ ╞Æ /api/contract-releases
+Γö£ ╞Æ /api/contract-releases/compliance
+Γö£ ╞Æ /api/contract-releases/overdue
+Γö£ ╞Æ /api/contract-releases/process
+Γö£ ╞Æ /api/contracts
+Γö£ ╞Æ /api/contracts/[id]
+Γö£ ╞Æ /api/customer-prices
+Γö£ ╞Æ /api/customer-prices/[id]
+Γö£ ╞Æ /api/deliveries
+Γö£ ╞Æ /api/deliveries/[id]
+Γö£ ╞Æ /api/deliveries/drivers
+Γö£ ╞Æ /api/deliveries/save-pdf
+Γö£ ╞Æ /api/departments
+Γö£ ╞Æ /api/fti/details
+Γö£ ╞Æ /api/fti/details/[controlNo]
+Γö£ ╞Æ /api/fti/expenses/[detailId]
+Γö£ ╞Æ /api/fti/info
+Γö£ ╞Æ /api/fti/liquidations
+Γö£ ╞Æ /api/fti/list
+Γö£ ╞Æ /api/fti/lookup-toll
+Γö£ ╞Æ /api/fti/requests
+Γö£ ╞Æ /api/fti/requests/[controlNo]
+Γö£ ╞Æ /api/fti/save-pdf-to-drive
+Γö£ ╞Æ /api/fti/submit
+Γö£ ╞Æ /api/fti/summary
+Γö£ ╞Æ /api/geocode
+Γö£ ╞Æ /api/images/drive/[fileId]
+Γö£ ╞Æ /api/liquidations
+Γö£ ╞Æ /api/liquidations/upload
+Γö£ ╞Æ /api/location-addresses
+Γö£ ╞Æ /api/location-addresses/[id]
+Γö£ ╞Æ /api/miscellaneous
+Γö£ ╞Æ /api/positions
+Γö£ ╞Æ /api/positions/[id]
+Γö£ ╞Æ /api/product-categories
+Γö£ ╞Æ /api/product-categories/[id]
+Γö£ ╞Æ /api/product-units
+Γö£ ╞Æ /api/product-units/[id]
+Γö£ ╞Æ /api/products
+Γö£ ╞Æ /api/products/[id]
+Γö£ ╞Æ /api/quotations
+Γö£ ╞Æ /api/quotations/[refNo]
+Γö£ ╞Æ /api/quotations/[refNo]/status
+Γö£ ╞Æ /api/quotations/save
+Γö£ ╞Æ /api/quotations/send-email
+Γö£ ╞Æ /api/service-invoices
+Γö£ ╞Æ /api/service-invoices/[invoiceNo]
+Γö£ ╞Æ /api/service-invoices/save-pdf
+Γö£ ╞Æ /api/user-approvers
+Γö£ ╞Æ /api/users
+Γö£ ╞Æ /api/users/[id]
+Γö£ ╞Æ /api/users/signature
+Γö£ ╞Æ /api/users/signature/[username]
+Γö£ ╞Æ /api/vehicles
+Γö£ ╞Æ /api/vehicles/[id]
+Γö£ Γùï /dashboard
+Γö£ Γùï /dashboard/admin/google-token
+Γö£ Γùï /dashboard/collections
+Γö£ Γùï /dashboard/companies
+Γö£ Γùï /dashboard/contract-analytics
+Γö£ Γùï /dashboard/contract-releases
+Γö£ Γùï /dashboard/customer-contracts
+Γö£ Γùï /dashboard/customer-prices
+Γö£ Γùï /dashboard/customers
+Γö£ Γùï /dashboard/delivery-releases
+Γö£ Γùï /dashboard/expense-liquidation
+Γö£ Γùï /dashboard/field-travel-itinerary
+Γö£ Γùï /dashboard/fti-summary-report
+Γö£ Γùï /dashboard/location-addresses
+Γö£ Γùï /dashboard/machine-orders
+Γö£ Γùï /dashboard/machines
+Γö£ Γùï /dashboard/positions
+Γö£ Γùï /dashboard/product-categories
+Γö£ Γùï /dashboard/product-units
+Γö£ Γùï /dashboard/products
+Γö£ Γùï /dashboard/purchase-orders
+Γö£ Γùï /dashboard/quotations
+Γö£ Γùï /dashboard/sales-orders
+Γö£ Γùï /dashboard/service-invoices
+Γö£ Γùï /dashboard/suppliers
+Γö£ Γùï /dashboard/user-approvers
+Γö£ Γùï /dashboard/users
+Γöö Γùï /dashboard/vehicles
+
+
+Γùï  (Static)   prerendered as static content
+╞Æ  (Dynamic)  server-rendered on demand
+

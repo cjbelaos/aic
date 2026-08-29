@@ -16,8 +16,8 @@ const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:A`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:N`;
-// A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:Comments G:PreparedBy H:DeliveredBy I:CreatedAt J:Status K:DriveFileLink L:CreatedBy M:UpdatedBy N:UpdatedDate
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:O`;
+// A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink M:CreatedBy N:UpdatedBy O:UpdatedDate
 
 const DELIVERY_RECEIPT_ITEMS_SHEET = "DeliveryReceiptItems";
 const DELIVERY_RECEIPT_ITEMS_RANGE = `${DELIVERY_RECEIPT_ITEMS_SHEET}!A2:E`;
@@ -142,15 +142,16 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           companyId: String(row[2] ?? "").trim(),
           poNo: String(row[3] ?? "").trim(),
           trNo: String(row[4] ?? "").trim(),
-          comments: String(row[5] ?? "").trim(),
-          preparedBy: String(row[6] ?? "").trim(),
-          deliveredBy: String(row[7] ?? "").trim(),
-          createdAt: String(row[8] ?? "").trim(),
-          status: String(row[9] ?? "created").trim() || "created",
-          driveFileLink: String(row[10] ?? "").trim() || undefined,
-          createdBy: String(row[11] ?? "").trim() || undefined,
-          updatedBy: String(row[12] ?? "").trim() || undefined,
-          updatedAt: String(row[13] ?? "").trim() || undefined,
+          srNo: String(row[5] ?? "").trim(),
+          comments: String(row[6] ?? "").trim(),
+          preparedBy: String(row[7] ?? "").trim(),
+          deliveredBy: String(row[8] ?? "").trim(),
+          createdAt: String(row[9] ?? "").trim(),
+          status: String(row[10] ?? "created").trim() || "created",
+          driveFileLink: String(row[11] ?? "").trim() || undefined,
+          createdBy: String(row[12] ?? "").trim() || undefined,
+          updatedBy: String(row[13] ?? "").trim() || undefined,
+          updatedAt: String(row[14] ?? "").trim() || undefined,
           items: itemsByDr.get(drNumber) || [],
         };
       })
@@ -240,23 +241,24 @@ export async function processDeliveryReceipt(
     const address = company.address || "";
     const tin = company.tin || "";
 
-    // 3. Log ONE header row to DeliveryReceipts sheet (columns A–N)
+    // 3. Log ONE header row to DeliveryReceipts sheet (columns A–O)
     const createdAt = new Date().toISOString();
     const headerRow = [
-      String(drNumber),
-      payload.date,
-      payload.companyId,
-      payload.poNo || "",
-      payload.trNo || "",
-      payload.comments || "",
-      payload.preparedBy || "",
-      payload.deliveredBy || "",
-      createdAt,
-      payload.status || "created",
-      "", // K: DriveFileLink (populated after PDF save)
-      userId, // L: CreatedBy
-      userId, // M: UpdatedBy
-      createdAt, // N: UpdatedDate
+      String(drNumber), // A: DRNumber
+      payload.date, // B: DeliveryDate
+      payload.companyId, // C: CompanyId
+      payload.poNo || "", // D: PONumber
+      payload.trNo || "", // E: TRNumber
+      payload.srNo || "", // F: SRNumber
+      payload.comments || "", // G: Comments
+      payload.preparedBy || "", // H: PreparedBy
+      payload.deliveredBy || "", // I: DeliveredBy
+      createdAt, // J: CreatedAt
+      payload.status || "created", // K: Status
+      "", // L: DriveFileLink (populated after PDF save)
+      userId, // M: CreatedBy
+      userId, // N: UpdatedBy
+      createdAt, // O: UpdatedDate
     ];
 
     await sheets.spreadsheets.values.append({
@@ -442,39 +444,40 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
-    const oldStatus = String(currentRow[9] ?? "created").trim();
+    const oldStatus = String(currentRow[10] ?? "created").trim();
     const newStatus = payload.status ?? oldStatus;
     const updatedAt = new Date().toISOString();
 
     const updatedRow = [
-      String(drNumber),
-      payload.date ?? String(currentRow[1] ?? "").trim(),
-      payload.companyId ?? String(currentRow[2] ?? "").trim(),
+      String(drNumber), // A: DRNumber
+      payload.date ?? String(currentRow[1] ?? "").trim(), // B
+      payload.companyId ?? String(currentRow[2] ?? "").trim(), // C
       payload.poNo !== undefined
         ? payload.poNo
-        : String(currentRow[3] ?? "").trim(),
+        : String(currentRow[3] ?? "").trim(), // D
       payload.trNo !== undefined
         ? payload.trNo
-        : String(currentRow[4] ?? "").trim(),
+        : String(currentRow[4] ?? "").trim(), // E
+      String(currentRow[5] ?? "").trim(), // F: SRNumber (preserved)
       payload.comments !== undefined
         ? payload.comments
-        : String(currentRow[5] ?? "").trim(),
-      payload.preparedBy ?? String(currentRow[6] ?? "").trim(),
-      payload.deliveredBy ?? String(currentRow[7] ?? "").trim(),
-      String(currentRow[8] ?? "").trim(),
-      newStatus,
-      String(currentRow[10] ?? "").trim(), // K: DriveFileLink (preserved)
-      String(currentRow[11] ?? "").trim(), // L: CreatedBy (preserved)
-      userId || String(currentRow[12] ?? "").trim(), // M: UpdatedBy
-      updatedAt, // N: UpdatedDate
+        : String(currentRow[6] ?? "").trim(), // G
+      payload.preparedBy ?? String(currentRow[7] ?? "").trim(), // H
+      payload.deliveredBy ?? String(currentRow[8] ?? "").trim(), // I
+      String(currentRow[9] ?? "").trim(), // J: CreatedAt (preserved)
+      newStatus, // K: Status
+      String(currentRow[11] ?? "").trim(), // L: DriveFileLink (preserved)
+      String(currentRow[12] ?? "").trim(), // M: CreatedBy (preserved)
+      userId || String(currentRow[13] ?? "").trim(), // N: UpdatedBy
+      updatedAt, // O: UpdatedDate
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -547,15 +550,16 @@ export async function updateDeliveryReceipt(
       companyName: company?.companyName || updatedRow[2],
       poNo: updatedRow[3],
       trNo: updatedRow[4],
-      comments: updatedRow[5],
-      preparedBy: updatedRow[6],
-      deliveredBy: updatedRow[7],
-      createdAt: updatedRow[8],
-      status: updatedRow[9],
-      driveFileLink: updatedRow[10] || undefined,
-      createdBy: updatedRow[11] || undefined,
-      updatedBy: updatedRow[12] || undefined,
-      updatedAt: updatedRow[13] || undefined,
+      srNo: updatedRow[5] || undefined,
+      comments: updatedRow[6],
+      preparedBy: updatedRow[7],
+      deliveredBy: updatedRow[8],
+      createdAt: updatedRow[9],
+      status: updatedRow[10],
+      driveFileLink: updatedRow[11] || undefined,
+      createdBy: updatedRow[12] || undefined,
+      updatedBy: updatedRow[13] || undefined,
+      updatedAt: updatedRow[14] || undefined,
       items: payload.items || [],
     };
   } catch (error) {
@@ -579,16 +583,16 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
     // ── 1. Soft-delete DR: set status to "deleted" (preserve all data) ──
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const updatedRow = [...currentRow];
-    while (updatedRow.length < 14) updatedRow.push("");
-    updatedRow[9] = "deleted"; // Column J: Status
+    while (updatedRow.length < 15) updatedRow.push("");
+    updatedRow[10] = "deleted"; // Column K: Status
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -777,17 +781,17 @@ export async function populateAndExportDeliveryReceiptFormPdf(
 
   const drResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:N${drRowNumber}`,
+    range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
   });
   const drRow = drResponse.data.values?.[0] || [];
-  // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:Comments G:PreparedBy H:DeliveredBy I:CreatedAt J:Status K:DriveFileLink
+  // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink
   const deliveryDate = String(drRow[1] ?? "").trim();
   const companyId = String(drRow[2] ?? "").trim();
   const poNo = String(drRow[3] ?? "").trim();
   const trNo = String(drRow[4] ?? "").trim();
-  const comments = String(drRow[5] ?? "").trim();
-  const preparedBy = String(drRow[6] ?? "").trim();
-  const deliveredBy = String(drRow[7] ?? "").trim();
+  const comments = String(drRow[6] ?? "").trim();
+  const preparedBy = String(drRow[7] ?? "").trim();
+  const deliveredBy = String(drRow[8] ?? "").trim();
 
   // 2. Fetch DR items (active only)
   const itemRowsData = await findDrItemRows(sheets, spreadsheetId, drNumber);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,7 +48,6 @@ import {
 import {
   DeliveryReceiptResponse,
   DeliveryReceiptSummary,
-  DeliveryItem,
 } from "@/types/deliveryReceipt";
 import { ProductCategory } from "@/types/product-category";
 
@@ -145,6 +145,36 @@ export default function DeliveryReleasePage() {
     fetchList();
   }, [fetchList]);
 
+  /* Pre-fill from Contract Releases page */
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("fromRelease") !== "true") return;
+
+    try {
+      const raw = sessionStorage.getItem("deliveryReleasePrefill");
+      if (!raw) return;
+      const prefill = JSON.parse(raw);
+      sessionStorage.removeItem("deliveryReleasePrefill");
+
+      if (prefill.companyId) {
+        setSelectedCompany(prefill.companyId);
+      }
+      if (prefill.items && prefill.items.length > 0) {
+        setLineItems(
+          prefill.items.map((item: any) => ({
+            productCode: item.productCode || "",
+            unit: item.unit || "PC",
+            description: item.description || "",
+            quantity: item.quantity || 1,
+          })),
+        );
+      }
+      setModalOpen(true);
+    } catch {
+      // ignore — malformed sessionStorage data
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     Promise.all([
       companyService.getAll(),
@@ -220,8 +250,7 @@ export default function DeliveryReleasePage() {
   );
 
   const productOptions = useMemo(
-    () =>
-      products.map((p) => ({ value: p.code, label: p.name })),
+    () => products.map((p) => ({ value: p.code, label: p.name })),
     [products],
   );
 
@@ -703,7 +732,7 @@ export default function DeliveryReleasePage() {
       {/* Create DR Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className="sm:max-w-5xl w-[90vw] max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-4xl max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -938,7 +967,7 @@ export default function DeliveryReleasePage() {
         }}
       >
         <DialogContent
-          className="max-w-4xl max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-4xl max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -986,6 +1015,7 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
+            {/* Products Section */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Label className="text-base font-semibold">
@@ -1043,6 +1073,7 @@ export default function DeliveryReleasePage() {
               ))}
             </div>
 
+            {/* Prepared By and Delivered By */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Prepared By</Label>
@@ -1065,6 +1096,7 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
+            {/* Status */}
             <div className="space-y-2">
               <Label>Status</Label>
               <Select value={editStatus} onValueChange={setEditStatus}>
@@ -1082,6 +1114,7 @@ export default function DeliveryReleasePage() {
               </Select>
             </div>
 
+            {/* Comments */}
             <div className="space-y-2">
               <Label>Comments / Special Instructions</Label>
               <Textarea

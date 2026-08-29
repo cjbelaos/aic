@@ -79,6 +79,7 @@ interface CustomerContractFormState {
   startDate: Date | undefined; // Changed from string to Date
   endDate: Date | undefined; // Changed from string to Date
   status: ContractStatus;
+  monthlyServiceFee: string;
   items: ContractFormItem[];
 }
 
@@ -97,6 +98,7 @@ const EMPTY_FORM: CustomerContractFormState = {
   startDate: undefined,
   endDate: undefined,
   status: "Active",
+  monthlyServiceFee: "",
   items: [{ ...EMPTY_FORM_ITEM }],
 };
 
@@ -384,6 +386,8 @@ export default function CustomerContractsPage() {
       startDate: row.startDate ? new Date(row.startDate) : undefined,
       endDate: row.endDate ? new Date(row.endDate) : undefined,
       status: row.status,
+      monthlyServiceFee:
+        row.monthlyServiceFee != null ? String(row.monthlyServiceFee) : "",
       items: row.items.map((item) => ({
         id: item.id,
         productId: item.productCode,
@@ -487,6 +491,9 @@ export default function CustomerContractsPage() {
           startDate: startDateStr,
           endDate: endDateStr,
           status: form.status,
+          monthlyServiceFee: form.monthlyServiceFee
+            ? parseFloat(form.monthlyServiceFee)
+            : undefined,
         });
 
         // Handle items: compare and sync
@@ -560,6 +567,9 @@ export default function CustomerContractsPage() {
           startDate: startDateStr,
           endDate: endDateStr,
           status: form.status,
+          monthlyServiceFee: form.monthlyServiceFee
+            ? parseFloat(form.monthlyServiceFee)
+            : undefined,
         });
 
         if (!newContract) throw new Error("Failed to create contract.");
@@ -770,6 +780,23 @@ export default function CustomerContractsPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Monthly Service Fee */}
+              <div className="space-y-1.5">
+                <Label htmlFor="cc-monthly-fee">Monthly Service Fee (₱)</Label>
+                <Input
+                  id="cc-monthly-fee"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.monthlyServiceFee}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, monthlyServiceFee: e.target.value }))
+                  }
+                  disabled={saving}
+                  placeholder="e.g., 20000"
+                />
               </div>
             </div>
 
