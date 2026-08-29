@@ -823,7 +823,7 @@ export async function populateAndExportDeliveryReceiptFormPdf(
   const templateRows = activeItems.map(({ rowData }) => {
     const code = String(rowData[1] ?? "").trim();
     const product = productMap.get(code);
-    const description = product?.description || product?.name || code;
+    const description = product?.name || product?.description || code;
     return [
       parseInt(String(rowData[2] ?? "0"), 10) || 0, // quantity
       String(rowData[3] ?? "").trim(), // unit
