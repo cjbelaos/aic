@@ -221,7 +221,7 @@ export default function DeliveryReleasePage() {
 
   const productOptions = useMemo(
     () =>
-      products.map((p) => ({ value: p.code, label: `${p.code} - ${p.name}` })),
+      products.map((p) => ({ value: p.code, label: p.name })),
     [products],
   );
 
@@ -420,7 +420,7 @@ export default function DeliveryReleasePage() {
         ...updated[index],
         productCode: value,
         unit: prod?.unit?.code || "PC",
-        description: prod?.name || prod?.description || "",
+        description: prod?.name || "",
       };
     } else {
       updated[index] = { ...updated[index], [field]: value };
@@ -527,14 +527,13 @@ export default function DeliveryReleasePage() {
     }
     setQuickAddSaving(true);
     try {
-      const category =
-        productCategories.find(
-          (c) => String(c.id) === quickAddCategoryId,
-        ) || {
-          id: quickAddCategoryId,
-          code: "",
-          name: quickAddCategoryId,
-        };
+      const category = productCategories.find(
+        (c) => String(c.id) === quickAddCategoryId,
+      ) || {
+        id: quickAddCategoryId,
+        code: "",
+        name: quickAddCategoryId,
+      };
 
       const created = await productService.create({
         code: "",
@@ -704,7 +703,7 @@ export default function DeliveryReleasePage() {
       {/* Create DR Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className="max-w-6xl max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-5xl w-[90vw] max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -713,9 +712,9 @@ export default function DeliveryReleasePage() {
           </DialogHeader>
 
           <div className="space-y-6">
-            {/* Row 1: Customer Name, DR No., and Date */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-1.5 w-full">
+            {/* Row 1: Customer Name (6 cols), DR No. (3 cols), Date (3 cols) */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+              <div className="space-y-1.5 md:col-span-6">
                 <Label>
                   Customer Name <span className="text-destructive">*</span>
                 </Label>
@@ -726,7 +725,7 @@ export default function DeliveryReleasePage() {
                   placeholder="Select Customer"
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 md:col-span-3">
                 <Label>DR No. (optional)</Label>
                 <Input
                   type="number"
@@ -736,7 +735,7 @@ export default function DeliveryReleasePage() {
                   placeholder="Auto-generated"
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 md:col-span-3">
                 <Label>
                   Date <span className="text-destructive">*</span>
                 </Label>
@@ -768,6 +767,7 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
+            {/* Products Section */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Label className="text-base font-semibold">
@@ -825,6 +825,7 @@ export default function DeliveryReleasePage() {
               ))}
             </div>
 
+            {/* Row 3: Prepared By and Delivered By */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>
@@ -845,6 +846,7 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
+            {/* Row 4: Comments */}
             <div className="space-y-2">
               <Label>Comments / Special Instructions</Label>
               <Textarea
@@ -855,6 +857,7 @@ export default function DeliveryReleasePage() {
               />
             </div>
 
+            {/* Entitlements Card */}
             {selectedCompany && contracts.length > 0 && (
               <Card>
                 <CardContent className="pt-4 space-y-2">
@@ -1117,10 +1120,7 @@ export default function DeliveryReleasePage() {
       />
 
       {/* Quick Add Product Dialog */}
-      <Dialog
-        open={quickAddProductOpen}
-        onOpenChange={setQuickAddProductOpen}
-      >
+      <Dialog open={quickAddProductOpen} onOpenChange={setQuickAddProductOpen}>
         <DialogContent
           className="sm:max-w-md"
           onInteractOutside={(e) => e.preventDefault()}
@@ -1132,7 +1132,11 @@ export default function DeliveryReleasePage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Product Code</Label>
-              <Input value="Auto-Generated" disabled placeholder="Auto-Generated" />
+              <Input
+                value="Auto-Generated"
+                disabled
+                placeholder="Auto-Generated"
+              />
             </div>
             <div className="space-y-1.5 w-full">
               <Label>
@@ -1182,9 +1186,6 @@ export default function DeliveryReleasePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-
-      
     </>
   );
 }

@@ -118,154 +118,75 @@ export default function FTIPreviewModal({
         </div>
 
         {/* ── Actions ── */}
+        {/* ── Actions Footer ── */}
         {(onDownloadPdf ||
           onDownloadImage ||
           onShareImage ||
           (!readOnly && onSaveData) ||
           approvalActions ||
           readOnly) && (
-          <DialogFooter className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t">
-            {/* Left aligned items */}
-            {readOnly && (
-              <div className="sm:mr-auto">
-                <Link
-                  href={`/dashboard/expense-liquidation?controlNo=${encodeURIComponent(
-                    ftiRef,
-                  )}`}
-                >
-                  <Button variant="outline">
-                    <ReceiptText className="mr-2 h-4 w-4" />
-                    Add Expense Liquidation
-                  </Button>
-                </Link>
-              </div>
-            )}
-
-            {/* Right aligned action buttons */}
-            <div className="flex flex-wrap items-center gap-2">
-              {onDownloadPdf && (
-                <Button
-                  variant="outline"
-                  onClick={onDownloadPdf}
-                  disabled={downloadingPdf}
-                >
-                  {downloadingPdf ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="mr-2 h-4 w-4" />
-                  )}
-                  Download PDF
-                </Button>
-              )}
-              {onDownloadImage && (
-                <Button
-                  variant="outline"
-                  onClick={onDownloadImage}
-                  disabled={downloadingImage}
-                >
-                  {downloadingImage ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <ImageIcon className="mr-2 h-4 w-4" />
-                  )}
-                  Download as Image
-                </Button>
-              )}
-              {onShareImage && (
-                <Button
-                  variant="outline"
-                  onClick={onShareImage}
-                  disabled={sharingImage}
-                >
-                  {sharingImage ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Share2 className="mr-2 h-4 w-4" />
-                  )}
-                  Share to Messenger
-                </Button>
-              )}
-              {onRegeneratePdf && readOnly && (
-                <Button
-                  variant="outline"
-                  onClick={onRegeneratePdf}
-                  disabled={regeneratingPdf}
-                >
-                  {regeneratingPdf ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="mr-2 h-4 w-4" />
-                  )}
-                  Regenerate PDF
-                </Button>
-              )}
-              {!readOnly && onSaveData && (
-                <Button onClick={onSaveData} disabled={savingData}>
-                  {savingData ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="mr-2 h-4 w-4" />
-                  )}
-                  Save Data
-                </Button>
-              )}
-            </div>
-
-            {/* ── Approval action area ── */}
+          <div className="flex flex-col gap-3 pt-3 border-t shrink-0">
+            {/* 1. Approval Action & Comment Box */}
             {approvalActions && (
-              <div className="w-full">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="fti-approval-comment">
-                      Comment{" "}
-                      <span className="text-xs text-muted-foreground">
-                        (required for Request for Change)
-                      </span>
-                    </Label>
-                    <Input
-                      id="fti-approval-comment"
-                      value={comment}
-                      onChange={(e) => setComment(e.target.value)}
-                      placeholder="Type your comments for the requester..."
-                      disabled={approvalActions?.actionInProgress}
-                    />
-                  </div>
-                  <div className="flex flex-wrap items-start justify-end gap-2 pt-5">
+              <div className="w-full bg-slate-900/50 p-3 rounded-lg border border-slate-800 space-y-2">
+                <Label
+                  htmlFor="fti-approval-comment"
+                  className="text-xs font-medium text-slate-300"
+                >
+                  Comment{" "}
+                  <span className="text-slate-400 font-normal">
+                    (required for Request for Change)
+                  </span>
+                </Label>
+                <div className="flex flex-col sm:flex-row items-center gap-2 w-full">
+                  <Input
+                    id="fti-approval-comment"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="Type your comments for the requester..."
+                    disabled={approvalActions?.actionInProgress}
+                    className="h-9 text-sm flex-1 bg-slate-950"
+                  />
+                  <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
                     <Button
                       variant="default"
-                      className="bg-green-600 hover:bg-green-700"
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700 text-white h-9"
                       onClick={() => approvalActions?.onApprove(comment)}
                       disabled={approvalActions?.actionInProgress}
                     >
                       {approvalActions?.actionInProgress ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       ) : (
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        <CheckCircle2 className="mr-1.5 h-4 w-4" />
                       )}
                       Approve
                     </Button>
                     <Button
                       variant="outline"
-                      className="text-amber-600 border-amber-300 hover:bg-amber-50"
+                      size="sm"
+                      className="text-amber-500 border-amber-600/40 hover:bg-amber-950/30 h-9"
                       onClick={() => approvalActions?.onRequestChange(comment)}
                       disabled={approvalActions?.actionInProgress}
                     >
                       {approvalActions?.actionInProgress ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       ) : (
-                        <MessageSquareWarning className="mr-2 h-4 w-4" />
+                        <MessageSquareWarning className="mr-1.5 h-4 w-4" />
                       )}
                       Request for Change
                     </Button>
                     <Button
                       variant="destructive"
+                      size="sm"
+                      className="h-9"
                       onClick={() => approvalActions?.onReject(comment)}
                       disabled={approvalActions?.actionInProgress}
                     >
                       {approvalActions?.actionInProgress ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       ) : (
-                        <XCircle className="mr-2 h-4 w-4" />
+                        <XCircle className="mr-1.5 h-4 w-4" />
                       )}
                       Reject
                     </Button>
@@ -273,20 +194,123 @@ export default function FTIPreviewModal({
                 </div>
               </div>
             )}
-          </DialogFooter>
-        )}
 
-        {/* ── Approval info (shown to requester / read-only viewers) ── */}
-        {approvalStatus && (
-          <div className="pt-2 border-t text-sm text-muted-foreground">
-            Status:{" "}
-            <span className="font-semibold text-foreground">
-              {approvalStatus}
-            </span>
-            {approvalComment && (
-              <span className="block mt-1">
-                Approver comment: <em>{approvalComment}</em>
-              </span>
+            {/* 2. Primary Navigation & Export Actions */}
+            <div className="flex items-center justify-between gap-2 w-full">
+              <div>
+                {readOnly && (
+                  <Link
+                    href={`/dashboard/expense-liquidation?controlNo=${encodeURIComponent(
+                      ftiRef,
+                    )}`}
+                  >
+                    <Button variant="outline" size="sm" className="h-9">
+                      <ReceiptText className="mr-2 h-4 w-4" />
+                      Add Expense Liquidation
+                    </Button>
+                  </Link>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {onDownloadPdf && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={onDownloadPdf}
+                    disabled={downloadingPdf}
+                  >
+                    {downloadingPdf ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-1.5 h-4 w-4" />
+                    )}
+                    Download PDF
+                  </Button>
+                )}
+                {onDownloadImage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={onDownloadImage}
+                    disabled={downloadingImage}
+                  >
+                    {downloadingImage ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <ImageIcon className="mr-1.5 h-4 w-4" />
+                    )}
+                    Download as Image
+                  </Button>
+                )}
+                {onShareImage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={onShareImage}
+                    disabled={sharingImage}
+                  >
+                    {sharingImage ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Share2 className="mr-1.5 h-4 w-4" />
+                    )}
+                    Share to Messenger
+                  </Button>
+                )}
+                {onRegeneratePdf && readOnly && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={onRegeneratePdf}
+                    disabled={regeneratingPdf}
+                  >
+                    {regeneratingPdf ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-1.5 h-4 w-4" />
+                    )}
+                    Regenerate PDF
+                  </Button>
+                )}
+                {!readOnly && onSaveData && (
+                  <Button
+                    size="sm"
+                    className="h-9"
+                    onClick={onSaveData}
+                    disabled={savingData}
+                  >
+                    {savingData ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-1.5 h-4 w-4" />
+                    )}
+                    Save Data
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Status Display Footer */}
+            {approvalStatus && (
+              <div className="text-xs text-slate-400 pt-1 flex items-center justify-between border-t border-slate-800">
+                <div>
+                  Status:{" "}
+                  <span className="font-semibold text-slate-200">
+                    {approvalStatus}
+                  </span>
+                  {approvalComment && (
+                    <span className="ml-2">
+                      | Approver Comment:{" "}
+                      <em className="text-slate-300">{approvalComment}</em>
+                    </span>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}
