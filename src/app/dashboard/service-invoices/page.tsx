@@ -34,6 +34,7 @@ import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
 import contractService from "@/lib/services/contract.service";
+import deliveryService from "@/lib/services/delivery.service";
 import userService from "@/lib/services/user.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import { ServiceInvoicePreviewModal } from "@/components/service-invoice-preview-modal";
@@ -74,13 +75,20 @@ export default function ServiceInvoicesPage() {
   const [preparedBy, setPreparedBy] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  /* Linked DR */
+  const [linkedDrNumber, setLinkedDrNumber] = useState("");
+  const [selectedContractId, setSelectedContractId] = useState("");
+  const [drOptions, setDrOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
 
   /* Print / View preview modals */
-  const [siResult, setSiResult] = useState<ServiceInvoiceResponse | null>(
-    null,
-  );
+  const [siResult, setSiResult] = useState<ServiceInvoiceResponse | null>(null);
   const [viewSi, setViewSi] = useState<ServiceInvoiceResponse | null>(null);
-  const [previewing, setPreviewing] = useState(false);
+  const [previewing, setPreviewing] = useState<string | null>(null);
 
   /* Edit modal state */
   const [editTarget, setEditTarget] = useState<ServiceInvoiceSummary | null>(
@@ -110,6 +118,39 @@ export default function ServiceInvoicesPage() {
   useEffect(() => {
     fetchList();
   }, [fetchList]);
+
+  /* Read DR prefill from sessionStorage (set by DR preview modal "Create SI" button) */
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = sessionStorage.getItem("siPrefill");
+        if (!raw) return;
+        sessionStorage.removeItem("siPrefill");
+        const prefill = JSON.parse(raw);
+        if (!prefill.drNumber) return;
+
+        // Load DR options synchronously so the Linked DR dropdown is populated
+        const allDrs = await deliveryService.getAll();
+        setDrOptions(
+          allDrs.map((d) => ({
+            value: String(d.drNumber),
+            label: `DR #${d.drNumber} — ${d.companyName} (${d.date})`,
+          })),
+        );
+
+        setLinkedDrNumber(String(prefill.drNumber));
+        if (prefill.companyName && companies.length > 0) {
+          const match = companies.find(
+            (c: any) => c.companyName === prefill.companyName,
+          );
+          if (match) setSelectedCustomer(match.companyId);
+        }
+        setModalOpen(true);
+      } catch {
+        /* ignore malformed */
+      }
+    })();
+  }, [companies]);
 
   /* Load customers + current user for PreparedBy */
   useEffect(() => {
@@ -154,6 +195,15 @@ export default function ServiceInvoicesPage() {
 
     (async () => {
       try {
+        // Also load DR options for the Linked DR dropdown
+        const allDrs = await deliveryService.getAll();
+        setDrOptions(
+          allDrs.map((d) => ({
+            value: String(d.drNumber),
+            label: `DR #${d.drNumber} — ${d.companyName} (${d.date})`,
+          })),
+        );
+
         const contracts = await contractService.getAll();
         const matching = contracts.filter(
           (c) =>
@@ -167,6 +217,7 @@ export default function ServiceInvoicesPage() {
         if (matching.length !== 1) return;
 
         const fee = matching[0].monthlyServiceFee!;
+        const contractId = matching[0].id;
 
         // Build month label from invoiceDate (e.g., "AUGUST 2026")
         const d = new Date(
@@ -191,6 +242,7 @@ export default function ServiceInvoicesPage() {
         );
         if (alreadyHasPms) return;
 
+        setSelectedContractId(contractId);
         setLineItems((prev) => [
           ...prev,
           {
@@ -207,7 +259,7 @@ export default function ServiceInvoicesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer, modalOpen]);
 
-/* Table columns */
+  /* Table columns */
   const columns: ColumnDef<ServiceInvoiceSummary>[] = useMemo(
     () => [
       {
@@ -277,7 +329,10 @@ export default function ServiceInvoicesPage() {
           const s = String(getValue() ?? "created");
           const map: Record<
             string,
-            { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
+            {
+              label: string;
+              variant: "default" | "secondary" | "outline" | "destructive";
+            }
           > = {
             created: { label: "Created", variant: "default" },
             draft: { label: "Draft", variant: "secondary" },
@@ -294,8 +349,7 @@ export default function ServiceInvoicesPage() {
         header: "Actions",
         cell: ({ row }) => {
           const locked =
-            row.original.status === "deleted" ||
-            row.original.status === "void";
+            row.original.status === "deleted" || row.original.status === "void";
           return (
             <div className="flex items-center gap-1">
               <Button
@@ -303,7 +357,7 @@ export default function ServiceInvoicesPage() {
                 size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 onClick={async () => {
-                  setPreviewing(true);
+                  setPreviewing(row.original.invoiceNo);
                   try {
                     const preview = await serviceInvoiceService.getPreview(
                       row.original.invoiceNo,
@@ -312,13 +366,13 @@ export default function ServiceInvoicesPage() {
                   } catch {
                     toast.error("Failed to load invoice preview.");
                   } finally {
-                    setPreviewing(false);
+                    setPreviewing(null);
                   }
                 }}
-                disabled={previewing}
+                disabled={previewing !== null}
                 title="Preview"
               >
-                {previewing ? (
+                {previewing === row.original.invoiceNo ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Eye className="h-4 w-4" />
@@ -366,12 +420,14 @@ export default function ServiceInvoicesPage() {
     ],
     [previewing],
   );
-/* Create modal handlers */
+  /* Create modal handlers */
   const openCreateModal = () => {
     setInvoiceNo("");
     setSelectedCustomer("");
     setInvoiceDate(new Date().toISOString().split("T")[0]);
     setLineItems([]);
+    setLinkedDrNumber("");
+    setSelectedContractId("");
     setModalOpen(true);
   };
 
@@ -385,9 +441,7 @@ export default function ServiceInvoicesPage() {
     value: string | number,
   ) => {
     setLineItems((prev) =>
-      prev.map((item, i) =>
-        i === index ? { ...item, [field]: value } : item,
-      ),
+      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     );
   };
 
@@ -413,7 +467,7 @@ export default function ServiceInvoicesPage() {
       return;
     }
 
-    setSubmitting(true);
+    setPrinting(true);
     try {
       const payload = {
         invoiceNo: invoiceNo.trim(),
@@ -425,6 +479,8 @@ export default function ServiceInvoicesPage() {
           quantity: Number(li.quantity) || 0,
           unitPrice: Number(li.unitPrice) || 0,
         })),
+        contractId: selectedContractId || undefined,
+        drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
       };
       const res = await serviceInvoiceService.createAndPopulateSheet(payload);
       toast.success("Service invoice recorded!");
@@ -433,10 +489,12 @@ export default function ServiceInvoicesPage() {
       fetchList();
     } catch (err: any) {
       toast.error(
-        err?.response?.data?.error || err?.message || "Failed to record invoice.",
+        err?.response?.data?.error ||
+          err?.message ||
+          "Failed to record invoice.",
       );
     } finally {
-      setSubmitting(false);
+      setPrinting(false);
     }
   };
 
@@ -450,7 +508,7 @@ export default function ServiceInvoicesPage() {
       return;
     }
 
-    setSubmitting(true);
+    setDrafting(true);
     try {
       const payload = {
         invoiceNo: invoiceNo.trim(),
@@ -463,6 +521,8 @@ export default function ServiceInvoicesPage() {
           unitPrice: Number(li.unitPrice) || 0,
         })),
         status: "draft",
+        contractId: selectedContractId || undefined,
+        drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
       };
       await serviceInvoiceService.createAndPopulateSheet(payload);
       toast.success("Service invoice saved as draft.");
@@ -473,7 +533,7 @@ export default function ServiceInvoicesPage() {
         err?.response?.data?.error || err?.message || "Failed to save draft.",
       );
     } finally {
-      setSubmitting(false);
+      setDrafting(false);
     }
   };
 
@@ -492,7 +552,7 @@ export default function ServiceInvoicesPage() {
       setSubmitting(false);
     }
   };
-/* Populate edit form when target changes */
+  /* Populate edit form when target changes */
   useEffect(() => {
     if (editTarget) {
       setEditDate(editTarget.date);
@@ -556,7 +616,9 @@ export default function ServiceInvoicesPage() {
       fetchList();
     } catch (err: any) {
       toast.error(
-        err?.response?.data?.error || err?.message || "Failed to update invoice.",
+        err?.response?.data?.error ||
+          err?.message ||
+          "Failed to update invoice.",
       );
     } finally {
       setEditSubmitting(false);
@@ -578,7 +640,7 @@ export default function ServiceInvoicesPage() {
       {/* Create Invoice Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className="sm:max-w-4xl max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -638,7 +700,11 @@ export default function ServiceInvoicesPage() {
                     value={item.description}
                     placeholder="DESCRIPTION (in all caps)"
                     onChange={(e) =>
-                      updateLineItem(idx, "description", e.target.value.toUpperCase())
+                      updateLineItem(
+                        idx,
+                        "description",
+                        e.target.value.toUpperCase(),
+                      )
                     }
                   />
                   <Input
@@ -697,6 +763,15 @@ export default function ServiceInvoicesPage() {
                   placeholder="Auto-filled from your profile"
                 />
               </div>
+              <div className="space-y-1.5 w-full">
+                <Label>Linked DR (optional)</Label>
+                <SearchableSelect
+                  value={linkedDrNumber}
+                  onValueChange={setLinkedDrNumber}
+                  options={drOptions}
+                  placeholder="Select Delivery Receipt"
+                />
+              </div>
             </div>
           </div>
 
@@ -704,24 +779,24 @@ export default function ServiceInvoicesPage() {
             <Button
               variant="outline"
               onClick={() => setModalOpen(false)}
-              disabled={submitting}
+              disabled={drafting || printing}
             >
               Cancel
             </Button>
             <Button
               variant="outline"
               onClick={handleSaveDraft}
-              disabled={submitting}
+              disabled={drafting || printing}
             >
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {drafting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save as Draft
             </Button>
             <Button
               onClick={handleSaveAndPrint}
-              disabled={submitting}
+              disabled={drafting || printing}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              {submitting ? (
+              {printing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Printer className="mr-2 h-4 w-4" />
@@ -731,15 +806,20 @@ export default function ServiceInvoicesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-{/* Edit Invoice Dialog */}
-      <Dialog open={!!editTarget} onOpenChange={(v) => !v && setEditTarget(null)}>
+      {/* Edit Invoice Dialog */}
+      <Dialog
+        open={!!editTarget}
+        onOpenChange={(v) => !v && setEditTarget(null)}
+      >
         <DialogContent
-          className="sm:max-w-4xl max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle>Edit Service Invoice #{editTarget?.invoiceNo}</DialogTitle>
+            <DialogTitle>
+              Edit Service Invoice #{editTarget?.invoiceNo}
+            </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-6">

@@ -25,6 +25,7 @@ import {
   Eye,
   Pencil,
   ExternalLink,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,6 +34,7 @@ import productService from "@/lib/services/product.service";
 import productCategoryService from "@/lib/services/product-category.service";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
+import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import userService from "@/lib/services/user.service";
 import contractItemService from "@/lib/services/contract-item.service";
 import { DeliveryReceiptPreviewModal } from "@/components/delivery-receipt-preview-modal";
@@ -78,6 +80,9 @@ export default function DeliveryReleasePage() {
   );
   const [drivers, setDrivers] = useState<string[]>([]);
 
+  /* SI lookup: drNumber → list of linked ServiceInvoice summaries */
+  const [siLookup, setSiLookup] = useState<Map<number, any[]>>(new Map());
+
   /* Create modal state */
   const [modalOpen, setModalOpen] = useState(false);
   const [contracts, setContracts] = useState<any[]>([]);
@@ -93,6 +98,11 @@ export default function DeliveryReleasePage() {
   const [comments, setComments] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  /* Manual-entry toggle: Set<row index> for rows in free-text mode */
+  const [manualRows, setManualRows] = useState<Set<number>>(new Set());
 
   /* Print / View preview modals */
   const [drResult, setDrResult] = useState<DeliveryReceiptResponse | null>(
@@ -100,7 +110,7 @@ export default function DeliveryReleasePage() {
   );
   const [viewDr, setViewDr] = useState<DeliveryReceiptResponse | null>(null);
 
-  const [previewingDr, setPreviewingDr] = useState(false);
+  const [previewingDr, setPreviewingDr] = useState<number | null>(null);
 
   /* Quick Add Product state */
   const [quickAddProductOpen, setQuickAddProductOpen] = useState(false);
@@ -129,6 +139,9 @@ export default function DeliveryReleasePage() {
   const [editStatus, setEditStatus] = useState("");
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
+
+  /* Manual-entry toggle for edit modal */
+  const [editManualRows, setEditManualRows] = useState<Set<number>>(new Set());
 
   /* Fetch list + reference data */
   const fetchList = useCallback(async () => {
@@ -187,6 +200,18 @@ export default function DeliveryReleasePage() {
       setDrivers(Array.isArray(dData) ? dData : []);
       setProductCategories(Array.isArray(catData) ? catData : []);
     });
+
+    // Fetch SIs and build drNumber→SI lookup
+    serviceInvoiceService.getAll().then((sis) => {
+      const map = new Map<number, any[]>();
+      for (const si of sis) {
+        if (!si.drNumber) continue;
+        const list = map.get(si.drNumber) || [];
+        list.push(si);
+        map.set(si.drNumber, list);
+      }
+      setSiLookup(map);
+    }).catch(() => { /* non-critical */ });
 
     (async () => {
       try {
@@ -320,6 +345,28 @@ export default function DeliveryReleasePage() {
         cell: ({ row }) => `${row.original.items?.length ?? 0} item(s)`,
       },
       {
+        id: "linkedSIs",
+        header: "Linked SIs",
+        cell: ({ row }) => {
+          const linked = siLookup.get(row.original.drNumber);
+          if (!linked || linked.length === 0) {
+            return <span className="text-xs text-muted-foreground">—</span>;
+          }
+          return (
+            <div className="flex flex-wrap gap-1">
+              {linked.map((si: any) => (
+                <span
+                  key={si.invoiceNo}
+                  className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono"
+                >
+                  {si.invoiceNo}
+                </span>
+              ))}
+            </div>
+          );
+        },
+      },
+      {
         accessorKey: "status",
         header: "Status",
         cell: ({ getValue }) => {
@@ -359,7 +406,7 @@ export default function DeliveryReleasePage() {
                 size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 onClick={async () => {
-                  setPreviewingDr(true);
+                  setPreviewingDr(row.original.drNumber);
                   try {
                     const preview = await deliveryService.getPreview(
                       row.original.drNumber,
@@ -368,13 +415,13 @@ export default function DeliveryReleasePage() {
                   } catch {
                     toast.error("Failed to load DR preview.");
                   } finally {
-                    setPreviewingDr(false);
+                    setPreviewingDr(null);
                   }
                 }}
-                disabled={previewingDr}
+                disabled={previewingDr !== null}
                 title="Preview"
               >
-                {previewingDr ? (
+                {previewingDr === row.original.drNumber ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Eye className="h-4 w-4" />
@@ -420,7 +467,7 @@ export default function DeliveryReleasePage() {
         },
       },
     ],
-    [previewingDr],
+    [previewingDr, siLookup],
   );
 
   /* Create modal handlers */
@@ -433,6 +480,7 @@ export default function DeliveryReleasePage() {
     setDeliveredBy("");
     setComments("");
     setLineItems([]);
+    setManualRows(new Set());
     setContracts([]);
     setModalOpen(true);
   };
@@ -459,6 +507,14 @@ export default function DeliveryReleasePage() {
 
   const removeLineItem = (index: number) => {
     setLineItems(lineItems.filter((_, i) => i !== index));
+    setManualRows((prev) => {
+      const next = new Set(prev);
+      next.delete(index);
+      // re-index: decrement all indices above the removed one
+      const updated = new Set<number>();
+      for (const v of next) updated.add(v > index ? v - 1 : v);
+      return updated;
+    });
   };
 
   const handleSaveAndPrint = async () => {
@@ -470,12 +526,12 @@ export default function DeliveryReleasePage() {
       toast.error("Delivered by is required.");
       return;
     }
-    if (!selectedCompany || lineItems.length === 0) {
-      toast.error("Please select a customer and add at least one product.");
+    if (!selectedCompany || lineItems.length === 0 || !lineItems.some((li) => li.productCode || li.description.trim())) {
+      toast.error("Please select a customer and add at least one valid item.");
       return;
     }
 
-    setSubmitting(true);
+    setPrinting(true);
     try {
       const payload = {
         companyId: selectedCompany,
@@ -491,13 +547,57 @@ export default function DeliveryReleasePage() {
 
       const res = await deliveryService.createAndPopulateSheet(payload);
       toast.success("Delivery receipt recorded!");
+
+      // ── Trigger contract releases for matching contract items ──
+      const drNumber = res.drNumber;
+      if (contracts.length > 0 && drNumber) {
+        try {
+          const { default: contractReleaseService } = await import(
+            "@/lib/services/contractRelease.service"
+          );
+          const validRows = lineItems.filter((li) => li.productCode);
+          for (const row of validRows) {
+            const matchingContract = contracts.find(
+              (c: any) => c.productCode === row.productCode && c.contractId,
+            );
+            if (matchingContract?.contractId) {
+              const contractItems =
+                await contractItemService.getByContractId(
+                  matchingContract.contractId,
+                );
+              const matchingItem = contractItems.find(
+                (ci: any) => ci.productCode === row.productCode && ci.status === "Active",
+              );
+              if (matchingItem) {
+                await contractReleaseService
+                  .processRelease(
+                    matchingItem.id,
+                    row.quantity,
+                    deliveryDate,
+                    preparedBy,
+                    comments || undefined,
+                    matchingContract.contractId,
+                    row.productCode,
+                    drNumber,
+                  )
+                  .catch(() => {
+                    // non-fatal — release processing is best-effort
+                  });
+              }
+            }
+          }
+        } catch {
+          // non-fatal — contract release is best-effort during DR creation
+        }
+      }
+
       setDrResult(res);
       setModalOpen(false);
       fetchList();
     } catch (err: any) {
       toast.error(err.message || "Failed to process delivery receipt.");
     } finally {
-      setSubmitting(false);
+      setPrinting(false);
     }
   };
 
@@ -507,7 +607,7 @@ export default function DeliveryReleasePage() {
       toast.error("Please select a customer.");
       return;
     }
-    setSubmitting(true);
+    setDrafting(true);
     try {
       const payload = {
         companyId: selectedCompany,
@@ -528,7 +628,7 @@ export default function DeliveryReleasePage() {
     } catch (err: any) {
       toast.error(err.message || "Failed to save draft.");
     } finally {
-      setSubmitting(false);
+      setDrafting(false);
     }
   };
 
@@ -658,14 +758,26 @@ export default function DeliveryReleasePage() {
           quantity: item.quantity,
         })),
       );
+      // Pre-populate manual rows for items that have description but no productCode
+      const manual = new Set<number>();
+      editTarget.items.forEach((item, i) => {
+        if (!item.productCode && item.description?.trim()) manual.add(i);
+      });
+      setEditManualRows(manual);
     }
   }, [editTarget]);
 
   /* Edit line item helpers */
   const addEditLineItem = () =>
     setEditLineItems((prev) => [...prev, { ...EMPTY_LINE_ITEM }]);
-  const removeEditLineItem = (idx: number) =>
+  const removeEditLineItem = (idx: number) => {
     setEditLineItems((prev) => prev.filter((_, i) => i !== idx));
+    setEditManualRows((prev) => {
+      const updated = new Set<number>();
+      for (const v of prev) updated.add(v > idx ? v - 1 : v);
+      return updated;
+    });
+  };
   const updateEditLineItem = (
     idx: number,
     field: keyof LineItem,
@@ -688,7 +800,7 @@ export default function DeliveryReleasePage() {
         deliveredBy: editDeliveredBy,
         status: editStatus,
         items: editLineItems
-          .filter((li) => li.productCode)
+          .filter((li) => li.productCode || li.description.trim())
           .map((li) => ({
             productCode: li.productCode,
             unit: li.unit,
@@ -732,7 +844,7 @@ export default function DeliveryReleasePage() {
       {/* Create DR Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className="sm:max-w-4xl max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -809,25 +921,71 @@ export default function DeliveryReleasePage() {
 
               {lineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
-                  <div className="flex-1 min-w-[200px]">
-                    <SearchableSelect
-                      value={item.productCode}
-                      onValueChange={(v) =>
-                        updateLineItem(idx, "productCode", v)
-                      }
-                      options={productOptions}
-                      placeholder="Select Product"
-                      onAddOption={(searchText) =>
-                        handleOpenQuickAddProduct(searchText, "create", idx)
-                      }
-                      addOptionLabel="+ Add Product"
-                    />
-                  </div>
+                  {manualRows.has(idx) ? (
+                    /* Free-text manual entry */
+                    <>
+                      <Input
+                        className="flex-1 min-w-[200px]"
+                        value={item.description}
+                        onChange={(e) =>
+                          updateLineItem(idx, "description", e.target.value)
+                        }
+                        placeholder="Type item name / description"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0"
+                        title="Switch to product selector"
+                        onClick={() => {
+                          setManualRows((prev) => {
+                            const next = new Set(prev);
+                            next.delete(idx);
+                            return next;
+                          });
+                        }}
+                      >
+                        <Search className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    /* Product selector */
+                    <>
+                      <div className="flex-1 min-w-[200px]">
+                        <SearchableSelect
+                          value={item.productCode}
+                          onValueChange={(v) =>
+                            updateLineItem(idx, "productCode", v)
+                          }
+                          options={productOptions}
+                          placeholder="Select Product"
+                          onAddOption={(searchText) =>
+                            handleOpenQuickAddProduct(searchText, "create", idx)
+                          }
+                          addOptionLabel="+ Add Product"
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0"
+                        title="Type manually"
+                        onClick={() => {
+                          setManualRows((prev) => new Set(prev).add(idx));
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
                   <Input
-                    className="w-20 shrink-0"
                     value={item.unit}
-                    readOnly
+                    onChange={(e) =>
+                      updateLineItem(idx, "unit", e.target.value)
+                    }
                     placeholder="Unit"
+                    readOnly={!manualRows.has(idx)}
+                    className={manualRows.has(idx) ? "w-20 shrink-0" : "w-20 shrink-0 bg-muted text-muted-foreground"}
                   />
                   <Input
                     className="w-24 shrink-0"
@@ -915,22 +1073,22 @@ export default function DeliveryReleasePage() {
             <Button
               variant="outline"
               onClick={() => setModalOpen(false)}
-              disabled={submitting}
+              disabled={drafting || printing}
             >
               Cancel
             </Button>
             <Button
               variant="outline"
               onClick={handleSaveDraft}
-              disabled={submitting}
+              disabled={drafting || printing}
             >
-              {submitting ? (
+              {drafting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
               Save Draft
             </Button>
-            <Button onClick={handleSaveAndPrint} disabled={submitting}>
-              {submitting ? (
+            <Button onClick={handleSaveAndPrint} disabled={drafting || printing}>
+              {printing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Printer className="mr-2 h-4 w-4" />
@@ -967,7 +1125,7 @@ export default function DeliveryReleasePage() {
         }}
       >
         <DialogContent
-          className="sm:max-w-4xl max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -1027,22 +1185,65 @@ export default function DeliveryReleasePage() {
               </div>
               {editLineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
-                  <div className="flex-1 min-w-[200px]">
-                    <SearchableSelect
-                      value={item.productCode}
-                      onValueChange={(v) =>
-                        updateEditLineItem(idx, "productCode", v)
-                      }
-                      options={productOptions}
-                      placeholder="Select Product"
-                      onAddOption={(searchText) =>
-                        handleOpenQuickAddProduct(searchText, "edit", idx)
-                      }
-                      addOptionLabel="+ Add Product"
-                    />
-                  </div>
+                  {editManualRows.has(idx) ? (
+                    <>
+                      <Input
+                        className="flex-1 min-w-[200px]"
+                        value={item.description}
+                        onChange={(e) =>
+                          updateEditLineItem(idx, "description", e.target.value)
+                        }
+                        placeholder="Type item name / description"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0"
+                        title="Switch to product selector"
+                        onClick={() =>
+                          setEditManualRows((prev) => {
+                            const next = new Set(prev);
+                            next.delete(idx);
+                            return next;
+                          })
+                        }
+                      >
+                        <Search className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex-1 min-w-[200px]">
+                        <SearchableSelect
+                          value={item.productCode}
+                          onValueChange={(v) =>
+                            updateEditLineItem(idx, "productCode", v)
+                          }
+                          options={productOptions}
+                          placeholder="Select Product"
+                          onAddOption={(searchText) =>
+                            handleOpenQuickAddProduct(searchText, "edit", idx)
+                          }
+                          addOptionLabel="+ Add Product"
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0"
+                        title="Type manually"
+                        onClick={() =>
+                          setEditManualRows(
+                            (prev) => new Set(prev).add(idx),
+                          )
+                        }
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
                   <Input
-                    className="w-20 shrink-0"
+                    className="w-24 shrink-0"
                     type="number"
                     min={1}
                     value={item.quantity}
@@ -1055,11 +1256,12 @@ export default function DeliveryReleasePage() {
                     }
                   />
                   <Input
-                    className="w-16 shrink-0"
                     value={item.unit}
                     onChange={(e) =>
                       updateEditLineItem(idx, "unit", e.target.value)
                     }
+                    readOnly={!editManualRows.has(idx)}
+                    className={editManualRows.has(idx) ? "w-16 shrink-0" : "w-16 shrink-0 bg-muted text-muted-foreground"}
                   />
                   <Button
                     variant="ghost"
@@ -1155,7 +1357,7 @@ export default function DeliveryReleasePage() {
       {/* Quick Add Product Dialog */}
       <Dialog open={quickAddProductOpen} onOpenChange={setQuickAddProductOpen}>
         <DialogContent
-          className="sm:max-w-md"
+          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >

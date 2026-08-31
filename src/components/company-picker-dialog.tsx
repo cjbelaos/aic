@@ -191,7 +191,9 @@ export function CompanyPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+        onInteractOutside={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Add Company</DialogTitle>
           <DialogDescription>

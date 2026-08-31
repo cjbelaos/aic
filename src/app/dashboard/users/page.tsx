@@ -342,6 +342,7 @@ export default function UsersPage() {
           >
             <DialogContent
               className="sm:max-w-md"
+              onInteractOutside={(e) => e.preventDefault()}
               onPointerDownOutside={(e) => e.preventDefault()}
             >
               <DialogHeader>

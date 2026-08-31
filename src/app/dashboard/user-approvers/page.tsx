@@ -257,8 +257,8 @@ export default function UserApproversPage() {
           >
             <DialogContent
               className="sm:max-w-md"
-              onPointerDownOutside={(e) => e.preventDefault()}
               onInteractOutside={(e) => e.preventDefault()}
+              onPointerDownOutside={(e) => e.preventDefault()}
             >
               <DialogHeader>
                 <DialogTitle>Add User-Approver Mapping</DialogTitle>

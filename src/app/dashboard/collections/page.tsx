@@ -64,7 +64,8 @@ export default function CollectionsPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [logSaving, setLogSaving] = useState(false);
   const [error, setError] = useState("");
 
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
@@ -129,7 +130,7 @@ export default function CollectionsPage() {
       return;
     }
 
-    setSaving(true);
+    setScheduleSaving(true);
     setError("");
 
     try {
@@ -144,7 +145,7 @@ export default function CollectionsPage() {
     } catch (err: any) {
       setError(err?.response?.data?.error || "Failed to schedule collection.");
     } finally {
-      setSaving(false);
+      setScheduleSaving(false);
     }
   };
 
@@ -181,7 +182,7 @@ export default function CollectionsPage() {
       return;
     }
 
-    setSaving(true);
+    setLogSaving(true);
     setError("");
 
     try {
@@ -202,7 +203,7 @@ export default function CollectionsPage() {
     } catch (err: any) {
       setError(err?.response?.data?.error || "Failed to log collection.");
     } finally {
-      setSaving(false);
+      setLogSaving(false);
     }
   };
 
@@ -440,7 +441,9 @@ export default function CollectionsPage() {
 
       {/* Schedule Modal */}
       <Dialog open={scheduleModalOpen} onOpenChange={setScheduleModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+            onInteractOutside={(e) => e.preventDefault()}
+            onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Add Customer To Collection Schedule</DialogTitle>
           </DialogHeader>
@@ -457,7 +460,7 @@ export default function CollectionsPage() {
                 options={companyOptions}
                 placeholder="Select company"
                 searchPlaceholder="Search company..."
-                disabled={saving}
+                disabled={scheduleSaving}
               />
             </div>
 
@@ -467,7 +470,7 @@ export default function CollectionsPage() {
                 id="sched-date"
                 type="date"
                 value={scheduleForm.scheduledDate}
-                disabled={saving}
+                disabled={scheduleSaving}
                 onChange={(e) =>
                   setScheduleForm((f) => ({
                     ...f,
@@ -483,7 +486,7 @@ export default function CollectionsPage() {
                 id="sched-notes"
                 placeholder="e.g. Call confirm at 9 AM"
                 value={scheduleForm.notes}
-                disabled={saving}
+                disabled={scheduleSaving}
                 onChange={(e) =>
                   setScheduleForm((f) => ({ ...f, notes: e.target.value }))
                 }
@@ -494,16 +497,16 @@ export default function CollectionsPage() {
             <Button
               variant="outline"
               onClick={() => setScheduleModalOpen(false)}
-              disabled={saving}
+              disabled={scheduleSaving}
             >
               Cancel
             </Button>
             <Button
               onClick={handleCreateSchedule}
-              disabled={saving}
+              disabled={scheduleSaving}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save
+              {scheduleSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save
               Schedule
             </Button>
           </DialogFooter>
@@ -512,7 +515,9 @@ export default function CollectionsPage() {
 
       {/* Log Collection Modal */}
       <Dialog open={logModalOpen} onOpenChange={setLogModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+            onInteractOutside={(e) => e.preventDefault()}
+            onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Log Collection Entry</DialogTitle>
           </DialogHeader>
@@ -534,7 +539,7 @@ export default function CollectionsPage() {
               <Input
                 id="col-desc"
                 value={logForm.description}
-                disabled={saving}
+                disabled={logSaving}
                 onChange={(e) =>
                   setLogForm((f) => ({ ...f, description: e.target.value }))
                 }
@@ -550,7 +555,7 @@ export default function CollectionsPage() {
                 min={0.01}
                 step="0.01"
                 value={logForm.amountCollected || ""}
-                disabled={saving}
+                disabled={logSaving}
                 onChange={(e) =>
                   setLogForm((f) => ({
                     ...f,
@@ -567,7 +572,7 @@ export default function CollectionsPage() {
                 id="col-date"
                 type="date"
                 value={logForm.collectedDate}
-                disabled={saving}
+                disabled={logSaving}
                 onChange={(e) =>
                   setLogForm((f) => ({ ...f, collectedDate: e.target.value }))
                 }
@@ -578,16 +583,16 @@ export default function CollectionsPage() {
             <Button
               variant="outline"
               onClick={() => setLogModalOpen(false)}
-              disabled={saving}
+              disabled={logSaving}
             >
               Cancel
             </Button>
             <Button
               onClick={handleSaveCollection}
-              disabled={saving}
+              disabled={logSaving}
               className="bg-green-600 hover:bg-green-700 text-white"
             >
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{" "}
+              {logSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{" "}
               Confirm Collection
             </Button>
           </DialogFooter>

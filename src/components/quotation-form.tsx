@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Plus, Trash2, Loader2, Send, Eye } from "lucide-react";
+import { Plus, Trash2, Loader2, Send, Eye, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,6 +115,7 @@ const WARRANTY_TERMS = [
 export type LineItem = {
   id: string;
   productId: string;
+  description: string;
   quantity: number;
   unit: string;
   unitPrice: number;
@@ -123,6 +124,7 @@ export type LineItem = {
 const emptyLine = (): LineItem => ({
   id: generateId(),
   productId: "",
+  description: "",
   quantity: 1,
   unit: "",
   unitPrice: 0,
@@ -192,6 +194,9 @@ export function QuotationForm({
     initialData?.quotationDescription || "",
   );
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
+
+  /* Manual-entry toggle: Set<rowId> for rows in free-text mode */
+  const [manualRowIds, setManualRowIds] = useState<Set<string>>(new Set());
 
   // Fix: Convert QuotationNotation[] to string[] for internal state
   const [notations, setNotations] = useState<string[]>(
@@ -364,6 +369,7 @@ export function QuotationForm({
               return {
                 id: generateId(),
                 productId: matchedProduct ? String(matchedProduct.id) : "",
+                description: matchedProduct ? "" : (item.description || ""),
                 quantity: item.quantity,
                 unit: item.unit,
                 unitPrice: item.unitPrice,
@@ -466,7 +472,7 @@ export function QuotationForm({
 
   const addNewLineItem = () => {
     if (readOnly) return;
-    const hasEmptyFields = lineItems.some((item) => !item.productId);
+    const hasEmptyFields = lineItems.some((item) => !item.productId && !item.description.trim());
     if (hasEmptyFields) {
       toast.error(
         "Please fill out the existing line items before creating a new row.",
@@ -504,8 +510,8 @@ export function QuotationForm({
       return;
     }
 
-    const hasEmptyFields = lineItems.some((item) => !item.productId);
-    if (hasEmptyFields) {
+    const hasEmptyFields2 = lineItems.some((item) => !item.productId && !item.description.trim());
+    if (hasEmptyFields2) {
       toast.error(
         "Please complete or remove unselected product lines before previewing.",
       );
@@ -537,8 +543,8 @@ export function QuotationForm({
       return;
     }
 
-    const hasEmptyFields = lineItems.some((item) => !item.productId);
-    if (hasEmptyFields) {
+    const hasEmptyFields3 = lineItems.some((item) => !item.productId && !item.description.trim());
+    if (hasEmptyFields3) {
       toast.error(
         "Please complete or remove unselected product lines before saving draft.",
       );
@@ -556,9 +562,10 @@ export function QuotationForm({
     // Fix: Create QuotationDetail[] with proper structure
     const itemsPayload: QuotationDetail[] = lineItems.map((item) => {
       const matchedProd = products.find((p) => String(p.id) === item.productId);
+      const description = item.description.trim() || matchedProd?.name || "Manual Entry Item";
       return {
         quotationNo: quotationNo,
-        description: matchedProd?.name || "Manual Entry Item",
+        description,
         quantity: item.quantity,
         unit: item.unit,
         unitPrice: item.unitPrice,
@@ -1054,15 +1061,62 @@ export function QuotationForm({
               return (
                 <TableRow key={row.id}>
                   <TableCell className="p-1 align-top">
-                    <SearchableSelect
-                      value={row.productId}
-                      onValueChange={(v) => onProductSelect(row.id, v)}
-                      options={individualProductOptions}
-                      placeholder="Select product"
-                      searchPlaceholder="Search products..."
-                      className="h-8 border-0 text-xs shadow-none"
-                      disabled={isSaving || readOnly}
-                    />
+                    {manualRowIds.has(row.id) ? (
+                      <Input
+                        value={row.description}
+                        onChange={(e) =>
+                          updateLine(row.id, { description: e.target.value })
+                        }
+                        placeholder="Type item description…"
+                        className="h-8 border-0 text-xs shadow-none"
+                        disabled={isSaving || readOnly}
+                      />
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <div className="flex-1">
+                          <SearchableSelect
+                            value={row.productId}
+                            onValueChange={(v) => onProductSelect(row.id, v)}
+                            options={individualProductOptions}
+                            placeholder="Select product"
+                            searchPlaceholder="Search products..."
+                            className="h-8 border-0 text-xs shadow-none"
+                            disabled={isSaving || readOnly}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          title="Type manually"
+                          onClick={() =>
+                            setManualRowIds((prev) => new Set(prev).add(row.id))
+                          }
+                          disabled={isSaving || readOnly}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
+                    {manualRowIds.has(row.id) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs text-muted-foreground mt-0.5"
+                        onClick={() =>
+                          setManualRowIds((prev) => {
+                            const next = new Set(prev);
+                            next.delete(row.id);
+                            return next;
+                          })
+                        }
+                        disabled={isSaving || readOnly}
+                      >
+                        Switch to product
+                      </Button>
+                    )}
                   </TableCell>
                   <TableCell className="p-1 text-center">
                     <Input
@@ -1079,7 +1133,19 @@ export function QuotationForm({
                     />
                   </TableCell>
                   <TableCell className="text-center">
-                    {row.unit || "—"}
+                    {manualRowIds.has(row.id) ? (
+                      <Input
+                        value={row.unit}
+                        onChange={(e) =>
+                          updateLine(row.id, { unit: e.target.value })
+                        }
+                        placeholder="unit"
+                        className="h-8 w-16 border-0 text-center text-xs shadow-none mx-auto"
+                        disabled={isSaving || readOnly}
+                      />
+                    ) : (
+                      row.unit || "—"
+                    )}
                   </TableCell>
                   <TableCell className="text-right px-2 font-medium">
                     {formatCurrency(row.unitPrice)}

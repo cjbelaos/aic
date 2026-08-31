@@ -12,8 +12,8 @@ import {
 } from "@/types/serviceInvoice";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
-const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:J`;
-// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink
+const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:L`;
+// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
@@ -197,6 +197,8 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           updatedAt: String(row[7] ?? "").trim() || undefined,
           status,
           driveFileLink: String(row[9] ?? "").trim() || undefined,
+          contractId: String(row[10] ?? "").trim() || undefined,
+          drNumber: row[11] ? parseInt(String(row[11]), 10) || undefined : undefined,
           items: itemsByInvoice.get(invoiceNo) || [],
         };
       })
@@ -327,7 +329,7 @@ export async function processServiceInvoice(
     const address = company.address || "";
     const tin = company.tin || "";
 
-    // 3. Log header row to ServiceInvoices (cols A-J)
+    // 3. Log header row to ServiceInvoices (cols A-L)
     const createdAt = new Date().toISOString();
     const headerRow = [
       invoiceNo,
@@ -340,6 +342,8 @@ export async function processServiceInvoice(
       createdAt, // H: UpdatedAt
       payload.status || "created", // I: Status
       "", // J: DriveFileLink (populated after PDF save)
+      payload.contractId || "", // K: ContractId
+      payload.drNumber?.toString() || "", // L: DRNo
     ];
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -408,6 +412,8 @@ export async function processServiceInvoice(
       status: payload.status || "created",
       printUrl,
       pdfBase64,
+      contractId: payload.contractId,
+      drNumber: payload.drNumber,
     };
   } catch (error) {
     console.error("Failed to process service invoice:", error);
@@ -435,7 +441,7 @@ export async function updateServiceInvoice(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const updatedAt = new Date().toISOString();
@@ -451,11 +457,13 @@ export async function updateServiceInvoice(
       updatedAt, // H: UpdatedAt
       payload.status ?? String(currentRow[8] ?? "created").trim(),
       String(currentRow[9] ?? "").trim(), // J: DriveFileLink (preserved)
+      payload.contractId !== undefined ? payload.contractId : String(currentRow[10] ?? "").trim(), // K: ContractId
+      payload.drNumber !== undefined ? String(payload.drNumber) : String(currentRow[11] ?? "").trim(), // L: DRNo
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -517,6 +525,8 @@ export async function updateServiceInvoice(
       updatedAt: updatedRow[7] || undefined,
       status: updatedRow[8],
       driveFileLink: String(updatedRow[9] ?? "").trim() || undefined,
+      contractId: String(updatedRow[10] ?? "").trim() || undefined,
+      drNumber: updatedRow[11] ? parseInt(String(updatedRow[11]), 10) || undefined : undefined,
       items: payload.items || [],
     };
   } catch (error) {
@@ -539,12 +549,12 @@ export async function deleteServiceInvoice(invoiceNo: string): Promise<void> {
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const updatedRow = [...currentRow];
-    while (updatedRow.length < 10) updatedRow.push("");
+    while (updatedRow.length < 12) updatedRow.push("");
     updatedRow[8] = "deleted"; // I: Status
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -571,7 +581,7 @@ export async function populateAndExportServiceInvoiceFormPdf(
 
   const invResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:J${rowNumber}`,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
   });
   const invRow = invResponse.data.values?.[0] || [];
   const date = String(invRow[1] ?? "").trim();

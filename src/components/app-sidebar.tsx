@@ -345,6 +345,18 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
+                  isActive={isItemActive("/dashboard/monthly-summary")}
+                  tooltip="Monthly Profit Summary"
+                >
+                  <Link href="/dashboard/monthly-summary">
+                    <BarChart3 />
+                    <span>Monthly Summary</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
                   isActive={isItemActive("/dashboard/customer-contracts")}
                   tooltip="Contract Entitlements"
                 >

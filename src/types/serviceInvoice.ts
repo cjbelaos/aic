@@ -14,6 +14,10 @@ export interface CreateServiceInvoicePayload {
   preparedBy: string;
   items: ServiceInvoiceItem[];
   status?: string; // "draft" for save-without-print, "created" default
+  /** Contract ID that originated this SI (e.g., for PMS monthly fee). */
+  contractId?: string;
+  /** Linked Delivery Receipt number. */
+  drNumber?: number;
 }
 
 export interface ServiceInvoiceResponse {
@@ -29,6 +33,8 @@ export interface ServiceInvoiceResponse {
   printUrl?: string;
   pdfBase64?: string;
   driveFileLink?: string;
+  contractId?: string;
+  drNumber?: number;
 }
 
 export interface ServiceInvoiceSummary {
@@ -44,4 +50,6 @@ export interface ServiceInvoiceSummary {
   updatedBy?: string;
   updatedAt?: string;
   items: ServiceInvoiceItem[];
+  contractId?: string;
+  drNumber?: number;
 }

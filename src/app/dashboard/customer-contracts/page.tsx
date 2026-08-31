@@ -651,6 +651,7 @@ export default function CustomerContractsPage() {
         <DialogContent
           className="sm:max-w-6xl max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>
             <DialogTitle>

@@ -21,7 +21,8 @@ interface Props {
 
 export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [saving, setSaving] = useState(false);
+  const [printSaving, setPrintSaving] = useState(false);
+  const [driveSaving, setDriveSaving] = useState(false);
 
   if (!si) return null;
 
@@ -30,7 +31,27 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
     ? `data:application/pdf;base64,${si.pdfBase64}`
     : si.printUrl || "";
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    // Auto-save PDF to Drive before printing. Cancel print if save fails.
+    setPrintSaving(true);
+    try {
+      await serviceInvoiceService.savePdfToDrive(
+        si.invoiceNo,
+        si.companyName,
+        si.date,
+      );
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.error ||
+          err?.message ||
+          "Failed to save Service Invoice PDF to Drive. Print aborted.",
+      );
+      setPrintSaving(false);
+      return;
+    }
+    setPrintSaving(false);
+
+    // Base64 → Blob → object URL gives us a same-origin PDF we can reliably print.
     if (si.pdfBase64) {
       try {
         const byteCharacters = atob(si.pdfBase64);
@@ -76,7 +97,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
   };
 
   const handleSaveToDrive = async () => {
-    setSaving(true);
+    setDriveSaving(true);
     try {
       const result = await serviceInvoiceService.savePdfToDrive(
         si.invoiceNo,
@@ -96,7 +117,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
           "Failed to save Service Invoice PDF to Drive.",
       );
     } finally {
-      setSaving(false);
+      setDriveSaving(false);
     }
   };
 
@@ -146,18 +167,22 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            disabled={!pdfSrc}
+            disabled={!pdfSrc || printSaving || driveSaving}
           >
-            <Printer className="mr-1.5 h-4 w-4" />
-            Print
+            {printSaving ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="mr-1.5 h-4 w-4" />
+            )}
+            {printSaving ? "Saving…" : "Print"}
           </Button>
           <Button
             size="sm"
             onClick={handleSaveToDrive}
-            disabled={saving}
+            disabled={printSaving || driveSaving}
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
-            {saving ? (
+            {driveSaving ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
             ) : (
               <Save className="mr-1.5 h-4 w-4" />

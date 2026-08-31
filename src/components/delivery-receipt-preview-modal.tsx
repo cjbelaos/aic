@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Printer, Save, Loader2, ExternalLink } from "lucide-react";
+import { Printer, Save, Loader2, ExternalLink, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,7 +22,9 @@ interface Props {
 
 export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [saving, setSaving] = useState(false);
+  const [printSaving, setPrintSaving] = useState(false);
+  const [driveSaving, setDriveSaving] = useState(false);
+  const router = useRouter();
 
   if (!dr) return null;
 
@@ -30,7 +33,22 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
     ? `data:application/pdf;base64,${dr.pdfBase64}`
     : dr.printUrl || "";
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    // Auto-save PDF to Drive before printing. Block print if save fails.
+    setPrintSaving(true);
+    try {
+      await deliveryService.savePdfToDrive(dr.drNumber, dr.companyName, dr.date);
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.error ||
+          err?.message ||
+          "Failed to save DR PDF to Drive. Print aborted.",
+      );
+      setPrintSaving(false);
+      return;
+    }
+    setPrintSaving(false);
+
     // Base64 → Blob → object URL gives us a same-origin PDF we can reliably print.
     if (dr.pdfBase64) {
       try {
@@ -78,7 +96,7 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
   };
 
   const handleSaveToDrive = async () => {
-    setSaving(true);
+    setDriveSaving(true);
     try {
       const result = await deliveryService.savePdfToDrive(
         dr.drNumber,
@@ -98,7 +116,7 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
           "Failed to save DR PDF to Drive.",
       );
     } finally {
-      setSaving(false);
+      setDriveSaving(false);
     }
   };
 
@@ -148,18 +166,37 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
           variant="outline"
           size="sm"
           onClick={handlePrint}
-          disabled={!pdfSrc}
+          disabled={!pdfSrc || printSaving || driveSaving}
         >
-          <Printer className="mr-1.5 h-4 w-4" />
-          Print
+          {printSaving ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <Printer className="mr-1.5 h-4 w-4" />
+          )}
+          {printSaving ? "Saving…" : "Print"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            sessionStorage.setItem(
+              "siPrefill",
+              JSON.stringify({ drNumber: dr.drNumber, companyName: dr.companyName }),
+            );
+            router.push("/dashboard/service-invoices");
+          }}
+          title="Create a Service Invoice for this DR"
+        >
+          <FileText className="mr-1.5 h-4 w-4" />
+          Create SI
         </Button>
         <Button
           size="sm"
           onClick={handleSaveToDrive}
-          disabled={saving}
+          disabled={printSaving || driveSaving}
           className="bg-blue-600 hover:bg-blue-700 text-white"
         >
-          {saving ? (
+          {driveSaving ? (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
           ) : (
             <Save className="mr-1.5 h-4 w-4" />

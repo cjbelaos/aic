@@ -393,7 +393,9 @@ export default function CustomersPage() {
           if (!saving) setModalOpen(v);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+            onInteractOutside={(e) => e.preventDefault()}
+            onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>
               {editTarget ? "Edit Customer" : "Create Customer"}

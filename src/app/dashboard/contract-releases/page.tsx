@@ -815,7 +815,9 @@ export default function ContractReleasesPage() {
             if (!saving) setReleaseOpen(v);
           }}
         >
-          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+              onInteractOutside={(e) => e.preventDefault()}
+              onPointerDownOutside={(e) => e.preventDefault()}>
             <DialogHeader>
               <DialogTitle>Process New Releases</DialogTitle>
               <DialogDescription>

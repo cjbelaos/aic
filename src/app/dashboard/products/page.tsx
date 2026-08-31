@@ -713,7 +713,7 @@ export default function ProductsPage() {
         }}
       >
         <DialogContent
-          className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
