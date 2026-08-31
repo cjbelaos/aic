@@ -126,7 +126,7 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
       <DialogHeader>
         <DialogTitle className="flex items-center justify-between pr-6">
           <span className="text-lg font-bold">
-            Delivery Receipt — DR #{dr.drNumber}
+            Delivery Receipt — {dr.drNumber > 0 ? `DR #${dr.drNumber}` : "Draft DR"}
           </span>
           <span className="text-sm font-medium text-muted-foreground">
             {dr.companyName}

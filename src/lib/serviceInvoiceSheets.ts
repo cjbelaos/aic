@@ -303,22 +303,33 @@ export async function processServiceInvoice(
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // 1. InvoiceNo — required, typed from the physical paper (no auto-gen)
-    const invoiceNo = String(payload.invoiceNo ?? "").trim();
+    // 1. InvoiceNo — required for non-drafts; empty drafts get a placeholder
+    const isDraft = payload.status === "draft";
+    let invoiceNo = String(payload.invoiceNo ?? "").trim();
+
     if (!invoiceNo) {
-      throw new Error("Invoice No. is required.");
+      if (isDraft) {
+        // Generate a unique placeholder so multiple draft SIs can coexist
+        invoiceNo = `DRAFT-${Date.now()}`;
+      } else {
+        throw new Error("Invoice No. is required.");
+      }
     }
-    const allRows = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A2:A`,
-    });
-    const existingNos = (allRows.data.values || [])
-      .map((row) => String(row[0] ?? "").trim())
-      .filter(Boolean);
-    if (existingNos.includes(invoiceNo)) {
-      throw new Error(
-        `Invoice No. "${invoiceNo}" already exists. Please check the number on the paper.`,
-      );
+
+    // Uniqueness check — skip for draft placeholder prefixes
+    if (!invoiceNo.startsWith("DRAFT-")) {
+      const allRows = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${SERVICE_INVOICES_SHEET}!A2:A`,
+      });
+      const existingNos = (allRows.data.values || [])
+        .map((row) => String(row[0] ?? "").trim())
+        .filter(Boolean);
+      if (existingNos.includes(invoiceNo)) {
+        throw new Error(
+          `Invoice No. "${invoiceNo}" already exists. Please check the number on the paper.`,
+        );
+      }
     }
 
     // 2. Customer details

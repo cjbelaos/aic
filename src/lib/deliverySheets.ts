@@ -165,7 +165,12 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           companyName: company?.companyName || data.companyId,
         } as DeliveryReceiptSummary;
       })
-      .sort((a, b) => b.drNumber - a.drNumber);
+      .sort((a, b) => {
+          // Sort drafts (negative numbers) after real DRs
+          if (a.drNumber <= 0 && b.drNumber > 0) return 1;
+          if (a.drNumber > 0 && b.drNumber <= 0) return -1;
+          return b.drNumber - a.drNumber;
+        });
   } catch (error) {
     console.error("Failed to fetch delivery receipts:", error);
     throw error;
@@ -206,8 +211,10 @@ export async function processDeliveryReceipt(
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // 1. DR Number — either manual override or auto-generate
+    // 1. DR Number — either manual override, auto-generate, or negative placeholder for drafts
     let drNumber: number;
+    const isDraft = payload.status === "draft";
+
     if (payload.drNumber) {
       // Validate: must be a positive integer
       if (!Number.isInteger(payload.drNumber) || payload.drNumber <= 0) {
@@ -215,20 +222,24 @@ export async function processDeliveryReceipt(
           `DR Number must be a positive integer, got "${payload.drNumber}".`,
         );
       }
-      // Check for duplicates
+      // Check for duplicates (only positive numbers are checked)
       const allRows = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range: `${DELIVERY_RECEIPTS_SHEET}!A2:A`,
       });
       const existingNums = (allRows.data.values || [])
         .map((row) => parseInt(String(row[0] ?? "").trim(), 10))
-        .filter((n) => !isNaN(n));
+        .filter((n) => !isNaN(n) && n > 0);
       if (existingNums.includes(payload.drNumber)) {
         throw new Error(
           `DR #${payload.drNumber} already exists. Please choose a different number.`,
         );
       }
       drNumber = payload.drNumber;
+    } else if (isDraft) {
+      // Draft without manual number: use negative timestamp placeholder
+      // so multiple drafts can coexist without consuming real sequence numbers
+      drNumber = -Math.floor(Date.now() / 1000);
     } else {
       drNumber = await generateNextDrNumber(sheets, spreadsheetId);
     }

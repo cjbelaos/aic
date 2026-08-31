@@ -38,11 +38,15 @@ export async function POST(request: Request) {
   try {
     const body: CreateServiceInvoicePayload = await request.json();
 
-    if (!body.invoiceNo?.trim()) {
-      return NextResponse.json(
-        { error: "Invoice No. is required." },
-        { status: 400 },
-      );
+    const isDraft = body.status === "draft";
+
+    if (!isDraft) {
+      if (!body.invoiceNo?.trim()) {
+        return NextResponse.json(
+          { error: "Invoice No. is required." },
+          { status: 400 },
+        );
+      }
     }
     if (!body.customerId?.trim()) {
       return NextResponse.json(
@@ -53,8 +57,6 @@ export async function POST(request: Request) {
     if (!body.date?.trim()) {
       return NextResponse.json({ error: "Date is required." }, { status: 400 });
     }
-
-    const isDraft = body.status === "draft";
 
     if (!isDraft) {
       if (!body.preparedBy?.trim()) {

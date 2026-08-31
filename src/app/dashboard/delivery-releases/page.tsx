@@ -312,11 +312,15 @@ export default function DeliveryReleasePage() {
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         ),
-        cell: ({ getValue }) => (
-          <span className="font-semibold tabular-nums">
-            {String(getValue())}
-          </span>
-        ),
+        cell: ({ getValue }) => {
+          const val = Number(getValue());
+          if (val <= 0) return <span className="text-muted-foreground italic">Draft</span>;
+          return (
+            <span className="font-semibold tabular-nums">
+              {String(getValue())}
+            </span>
+          );
+        },
       },
       {
         accessorKey: "date",
@@ -731,7 +735,11 @@ export default function DeliveryReleasePage() {
     setSubmitting(true);
     try {
       await deliveryService.delete(deleteTarget.drNumber);
-      toast.success(`DR #${deleteTarget.drNumber} deleted.`);
+      toast.success(
+        deleteTarget.drNumber > 0
+          ? `DR #${deleteTarget.drNumber} deleted.`
+          : `Draft DR deleted.`,
+      );
       setDeleteTarget(null);
       fetchList();
     } catch (err: any) {
@@ -809,7 +817,11 @@ export default function DeliveryReleasePage() {
           })),
       };
       await deliveryService.update(editTarget.drNumber, payload);
-      toast.success(`DR #${editTarget.drNumber} updated.`);
+      toast.success(
+        editTarget.drNumber > 0
+          ? `DR #${editTarget.drNumber} updated.`
+          : `Draft DR updated.`,
+      );
 
       // Regenerate PDF for the updated DR (skip for drafts)
       if (editStatus !== "draft") {
@@ -873,6 +885,17 @@ export default function DeliveryReleasePage() {
                   min="1"
                   value={drNo}
                   onChange={(e) => setDrNo(e.target.value)}
+                  onBlur={(e) => {
+                    const val = e.target.value.trim();
+                    if (!val) return;
+                    const num = parseInt(val, 10);
+                    if (isNaN(num) || num <= 0) return;
+                    const existing = receipts.filter((r) => r.drNumber > 0);
+                    if (existing.some((r) => r.drNumber === num)) {
+                      toast.error(`DR #${num} already exists.`);
+                      setDrNo("");
+                    }
+                  }}
                   placeholder="Auto-generated"
                 />
               </div>
@@ -1112,7 +1135,7 @@ export default function DeliveryReleasePage() {
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         title="Delete Delivery Receipt"
-        description={`Are you sure you want to delete DR #${deleteTarget?.drNumber}? This action cannot be undone.`}
+        description={`Are you sure you want to delete DR ${deleteTarget && deleteTarget.drNumber > 0 ? `#${deleteTarget.drNumber}` : "Draft"}? This action cannot be undone.`}
         onConfirm={handleDeleteConfirm}
         onClose={() => setDeleteTarget(null)}
       />
@@ -1130,7 +1153,11 @@ export default function DeliveryReleasePage() {
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle>Edit DR #{editTarget?.drNumber}</DialogTitle>
+            <DialogTitle>
+              {editTarget && editTarget.drNumber > 0
+                ? `Edit DR #${editTarget.drNumber}`
+                : `Edit Draft DR`}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-6">
             {/* Row 1: Customer Name and Date */}

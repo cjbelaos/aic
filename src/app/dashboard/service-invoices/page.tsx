@@ -125,9 +125,14 @@ export default function ServiceInvoicesPage() {
       try {
         const raw = sessionStorage.getItem("siPrefill");
         if (!raw) return;
-        sessionStorage.removeItem("siPrefill");
         const prefill = JSON.parse(raw);
         if (!prefill.drNumber) return;
+
+        // Load companies directly so they're guaranteed available for matching
+        const allCos = await companyService.getAll();
+        const customers = allCos.filter(
+          (c: any) => c.companyType === "Customer" || c.companyType === "Both",
+        );
 
         // Load DR options synchronously so the Linked DR dropdown is populated
         const allDrs = await deliveryService.getAll();
@@ -139,18 +144,21 @@ export default function ServiceInvoicesPage() {
         );
 
         setLinkedDrNumber(String(prefill.drNumber));
-        if (prefill.companyName && companies.length > 0) {
-          const match = companies.find(
+        if (prefill.companyName && customers.length > 0) {
+          const match = customers.find(
             (c: any) => c.companyName === prefill.companyName,
           );
           if (match) setSelectedCustomer(match.companyId);
         }
+
+        // Only clear sessionStorage after the match attempt succeeds
+        sessionStorage.removeItem("siPrefill");
         setModalOpen(true);
       } catch {
         /* ignore malformed */
       }
     })();
-  }, [companies]);
+  }, []);
 
   /* Load customers + current user for PreparedBy */
   useEffect(() => {
@@ -258,6 +266,23 @@ export default function ServiceInvoicesPage() {
     // Intentionally only react to selectedCustomer changes, not invoiceDate
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer, modalOpen]);
+
+  /* Auto-select customer when user picks a Linked DR */
+  useEffect(() => {
+    if (!linkedDrNumber || companies.length === 0) return;
+    const drNum = parseInt(linkedDrNumber, 10);
+    if (isNaN(drNum)) return;
+    // Look up the selected DR from the current DR list to get its company
+    deliveryService.getAll().then((allDrs) => {
+      const matchedDr = allDrs.find((d) => d.drNumber === drNum);
+      if (matchedDr) {
+        const customer = companies.find(
+          (c: any) => c.companyId === matchedDr.companyId,
+        );
+        if (customer) setSelectedCustomer(customer.companyId);
+      }
+    }).catch(() => { /* non-critical */ });
+  }, [linkedDrNumber, companies]);
 
   /* Table columns */
   const columns: ColumnDef<ServiceInvoiceSummary>[] = useMemo(
@@ -499,10 +524,6 @@ export default function ServiceInvoicesPage() {
   };
 
   const handleSaveDraft = async () => {
-    if (!invoiceNo.trim()) {
-      toast.error("Invoice No. is required.");
-      return;
-    }
     if (!selectedCustomer) {
       toast.error("Please select a customer.");
       return;
@@ -653,7 +674,7 @@ export default function ServiceInvoicesPage() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
               <div className="space-y-2 md:col-span-3">
                 <Label>
-                  Invoice No. <span className="text-destructive">*</span>
+                  Invoice No. <span className="text-destructive text-xs">(required unless draft)</span>
                 </Label>
                 <Input
                   value={invoiceNo}
