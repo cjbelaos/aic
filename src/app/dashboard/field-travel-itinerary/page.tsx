@@ -227,7 +227,10 @@ export default function FieldTravelItineraryPage() {
 
   // ── Liquidation preview state ──
   const [liquidationsSummary, setLiquidationsSummary] = useState<
-    Record<string, { liquidationId: string; status: string; userId: string } | null>
+    Record<
+      string,
+      { liquidationId: string; status: string; userId: string } | null
+    >
   >({});
   const [liquidationPreview, setLiquidationPreview] =
     useState<LiquidationFull | null>(null);
@@ -238,9 +241,6 @@ export default function FieldTravelItineraryPage() {
   const [liquidationDownloadingImage, setLiquidationDownloadingImage] =
     useState(false);
 
-  // Only admins and the assigned approver may open the request modal (and thus
-  // the screenshot-able document). Plain requesters are excluded to prevent the
-  // "screenshot the draft → send in Messenger" approval bypass.
   const canViewListItem = (item: FTIRequestSummary): boolean => {
     if (formInfo?.isAdmin) return true;
     const currentUserId = formInfo?.currentUserId;
@@ -256,10 +256,9 @@ export default function FieldTravelItineraryPage() {
     try {
       setListLoading(true);
 
-      // Fetch both requests and user-approver mappings in parallel
       const [requests, approverList] = await Promise.all([
         ftiService.getRequests(),
-        userApproverService.getAll().catch(() => []), // Gracefully handle if route errors
+        userApproverService.getAll().catch(() => []),
       ]);
 
       setFtiRequests(requests);
@@ -327,39 +326,40 @@ export default function FieldTravelItineraryPage() {
     }
   }, [formInfo, loadFTIRequests]);
 
-  // ── Fetch linked liquidation summaries after requests load ──
   useEffect(() => {
     if (ftiRequests.length === 0) return;
     const controlNos = ftiRequests.map((r) => r.controlNo);
     let cancelled = false;
     (async () => {
       try {
-        const summaries = await ftiService.getLinkedLiquidationSummaries(
-          controlNos,
-        );
+        const summaries =
+          await ftiService.getLinkedLiquidationSummaries(controlNos);
         if (!cancelled) setLiquidationsSummary(summaries);
       } catch {
-        // Non-critical; liquidation badges simply won't render.
+        // Non-critical
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [ftiRequests]);
 
-  // Fetch misc lookup for liquidation previews
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const all = await miscellaneousService.getAll();
-        if (!cancelled) setMiscLookup(new Map(all.map((m) => [m.code, m.description])));
+        if (!cancelled)
+          setMiscLookup(new Map(all.map((m) => [m.code, m.description])));
       } catch {
         // Non-critical
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // ── Calculate distance ─────────────────────────
   const calculateDistance = useCallback(
     async (origin: string, legs: Destination[]) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -442,7 +442,6 @@ export default function FieldTravelItineraryPage() {
     };
   }, []);
 
-  // Helper to create empty segment
   const createEmptySegment = (): ExpresswaySegment => ({
     id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
     group: "",
@@ -646,7 +645,6 @@ export default function FieldTravelItineraryPage() {
     }
   };
 
-  // User's KmPerLiter from UserFuelPerKm sheet (defaults to 12)
   const kmPerLiter = formInfo?.kmPerLiter ?? 12;
 
   // ── Add to batch ──────────────────────────────
@@ -685,8 +683,6 @@ export default function FieldTravelItineraryPage() {
           toast.error(`Leg distance is required for "${dest.name}".`);
           return;
         }
-        // Toll is only required if the destination has expressway segments.
-        // Destinations without expressway segments can be saved with toll = 0.
         if (dest.segments.length > 0) {
           const legToll = dest.segments.reduce(
             (s, seg) => s + (seg.tollFee || 0),
@@ -771,7 +767,6 @@ export default function FieldTravelItineraryPage() {
         })),
       };
 
-      // ── Persist immediately to the database (DRAFT request) ──
       const detailPayload = {
         date: newItem.date,
         itinerary: newItem.itinerary,
@@ -857,12 +852,18 @@ export default function FieldTravelItineraryPage() {
 
       if (editingItemId) {
         setBatchItems((prev) =>
-          prev.map((item) => (item.id === editingItemId ? newItem : item)),
+          [...prev]
+            .map((item) => (item.id === editingItemId ? newItem : item))
+            .sort((a, b) => (a.date || "").localeCompare(b.date || "")),
         );
         setEditingItemId(null);
         toast.success("Itinerary updated in batch.");
       } else {
-        setBatchItems((prev) => [...prev, newItem]);
+        setBatchItems((prev) =>
+          [...prev, newItem].sort((a, b) =>
+            (a.date || "").localeCompare(b.date || ""),
+          ),
+        );
         toast.success("Itinerary added to list.");
       }
 
@@ -871,7 +872,6 @@ export default function FieldTravelItineraryPage() {
       setFormData((prev) => ({
         ...prev,
         date: format(new Date(), "yyyy-MM-dd"),
-        // origin and fuelPrice are intentionally preserved after adding a row
         itinerary: "",
         description: "",
         miscellaneousExpenses: [],
@@ -882,7 +882,6 @@ export default function FieldTravelItineraryPage() {
     }
   };
 
-  // ── Edit batch item ───────────────────────────
   const handleEditBatchItem = (item: DraftItinerary) => {
     lastPayloadRef.current = "";
     setFormData((prev) => ({
@@ -942,8 +941,6 @@ export default function FieldTravelItineraryPage() {
     } else {
       setDestinations([]);
     }
-    // Detect misc-only rows (no fuel/toll/destinations) so the form
-    // switches back into "Misc Only" mode when editing them.
     const isMiscOnlyRow =
       item.km === 0 &&
       item.fuelPrice === 0 &&
@@ -953,13 +950,10 @@ export default function FieldTravelItineraryPage() {
     setEditingItemId(item.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
     toast.info(
-      "Editing itinerary. Update fields and click 'Update Itinerary in List' to save.",
+      "Editing itinerary. Update fields and click 'Update Row' to save.",
     );
   };
 
-  // ── Cancel edit batch item ────────────────────
-  // Abandons the in-progress edit (the saved row stays untouched) and resets
-  // the entry form back to blank defaults — same behavior as "Reset Fields".
   const handleCancelEdit = () => {
     if (!editingItemId) return;
     const today = new Date();
@@ -967,11 +961,9 @@ export default function FieldTravelItineraryPage() {
     setFormData((prev) => ({
       ...prev,
       date: format(today, "yyyy-MM-dd"),
-      // origin stays at the default AERICH value — do not revert it
       itinerary: "",
       description: "",
       miscellaneousExpenses: [],
-      // fuelPrice is intentionally preserved as it is used across rows
     }));
     setDestinations([]);
     setTotalKm(null);
@@ -980,7 +972,11 @@ export default function FieldTravelItineraryPage() {
   };
 
   const handleRemoveBatchItem = async (id: string) => {
-    setBatchItems((prev) => prev.filter((item) => item.id !== id));
+    setBatchItems((prev) =>
+      prev
+        .filter((item) => item.id !== id)
+        .sort((a, b) => (a.date || "").localeCompare(b.date || "")),
+    );
     if (editingItemId === id) setEditingItemId(null);
     try {
       await ftiService.deleteDetailRow(id);
@@ -1001,12 +997,6 @@ export default function FieldTravelItineraryPage() {
     } catch {}
     toast.success("Draft cleared.");
   };
-
-  const generateNewRef = useCallback(() => {
-    const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, "0");
-    return `CTRL-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  }, []);
 
   const handleDownloadPdf = async () => {
     setDownloadingPdf(true);
@@ -1031,7 +1021,6 @@ export default function FieldTravelItineraryPage() {
     }
   };
 
-  /** Capture the visible FTI document as a PNG canvas. */
   const captureDocumentImage = async (): Promise<HTMLCanvasElement> => {
     const element =
       document.getElementById("fti-preview-content") ||
@@ -1039,7 +1028,6 @@ export default function FieldTravelItineraryPage() {
     if (!element) {
       throw new Error("FTI print document not found.");
     }
-    // Mobile-safe scale; keeps canvas within mobile browser limits.
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
     const html2canvas = (await import("html2canvas-pro")).default;
     return await html2canvas(element, {
@@ -1092,7 +1080,6 @@ export default function FieldTravelItineraryPage() {
         });
         toast.success("Shared successfully.");
       } else {
-        // Fallback: Web Share API not available (e.g. desktop) → download instead
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -1106,7 +1093,6 @@ export default function FieldTravelItineraryPage() {
         toast.success("Sharing not supported — image downloaded instead.");
       }
     } catch (err) {
-      // user-cancelled or failure
       if (err instanceof Error && err.name !== "AbortError") {
         toast.error("Failed to share image.");
       }
@@ -1116,7 +1102,10 @@ export default function FieldTravelItineraryPage() {
   };
 
   const mapBatchToDetails = useCallback(() => {
-    return batchItems.map((item) => {
+    const sortedBatch = [...batchItems].sort((a, b) =>
+      (a.date || "").localeCompare(b.date || ""),
+    );
+    return sortedBatch.map((item) => {
       const formSegments = item.destinations || [];
       return {
         date: item.date,
@@ -1156,20 +1145,14 @@ export default function FieldTravelItineraryPage() {
   }, [batchItems]);
 
   const generatePdfBlob = async (): Promise<Blob> => {
-    // html2canvas-pro handles Tailwind v4's oklch() colors (html2canvas can't).
     const html2canvas = (await import("html2canvas-pro")).default;
     const { jsPDF } = await import("jspdf");
-    // Prefer the preview element when the modal is open, otherwise use the
-    // hidden FTIPrintDocument (id="fti-print-content") so Submit Request
-    // works without opening Preview.
     const element =
       document.getElementById("fti-preview-content") ||
       document.getElementById("fti-print-content");
     if (!element) {
       throw new Error("FTI print document not found.");
     }
-    // Reduce render scale on small screens so the canvas stays within mobile
-    // browser limits (~16MP). Desktop keeps scale 2 for crisp output.
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
     const canvas = await html2canvas(element, {
       scale: isMobile ? 1 : 2,
@@ -1262,9 +1245,6 @@ export default function FieldTravelItineraryPage() {
     }
     setBatchSubmitting(true);
     try {
-      // The request (Control No + Date Created) is generated on the first
-      // save/submit — not when the form is opened — so abandoned drafts do
-      // not leave empty/orphan rows in the sheet.
       let ref = formData.ftiRef;
       if (!ref) {
         const created = await ftiService.createRequest();
@@ -1295,10 +1275,6 @@ export default function FieldTravelItineraryPage() {
     }
   };
 
-  const handleSaveDraft = async () => {
-    await handleSaveRequest("DRAFT");
-  };
-
   const handleSubmitRequest = async () => {
     if (batchItems.length === 0) {
       toast.error("Add at least one itinerary row before submitting.");
@@ -1306,8 +1282,6 @@ export default function FieldTravelItineraryPage() {
     }
     setBatchSubmitting(true);
     try {
-      // Generate the request (Control No + Date Created) on submit if it has
-      // not already been saved, then mark the FTI as SENT.
       let ref = formData.ftiRef;
       if (!ref) {
         const created = await ftiService.createRequest();
@@ -1339,18 +1313,18 @@ export default function FieldTravelItineraryPage() {
     handleAddToBatch();
   };
 
-  const loadRequestIntoForm = useCallback((full: FTIRequestFull) => {
-    setFormData((prev) => ({
-      ...prev,
-      ftiRef: full.controlNo,
-      technician: full.userName,
-      // Always default the form origin to AERICH when editing a request
-      origin: "AERICH INNOVATION CORP.",
-    }));
-    setCurrentStatus(full.status);
-    setRequestDateCreated(full.dateCreated);
-    setBatchItems(
-      full.details.map((det) => {
+  const loadRequestIntoForm = useCallback(
+    (full: FTIRequestFull) => {
+      setFormData((prev) => ({
+        ...prev,
+        ftiRef: full.controlNo,
+        technician: full.userName,
+        origin: "AERICH INNOVATION CORP.",
+      }));
+      setCurrentStatus(full.status);
+      setRequestDateCreated(full.dateCreated);
+
+      const loadedItems = full.details.map((det) => {
         const fuel =
           det.fuelSubTotal !== undefined
             ? det.fuelSubTotal
@@ -1409,14 +1383,15 @@ export default function FieldTravelItineraryPage() {
                 }))
               : [],
         };
-      }),
-    );
-  }, []);
+      });
+
+      loadedItems.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+      setBatchItems(loadedItems);
+    },
+    [formInfo?.miscellaneousFull],
+  );
 
   const handleCreateNew = async () => {
-    // The request (Control No + Date Created) is generated lazily on the first
-    // Save Draft / Submit Request, not when opening the form, so abandoned
-    // entries do not leave orphan request rows in the sheet.
     try {
       setFormData((prev) => ({
         ...prev,
@@ -1447,7 +1422,6 @@ export default function FieldTravelItineraryPage() {
       const full = await ftiService.getRequest(item.controlNo);
       setViewRequest(full);
       setApprovedBy(full.approvedByName || "");
-      // Resolve signature: use stored URL, or try to find it from the Users sheet
       if (full.approvedBySignatureUrl) {
         setApprovedBySignatureUrl(full.approvedBySignatureUrl);
       } else if (full.approvedByName && full.approvedByUserId) {
@@ -1461,7 +1435,6 @@ export default function FieldTravelItineraryPage() {
               `/api/images/drive/${approver.signature}`,
             );
           } else {
-            // Fallback: try by username matching approvedByName
             try {
               const sig = await userService.getSignatureByUsername(
                 full.approvedByName,
@@ -1489,7 +1462,6 @@ export default function FieldTravelItineraryPage() {
     if (!viewRequest) return;
     setApprovalInProgress(true);
     try {
-      // 1. Re-resolve signature if not already present
       let signatureUrl = approvedBySignatureUrl;
       if (!signatureUrl && viewRequest.approvedByName) {
         try {
@@ -1505,8 +1477,6 @@ export default function FieldTravelItineraryPage() {
         }
       }
 
-      // 2. Pre-fetch the signature image as a data URL so html2canvas can
-      //    render it without hitting the auth-required proxy endpoint.
       let signatureDataUrl = "";
       if (signatureUrl) {
         try {
@@ -1518,7 +1488,6 @@ export default function FieldTravelItineraryPage() {
               reader.onloadend = () => resolve(reader.result as string);
               reader.readAsDataURL(imgBlob);
             });
-            // Temporarily swap the src to the data URL so html2canvas sees it
             const imgElements = document.querySelectorAll<HTMLImageElement>(
               'img[alt="Approver Signature"]',
             );
@@ -1526,7 +1495,6 @@ export default function FieldTravelItineraryPage() {
               img.dataset.originalSrc = img.src;
               img.src = signatureDataUrl;
             });
-            // Wait for the swap to render
             await new Promise((r) => setTimeout(r, 100));
           }
         } catch {
@@ -1534,10 +1502,8 @@ export default function FieldTravelItineraryPage() {
         }
       }
 
-      // 3. Generate PDF
       const blob = await generatePdfBlob();
 
-      // 4. Restore original image srcs
       if (signatureDataUrl) {
         const imgElements = document.querySelectorAll<HTMLImageElement>(
           'img[alt="Approver Signature"]',
@@ -1549,10 +1515,8 @@ export default function FieldTravelItineraryPage() {
         });
       }
 
-      // 5. Upload the regenerated PDF to Drive
       const fileLink = await saveGdToGoogleDrive(blob, viewRequest.controlNo);
 
-      // 6. Update the signature URL in the sheet if it was missing
       if (!viewRequest.approvedBySignatureUrl && signatureUrl) {
         await ftiService.approveAction(
           viewRequest.controlNo,
@@ -1565,7 +1529,6 @@ export default function FieldTravelItineraryPage() {
       }
 
       toast.success("PDF regenerated and saved to Drive successfully.");
-      // Refresh the FTI request data to show updated file link
       const refreshed = await ftiService.getRequest(viewRequest.controlNo);
       setViewRequest(refreshed);
     } catch (err) {
@@ -1582,16 +1545,15 @@ export default function FieldTravelItineraryPage() {
     if (!summary) return;
     try {
       const isAdmin = formInfo?.isAdmin;
-      // Admins pass the liquidation owner's userId to bypass user scoping
-      const userIdParam = isAdmin ? `&userId=${encodeURIComponent(summary.userId)}` : "";
+      const userIdParam = isAdmin
+        ? `&userId=${encodeURIComponent(summary.userId)}`
+        : "";
       const resp = await fetch(
         `/api/liquidations?controlNo=${encodeURIComponent(controlNo)}${userIdParam}`,
       );
       const data = await resp.json();
       const full = data?.liquidations?.[0] as LiquidationFull | undefined;
       if (full) {
-        // getLiquidationFullByControlNoForUser does not resolve requesterName;
-        // fall back to the FTI row's user name for the preview header.
         if (!full.requesterName) {
           const ownerRequest = ftiRequests.find(
             (r) => r.controlNo === controlNo,
@@ -1623,7 +1585,6 @@ export default function FieldTravelItineraryPage() {
       let approvedName: string | undefined;
       let approvedSignature = "";
       if (action === "approve") {
-        // Fetch the approver's e-signature to render on the signed PDF.
         let signatureUrl = "";
         try {
           const sig = await userService.getSignatureByUsername(
@@ -1631,21 +1592,16 @@ export default function FieldTravelItineraryPage() {
           );
           signatureUrl = sig?.imageUrl || "";
         } catch {
-          // no signature on file — proceed without the image
+          // proceed without signature
         }
         setApprovedBy(formInfo?.currentUserFullName || "");
         setApprovedBySignatureUrl(signatureUrl);
         approvedName = formInfo?.currentUserFullName;
         approvedSignature = signatureUrl;
-        // Let the modal re-render with the approval block before capture.
         await new Promise((r) => setTimeout(r, 150));
         const blob = await generatePdfBlob();
         fileLink = await saveGdToGoogleDrive(blob, viewRequest.controlNo);
       }
-      // Sheet write — if this fails, the Drive file is orphaned, so we need
-      // to roll it back. We do the sheet write FIRST for non-approve actions
-      // (no file to roll back), and after the Drive upload for approve actions.
-      // If the sheet write fails after the Drive upload, delete the Drive file.
       try {
         await ftiService.approveAction(
           viewRequest.controlNo,
@@ -1656,21 +1612,23 @@ export default function FieldTravelItineraryPage() {
           approvedSignature,
         );
       } catch (err) {
-        // Roll back the Drive PDF if the sheet write failed
         if (fileLink) {
           try {
             const fileIdMatch = fileLink.match(/\/d\/([a-zA-Z0-9_-]+)/);
             const fileId = fileIdMatch?.[1];
             if (fileId) {
-              await fetch(`/api/fti/save-pdf-to-drive?fileId=${encodeURIComponent(fileId)}`, {
-                method: "DELETE",
-              });
+              await fetch(
+                `/api/fti/save-pdf-to-drive?fileId=${encodeURIComponent(fileId)}`,
+                {
+                  method: "DELETE",
+                },
+              );
             }
           } catch {
             // Non-fatal rollback failure
           }
         }
-        throw err; // Re-throw to trigger the outer catch
+        throw err;
       }
       toast.success(
         action === "approve"
@@ -1692,7 +1650,6 @@ export default function FieldTravelItineraryPage() {
     }
   };
 
-  // ── Liquidation preview → PDF / Image export ──
   const getLiquidationPrintElement = () =>
     document.getElementById("fti-liquidation-print-content");
 
@@ -1819,18 +1776,15 @@ export default function FieldTravelItineraryPage() {
 
   const filteredRequests = useMemo(() => {
     return ftiRequests.filter((r) => {
-      // Status filter
       if (
         statusFilter !== "ALL" &&
         r.status.toUpperCase() !== statusFilter.toUpperCase()
       ) {
         return false;
       }
-      // User filter (admins only; regular users' data is already user-scoped)
       if (userFilter !== "ALL" && r.userId !== userFilter) {
         return false;
       }
-      // Date range filter — compare the date part of dateCreated, inclusive
       if (dateRange?.from || dateRange?.to) {
         const createdDate = r.dateCreated?.slice(0, 10) || "";
         if (!createdDate) return false;
@@ -1893,8 +1847,6 @@ export default function FieldTravelItineraryPage() {
             return <span className="text-muted-foreground">—</span>;
           }
           const isApproved = item.status.toUpperCase() === "APPROVED";
-          // Technicians may only open the signed PDF after approval; admins
-          // and the assigned approver may open it at any time.
           if (!isApproved && !canViewListItem(item)) {
             return <span className="text-muted-foreground">—</span>;
           }
@@ -1927,8 +1879,6 @@ export default function FieldTravelItineraryPage() {
                   : summary.status.toUpperCase() === "REJECTED"
                     ? "Rejected"
                     : summary.status;
-          // Only the liquidation owner (technician) or an admin can open the
-          // liquidation preview. Approvers see the status badge only.
           const canOpenLiquidation =
             formInfo?.isAdmin || formInfo?.currentUserId === summary.userId;
           return (
@@ -2008,7 +1958,6 @@ export default function FieldTravelItineraryPage() {
     [formInfo, approvers, liquidationsSummary],
   );
 
-  // ── Helpers for the form ────────────────────
   const {
     miscellaneous,
     miscellaneousFull,
@@ -2045,7 +1994,6 @@ export default function FieldTravelItineraryPage() {
     return group?.gates || [];
   };
 
-  // Show Description in the dropdown; store the Code as the value.
   const miscOptions = (
     miscellaneousFull.length > 0
       ? miscellaneousFull
@@ -2055,13 +2003,25 @@ export default function FieldTravelItineraryPage() {
     label: item.description,
   }));
 
-  const batchTotalToll = batchItems.reduce((s, i) => s + i.tollFee, 0);
-  const batchTotalFuel = batchItems.reduce(
+  const sortedBatchItems = useMemo(() => {
+    return [...batchItems].sort((a, b) =>
+      (a.date || "").localeCompare(b.date || ""),
+    );
+  }, [batchItems]);
+
+  const batchTotalToll = sortedBatchItems.reduce((s, i) => s + i.tollFee, 0);
+  const batchTotalFuel = sortedBatchItems.reduce(
     (s, i) => s + computeFuelCost(i.km, i.fuelPrice, kmPerLiter),
     0,
   );
-  const batchTotalMiscAmount = batchItems.reduce((s, i) => s + i.miscAmount, 0);
-  const batchGrandTotal = batchItems.reduce((s, i) => s + i.totalAmount, 0);
+  const batchTotalMiscAmount = sortedBatchItems.reduce(
+    (s, i) => s + i.miscAmount,
+    0,
+  );
+  const batchGrandTotal = sortedBatchItems.reduce(
+    (s, i) => s + i.totalAmount,
+    0,
+  );
 
   // ========== RENDER: LIST MODE ==========
   if (viewMode === "list") {
@@ -2130,40 +2090,46 @@ export default function FieldTravelItineraryPage() {
           <FTIPreviewModal
             open={viewModalOpen}
             onOpenChange={setViewModalOpen}
-            batchItems={viewRequest.details.map((det) => {
-              const miscAmount = det.expenses.reduce((s, e) => s + e.amount, 0);
-              const miscExpenses = det.expenses.map((e) => ({
-                code: e.miscCode,
-                description:
-                  formInfo?.miscellaneousFull.find((m) => m.code === e.miscCode)
-                    ?.description || e.miscCode,
-                amount: e.amount,
-              }));
-              return {
-                id: det.detailId,
-                date: det.date,
-                itinerary: det.itinerary,
-                description: det.description,
-                km: det.km,
-                fuelPrice: det.fuelPrice,
-                tollFee: det.tollFee,
-                miscellaneous: det.expenses.map((e) => e.miscCode).join(", "),
-                miscellaneousDescription: det.expenses
-                  .map(
-                    (e) =>
-                      formInfo?.miscellaneousFull.find(
-                        (m) => m.code === e.miscCode,
-                      )?.description || e.miscCode,
-                  )
-                  .join(", "),
-                miscExpenses,
-                miscAmount,
-                fuelAmount: det.fuelSubTotal,
-                totalAmount: computeDetailTotal(det, det.expenses),
-                origin: "AERICH INNOVATION CORP.",
-                destinations: [],
-              };
-            })}
+            batchItems={[...viewRequest.details]
+              .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+              .map((det) => {
+                const miscAmount = det.expenses.reduce(
+                  (s, e) => s + e.amount,
+                  0,
+                );
+                const miscExpenses = det.expenses.map((e) => ({
+                  code: e.miscCode,
+                  description:
+                    formInfo?.miscellaneousFull.find(
+                      (m) => m.code === e.miscCode,
+                    )?.description || e.miscCode,
+                  amount: e.amount,
+                }));
+                return {
+                  id: det.detailId,
+                  date: det.date,
+                  itinerary: det.itinerary,
+                  description: det.description,
+                  km: det.km,
+                  fuelPrice: det.fuelPrice,
+                  tollFee: det.tollFee,
+                  miscellaneous: det.expenses.map((e) => e.miscCode).join(", "),
+                  miscellaneousDescription: det.expenses
+                    .map(
+                      (e) =>
+                        formInfo?.miscellaneousFull.find(
+                          (m) => m.code === e.miscCode,
+                        )?.description || e.miscCode,
+                    )
+                    .join(", "),
+                  miscExpenses,
+                  miscAmount,
+                  fuelAmount: det.fuelSubTotal,
+                  totalAmount: computeDetailTotal(det, det.expenses),
+                  origin: "AERICH INNOVATION CORP.",
+                  destinations: [],
+                };
+              })}
             ftiRef={viewRequest.controlNo}
             technician={viewRequest.userName}
             fullName={viewRequest.userName}
@@ -2212,13 +2178,15 @@ export default function FieldTravelItineraryPage() {
             onOpenChange={setLiquidationPreviewOpen}
             controlNo={liquidationPreview.controlNo}
             fullName={liquidationPreview.requesterName || ""}
-            items={liquidationPreview.items?.map((item) => ({
-              date: item.date,
-              description: item.description,
-              category: item.category,
-              amount: item.amount,
-              receiptImageUrl: item.receiptImageUrl || undefined,
-            })) || []}
+            items={
+              liquidationPreview.items?.map((item) => ({
+                date: item.date,
+                description: item.description,
+                category: item.category,
+                amount: item.amount,
+                receiptImageUrl: item.receiptImageUrl || undefined,
+              })) || []
+            }
             categories={[...miscLookup.keys()]}
             miscLookup={miscLookup}
             advances={liquidationPreview.totalAmountRequested || 0}
@@ -2235,13 +2203,15 @@ export default function FieldTravelItineraryPage() {
           <LiquidationPrintDocument
             controlNo={liquidationPreview?.controlNo || ""}
             fullName={liquidationPreview?.requesterName || ""}
-            items={liquidationPreview?.items?.map((item) => ({
-              date: item.date,
-              description: item.description,
-              category: item.category,
-              amount: item.amount,
-              receiptImageUrl: item.receiptImageUrl || undefined,
-            })) || []}
+            items={
+              liquidationPreview?.items?.map((item) => ({
+                date: item.date,
+                description: item.description,
+                category: item.category,
+                amount: item.amount,
+                receiptImageUrl: item.receiptImageUrl || undefined,
+              })) || []
+            }
             categories={[...miscLookup.keys()]}
             miscLookup={miscLookup}
             advances={liquidationPreview?.totalAmountRequested || 0}
@@ -2268,7 +2238,6 @@ export default function FieldTravelItineraryPage() {
         </Button>
       </div>
 
-      {/* Request header info (visible only when editing an existing request) */}
       {viewMode === "edit" && (
         <Card>
           <CardContent className="pt-6">
@@ -2342,7 +2311,6 @@ export default function FieldTravelItineraryPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Row 1: Date & Fuel Price */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>
@@ -2398,7 +2366,6 @@ export default function FieldTravelItineraryPage() {
               </div>
             </div>
 
-            {/* Origin Group */}
             {!isMiscOnly && (
               <div className="space-y-4">
                 <div className="space-y-1.5 w-full">
@@ -2425,7 +2392,6 @@ export default function FieldTravelItineraryPage() {
               </div>
             )}
 
-            {/* Destinations with Expressway Segments */}
             {!isMiscOnly && (
               <div className="space-y-4">
                 <Label className="text-base font-semibold">
@@ -2436,7 +2402,6 @@ export default function FieldTravelItineraryPage() {
                     No destinations added yet.
                   </p>
                 )}
-                {/* Add Destination Button when list is EMPTY */}
                 {destinations.length === 0 && (
                   <Button
                     type="button"
@@ -2448,7 +2413,6 @@ export default function FieldTravelItineraryPage() {
                     <Plus className="h-4 w-4" /> Add Destination
                   </Button>
                 )}
-                {/* Render Destination Items */}
                 {destinations.map((dest, index) => (
                   <div
                     key={dest.id}
@@ -2634,7 +2598,6 @@ export default function FieldTravelItineraryPage() {
                     )}
                   </div>
                 ))}
-                {/* Add Destination Button AFTER all destination cards */}
                 {destinations.length > 0 && (
                   <Button
                     type="button"
@@ -2649,7 +2612,6 @@ export default function FieldTravelItineraryPage() {
               </div>
             )}
 
-            {/* Totals */}
             {destinations.length > 0 && (
               <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
                 <div className="flex items-center justify-between">
@@ -2675,7 +2637,6 @@ export default function FieldTravelItineraryPage() {
               </div>
             )}
 
-            {/* Miscellaneous Expenses (multiple allowed) */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="text-base font-semibold">
@@ -2786,7 +2747,6 @@ export default function FieldTravelItineraryPage() {
               )}
             </div>
 
-            {/* Form Actions */}
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button
                 type="button"
@@ -2797,7 +2757,6 @@ export default function FieldTravelItineraryPage() {
                   setFormData((prev) => ({
                     ...prev,
                     date: format(today, "yyyy-MM-dd"),
-                    // origin stays at the default AERICH value — do not revert it
                     itinerary: "",
                     description: "",
                     miscellaneousExpenses: [],
@@ -2840,14 +2799,14 @@ export default function FieldTravelItineraryPage() {
       </Card>
 
       {/* Draft Batch Table */}
-      {batchItems.length > 0 && (
+      {sortedBatchItems.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-base">
-                  Draft Batch — {batchItems.length} itinerary
-                  {batchItems.length !== 1 ? "ies" : ""}
+                  Draft Batch — {sortedBatchItems.length} itinerary
+                  {sortedBatchItems.length !== 1 ? "ies" : ""}
                 </CardTitle>
                 <CardDescription>
                   FTI Ref:{" "}
@@ -2899,7 +2858,7 @@ export default function FieldTravelItineraryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {batchItems.map((item) => {
+                  {sortedBatchItems.map((item) => {
                     const expenses =
                       item.miscExpenses && item.miscExpenses.length > 0
                         ? item.miscExpenses
@@ -3034,7 +2993,7 @@ export default function FieldTravelItineraryPage() {
                   type="button"
                   variant="outline"
                   onClick={() => setPreviewOpen(true)}
-                  disabled={batchItems.length === 0}
+                  disabled={sortedBatchItems.length === 0}
                 >
                   <Eye className="mr-1 h-4 w-4" /> Preview
                 </Button>
@@ -3042,7 +3001,7 @@ export default function FieldTravelItineraryPage() {
               <Button
                 type="button"
                 onClick={handleSubmitRequest}
-                disabled={batchSubmitting || batchItems.length === 0}
+                disabled={batchSubmitting || sortedBatchItems.length === 0}
               >
                 {batchSubmitting ? (
                   <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -3056,7 +3015,7 @@ export default function FieldTravelItineraryPage() {
         </Card>
       )}
 
-      {/* Hidden printable document for direct PDF generation (no preview needed) */}
+      {/* Hidden printable document for direct PDF generation */}
       <div
         style={{
           position: "fixed",
@@ -3067,7 +3026,7 @@ export default function FieldTravelItineraryPage() {
         }}
       >
         <FTIPrintDocument
-          batchItems={batchItems}
+          batchItems={sortedBatchItems}
           ftiRef={formData.ftiRef}
           technician={formData.technician}
           fullName={currentUserFullName}
@@ -3080,7 +3039,7 @@ export default function FieldTravelItineraryPage() {
       <FTIPreviewModal
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-        batchItems={batchItems}
+        batchItems={sortedBatchItems}
         ftiRef={formData.ftiRef}
         technician={formData.technician}
         fullName={currentUserFullName}
@@ -3093,14 +3052,12 @@ export default function FieldTravelItineraryPage() {
         sharingImage={sharingImage}
       />
 
-      {/* Location Picker Dialog */}
       <LocationPickerDialog
         open={locationPickerOpen}
         onOpenChange={setLocationPickerOpen}
         onSaved={handleLocationSaved}
       />
 
-      {/* Company Picker Dialog */}
       <CompanyPickerDialog
         open={companyPickerOpen}
         onOpenChange={setCompanyPickerOpen}

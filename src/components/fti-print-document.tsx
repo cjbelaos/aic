@@ -78,6 +78,10 @@ export default function FTIPrintDocument({
   approvedBy,
   approvedBySignatureUrl,
 }: FTIPrintDocumentProps) {
+  // Sort batch items chronologically by date
+  const sortedBatchItems = [...batchItems].sort((a, b) =>
+    (a.date || "").localeCompare(b.date || ""),
+  );
   // Helper to calculate fuel amount: (KM / kmPerLiter) * Fuel Price
   const getItemFuel = (item: DraftItinerary) => {
     if (item.fuelAmount !== undefined && item.fuelAmount > 0) {
@@ -97,8 +101,8 @@ export default function FTIPrintDocument({
   // Prefer the multi-expense array; fall back to the legacy single fields.
   const getItemMiscDescription = (item: DraftItinerary): string => {
     if (hasMultiExpenses(item)) {
-      return item.miscExpenses!
-        .map((e) => e.description || e.code)
+      return item
+        .miscExpenses!.map((e) => e.description || e.code)
         .filter(Boolean)
         .join(", ");
     }
@@ -116,7 +120,8 @@ export default function FTIPrintDocument({
   const TOTAL_ROWS = 18;
   // Each itinerary expands into 1 main row + N misc sub-rows (one per expense).
   const effectiveRowCount = batchItems.reduce(
-    (s, item) => s + 1 + (hasMultiExpenses(item) ? item.miscExpenses!.length : 0),
+    (s, item) =>
+      s + 1 + (hasMultiExpenses(item) ? item.miscExpenses!.length : 0),
     0,
   );
   const emptyRowsCount = Math.max(0, TOTAL_ROWS - effectiveRowCount);
@@ -229,7 +234,7 @@ export default function FTIPrintDocument({
         </thead>
         <tbody>
           {/* Active Batch Items (each misc expense = its own row) */}
-          {batchItems.map((item) => {
+          {sortedBatchItems.map((item) => {
             const itemFuel = getItemFuel(item);
             const itemTotal = getItemTotal(item);
             const expenses = hasMultiExpenses(item)
