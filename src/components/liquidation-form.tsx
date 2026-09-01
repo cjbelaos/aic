@@ -161,6 +161,8 @@ export function LiquidationForm({
   // Full name resolved from the Users sheet (fallback to localStorage).
   const [resolvedFullName, setResolvedFullName] = useState("");
 
+  const isEditing = !!editingLiquidation;
+
   useEffect(() => {
     let cancelled = false;
     // Support deep-link: /dashboard/expense-liquidation?controlNo=CTRL-...
@@ -180,7 +182,7 @@ export function LiquidationForm({
           const usable = requests
             .filter(
               (r) =>
-                r.status === "APPROVED" &&
+                r.status.toUpperCase() === "APPROVED" &&
                 (!myId || r.userId === myId),
             )
             .sort((a, b) =>
@@ -207,9 +209,7 @@ export function LiquidationForm({
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const isEditing = !!editingLiquidation;
+  }, [userId, isEditing]);
 
   // Load miscellaneous categories (same source as the FTI page dropdown).
   // Stores the code (e.g. "MEAL") as the category value; the description
