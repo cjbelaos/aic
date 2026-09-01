@@ -11,6 +11,8 @@ import {
   ChevronDown,
   Pencil,
   ExternalLink,
+  FileText,
+  X,
 } from "lucide-react";
 import { EntityTable } from "@/components/ui/entity-table";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -35,6 +38,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { liquidationService } from "@/lib/services/liquidation.service";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
@@ -107,6 +119,11 @@ export function LiquidationList() {
   const [downloadingImage, setDownloadingImage] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
+  // Items modal state
+  const [itemsModalOpen, setItemsModalOpen] = useState(false);
+  const [selectedLiquidation, setSelectedLiquidation] =
+    useState<LiquidationFull | null>(null);
+
   // Lookup map for miscellaneous code → description
   const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
   // Requester user IDs for which the current user is the mapped approver
@@ -136,7 +153,9 @@ export function LiquidationList() {
   const [previewFullName, setPreviewFullName] = useState("");
 
   // Delete confirmation state
-  const [deleteTarget, setDeleteTarget] = useState<LiquidationFull | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<LiquidationFull | null>(
+    null,
+  );
 
   const currentUserId = storedUser.userId || "";
   const userRoleId = storedUser.userRoleId || 0;
@@ -168,9 +187,8 @@ export function LiquidationList() {
     let cancelled = false;
     (async () => {
       try {
-        const { default: userApproverService } = await import(
-          "@/lib/services/userApprover.service"
-        );
+        const { default: userApproverService } =
+          await import("@/lib/services/userApprover.service");
         const all = await userApproverService.getAll();
         if (!cancelled) {
           const mapped = new Set<string>();
@@ -635,6 +653,11 @@ export function LiquidationList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleViewItems = (liquidation: LiquidationFull) => {
+    setSelectedLiquidation(liquidation);
+    setItemsModalOpen(true);
+  };
+
   const columns: ColumnDef<LiquidationFull>[] = [
     {
       accessorKey: "controlNo",
@@ -692,6 +715,15 @@ export function LiquidationList() {
         const liquidation = row.original;
         return (
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8"
+              onClick={() => handleViewItems(liquidation)}
+              title="View Items"
+            >
+              <FileText className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -813,6 +845,109 @@ export function LiquidationList() {
         headerActions={createNewElement}
       />
 
+      {/* Items Modal - Table View */}
+      <Dialog open={itemsModalOpen} onOpenChange={setItemsModalOpen}>
+        <DialogContent className="sm:max-w-5xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Receipt Items
+              {selectedLiquidation && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  {selectedLiquidation.controlNo || "No FTI"} •{" "}
+                  {selectedLiquidation.items.length} item(s)
+                </span>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedLiquidation?.requesterName && (
+                <span>Requester: {selectedLiquidation.requesterName}</span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto -mx-6 px-6">
+            {selectedLiquidation && selectedLiquidation.items.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No receipt items on record.</p>
+              </div>
+            ) : (
+              <div className="pb-4">
+                <div className="rounded-md border bg-card overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-b border-border hover:bg-transparent">
+                        <TableHead className="font-semibold text-xs whitespace-nowrap">
+                          Date
+                        </TableHead>
+                        <TableHead className="font-semibold text-xs whitespace-nowrap">
+                          Category
+                        </TableHead>
+                        <TableHead className="font-semibold text-xs min-w-[150px]">
+                          Description
+                        </TableHead>
+                        <TableHead className="font-semibold text-xs text-right whitespace-nowrap">
+                          Amount
+                        </TableHead>
+                        <TableHead className="font-semibold text-xs text-center whitespace-nowrap">
+                          Receipt
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedLiquidation?.items.map((item) => (
+                        <TableRow
+                          key={item.receiptItemId}
+                          className="border-b border-border/50 hover:bg-muted/30"
+                        >
+                          <TableCell className="whitespace-nowrap text-sm font-medium">
+                            {item.date}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="secondary"
+                              className="text-xs whitespace-nowrap"
+                            >
+                              {miscLookup.get(item.category) || item.category}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
+                            <span title={item.description}>
+                              {item.description}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm font-bold text-right whitespace-nowrap">
+                            {formatCurrency(item.amount)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {item.receiptImageUrl ? (
+                              <a
+                                href={item.receiptImageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors whitespace-nowrap"
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                                <span>View</span>
+                              </a>
+                            ) : (
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                No receipt
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Preview modal (with approval controls) */}
       <LiquidationPreviewModal
         open={previewLiquidation !== null}
@@ -858,7 +993,8 @@ export function LiquidationList() {
                     "reject",
                     comment,
                   ),
-                actionInProgress: approvingId === previewLiquidation.liquidationId,
+                actionInProgress:
+                  approvingId === previewLiquidation.liquidationId,
               }
             : undefined
         }
@@ -915,10 +1051,7 @@ export function LiquidationList() {
               miscExpenses,
               miscAmount,
               fuelAmount: det.fuelSubTotal,
-              totalAmount:
-                det.fuelSubTotal +
-                det.tollFee +
-                miscAmount,
+              totalAmount: det.fuelSubTotal + det.tollFee + miscAmount,
               origin: "AERICH INNOVATION CORP.",
               destinations: [],
             };
