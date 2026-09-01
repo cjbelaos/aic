@@ -160,8 +160,18 @@ export async function getDriveUploadClient(): Promise<drive_v3.Drive> {
  * Indexed by Date.getMonth() (0 = January → "1. JANUARY").
  */
 export const MONTH_NAMES = [
-  "1. JANUARY", "2. FEBRUARY", "3. MARCH", "4. APRIL", "5. MAY", "6. JUNE",
-  "7. JULY", "8. AUGUST", "9. SEPTEMBER", "10. OCTOBER", "11. NOVEMBER", "12. DECEMBER",
+  "1. JANUARY",
+  "2. FEBRUARY",
+  "3. MARCH",
+  "4. APRIL",
+  "5. MAY",
+  "6. JUNE",
+  "7. JULY",
+  "8. AUGUST",
+  "9. SEPTEMBER",
+  "10. OCTOBER",
+  "11. NOVEMBER",
+  "12. DECEMBER",
 ];
 
 /**
@@ -251,11 +261,9 @@ export async function getNewFlowSpreadsheetId(): Promise<string> {
 export async function getAccessTokenForFetch(): Promise<string> {
   const client = await createOAuth2Client();
   const result = await client.getAccessToken();
-  const token = typeof result === "string" ? result : result?.token ?? null;
+  const token = typeof result === "string" ? result : (result?.token ?? null);
   if (!token) {
-    throw new Error(
-      "Failed to obtain access token for Google Sheets export.",
-    );
+    throw new Error("Failed to obtain access token for Google Sheets export.");
   }
   return token;
 }
