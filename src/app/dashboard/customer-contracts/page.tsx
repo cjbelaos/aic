@@ -610,11 +610,7 @@ export default function CustomerContractsPage() {
     if (!deleteTarget) return;
     setSaving(true);
     try {
-      await Promise.all(
-        deleteTarget.items.map((item) => contractItemService.delete(item.id)),
-      );
       await contractService.delete(deleteTarget.id);
-
       await loadContracts();
       toast.success(`Deleted contract for "${deleteTarget.companyName}".`);
     } catch (err: any) {

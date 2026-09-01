@@ -6,10 +6,10 @@ import {
   getDeliveryReceipts,
   exportDeliveryReceiptFormPdf,
 } from "@/lib/deliverySheets";
-import { getDriveUploadClient, getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
+import { getDriveUploadClient, resolveDriveFolderPath, MONTH_NAMES, getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { CreateDeliveryPayload } from "@/types/deliveryReceipt";
 
-const DR_DRIVE_FOLDER_ID = "1AkcAogFszjBJtB66ySXIszs3LvUQ_46d";
+const DR_PARENT_FOLDER_ID = "1AuGCBFxa-wp-SdfYXf_YTgY7wgtYHILo";
 
 export async function GET() {
   const session = await requireAuthenticatedSession();
@@ -70,14 +70,18 @@ export async function POST(request: Request) {
     let driveFileLink: string | undefined;
     if (!isDraft) {
       try {
-      const monthYear = (() => {
+      const { year, monthName, monthYear } = (() => {
         if (body.date) {
           const d = new Date(body.date + (body.date.length === 10 ? "T00:00:00" : ""));
           if (!isNaN(d.getTime())) {
-            return `${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
+            return {
+              year: String(d.getFullYear()),
+              monthName: MONTH_NAMES[d.getMonth()],
+              monthYear: `${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`,
+            };
           }
         }
-        return "";
+        return { year: "", monthName: "", monthYear: "" };
       })();
 
       const safeName = result.companyName.replace(/[/\\?%*:|"<> ]+/g, "_");
@@ -88,8 +92,12 @@ export async function POST(request: Request) {
       const pdfStream = Readable.from(pdfBuffer);
 
       const drive = await getDriveUploadClient();
+      const targetFolderId = year
+        ? await resolveDriveFolderPath(drive, DR_PARENT_FOLDER_ID, year, monthName)
+        : DR_PARENT_FOLDER_ID;
+
       const uploadRes = await drive.files.create({
-        requestBody: { name: fileName, parents: [DR_DRIVE_FOLDER_ID] },
+        requestBody: { name: fileName, parents: [targetFolderId] },
         media: { mimeType: "application/pdf", body: pdfStream },
       });
 

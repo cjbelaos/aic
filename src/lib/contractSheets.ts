@@ -168,26 +168,111 @@ export async function updateContractInSheets(
 }
 
 /**
- * DELETE: Clears a contract row by Contract ID.
+ * DELETE: Actually deletes the contract row (shift) and cascades to child
+ * rows in ContractItems and ContractReleases sheets via batchUpdate.
  */
 export async function deleteContractFromSheets(id: string): Promise<void> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    const contracts = await getContracts();
-    const rowIndex = contracts.findIndex((c) => c.id === id);
-    if (rowIndex === -1) return;
+    // Resolve sheet IDs for the three relevant tabs.
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    const resolveSheetId = (title: string): number | undefined => {
+        const sid = sheetsList.find((s) => s.properties?.title === title)
+          ?.properties?.sheetId;
+        return sid ?? undefined;
+      };
 
-    const rowNumber = rowIndex + 2;
-    const deleteRange = `${CONTRACTS_SHEET}!A${rowNumber}:I${rowNumber}`;
+    const contractSheetId = resolveSheetId(CONTRACTS_SHEET);
+    if (contractSheetId === undefined)
+      throw new Error(`Sheet "${CONTRACTS_SHEET}" not found.`);
 
-    await sheets.spreadsheets.values.clear({
+    const itemSheetId = resolveSheetId("ContractItems");
+    const releaseSheetId = resolveSheetId("ContractReleases");
+
+    // Read all raw rows so indices map 1:1 to the sheet.
+    const [contractRes, itemRes, releaseRes] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId, range: CONTRACTS_RANGE }),
+      itemSheetId !== undefined
+        ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractItems!A2:F" })
+        : Promise.resolve(null),
+      releaseSheetId !== undefined
+        ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractReleases!A2:M" })
+        : Promise.resolve(null),
+    ]);
+
+    const contractRows = contractRes.data.values || [];
+    const itemRows = itemRes?.data?.values || [];
+    const releaseRows = releaseRes?.data?.values || [];
+
+    // Find the contract row.
+    const contractIdx = contractRows.findIndex(
+      (row) => String(row[0] || "").trim() === id,
+    );
+    if (contractIdx === -1) return;
+
+    const requests: any[] = [];
+
+    // 1) Delete the contract row itself.
+    requests.push({
+      deleteDimension: {
+        range: {
+          sheetId: contractSheetId,
+          dimension: "ROWS",
+          startIndex: contractIdx + 1, // row 0 = header, so data row i → sheet row i+1
+          endIndex: contractIdx + 2,
+        },
+      },
+    });
+
+    // 2) Cascade: delete all ContractItems that reference this contract.
+    if (itemSheetId !== undefined) {
+      itemRows
+        .map((row, i) => ({ row, i }))
+        .filter(({ row }) => String(row[1] || "").trim() === id)
+        .sort((a, b) => b.i - a.i) // delete bottom-up so indices stay valid
+        .forEach(({ i }) => {
+          requests.push({
+            deleteDimension: {
+              range: {
+                sheetId: itemSheetId,
+                dimension: "ROWS",
+                startIndex: i + 1,
+                endIndex: i + 2,
+              },
+            },
+          });
+        });
+    }
+
+    // 3) Cascade: delete all ContractReleases that reference this contract.
+    if (releaseSheetId !== undefined) {
+      releaseRows
+        .map((row, i) => ({ row, i }))
+        .filter(({ row }) => String(row[2] || "").trim() === id) // column C = ContractId
+        .sort((a, b) => b.i - a.i)
+        .forEach(({ i }) => {
+          requests.push({
+            deleteDimension: {
+              range: {
+                sheetId: releaseSheetId,
+                dimension: "ROWS",
+                startIndex: i + 1,
+                endIndex: i + 2,
+              },
+            },
+          });
+        });
+    }
+
+    await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
-      range: deleteRange,
+      requestBody: { requests },
     });
   } catch (error) {
-    console.error(`Failed to clear contract row ${id}:`, error);
+    console.error(`Failed to delete contract row ${id}:`, error);
     throw error;
   }
 }

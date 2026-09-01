@@ -199,16 +199,23 @@ export async function updateContractItemInSheets(
 }
 
 /**
- * DELETE: Clears a contract line item row by Item ID.
+ * DELETE: Actually deletes a contract item row (shift) by Item ID.
  */
 export async function deleteContractItemFromSheets(id: string): Promise<void> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
+    // Resolve the sheet ID for deleteDimension.
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheet = spreadsheet.data.sheets?.find(
+      (s) => s.properties?.title === ITEMS_SHEET,
+    );
+    const sheetId = sheet?.properties?.sheetId ?? undefined;
+    if (sheetId === undefined)
+      throw new Error(`Sheet "${ITEMS_SHEET}" not found.`);
+
     // Read raw rows directly so row indices map 1:1 to the sheet.
-    // (getContractItems filters empty rows, which shifts indices and would
-    // make us clear the wrong row when gaps exist.)
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: ITEMS_RANGE,
@@ -218,15 +225,25 @@ export async function deleteContractItemFromSheets(id: string): Promise<void> {
     const rowIndex = rows.findIndex((row) => row[0] === id);
     if (rowIndex === -1) return;
 
-    const rowNumber = rowIndex + 2;
-    const deleteRange = `${ITEMS_SHEET}!A${rowNumber}:F${rowNumber}`;
-
-    await sheets.spreadsheets.values.clear({
+    await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
-      range: deleteRange,
+      requestBody: {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId,
+                dimension: "ROWS",
+                startIndex: rowIndex + 1, // row 0 = header, data row i → sheet row i+1
+                endIndex: rowIndex + 2,
+              },
+            },
+          },
+        ],
+      },
     });
   } catch (error) {
-    console.error(`Failed to clear contract item row ${id}:`, error);
+    console.error(`Failed to delete contract item row ${id}:`, error);
     throw error;
   }
 }

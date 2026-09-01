@@ -154,6 +154,56 @@ export async function getDriveUploadClient(): Promise<drive_v3.Drive> {
   return google.drive({ version: "v3", auth: oauth2Client });
 }
 
+/** English month names matching the existing Drive folder convention. */
+export const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/**
+ * Walks a two-level year/month folder hierarchy under `parentId`. Creates
+ * missing folders along the way and returns the leaf (month) folder ID.
+ *
+ * @param drive   Authenticated Drive client (must have write permission).
+ * @param parentId  Google Drive folder ID of the parent (e.g. "DELIVERY RECEIPT").
+ * @param year      Four-digit year string, e.g. "2026".
+ * @param monthName Full English month name, e.g. "September".
+ * @returns The Drive file ID of the month folder.
+ */
+export async function resolveDriveFolderPath(
+  drive: drive_v3.Drive,
+  parentId: string,
+  year: string,
+  monthName: string,
+): Promise<string> {
+  async function findOrCreateFolder(
+    name: string,
+    parent: string,
+  ): Promise<string> {
+    // Search for existing folder by name under the given parent.
+    const list = await drive.files.list({
+      q: `'${parent}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: "files(id, name)",
+      pageSize: 1,
+    });
+    if (list.data.files && list.data.files.length > 0) {
+      return list.data.files[0].id!;
+    }
+    // Not found — create it.
+    const created = await drive.files.create({
+      requestBody: {
+        name,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parent],
+      },
+    });
+    return created.data.id!;
+  }
+
+  const yearFolderId = await findOrCreateFolder(year, parentId);
+  return findOrCreateFolder(monthName, yearFolderId);
+}
+
 export async function getDatabaseSpreadsheetId(): Promise<string> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID_DATABASE;
   if (!spreadsheetId) {
