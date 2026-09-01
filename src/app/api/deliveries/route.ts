@@ -84,7 +84,7 @@ export async function POST(request: Request) {
         return { year: "", monthName: "", monthYear: "" };
       })();
 
-      const safeName = result.companyName.replace(/[/\\?%*:|"<> ]+/g, "_");
+      const safeName = result.companyName.replace(/[/\\?%*:'|"<> ]+/g, "_");
       const fileName = `DR-${monthYear}-${result.drNumber}_${safeName}.pdf`;
 
       const { pdfBase64 } = await exportDeliveryReceiptFormPdf();
@@ -92,9 +92,23 @@ export async function POST(request: Request) {
       const pdfStream = Readable.from(pdfBuffer);
 
       const drive = await getDriveUploadClient();
-      const targetFolderId = year
-        ? await resolveDriveFolderPath(drive, DR_PARENT_FOLDER_ID, year, monthName)
-        : DR_PARENT_FOLDER_ID;
+      let targetFolderId = DR_PARENT_FOLDER_ID;
+      if (year) {
+        try {
+          targetFolderId = await resolveDriveFolderPath(
+            drive,
+            DR_PARENT_FOLDER_ID,
+            year,
+            monthName,
+          );
+        } catch (folderErr) {
+          // Non-fatal: fall back to the parent DR folder so the PDF still saves.
+          console.warn(
+            `Failed to resolve year/month folder (${year}/${monthName}); saving to parent folder.`,
+            folderErr,
+          );
+        }
+      }
 
       const uploadRes = await drive.files.create({
         requestBody: { name: fileName, parents: [targetFolderId] },

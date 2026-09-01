@@ -154,11 +154,25 @@ export async function getDriveUploadClient(): Promise<drive_v3.Drive> {
   return google.drive({ version: "v3", auth: oauth2Client });
 }
 
-/** English month names matching the existing Drive folder convention. */
+/**
+ * Month folder names matching the existing Google Drive convention:
+ * "<N>. <MONTH>" e.g. "8. AUGUST", "9. SEPTEMBER", "10. OCTOBER".
+ * Indexed by Date.getMonth() (0 = January → "1. JANUARY").
+ */
 export const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "1. JANUARY", "2. FEBRUARY", "3. MARCH", "4. APRIL", "5. MAY", "6. JUNE",
+  "7. JULY", "8. AUGUST", "9. SEPTEMBER", "10. OCTOBER", "11. NOVEMBER", "12. DECEMBER",
 ];
+
+/**
+ * Escapes a value for use inside a single-quoted Google Drive API `q` query
+ * literal. A bare single quote would terminate the string and cause the API
+ * to reject the query with "Invalid Value"; escaping it with a backslash keeps
+ * the literal intact.
+ */
+export function escapeDriveQueryValue(value: string): string {
+  return value.replace(/'/g, "\\'");
+}
 
 /**
  * Walks a two-level year/month folder hierarchy under `parentId`. Creates
@@ -182,9 +196,9 @@ export async function resolveDriveFolderPath(
   ): Promise<string> {
     // Search for existing folder by name under the given parent.
     const list = await drive.files.list({
-      q: `'${parent}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      q: `'${parent}' in parents and name = '${escapeDriveQueryValue(name)}' and trashed = false`,
       fields: "files(id, name)",
-      pageSize: 1,
+      supportsAllDrives: true,
     });
     if (list.data.files && list.data.files.length > 0) {
       return list.data.files[0].id!;
@@ -196,6 +210,7 @@ export async function resolveDriveFolderPath(
         mimeType: "application/vnd.google-apps.folder",
         parents: [parent],
       },
+      supportsAllDrives: true,
     });
     return created.data.id!;
   }
