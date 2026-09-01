@@ -38,6 +38,14 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
     setPrintSaving(true);
     try {
       await deliveryService.savePdfToDrive(dr.drNumber, dr.companyName, dr.date);
+      // Mark DR as "printed" once the PDF is saved (non-fatal if update fails).
+      if (dr.drNumber > 0) {
+        await deliveryService
+          .update(dr.drNumber, { status: "printed" })
+          .catch(() => {
+            // status update is best-effort — don't block the print action
+          });
+      }
     } catch (err: any) {
       toast.error(
         err?.response?.data?.error ||

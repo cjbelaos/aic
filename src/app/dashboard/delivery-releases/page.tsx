@@ -382,11 +382,10 @@ export default function DeliveryReleasePage() {
               variant: "default" | "secondary" | "outline" | "destructive";
             }
           > = {
+            draft: { label: "Draft", variant: "outline" },
             created: { label: "Created", variant: "secondary" },
-            printed: { label: "Printed", variant: "outline" },
-            delivered: { label: "Delivered", variant: "default" },
-            signed: { label: "Signed", variant: "secondary" },
-            returned: { label: "Returned", variant: "outline" },
+            printed: { label: "Printed", variant: "default" },
+            completed: { label: "Completed", variant: "default" },
             deleted: { label: "Deleted", variant: "destructive" },
           };
           const cfg = map[s] || map.created;
@@ -397,12 +396,9 @@ export default function DeliveryReleasePage() {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => {
-          const locked = [
-            "delivered",
-            "signed",
-            "returned",
-            "deleted",
-          ].includes(row.original.status);
+          const locked = ["completed", "deleted"].includes(
+            row.original.status,
+          );
           return (
             <div className="flex items-center gap-1">
               <Button
@@ -547,6 +543,7 @@ export default function DeliveryReleasePage() {
         deliveredBy,
         comments,
         items: lineItems,
+        status: "printed",
       };
 
       const res = await deliveryService.createAndPopulateSheet(payload);
@@ -1336,9 +1333,7 @@ export default function DeliveryReleasePage() {
                   <SelectItem value="draft">Draft</SelectItem>
                   <SelectItem value="created">Created</SelectItem>
                   <SelectItem value="printed">Printed</SelectItem>
-                  <SelectItem value="delivered">Delivered</SelectItem>
-                  <SelectItem value="signed">Signed</SelectItem>
-                  <SelectItem value="returned">Returned</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
