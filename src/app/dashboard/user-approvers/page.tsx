@@ -25,10 +25,13 @@ import {
 } from "@/components/ui/select";
 import { userService } from "@/lib/services/user.service";
 import { departmentService } from "@/lib/services/department.service";
+import { positionService } from "@/lib/services/position.service";
 import { userApproverService } from "@/lib/services/userApprover.service";
+import { isExecutivePositionTitle } from "@/lib/positionUtils";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { PublicUser } from "@/types/user";
 import type { Department } from "@/types/department";
+import type { Position } from "@/types/position";
 import type { UserApprover } from "@/types/userApprover";
 
 interface ApproverFormState {
@@ -49,6 +52,7 @@ export default function UserApproversPage() {
   const [data, setData] = useState<UserApprover[]>([]);
   const [users, setUsers] = useState<PublicUser[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -75,6 +79,38 @@ export default function UserApproversPage() {
     if (form.departmentId === 0) return [];
     return users.filter((u) => u.departmentId === form.departmentId);
   }, [users, form.departmentId]);
+
+  // Executive positions (General Manager, CFO, COO, CEO) may approve for ANY
+  // requester regardless of department, so they are always selectable.
+  const executiveUserIds = useMemo(() => {
+    const ids = new Set<string>();
+    const posTitles = new Map<number, string>();
+    for (const p of positions) posTitles.set(p.positionId, p.positionTitle);
+    for (const u of users) {
+      const title = u.positionId ? posTitles.get(u.positionId) : undefined;
+      if (isExecutivePositionTitle(title)) ids.add(u.userId);
+    }
+    return ids;
+  }, [users, positions]);
+
+  // Approver candidates = same-department users + executives (no duplicates).
+  const approverCandidates = useMemo(() => {
+    const seen = new Set<string>();
+    const list: PublicUser[] = [];
+    for (const u of sameDeptUsers) {
+      if (!seen.has(u.userId)) {
+        seen.add(u.userId);
+        list.push(u);
+      }
+    }
+    for (const u of users) {
+      if (executiveUserIds.has(u.userId) && !seen.has(u.userId)) {
+        seen.add(u.userId);
+        list.push(u);
+      }
+    }
+    return list;
+  }, [sameDeptUsers, users, executiveUserIds]);
 
   const columns = useMemo<ColumnDef<UserApprover>[]>(
     () => [
@@ -142,14 +178,16 @@ export default function UserApproversPage() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [approvers, allUsers, depts] = await Promise.all([
+      const [approvers, allUsers, depts, poss] = await Promise.all([
         userApproverService.getAll(),
         userService.getAllUsers(),
         departmentService.getAll(),
+        positionService.getAll(),
       ]);
       setData(approvers);
       setUsers(allUsers);
       setDepartments(depts);
+      setPositions(poss);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load data.");
     } finally {
@@ -190,6 +228,20 @@ export default function UserApproversPage() {
     }
     if (!form.approverUserId) {
       setError("Please select an approver.");
+      return;
+    }
+    if (form.approverUserId === form.requesterUserId) {
+      setError("A user cannot be their own approver.");
+      return;
+    }
+    const approverIsExecutive = executiveUserIds.has(form.approverUserId);
+    if (
+      !approverIsExecutive &&
+      !sameDeptUsers.some((u) => u.userId === form.approverUserId)
+    ) {
+      setError(
+        "Approver must be in the same department as the requester or hold an executive position (General Manager, CFO, COO, CEO).",
+      );
       return;
     }
 
@@ -326,21 +378,21 @@ export default function UserApproversPage() {
                       <SelectValue placeholder="Select approver" />
                     </SelectTrigger>
                     <SelectContent>
-                      {sameDeptUsers.map((u) => (
+                      {approverCandidates.map((u) => (
                         <SelectItem key={u.userId} value={u.userId}>
                           {u.fullName || u.username}
                         </SelectItem>
                       ))}
-                      {sameDeptUsers.length === 0 && (
+                      {approverCandidates.length === 0 && (
                         <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-                          No users in the same department.
+                          No eligible approvers found.
                         </div>
                       )}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Only users in the same department as the requester are
-                    shown.
+                    Users in the same department as the requester, plus
+                    executives (General Manager, CFO, COO, CEO), are shown.
                   </p>
                 </div>
 

@@ -28,11 +28,14 @@ import companyService from "@/lib/services/company.service";
 import customerPriceService from "@/lib/services/customer-price.service";
 import quotationService from "@/lib/services/quotation.service";
 import { userService } from "@/lib/services/user.service";
+import { positionService } from "@/lib/services/position.service";
 import { QuotationCustomer } from "@/lib/services/quotation.service";
 import companyContactService from "@/lib/services/companyContact.service";
+import { isExecutivePositionTitle } from "@/lib/positionUtils";
 import { Product } from "@/types/product";
 import { CustomerPrice } from "@/types/customer-price";
 import type { PublicUser } from "@/types/user";
+import type { Position } from "@/types/position";
 import { QuotationTemplate } from "@/components/quotation-template";
 import { QuotationDetail, QuotationNotation } from "@/types/quotation";
 import { getDriveImageUrl } from "@/lib/signatureUpload";
@@ -219,7 +222,11 @@ export function QuotationForm({
 
   const [preparedBy, setPreparedBy] = useState(initialData?.preparedBy || "");
   const [allUsers, setAllUsers] = useState<PublicUser[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [approvedByUsername, setApprovedByUsername] = useState("");
+  const [currentUserDepartmentId, setCurrentUserDepartmentId] = useState<
+    number | null
+  >(null);
   const [preparedBySignatureUrl, setPreparedBySignatureUrl] = useState<
     string | undefined
   >(undefined);
@@ -234,6 +241,47 @@ export function QuotationForm({
     );
     return user?.fullName || approvedByUsername;
   }, [allUsers, approvedByUsername]);
+
+  // Only users in the same department as the current user may be selected as
+  // the approver, plus executives (General Manager, CFO, COO, CEO) who may
+  // approve for anyone regardless of department.
+  const sameDeptUsers = useMemo(() => {
+    if (currentUserDepartmentId == null || currentUserDepartmentId === 0) {
+      return allUsers;
+    }
+    return allUsers.filter((u) => u.departmentId === currentUserDepartmentId);
+  }, [allUsers, currentUserDepartmentId]);
+
+  // Executive positions may approve for any user regardless of department.
+  const executiveUsernames = useMemo(() => {
+    const names = new Set<string>();
+    const posTitles = new Map<number, string>();
+    for (const p of positions) posTitles.set(p.positionId, p.positionTitle);
+    for (const u of allUsers) {
+      const title = u.positionId ? posTitles.get(u.positionId) : undefined;
+      if (isExecutivePositionTitle(title)) names.add(u.username);
+    }
+    return names;
+  }, [positions, allUsers]);
+
+  // Approver candidates = same-department users + executives (no duplicates).
+  const approverCandidates = useMemo(() => {
+    const seen = new Set<string>();
+    const list: PublicUser[] = [];
+    for (const u of sameDeptUsers) {
+      if (!seen.has(u.username)) {
+        seen.add(u.username);
+        list.push(u);
+      }
+    }
+    for (const u of allUsers) {
+      if (executiveUsernames.has(u.username) && !seen.has(u.username)) {
+        seen.add(u.username);
+        list.push(u);
+      }
+    }
+    return list;
+  }, [sameDeptUsers, allUsers, executiveUsernames]);
 
   // Fetch e-Signature URLs when preview mode is about to be used or preparedBy changes
   useEffect(() => {
@@ -291,11 +339,12 @@ export function QuotationForm({
           setQuotationNo(generatedNo);
         }
 
-        const [cRes, pRes, cpRes, uRes, contactRes] = await Promise.all([
+        const [cRes, pRes, cpRes, uRes, posRes, contactRes] = await Promise.all([
           companyService.getAll(),
           productService.getAll(),
           customerPriceService.getAll(),
           userService.getAllUsers(),
+          positionService.getAll(),
           companyContactService.getAll(),
         ]);
 
@@ -321,6 +370,7 @@ export function QuotationForm({
         setProducts(pRes ?? []);
         setCustomerPrices(cpRes ?? []);
         setAllUsers(uRes ?? []);
+        setPositions(posRes ?? []);
 
         try {
           const storedAuth = window.localStorage.getItem("auth:user");
@@ -328,11 +378,13 @@ export function QuotationForm({
             const parsedAuth = JSON.parse(storedAuth);
             const targetUsername = parsedAuth?.userName?.trim().toLowerCase();
 
-            if (!initialData?.preparedBy && targetUsername && uRes) {
-              const matchedUser = uRes.find(
-                (u) => u.username?.trim().toLowerCase() === targetUsername,
-              );
+            const matchedUser = targetUsername
+              ? uRes?.find(
+                  (u) => u.username?.trim().toLowerCase() === targetUsername,
+                )
+              : undefined;
 
+            if (!initialData?.preparedBy && targetUsername && uRes) {
               if (matchedUser) {
                 setPreparedBy(
                   matchedUser.fullName || parsedAuth.userName || "",
@@ -341,6 +393,20 @@ export function QuotationForm({
                 setPreparedBy(parsedAuth.userName || "");
               }
             }
+
+            // Resolve the current user's department so the approver list can
+            // be restricted to same-department users only.
+            const storedDeptId =
+              typeof parsedAuth?.departmentId === "number"
+                ? parsedAuth.departmentId
+                : null;
+            const resolvedDeptId =
+              storedDeptId != null && storedDeptId > 0
+                ? storedDeptId
+                : matchedUser && matchedUser.departmentId > 0
+                  ? matchedUser.departmentId
+                  : null;
+            setCurrentUserDepartmentId(resolvedDeptId);
           }
         } catch (storageErr) {
           console.error(
@@ -1275,13 +1341,22 @@ export function QuotationForm({
                 <SelectValue placeholder="Select approver..." />
               </SelectTrigger>
               <SelectContent>
-                {allUsers.map((u) => (
+                {approverCandidates.map((u) => (
                   <SelectItem key={u.username} value={u.username}>
                     {u.fullName || u.username}
                   </SelectItem>
                 ))}
+                {approverCandidates.length === 0 && (
+                  <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                    No eligible approvers found.
+                  </div>
+                )}
               </SelectContent>
             </Select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Users in the same department as you, plus executives (General
+              Manager, CFO, COO, CEO), are shown.
+            </p>
           </div>
         </div>
 

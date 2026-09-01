@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { saveQuotationData, uploadPdfToDrive } from "@/lib/quotationSheets";
+import { isExecutivePositionTitle } from "@/lib/positionUtils";
 
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
@@ -39,6 +40,51 @@ export async function POST(request: Request) {
         },
         { status: 400 },
       );
+    }
+
+    // Validate the approver (if provided): must belong to the same department
+    // as the user preparing the quotation, OR hold an executive position
+    // (General Manager, CFO, COO, CEO) which may approve for anyone.
+    const approvedByValue = String(payload.approvedBy || "").trim();
+    if (approvedByValue && session?.departmentId) {
+      const [{ getUsers }, { getPositions }] = await Promise.all([
+        import("@/lib/userSheets"),
+        import("@/lib/positionSheets"),
+      ]);
+      const [users, positions] = await Promise.all([getUsers(), getPositions()]);
+      const executivePositionIds = new Set(
+        positions
+          .filter((p) => isExecutivePositionTitle(p.positionTitle))
+          .map((p) => p.positionId),
+      );
+      const lower = approvedByValue.toLowerCase();
+      const approverUser = users.find(
+        (u) =>
+          u.fullName?.trim().toLowerCase() === lower ||
+          u.username?.trim().toLowerCase() === lower,
+      );
+      if (!approverUser) {
+        return NextResponse.json(
+          { success: false, message: "Approver user not found." },
+          { status: 400 },
+        );
+      }
+      const isExecutiveApprover = executivePositionIds.has(
+        approverUser.positionId,
+      );
+      if (
+        !isExecutiveApprover &&
+        approverUser.departmentId !== session.departmentId
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Approver must be in the same department as the user preparing the quotation or hold an executive position (General Manager, CFO, COO, CEO).",
+          },
+          { status: 400 },
+        );
+      }
     }
 
     // Determine status from payload (any user can set SENT status)
