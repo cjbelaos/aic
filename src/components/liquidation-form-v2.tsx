@@ -14,6 +14,7 @@ import {
   Send,
   Lock,
   FileText,
+  Calculator,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -221,11 +222,13 @@ export function LiquidationFormV2({
   const [draftDate, setDraftDate] = useState("");
   const [draftCategory, setDraftCategory] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
-  // Gross Amount is the required amount; Net / VAT / EWT are optional manual.
+  // Gross Amount is required; EWT is optional manual. VAT and Net Amount are
+  // auto-computed (button-gated — not all receipts are VATable) and rendered
+  // as disabled read-only.
   const [draftGross, setDraftGross] = useState("");
-  const [draftNet, setDraftNet] = useState("");
-  const [draftVat, setDraftVat] = useState("");
   const [draftEwt, setDraftEwt] = useState("");
+  // When true, VAT 12% is applied to this line (VATable receipt).
+  const [draftApplyVat, setDraftApplyVat] = useState(false);
   // Document references (no per-doc dates — the item Date applies).
   const [draftSiNo, setDraftSiNo] = useState("");
   const [draftDrNo, setDraftDrNo] = useState("");
@@ -276,6 +279,28 @@ export function LiquidationFormV2({
       style: "currency",
       currency: "PHP",
     }).format(value);
+
+  // ── Auto-computed VAT / Net for the current draft line item ──
+  // VAT = Gross ÷ 1.12 × 12% (Gross treated as VAT-inclusive). Only applied
+  // when "Apply VAT" is toggled on (VATable receipt) — otherwise VAT = 0.
+  // Net = Gross − VAT − EWT (EWT optional manual).
+  const draftGrossNum = parseFloat(draftGross);
+  const draftEwtNum = parseFloat(draftEwt);
+  const hasGrossInput =
+    draftGross !== "" && !isNaN(draftGrossNum) && draftGrossNum >= 0;
+  const draftVat =
+    hasGrossInput && draftApplyVat
+      ? Math.round((draftGrossNum / 1.12) * 0.12 * 100) / 100
+      : 0;
+  const draftEwtValue =
+    draftEwt !== "" && !isNaN(draftEwtNum) && draftEwtNum > 0
+      ? Math.round(draftEwtNum * 100) / 100
+      : 0;
+  const draftNet = hasGrossInput
+    ? Math.max(0, Math.round((draftGrossNum - draftVat - draftEwtValue) * 100) / 100)
+    : 0;
+  const draftVatText = hasGrossInput ? draftVat.toFixed(2) : "";
+  const draftNetText = hasGrossInput ? draftNet.toFixed(2) : "";
 // Load the user's APPROVED FTI requests to select from (mirrors production).
   useEffect(() => {
     let cancelled = false;
@@ -370,9 +395,8 @@ const resetDraft = () => {
     setDraftCategory("");
     setDraftDescription("");
     setDraftGross("");
-    setDraftNet("");
-    setDraftVat("");
     setDraftEwt("");
+    setDraftApplyVat(false);
     setDraftSiNo("");
     setDraftDrNo("");
     setDraftCrNo("");
@@ -414,12 +438,6 @@ const resetDraft = () => {
     setDraftReceiptName("");
   };
 
-  const numOrUndef = (v: string): number | undefined => {
-    if (v === "" || v == null) return undefined;
-    const n = parseFloat(v);
-    return isNaN(n) ? undefined : Math.round(n * 100) / 100;
-  };
-
   // ── Line-item add / update ──
   const handleAddOrUpdateItem = async () => {
     if (isLocked) {
@@ -445,14 +463,13 @@ const resetDraft = () => {
       toast.error("Please enter a valid Gross Amount.");
       return;
     }
-    const vat = numOrUndef(draftVat) || 0;
-    const ewt = numOrUndef(draftEwt) || 0;
-    const manualNet = numOrUndef(draftNet);
-    // Net = manual Net if provided, else auto Gross − VAT − EWT.
-    const net =
-      manualNet != null
-        ? Math.max(0, manualNet)
-        : Math.max(0, Math.round((gross - vat - ewt) * 100) / 100);
+    // VAT only when the "Apply VAT" toggle is on (VATable receipt), else 0.
+    // Net = Gross − VAT − EWT (EWT manual).
+    const vat = draftApplyVat
+      ? Math.round((gross / 1.12) * 0.12 * 100) / 100
+      : 0;
+    const ewt = draftEwtValue;
+    const net = Math.max(0, Math.round((gross - vat - ewt) * 100) / 100);
 let finalReceiptUrl = draftReceiptUrl;
     let finalReceiptPreviewUrl = draftReceiptPreviewUrl;
     let uploadedFileId = "";
@@ -575,9 +592,8 @@ const handleEditItem = (index: number) => {
     setDraftCategory(it.miscellaneousCode);
     setDraftDescription(it.description);
     setDraftGross(it.grossAmount != null ? String(it.grossAmount) : "");
-    setDraftNet(it.amount != null ? String(it.amount) : "");
-    setDraftVat(it.vat != null ? String(it.vat) : "");
     setDraftEwt(it.ewt != null ? String(it.ewt) : "");
+    setDraftApplyVat(it.vat != null && it.vat > 0);
     setDraftSiNo(it.siNumber || "");
     setDraftDrNo(it.drNumber || "");
     setDraftCrNo(it.crNumber || "");
@@ -1031,20 +1047,28 @@ const handleEditItem = (index: number) => {
             placeholder="0.00"
           />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Field
-              label="Net Amount (₱) — optional"
-              type="number"
-              value={draftNet}
-              onChange={setDraftNet}
-              placeholder="0.00"
-            />
-            <Field
-              label="VAT (₱) — optional"
-              type="number"
-              value={draftVat}
-              onChange={setDraftVat}
-              placeholder="0.00"
-            />
+            <div className="space-y-1.5">
+              <Label>Net Amount (₱) — auto</Label>
+              <Input
+                type="number"
+                value={draftNetText}
+                disabled
+                readOnly
+                placeholder="0.00"
+                className="h-11 text-base bg-muted text-muted-foreground"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>VAT (₱) — auto</Label>
+              <Input
+                type="number"
+                value={draftVatText}
+                disabled
+                readOnly
+                placeholder="0.00"
+                className="h-11 text-base bg-muted text-muted-foreground"
+              />
+            </div>
             <Field
               label="EWT (₱) — optional"
               type="number"
@@ -1053,9 +1077,38 @@ const handleEditItem = (index: number) => {
               placeholder="0.00"
             />
           </div>
+
+          {/* ── VAT trigger (only VATable receipts get VAT applied) ── */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border bg-muted/40 p-3">
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold">
+                {draftApplyVat
+                  ? "VAT 12% applied to this receipt"
+                  : "Non-VAT / VAT not applied"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Press the button only for VATable receipts. VAT = Gross ÷ 1.12
+                × 12%; Net = Gross − VAT − EWT.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant={draftApplyVat ? "default" : "outline"}
+              size="sm"
+              className={
+                draftApplyVat
+                  ? "bg-blue-600 hover:bg-blue-700 text-white"
+                  : ""
+              }
+              onClick={() => setDraftApplyVat((prev) => !prev)}
+            >
+              <Calculator className="mr-2 h-4 w-4" />
+              {draftApplyVat ? "Remove VAT" : "Apply VAT 12%"}
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">
-            Gross Amount is required. VAT, EWT and Net Amount are optional — if
-            Net is left blank it defaults to Gross − VAT − EWT.
+            Gross Amount is required. VAT is applied only when you press Apply
+            VAT 12%; Net is always auto-computed as Gross − VAT − EWT.
           </p>
 
           {/* ── SI / DR / CR / BS / OR References (numbers only) ── */}
