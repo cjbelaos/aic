@@ -39,13 +39,13 @@ const DATE_TOP = 187.04; // 5.25cm from top
 const DATE_RIGHT = 111.32; // 3.6cm from right
 
 // Customer positioning (B5):
-// - From top: 6.8cm (257.04px) to 7.1cm (268.38px) from top
+// - From top: 6.64cm (251px)
 // - From left: 4.1cm (154.98px) from left, extends to right margin
-const CUSTOMER_TOP = 249; // 6.95cm from top
+const CUSTOMER_TOP = 251; // 6.64cm from top
 
 // TIN positioning (B6):
-// - From top: 7.6cm (287.28px) to 7.9cm (298.62px) from top
-const TIN_TOP = 284.33; // 7.75cm from top
+// - From top: 7.54cm (285px)
+const TIN_TOP = 285; // 7.54cm from top
 
 // Address positioning (B7):
 // - From top: 8.4cm (317.52px) to 8.7cm (328.86px) from top
@@ -79,11 +79,13 @@ const ADDITIONAL_TABLE_WIDTH = 103.95; // 2.75cm
 /* ---- Prepared By positioning ---- */
 // - From top: 26.3cm (994.14px) from top
 // - From left: 4.85cm (183.33px) width
-// - User position: 1 character above this
-// - User Fullname: 1 character above position
-const PREPARED_BY_TOP = 945;
+// - Fullname and Position Title moved 1 self height down
+const PREPARED_BY_TOP = 945; // 26.3cm from top
 const PREPARED_BY_WIDTH = 183.33; // 4.85cm
 const PREPARED_BY_LEFT = MARGIN_LEFT;
+
+// Self height for Prepared By (approximately 1 line height at 11pt)
+const SELF_HEIGHT = 16; // 1 self height (approx 1 line height)
 
 const FONT_SIZE = 11;
 
@@ -195,6 +197,7 @@ function DecimalAlignedNumber({ value }: { value: number }) {
         fontSize: FONT_SIZE,
         fontVariantNumeric: "tabular-nums",
         whiteSpace: "nowrap",
+        fontWeight: 700, // BOLD
       }}
     >
       {/* Integer portion */}
@@ -274,11 +277,6 @@ export default function ServiceInvoicePrintDocument({
 
   const fullName = parts[0] || "";
 
-  // Position comes straight from the Positions sheet (server-resolved via
-  // si.preparedByPosition when available), falling back to the value embedded
-  // in the preparedBy string ("Full Name - Position Title") if present.
-
-
   const parsedPosition = parts.slice(1).join(" - ") || "";
   const positionTitle = si.preparedByPosition || parsedPosition;
 
@@ -293,7 +291,8 @@ export default function ServiceInvoicePrintDocument({
     verticalAlign: "top",
     textAlign: "right",
     height: `${ITEM_LINE_HEIGHT}px`,
-    border: "none", // TEMP: visible border
+    border: "none",
+    fontWeight: 700, // BOLD
   };
 
   const descCellStyle: CSSProperties = {
@@ -304,15 +303,10 @@ export default function ServiceInvoicePrintDocument({
     textAlign: "left",
     textTransform: "uppercase",
     height: `${ITEM_LINE_HEIGHT}px`,
-    border: "none", // TEMP: visible border
+    border: "none",
+    fontWeight: 700, // BOLD
   };
 
-  /*
-   * IMPORTANT:
-   *
-   * padding is 0 here so the decimal-aligned number reaches the exact same
-   * right-side reference as the Amount column.
-   */
   const summaryCellStyle: CSSProperties = {
     fontSize: FONT_SIZE,
     lineHeight: `${SUMMARY_ROW_HEIGHT}px`,
@@ -320,6 +314,7 @@ export default function ServiceInvoicePrintDocument({
     verticalAlign: "middle",
     height: `${SUMMARY_ROW_HEIGHT}px`,
     textAlign: "right",
+    fontWeight: 700, // BOLD
   };
 
   const additionalCellStyle: CSSProperties = {
@@ -329,7 +324,8 @@ export default function ServiceInvoicePrintDocument({
     verticalAlign: "middle",
     height: `${SUMMARY_ROW_HEIGHT}px`,
     textAlign: "right",
-    border: "none", // TEMP
+    border: "none",
+    fontWeight: 700, // BOLD
   };
 
   /* ---------------------------------------------------------------------------
@@ -362,13 +358,14 @@ export default function ServiceInvoicePrintDocument({
           right: DATE_RIGHT,
           fontSize: FONT_SIZE,
           fontFamily: FONT_FAMILY,
+          fontWeight: 700, // BOLD
         }}
       >
         {formatDateMMDDYYYY(si.date)}
       </div>
 
       {/* ---------------------------------------------------------------------
-       * CUSTOMER
+       * CUSTOMER - moved .2cm down
        * -------------------------------------------------------------------*/}
 
       <div
@@ -387,7 +384,7 @@ export default function ServiceInvoicePrintDocument({
       </div>
 
       {/* ---------------------------------------------------------------------
-       * TIN
+       * TIN - moved .1cm down
        * -------------------------------------------------------------------*/}
 
       <div
@@ -397,6 +394,7 @@ export default function ServiceInvoicePrintDocument({
           left: CUSTOMER_LEFT,
           right: RIGHT_MARGIN,
           fontSize: FONT_SIZE,
+          fontWeight: 700, // BOLD
         }}
       >
         {si.tin || ""}
@@ -413,6 +411,7 @@ export default function ServiceInvoicePrintDocument({
           left: CUSTOMER_LEFT,
           right: RIGHT_MARGIN,
           fontSize: FONT_SIZE,
+          fontWeight: 700, // BOLD
         }}
       >
         {si.address || ""}
@@ -538,7 +537,7 @@ export default function ServiceInvoicePrintDocument({
           style={{
             width: "100%",
             borderCollapse: "collapse",
-            border: "none", // TEMP
+            border: "none",
             tableLayout: "fixed",
           }}
         >
@@ -670,7 +669,7 @@ export default function ServiceInvoicePrintDocument({
               <td
                 style={{
                   ...summaryCellStyle,
-                  fontWeight: "bold",
+                  fontWeight: 700, // BOLD (already bold but keeping explicit)
                   border: "none",
                 }}
               >
@@ -697,7 +696,7 @@ export default function ServiceInvoicePrintDocument({
           style={{
             width: "100%",
             borderCollapse: "collapse",
-            border: "none", // TEMP
+            border: "none",
           }}
         >
           <tbody>
@@ -735,14 +734,14 @@ export default function ServiceInvoicePrintDocument({
       </div>
 
       {/* ---------------------------------------------------------------------
-       * PREPARED BY
+       * PREPARED BY - moved 1 self height down
        * -------------------------------------------------------------------*/}
 
       <div
         style={{
           position: "absolute",
           left: PREPARED_BY_LEFT,
-          top: PREPARED_BY_TOP,
+          top: PREPARED_BY_TOP + SELF_HEIGHT, // Moved 1 self height down
           width: PREPARED_BY_WIDTH,
           fontSize: FONT_SIZE,
           display: "flex",
@@ -754,7 +753,7 @@ export default function ServiceInvoicePrintDocument({
         {/* Full Name */}
         <div
           style={{
-            fontWeight: 600,
+            fontWeight: 700, // BOLD
             lineHeight: 1.2,
             marginBottom: "4px",
           }}
@@ -767,6 +766,7 @@ export default function ServiceInvoicePrintDocument({
           style={{
             fontSize: FONT_SIZE - 1,
             lineHeight: 1.2,
+            fontWeight: 700, // BOLD
           }}
         >
           {positionTitle}
