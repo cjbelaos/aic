@@ -28,6 +28,7 @@ export interface ServiceInvoiceResponse {
   address: string;
   tin: string;
   preparedBy: string;
+  preparedByPosition?: string;
   items: ServiceInvoiceItem[];
   status: string;
   printUrl?: string;

@@ -37,7 +37,11 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
     // Auto-save PDF to Drive before printing. Block print if save fails.
     setPrintSaving(true);
     try {
-      await deliveryService.savePdfToDrive(dr.drNumber, dr.companyName, dr.date);
+      await deliveryService.savePdfToDrive(
+        dr.drNumber,
+        dr.companyName,
+        dr.date,
+      );
       // Mark DR as "printed" once the PDF is saved (non-fatal if update fails).
       if (dr.drNumber > 0) {
         await deliveryService
@@ -77,7 +81,7 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
           });
         } else {
           toast.error(
-            "Popup blocked. Please allow popups or use \"Open in Sheets\" to print.",
+            'Popup blocked. Please allow popups or use "Open in Sheets" to print.',
           );
         }
         return;
@@ -129,90 +133,94 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
   };
 
   return (
-  <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="w-[95vw] sm:max-w-none h-[92vh] max-h-[92vh] p-6 flex flex-col">
-      <DialogHeader>
-        <DialogTitle className="flex items-center justify-between pr-6">
-          <span className="text-lg font-bold">
-            Delivery Receipt — {dr.drNumber > 0 ? `DR #${dr.drNumber}` : "Draft DR"}
-          </span>
-          <span className="text-sm font-medium text-muted-foreground">
-            {dr.companyName}
-          </span>
-        </DialogTitle>
-      </DialogHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[95vw] sm:max-w-none h-[92vh] max-h-[92vh] p-6 flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center justify-between pr-6">
+            <span className="text-lg font-bold">
+              Delivery Receipt —{" "}
+              {dr.drNumber > 0 ? `DR #${dr.drNumber}` : "Draft DR"}
+            </span>
+            <span className="text-sm font-medium text-muted-foreground">
+              {dr.companyName}
+            </span>
+          </DialogTitle>
+        </DialogHeader>
 
-      {/* PDF Preview Container */}
-      <div className="flex-1 min-h-0 w-full my-2 border rounded-md overflow-hidden bg-muted/20">
-        {pdfSrc ? (
-          <iframe
-            ref={iframeRef}
-            src={pdfSrc}
-            className="w-full h-full border-none"
-            title="Delivery Receipt PDF"
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-            Unable to load PDF preview.
-          </div>
-        )}
-      </div>
+        {/* PDF Preview Container */}
+        <div className="flex-1 min-h-0 w-full my-2 border rounded-md overflow-hidden bg-muted/20">
+          {pdfSrc ? (
+            <iframe
+              ref={iframeRef}
+              src={pdfSrc}
+              className="w-full h-full border-none"
+              title="Delivery Receipt PDF"
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+              Unable to load PDF preview.
+            </div>
+          )}
+        </div>
 
-      {/* Action Footer */}
-      <div className="flex items-center justify-end gap-2 pt-1 shrink-0">
-        {dr.printUrl && (
+        {/* Action Footer */}
+        <div className="flex items-center justify-end gap-2 pt-1 shrink-0">
+          {dr.printUrl && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(dr.printUrl, "_blank")}
+            >
+              <ExternalLink className="mr-1.5 h-4 w-4" />
+              Open in Sheets
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.open(dr.printUrl, "_blank")}
+            onClick={handlePrint}
+            disabled={!pdfSrc || printSaving || driveSaving}
           >
-            <ExternalLink className="mr-1.5 h-4 w-4" />
-            Open in Sheets
+            {printSaving ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="mr-1.5 h-4 w-4" />
+            )}
+            {printSaving ? "Saving…" : "Print"}
           </Button>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handlePrint}
-          disabled={!pdfSrc || printSaving || driveSaving}
-        >
-          {printSaving ? (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          ) : (
-            <Printer className="mr-1.5 h-4 w-4" />
-          )}
-          {printSaving ? "Saving…" : "Print"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            sessionStorage.setItem(
-              "siPrefill",
-              JSON.stringify({ drNumber: dr.drNumber, companyName: dr.companyName }),
-            );
-            router.push("/dashboard/service-invoices");
-          }}
-          title="Create a Service Invoice for this DR"
-        >
-          <FileText className="mr-1.5 h-4 w-4" />
-          Create SI
-        </Button>
-        <Button
-          size="sm"
-          onClick={handleSaveToDrive}
-          disabled={printSaving || driveSaving}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
-        >
-          {driveSaving ? (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="mr-1.5 h-4 w-4" />
-          )}
-          Save to Drive
-        </Button>
-      </div>
-    </DialogContent>
-  </Dialog>
-);
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              sessionStorage.setItem(
+                "siPrefill",
+                JSON.stringify({
+                  drNumber: dr.drNumber,
+                  companyName: dr.companyName,
+                }),
+              );
+              router.push("/dashboard/service-invoices");
+            }}
+            title="Create a Service Invoice for this DR"
+          >
+            <FileText className="mr-1.5 h-4 w-4" />
+            Create SR
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSaveToDrive}
+            disabled={printSaving || driveSaving}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {driveSaving ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-1.5 h-4 w-4" />
+            )}
+            Save to Drive
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ import {
   Pencil,
   ExternalLink,
   Search,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -145,6 +146,12 @@ export default function DeliveryReleasePage() {
 
   /* Manual-entry toggle for edit modal */
   const [editManualRows, setEditManualRows] = useState<Set<number>>(new Set());
+
+  /* View DR items dialog */
+  const [viewItemsTarget, setViewItemsTarget] =
+    useState<DeliveryReceiptSummary | null>(null);
+
+  const router = useRouter();
 
   /* Fetch list + reference data */
   const fetchList = useCallback(async () => {
@@ -393,19 +400,72 @@ export default function DeliveryReleasePage() {
         header: "Linked SRs",
         cell: ({ row }) => {
           const linked = siLookup.get(row.original.drNumber);
+          const locked = ["completed", "deleted"].includes(row.original.status);
+
           if (!linked || linked.length === 0) {
-            return <span className="text-xs text-muted-foreground">—</span>;
+            // Show "Add SR" button if empty and not locked
+            if (locked) {
+              return <span className="text-xs text-muted-foreground">—</span>;
+            }
+            return (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() =>
+                  handleCreateSR(
+                    row.original.drNumber,
+                    row.original.companyName,
+                  )
+                }
+                disabled={row.original.drNumber <= 0}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add SR
+              </Button>
+            );
           }
+
+          // Has linked SRs - show view button
           return (
-            <div className="flex flex-wrap gap-1">
-              {linked.map((si: any) => (
-                <span
-                  key={si.invoiceNo}
-                  className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono"
-                >
-                  {si.invoiceNo}
-                </span>
-              ))}
+            <div className="flex items-center gap-1">
+              <div className="flex flex-wrap gap-1">
+                {linked.slice(0, 2).map((si: any) => (
+                  <span
+                    key={si.invoiceNo}
+                    className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono"
+                  >
+                    {si.invoiceNo}
+                  </span>
+                ))}
+                {linked.length > 2 && (
+                  <span className="text-xs text-muted-foreground">
+                    +{linked.length - 2} more
+                  </span>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-blue-600 hover:text-blue-800"
+                onClick={() => {
+                  // Navigate to Service Invoice page with filter for this DR
+                  const drNumber = row.original.drNumber;
+                  if (drNumber > 0) {
+                    sessionStorage.setItem(
+                      "viewSRPrefill",
+                      JSON.stringify({
+                        drNumber: drNumber,
+                        companyId: row.original.companyId,
+                      }),
+                    );
+                    window.location.href = `/service-invoice?viewDR=${drNumber}`;
+                  }
+                }}
+                title="View SRs"
+              >
+                <Eye className="h-3.5 w-3.5" />
+              </Button>
             </div>
           );
         },
@@ -478,6 +538,16 @@ export default function DeliveryReleasePage() {
                   <ExternalLink className="h-4 w-4" />
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => setViewItemsTarget(row.original)}
+                disabled={!row.original.items?.length}
+                title="View Items"
+              >
+                <FileText className="h-4 w-4" />
+              </Button>
               {!locked && (
                 <>
                   <Button
@@ -507,6 +577,20 @@ export default function DeliveryReleasePage() {
     ],
     [previewingDr, siLookup],
   );
+
+  /* Create SR: stores the same "siPrefill" key the Service Invoices page
+     reads (see openCreateModal prefill flow), then navigates there. */
+  const handleCreateSR = (drNumber: number, companyName: string) => {
+    if (drNumber <= 0) {
+      toast.error("Cannot create SR for draft DR.");
+      return;
+    }
+    sessionStorage.setItem(
+      "siPrefill",
+      JSON.stringify({ drNumber, companyName }),
+    );
+    router.push("/dashboard/service-invoices");
+  };
 
   /* Create modal handlers */
   const openCreateModal = () => {
@@ -1421,6 +1505,116 @@ export default function DeliveryReleasePage() {
           if (!v) setViewDr(null);
         }}
       />
+
+      {/* View DR Items Modal */}
+      <Dialog
+        open={!!viewItemsTarget}
+        onOpenChange={(v) => {
+          if (!v) setViewItemsTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[50vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              DR Items —{" "}
+              {viewItemsTarget && viewItemsTarget.drNumber > 0
+                ? `#${viewItemsTarget.drNumber}`
+                : "Draft DR"}
+            </DialogTitle>
+          </DialogHeader>
+          {viewItemsTarget && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <Label className="text-xs text-muted-foreground">
+                    Customer
+                  </Label>
+                  <div className="font-medium">
+                    {viewItemsTarget.companyName || "—"}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Date</Label>
+                  <div className="font-medium">{viewItemsTarget.date || "—"}</div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">
+                    Status
+                  </Label>
+                  <div className="font-medium capitalize">
+                    {viewItemsTarget.status || "—"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border rounded-md overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-muted-foreground">
+                    <tr className="text-left">
+                      <th className="px-3 py-2 font-medium">Product Code</th>
+                      <th className="px-3 py-2 font-medium">Description</th>
+                      <th className="px-3 py-2 font-medium text-right">Unit</th>
+                      <th className="px-3 py-2 font-medium text-right">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewItemsTarget.items && viewItemsTarget.items.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="px-3 py-4 text-center text-muted-foreground"
+                        >
+                          No items on this receipt.
+                        </td>
+                      </tr>
+                    ) : (
+                      (viewItemsTarget.items || []).map((item, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {item.productCode || "—"}
+                          </td>
+                          <td className="px-3 py-2">
+                            {item.description || item.productCode || "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {item.unit || "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {item.quantity}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setViewItemsTarget(null)}
+                >
+                  Close
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    handleCreateSR(
+                      viewItemsTarget.drNumber,
+                      viewItemsTarget.companyName,
+                    )
+                  }
+                  disabled={viewItemsTarget.drNumber <= 0}
+                  title="Create a Service Invoice for this DR"
+                >
+                  <FileText className="mr-1.5 h-4 w-4" />
+                  Create SR
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Quick Add Product Dialog */}
       <Dialog open={quickAddProductOpen} onOpenChange={setQuickAddProductOpen}>

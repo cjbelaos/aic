@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import {
   Eye,
   Pencil,
   ExternalLink,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -36,6 +37,7 @@ import companyService from "@/lib/services/company.service";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
 import userService from "@/lib/services/user.service";
+import positionService from "@/lib/services/position.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import { ServiceInvoicePreviewModal } from "@/components/service-invoice-preview-modal";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
@@ -103,6 +105,14 @@ export default function ServiceInvoicesPage() {
   const [deleteTarget, setDeleteTarget] =
     useState<ServiceInvoiceSummary | null>(null);
 
+  /* Test state - TEMPORARY */
+  const [testing, setTesting] = useState(false);
+
+  /* Scanned Service Invoice upload */
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadTarget, setUploadTarget] = useState<string | null>(null);
+
   const fetchList = useCallback(async () => {
     try {
       const data = await serviceInvoiceService.getAll();
@@ -114,6 +124,137 @@ export default function ServiceInvoicesPage() {
       setLoading(false);
     }
   }, []);
+
+  /* Upload a scanned Service Invoice for a specific invoice number */
+  const handleUploadClick = (invoiceNo: string) => {
+    setUploadTarget(invoiceNo);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !uploadTarget) return;
+    setUploading(true);
+    try {
+      const result = await serviceInvoiceService.uploadScanned(
+        uploadTarget,
+        file,
+      );
+      toast.success(`Scanned Service Invoice uploaded for ${uploadTarget}.`);
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.invoiceNo === uploadTarget
+            ? { ...inv, driveFileLink: result.fileLink }
+            : inv,
+        ),
+      );
+      fetchList();
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.error ||
+          err?.message ||
+          "Failed to upload scanned invoice.",
+      );
+    } finally {
+      setUploading(false);
+      setUploadTarget(null);
+    }
+  };
+
+  /* TEMPORARY: Test handler for duplicating items */
+  const handleTestDuplication = async () => {
+    // Find the first invoice that has items
+    const invoiceWithItems = invoices.find(
+      (inv) => inv.items && inv.items.length > 0,
+    );
+
+    if (!invoiceWithItems) {
+      toast.error("No invoice with items found to duplicate.");
+      return;
+    }
+
+    setTesting(true);
+    try {
+      // Pull customer address/TIN so the HTML test layout matches the sheet fill
+      const customer = companies.find(
+        (c: any) =>
+          c.companyId === invoiceWithItems.customerId ||
+          c.id === invoiceWithItems.customerId,
+      );
+
+      // Build 19 duplicated rows client-side for the HTML print document.
+      // This does NOT call testDuplicateItems, so it doesn't write to the
+      // ServiceInvoiceForm Google Sheet template (kept pure for layout review).
+      const duplicatedItems: Array<{
+        description: string;
+        quantity: number;
+        unitPrice: number;
+        amount?: number;
+      }> = [];
+      let cycle = 1;
+      const srcItems = invoiceWithItems.items || [];
+      while (duplicatedItems.length < 19) {
+        for (const item of srcItems) {
+          if (duplicatedItems.length >= 19) break;
+          duplicatedItems.push({
+            description: `${item.description} (${cycle})`,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            amount:
+              item.amount ?? (item.quantity || 0) * (item.unitPrice || 0),
+          });
+        }
+        cycle++;
+      }
+// Resolve the preparer's position from the Positions sheet (best-effort)
+      // so the HTML print document shows the position below the full name.
+      let preparedByPosition = "";
+      try {
+        if (invoiceWithItems.createdBy) {
+          const prepUser = await userService
+            .getUserById(String(invoiceWithItems.createdBy))
+            .catch(() => null);
+          if (prepUser?.positionId) {
+            const positions = await positionService.getAll().catch(() => []);
+            preparedByPosition =
+              positions.find((p) => p.positionId === prepUser.positionId)
+                ?.positionTitle || "";
+          }
+        }
+      } catch {
+        /* best-effort: leave position blank if lookup fails */
+      }
+
+      // Open the preview modal in the HTML layout (no sheets PDF). The modal
+      // renders ServiceInvoicePrintDocument with all 19 rows for a print review.
+      setViewSi({
+        success: true,
+        invoiceNo: invoiceWithItems.invoiceNo,
+        date: invoiceWithItems.date,
+        companyName: invoiceWithItems.companyName,
+        address: customer?.address || "",
+        tin: customer?.tin || "",
+        preparedBy: invoiceWithItems.preparedBy || "",
+        preparedByPosition,
+        items: duplicatedItems,
+        status: invoiceWithItems.status,
+      });
+
+      toast.success(
+        `✅ Items duplicated for ${invoiceWithItems.invoiceNo}. Previewing the 19-row HTML layout…`,
+      );
+
+      // Refresh the list (no server-side changes were made)
+      await fetchList();
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.error || err?.message || "Failed to duplicate items.",
+      );
+    } finally {
+      setTesting(false);
+    }
+  };
 
   useEffect(() => {
     fetchList();
@@ -273,15 +414,20 @@ export default function ServiceInvoicesPage() {
     const drNum = parseInt(linkedDrNumber, 10);
     if (isNaN(drNum)) return;
     // Look up the selected DR from the current DR list to get its company
-    deliveryService.getAll().then((allDrs) => {
-      const matchedDr = allDrs.find((d) => d.drNumber === drNum);
-      if (matchedDr) {
-        const customer = companies.find(
-          (c: any) => c.companyId === matchedDr.companyId,
-        );
-        if (customer) setSelectedCustomer(customer.companyId);
-      }
-    }).catch(() => { /* non-critical */ });
+    deliveryService
+      .getAll()
+      .then((allDrs) => {
+        const matchedDr = allDrs.find((d) => d.drNumber === drNum);
+        if (matchedDr) {
+          const customer = companies.find(
+            (c: any) => c.companyId === matchedDr.companyId,
+          );
+          if (customer) setSelectedCustomer(customer.companyId);
+        }
+      })
+      .catch(() => {
+        /* non-critical */
+      });
   }, [linkedDrNumber, companies]);
 
   /* Table columns */
@@ -416,6 +562,20 @@ export default function ServiceInvoicesPage() {
                   <ExternalLink className="h-4 w-4" />
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => handleUploadClick(row.original.invoiceNo)}
+                disabled={uploading}
+                title="Upload scanned Service Invoice"
+              >
+                {uploading && uploadTarget === row.original.invoiceNo ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+              </Button>
               {!locked && (
                 <>
                   <Button
@@ -617,21 +777,9 @@ export default function ServiceInvoicesPage() {
             unitPrice: Number(li.unitPrice) || 0,
           })),
       };
-      await serviceInvoiceService.update(editTarget.invoiceNo, payload);
-      toast.success(`Invoice ${editTarget.invoiceNo} updated.`);
-
-      // Regenerate PDF for the updated invoice (skip for drafts)
-      if (editStatus !== "draft") {
-        serviceInvoiceService
-          .savePdfToDrive(
-            editTarget.invoiceNo,
-            editTarget.companyName,
-            editDate,
-          )
-          .catch(() => {
-            // PDF regen is best-effort — don't block the update flow
-          });
-      }
+      const res = await serviceInvoiceService.update(editTarget.invoiceNo, payload);
+      const updatedInvoiceNo = res?.invoiceNo ?? editTarget.invoiceNo;
+      toast.success(`Invoice ${updatedInvoiceNo} updated.`);
 
       setEditTarget(null);
       fetchList();
@@ -649,6 +797,38 @@ export default function ServiceInvoicesPage() {
   return (
     <>
       <div className="p-6 space-y-6">
+        {/* 🧪 Test Mode banner temporarily hidden (kept for future layout tests).
+            Restore by un-commenting the handleTestDuplication + testing state block. */}
+        {/* {process.env.NODE_ENV === "development" && (
+          <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-yellow-800 text-sm font-medium">
+                🧪 Test Mode:
+              </span>
+              <span className="text-yellow-700 text-sm">
+                Duplicate items to fill all 19 rows (10-28) — previews via the
+                HTML print layout (no sheet writes)
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestDuplication}
+              disabled={testing || loading}
+              className="border-yellow-400 text-yellow-700 hover:bg-yellow-100 hover:text-yellow-800"
+            >
+              {testing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Running...
+                </>
+              ) : (
+                "Run Test"
+              )}
+            </Button>
+          </div>
+        )} */}
+
         <EntityTable
           title="Service Invoices"
           columns={columns}
@@ -674,7 +854,10 @@ export default function ServiceInvoicesPage() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
               <div className="space-y-2 md:col-span-3">
                 <Label>
-                  Invoice No. <span className="text-destructive text-xs">(required unless draft)</span>
+                  Invoice No.{" "}
+                  <span className="text-destructive text-xs">
+                    (required unless draft)
+                  </span>
                 </Label>
                 <Input
                   value={invoiceNo}
@@ -979,6 +1162,15 @@ export default function ServiceInvoicesPage() {
         description={`Delete service invoice "${deleteTarget?.invoiceNo}"? This cannot be undone.`}
         onConfirm={handleDeleteConfirm}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      {/* Hidden input for uploading a scanned Service Invoice */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={handleFileSelect}
       />
     </>
   );

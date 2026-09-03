@@ -4,7 +4,7 @@ import {
   ServiceInvoiceResponse,
   ServiceInvoiceSummary,
 } from "@/types/serviceInvoice";
-import { UpdateServiceInvoicePayload } from "@/lib/serviceInvoiceSheets";
+import type { UpdateServiceInvoicePayload } from "@/lib/serviceInvoiceSheets";
 
 const API_BASE_URL = "/api/service-invoices";
 
@@ -56,9 +56,7 @@ const serviceInvoiceService = {
     }
   },
 
-  getPreview: async (
-    invoiceNo: string,
-  ): Promise<ServiceInvoiceResponse> => {
+  getPreview: async (invoiceNo: string): Promise<ServiceInvoiceResponse> => {
     try {
       const response = await axios.get<ServiceInvoiceResponse>(
         `${API_BASE_URL}/${encodeURIComponent(invoiceNo)}`,
@@ -93,6 +91,54 @@ const serviceInvoiceService = {
       return response.data;
     } catch (error) {
       console.error("Failed to save Service Invoice PDF to Drive:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Uploads a scanned Service Invoice (image or PDF) for a specific invoice
+   * number. The file is stored in Google Drive and its link is persisted in
+   * the ServiceInvoices sheet (column J).
+   */
+  uploadScanned: async (
+    invoiceNo: string,
+    file: File,
+  ): Promise<{ fileLink: string; fileName: string }> => {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await axios.post(
+        `${API_BASE_URL}/upload-scanned`,
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Failed to upload scanned Service Invoice:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * TEST ONLY: Duplicates items to fill all 19 rows for testing PDF layout.
+   * This method is for development/testing purposes only and should be removed in production.
+   */
+  testDuplicateItems: async (
+    invoiceNo: string,
+  ): Promise<{ pdfBase64: string; printUrl: string }> => {
+    try {
+      const response = await axios.post<{
+        success: boolean;
+        invoiceNo: string;
+        pdfBase64: string;
+        printUrl: string;
+      }>(`${API_BASE_URL}/test-duplicate-items`, { invoiceNo });
+      return {
+        pdfBase64: response.data.pdfBase64 || "",
+        printUrl: response.data.printUrl || "",
+      };
+    } catch (error) {
+      console.error("Failed to test duplicate items:", error);
       throw error;
     }
   },

@@ -4,6 +4,7 @@ import {
   updateServiceInvoice,
   deleteServiceInvoice,
   populateAndExportServiceInvoiceFormPdf,
+  resolvePreparedByPosition,
   UpdateServiceInvoicePayload,
 } from "@/lib/serviceInvoiceSheets";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
@@ -57,6 +58,8 @@ export async function GET(
     const date = String(invRow[1] ?? "").trim();
     const customerId = String(invRow[2] ?? "").trim();
     const preparedBy = String(invRow[3] ?? "").trim();
+    const createdBy = String(invRow[4] ?? "").trim();
+    const preparedByPosition = await resolvePreparedByPosition(createdBy);
 
     // 2. Fetch items
     const itemsResponse = await sheets.spreadsheets.values.get({
@@ -97,6 +100,7 @@ export async function GET(
         tin,
         date,
         preparedBy,
+        preparedByPosition,
         items,
         status: String(invRow[8] ?? "created").trim(),
         printUrl,

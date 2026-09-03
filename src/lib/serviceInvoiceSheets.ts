@@ -21,14 +21,43 @@ const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
 
 const PRINT_TEMPLATE_SHEET = "ServiceInvoiceForm";
 // Template cells (ServiceInvoiceForm):
-//   CustomerName -> C5:F5 (write to anchor cell C5)
-//   TIN          -> C6
-//   Address      -> C7
-//   Date         -> E2:F2 (write to anchor cell E2)
-//   Items        -> rows 10-28 (C=Description, D=Qty, E=UnitPrice, F=Amount [formula, not written])
-//   PreparedBy   -> B34:C34 (write to anchor cell B34)
+//   CustomerName -> B5:E5 (write to anchor cell B5)
+//   TIN          -> B6
+//   Address      -> B7
+//   Date         -> B2:F2 (write to anchor cell B2)
+//   Items        -> rows 10-28 (B=Description, C=Qty, D=UnitPrice, E=Amount [formula/calculated])
+//   PreparedBy   -> A35 (write to anchor cell A35)
 const TEMPLATE_ITEM_START_ROW = 10;
 const TEMPLATE_ITEM_END_ROW = 28;
+
+// Invoice numbers typed from the physical paper are numeric. When a draft
+// (DRAFT-*) is promoted to a real status, the next sequential number is
+// generated from the highest existing numeric invoice number.
+const SI_SEQUENCE_BASE = 1000;
+
+/**
+ * Generates the next sequential Service Invoice number by scanning existing
+ * non-draft invoice numbers and incrementing the highest numeric value.
+ * Draft placeholders ("DRAFT-...") are ignored so they never reserve a number.
+ */
+async function generateNextInvoiceNo(
+  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+): Promise<string> {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SERVICE_INVOICES_SHEET}!A2:A`,
+  });
+  const rows = response.data.values || [];
+  let max = 0;
+  rows.forEach((row) => {
+    const raw = String(row[0] ?? "").trim();
+    if (!raw || raw.startsWith("DRAFT-")) return;
+    const num = parseInt(raw, 10);
+    if (!isNaN(num) && num > max) max = num;
+  });
+  return String(Math.max(max, SI_SEQUENCE_BASE) + 1);
+}
 
 function formatDateMMDDYYYY(dateStr: string): string {
   if (!dateStr) return "";
@@ -56,7 +85,7 @@ async function getSheetTabGid(
 }
 
 function buildExportUrl(spreadsheetId: string, gid: number): string {
-  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=pdf&portrait=true&size=letter&gridlines=false&gid=${gid}`;
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=pdf&portrait=true&size=a4&gridlines=false&gid=${gid}`;
 }
 
 async function fetchExportPdfBase64(printUrl: string): Promise<string> {
@@ -100,6 +129,27 @@ async function resolvePreparedByTitle(
     return label;
   } catch {
     return fallback;
+  }
+}
+
+/** Resolves just the position title (Positions sheet) for a user, if any. */
+export async function resolvePreparedByPosition(
+  userId: string,
+): Promise<string> {
+  if (!userId) return "";
+  try {
+    const [{ getUsers }, { getPositions }] = await Promise.all([
+      import("@/lib/userSheets"),
+      import("@/lib/positionSheets"),
+    ]);
+    const users = await getUsers();
+    const user = users.find((u) => u.userId === userId);
+    if (!user?.positionId) return "";
+    const positions = await getPositions();
+    const pos = positions.find((p) => p.positionId === user.positionId);
+    return pos?.positionTitle || "";
+  } catch {
+    return "";
   }
 }
 
@@ -198,7 +248,9 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           status,
           driveFileLink: String(row[9] ?? "").trim() || undefined,
           contractId: String(row[10] ?? "").trim() || undefined,
-          drNumber: row[11] ? parseInt(String(row[11]), 10) || undefined : undefined,
+          drNumber: row[11]
+            ? parseInt(String(row[11]), 10) || undefined
+            : undefined,
           items: itemsByInvoice.get(invoiceNo) || [],
         };
       })
@@ -232,10 +284,11 @@ async function populateServiceInvoiceTemplate(
     items: ServiceInvoiceItem[];
   },
 ): Promise<void> {
-  // Clear the item area (rows 10-28)
+  // Clear ONLY the item data area (rows 10-28, columns B-D)
+  // Column E (Amount) holds formula =Cx*Dx, so we exclude it from clear/write
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
-    range: `${PRINT_TEMPLATE_SHEET}!C${TEMPLATE_ITEM_START_ROW}:F${TEMPLATE_ITEM_END_ROW}`,
+    range: `${PRINT_TEMPLATE_SHEET}!B${TEMPLATE_ITEM_START_ROW}:D${TEMPLATE_ITEM_END_ROW}`,
   });
 
   const formattedDate = formatDateMMDDYYYY(data.date);
@@ -255,25 +308,26 @@ async function populateServiceInvoiceTemplate(
     range: string;
     values: Array<Array<string>>;
   }> = [
-    { range: `${PRINT_TEMPLATE_SHEET}!C5`, values: [[data.companyName]] },
-    { range: `${PRINT_TEMPLATE_SHEET}!C6`, values: [[data.tin]] },
-    { range: `${PRINT_TEMPLATE_SHEET}!C7`, values: [[data.address]] },
-    { range: `${PRINT_TEMPLATE_SHEET}!E2`, values: [[formattedDate]] },
-    { range: `${PRINT_TEMPLATE_SHEET}!B34`, values: [[data.preparedBy]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!B5`, values: [[data.companyName]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!B6`, values: [[data.tin]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!B7`, values: [[data.address]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!B2`, values: [[formattedDate]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!A35`, values: [[data.preparedBy]] },
   ];
+
   if (itemCount > 0) {
     const lastRow = TEMPLATE_ITEM_START_ROW + itemCount - 1;
     dataValues.push(
       {
-        range: `${PRINT_TEMPLATE_SHEET}!C${TEMPLATE_ITEM_START_ROW}:C${lastRow}`,
+        range: `${PRINT_TEMPLATE_SHEET}!B${TEMPLATE_ITEM_START_ROW}:B${lastRow}`,
         values: descriptions,
       },
       {
-        range: `${PRINT_TEMPLATE_SHEET}!D${TEMPLATE_ITEM_START_ROW}:D${lastRow}`,
+        range: `${PRINT_TEMPLATE_SHEET}!C${TEMPLATE_ITEM_START_ROW}:C${lastRow}`,
         values: quantities,
       },
       {
-        range: `${PRINT_TEMPLATE_SHEET}!E${TEMPLATE_ITEM_START_ROW}:E${lastRow}`,
+        range: `${PRINT_TEMPLATE_SHEET}!D${TEMPLATE_ITEM_START_ROW}:D${lastRow}`,
         values: unitPrices,
       },
     );
@@ -287,13 +341,9 @@ async function populateServiceInvoiceTemplate(
     },
   });
 }
+
 /**
- * Processes a new service invoice:
- * 1. Validates the manually-typed InvoiceNo is unique.
- * 2. Looks up customer address / TIN from Companies sheet via customerId.
- * 3. Logs the header + item rows into the database sheets.
- * 4. Populates the ServiceInvoiceForm template and exports as PDF.
- * 5. Returns full invoice metadata.
+ * Processes a new service invoice.
  */
 export async function processServiceInvoice(
   payload: CreateServiceInvoicePayload,
@@ -303,20 +353,17 @@ export async function processServiceInvoice(
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // 1. InvoiceNo — required for non-drafts; empty drafts get a placeholder
     const isDraft = payload.status === "draft";
     let invoiceNo = String(payload.invoiceNo ?? "").trim();
 
     if (!invoiceNo) {
       if (isDraft) {
-        // Generate a unique placeholder so multiple draft SIs can coexist
         invoiceNo = `DRAFT-${Date.now()}`;
       } else {
         throw new Error("Invoice No. is required.");
       }
     }
 
-    // Uniqueness check — skip for draft placeholder prefixes
     if (!invoiceNo.startsWith("DRAFT-")) {
       const allRows = await sheets.spreadsheets.values.get({
         spreadsheetId,
@@ -332,29 +379,28 @@ export async function processServiceInvoice(
       }
     }
 
-    // 2. Customer details
     const customers = await getCustomers();
     const company = customers.find((c) => c.companyId === payload.customerId);
-    if (!company) throw new Error(`Customer "${payload.customerId}" not found.`);
+    if (!company)
+      throw new Error(`Customer "${payload.customerId}" not found.`);
     const companyName = company.companyName;
     const address = company.address || "";
     const tin = company.tin || "";
 
-    // 3. Log header row to ServiceInvoices (cols A-L)
     const createdAt = new Date().toISOString();
     const headerRow = [
       invoiceNo,
       payload.date,
       payload.customerId,
       payload.preparedBy || "",
-      userId, // E: CreatedBy
-      createdAt, // F: CreatedAt
-      userId, // G: UpdatedBy
-      createdAt, // H: UpdatedAt
-      payload.status || "created", // I: Status
-      "", // J: DriveFileLink (populated after PDF save)
-      payload.contractId || "", // K: ContractId
-      payload.drNumber?.toString() || "", // L: DRNo
+      userId,
+      createdAt,
+      userId,
+      createdAt,
+      payload.status || "created",
+      "",
+      payload.contractId || "",
+      payload.drNumber?.toString() || "",
     ];
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -363,7 +409,6 @@ export async function processServiceInvoice(
       requestBody: { values: [headerRow] },
     });
 
-    // 3b. Log item rows to ServiceInvoiceItems (cols A-E)
     const itemRows = payload.items.map((item) => [
       invoiceNo,
       normalizeDescription(item.description),
@@ -380,7 +425,6 @@ export async function processServiceInvoice(
       });
     }
 
-    // 4. Populate template and export PDF (skip for drafts)
     let pdfBase64: string | undefined;
     let printUrl: string | undefined;
 
@@ -432,8 +476,7 @@ export async function processServiceInvoice(
   }
 }
 
-export interface UpdateServiceInvoicePayload
-  extends Partial<CreateServiceInvoicePayload> {
+export interface UpdateServiceInvoicePayload extends Partial<CreateServiceInvoicePayload> {
   status?: string;
 }
 
@@ -455,21 +498,35 @@ export async function updateServiceInvoice(
       range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
+    const oldStatus = String(currentRow[8] ?? "created").trim();
+    const newStatus = payload.status ?? oldStatus;
     const updatedAt = new Date().toISOString();
 
+    // A draft uses a DRAFT-* placeholder as its invoice number. When it is
+    // promoted to a real status (draft -> created/paid/etc.), assign a new
+    // sequential invoice number now so the finalized invoice has one.
+    let effectiveInvoiceNo = invoiceNo;
+    if (invoiceNo.startsWith("DRAFT-") && newStatus !== "draft") {
+      effectiveInvoiceNo = await generateNextInvoiceNo(sheets, spreadsheetId);
+    }
+
     const updatedRow = [
-      invoiceNo,
+      effectiveInvoiceNo,
       payload.date ?? String(currentRow[1] ?? "").trim(),
       payload.customerId ?? String(currentRow[2] ?? "").trim(),
       payload.preparedBy ?? String(currentRow[3] ?? "").trim(),
-      String(currentRow[4] ?? "").trim(), // E: CreatedBy (preserved)
-      String(currentRow[5] ?? "").trim(), // F: CreatedAt (preserved)
-      userId || String(currentRow[6] ?? "").trim(), // G: UpdatedBy
-      updatedAt, // H: UpdatedAt
+      String(currentRow[4] ?? "").trim(),
+      String(currentRow[5] ?? "").trim(),
+      userId || String(currentRow[6] ?? "").trim(),
+      updatedAt,
       payload.status ?? String(currentRow[8] ?? "created").trim(),
-      String(currentRow[9] ?? "").trim(), // J: DriveFileLink (preserved)
-      payload.contractId !== undefined ? payload.contractId : String(currentRow[10] ?? "").trim(), // K: ContractId
-      payload.drNumber !== undefined ? String(payload.drNumber) : String(currentRow[11] ?? "").trim(), // L: DRNo
+      String(currentRow[9] ?? "").trim(),
+      payload.contractId !== undefined
+        ? payload.contractId
+        : String(currentRow[10] ?? "").trim(),
+      payload.drNumber !== undefined
+        ? String(payload.drNumber)
+        : String(currentRow[11] ?? "").trim(),
     ];
 
     await sheets.spreadsheets.values.update({
@@ -479,7 +536,29 @@ export async function updateServiceInvoice(
       requestBody: { values: [updatedRow] },
     });
 
-    // Replace items if provided (items sheet has no status column: clear + re-append)
+    // If a draft was promoted but items were not included in this update,
+    // re-key the existing item rows so they point at the new invoice number
+    // instead of the DRAFT-* placeholder.
+    if (effectiveInvoiceNo !== invoiceNo && !payload.items) {
+      const orphanItemRows = await findInvoiceItemRows(
+        sheets,
+        spreadsheetId,
+        invoiceNo,
+      );
+      if (orphanItemRows.length > 0) {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            valueInputOption: "USER_ENTERED",
+            data: orphanItemRows.map((r) => ({
+              range: `${SERVICE_INVOICE_ITEMS_SHEET}!A${r.rowNumber}`,
+              values: [[effectiveInvoiceNo]],
+            })),
+          },
+        });
+      }
+    }
+
     if (payload.items) {
       const existingItemRows = await findInvoiceItemRows(
         sheets,
@@ -487,24 +566,19 @@ export async function updateServiceInvoice(
         invoiceNo,
       );
       if (existingItemRows.length > 0) {
-        const clearRanges = existingItemRows.map(
-          (r) =>
-            `${SERVICE_INVOICE_ITEMS_SHEET}!A${r.rowNumber}:E${r.rowNumber}`,
-        );
-        await sheets.spreadsheets.values.batchUpdate({
+        await sheets.spreadsheets.values.batchClear({
           spreadsheetId,
           requestBody: {
-            valueInputOption: "USER_ENTERED",
-            data: clearRanges.map((range) => ({
-              range,
-              values: [["", "", "", "", ""]],
-            })),
+            ranges: existingItemRows.map(
+              (r) =>
+                `${SERVICE_INVOICE_ITEMS_SHEET}!A${r.rowNumber}:E${r.rowNumber}`,
+            ),
           },
         });
       }
 
       const itemRows = payload.items.map((item) => [
-        invoiceNo,
+        effectiveInvoiceNo,
         normalizeDescription(item.description),
         item.quantity,
         item.unitPrice,
@@ -525,7 +599,7 @@ export async function updateServiceInvoice(
       (c) => c.companyId === updatedRow[2] || c.id === updatedRow[2],
     );
     return {
-      invoiceNo,
+      invoiceNo: effectiveInvoiceNo,
       date: updatedRow[1],
       customerId: updatedRow[2],
       companyName: company?.companyName || updatedRow[2],
@@ -537,7 +611,9 @@ export async function updateServiceInvoice(
       status: updatedRow[8],
       driveFileLink: String(updatedRow[9] ?? "").trim() || undefined,
       contractId: String(updatedRow[10] ?? "").trim() || undefined,
-      drNumber: updatedRow[11] ? parseInt(String(updatedRow[11]), 10) || undefined : undefined,
+      drNumber: updatedRow[11]
+        ? parseInt(String(updatedRow[11]), 10) || undefined
+        : undefined,
       items: payload.items || [],
     };
   } catch (error) {
@@ -545,6 +621,7 @@ export async function updateServiceInvoice(
     throw error;
   }
 }
+
 /** Soft-deletes a service invoice by setting its status to "deleted". */
 export async function deleteServiceInvoice(invoiceNo: string): Promise<void> {
   try {
@@ -561,7 +638,7 @@ export async function deleteServiceInvoice(invoiceNo: string): Promise<void> {
     const currentRow = currentResponse.data.values?.[0] || [];
     const updatedRow = [...currentRow];
     while (updatedRow.length < 12) updatedRow.push("");
-    updatedRow[8] = "deleted"; // I: Status
+    updatedRow[8] = "deleted";
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
@@ -575,18 +652,13 @@ export async function deleteServiceInvoice(invoiceNo: string): Promise<void> {
   }
 }
 
-/**
- * Fetches invoice data from the database sheets, re-populates the
- * ServiceInvoiceForm template, and exports it as a PDF base64 string.
- * Used by preview / save-pdf endpoints.
- */
+/** Populates template and exports PDF. */
 export async function populateAndExportServiceInvoiceFormPdf(
   invoiceNo: string,
 ): Promise<{ pdfBase64: string; printUrl: string }> {
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
 
-  // 1. Find header row
   const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
   if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
 
@@ -600,7 +672,6 @@ export async function populateAndExportServiceInvoiceFormPdf(
   const preparedByHeader = String(invRow[3] ?? "").trim();
   const createdBy = String(invRow[4] ?? "").trim();
 
-  // 2. Fetch items
   const itemRowsData = await findInvoiceItemRows(
     sheets,
     spreadsheetId,
@@ -613,7 +684,6 @@ export async function populateAndExportServiceInvoiceFormPdf(
     amount: parseFloat(String(rowData[4] ?? "0")) || 0,
   }));
 
-  // 3. Company details
   const customers = await getCustomers();
   const company = customers.find(
     (c) => c.companyId === customerId || c.id === customerId,
@@ -622,10 +692,8 @@ export async function populateAndExportServiceInvoiceFormPdf(
   const address = company?.address || "";
   const tin = company?.tin || "";
 
-  // 4. PreparedBy line: "Full Name - Position Title"
   const preparedBy = await resolvePreparedByTitle(createdBy, preparedByHeader);
 
-  // 5. Populate template
   await populateServiceInvoiceTemplate(sheets, spreadsheetId, {
     companyName,
     address,
@@ -635,7 +703,6 @@ export async function populateAndExportServiceInvoiceFormPdf(
     items,
   });
 
-  // 6. Export PDF
   const gid = await getSheetTabGid(sheets, spreadsheetId, PRINT_TEMPLATE_SHEET);
   const printUrl = buildExportUrl(spreadsheetId, gid);
   const pdfBase64 = await fetchExportPdfBase64(printUrl);
@@ -643,10 +710,6 @@ export async function populateAndExportServiceInvoiceFormPdf(
   return { pdfBase64, printUrl };
 }
 
-/**
- * Thin wrapper: exports whatever is currently in the ServiceInvoiceForm tab.
- * Used by the create flow where the template was just populated.
- */
 export async function exportServiceInvoiceFormPdf(): Promise<{
   pdfBase64: string;
   printUrl: string;
@@ -657,4 +720,80 @@ export async function exportServiceInvoiceFormPdf(): Promise<{
   const printUrl = buildExportUrl(spreadsheetId, gid);
   const pdfBase64 = await fetchExportPdfBase64(printUrl);
   return { pdfBase64, printUrl };
+}
+
+export async function testPopulateServiceInvoiceTemplateWithDuplicatedItems(
+  invoiceNo: string,
+): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+
+  const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+  if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
+
+  const invResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
+  });
+  const invRow = invResponse.data.values?.[0] || [];
+  const date = String(invRow[1] ?? "").trim();
+  const customerId = String(invRow[2] ?? "").trim();
+  const preparedByHeader = String(invRow[3] ?? "").trim();
+  const createdBy = String(invRow[4] ?? "").trim();
+
+  const itemRowsData = await findInvoiceItemRows(
+    sheets,
+    spreadsheetId,
+    invoiceNo,
+  );
+  const originalItems: ServiceInvoiceItem[] = itemRowsData.map(
+    ({ rowData }) => ({
+      description: String(rowData[1] ?? "").trim(),
+      quantity: parseFloat(String(rowData[2] ?? "0")) || 0,
+      unitPrice: parseFloat(String(rowData[3] ?? "0")) || 0,
+      amount: parseFloat(String(rowData[4] ?? "0")) || 0,
+    }),
+  );
+
+  if (originalItems.length === 0) {
+    throw new Error(
+      `No items found for invoice "${invoiceNo}". Cannot duplicate.`,
+    );
+  }
+
+  const maxItems = TEMPLATE_ITEM_END_ROW - TEMPLATE_ITEM_START_ROW + 1;
+  const duplicatedItems: ServiceInvoiceItem[] = [];
+  let cycleCount = 1;
+
+  while (duplicatedItems.length < maxItems) {
+    for (const item of originalItems) {
+      if (duplicatedItems.length >= maxItems) break;
+      duplicatedItems.push({
+        description: `${item.description} (${cycleCount})`,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        amount: item.amount,
+      });
+    }
+    cycleCount++;
+  }
+
+  const customers = await getCustomers();
+  const company = customers.find(
+    (c) => c.companyId === customerId || c.id === customerId,
+  );
+  const companyName = company?.companyName || customerId;
+  const address = company?.address || "";
+  const tin = company?.tin || "";
+
+  const preparedBy = await resolvePreparedByTitle(createdBy, preparedByHeader);
+
+  await populateServiceInvoiceTemplate(sheets, spreadsheetId, {
+    companyName,
+    address,
+    tin,
+    date,
+    preparedBy,
+    items: duplicatedItems,
+  });
 }
