@@ -31,6 +31,7 @@ import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
+import productUnitService from "@/lib/services/product-unit.service";
 import productCategoryService from "@/lib/services/product-category.service";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
@@ -52,6 +53,7 @@ import {
   DeliveryReceiptSummary,
 } from "@/types/deliveryReceipt";
 import { ProductCategory } from "@/types/product-category";
+import { ProductUnit } from "@/types/product-unit";
 
 interface LineItem {
   productCode: string;
@@ -75,6 +77,7 @@ export default function DeliveryReleasePage() {
   /* Reference data (shared) */
   const [companies, setCompanies] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
     [],
   );
@@ -192,26 +195,33 @@ export default function DeliveryReleasePage() {
     Promise.all([
       companyService.getAll(),
       productService.getAll(),
+      productUnitService.getAll(),
       deliveryService.getDrivers(),
       productCategoryService.getAll(),
-    ]).then(([cData, pData, dData, catData]) => {
+    ]).then(([cData, pData, uData, dData, catData]) => {
       setCompanies(Array.isArray(cData) ? cData : []);
       setProducts(Array.isArray(pData) ? pData : []);
+      setProductUnits(Array.isArray(uData) ? uData : []);
       setDrivers(Array.isArray(dData) ? dData : []);
       setProductCategories(Array.isArray(catData) ? catData : []);
     });
 
     // Fetch SIs and build drNumber→SI lookup
-    serviceInvoiceService.getAll().then((sis) => {
-      const map = new Map<number, any[]>();
-      for (const si of sis) {
-        if (!si.drNumber) continue;
-        const list = map.get(si.drNumber) || [];
-        list.push(si);
-        map.set(si.drNumber, list);
-      }
-      setSiLookup(map);
-    }).catch(() => { /* non-critical */ });
+    serviceInvoiceService
+      .getAll()
+      .then((sis) => {
+        const map = new Map<number, any[]>();
+        for (const si of sis) {
+          if (!si.drNumber) continue;
+          const list = map.get(si.drNumber) || [];
+          list.push(si);
+          map.set(si.drNumber, list);
+        }
+        setSiLookup(map);
+      })
+      .catch(() => {
+        /* non-critical */
+      });
 
     (async () => {
       try {
@@ -279,6 +289,35 @@ export default function DeliveryReleasePage() {
     [products],
   );
 
+  /* Unit options come from the product-units master list. Also merge in the
+     unit codes already attached to products so legacy/historical units stay
+     selectable even if they are not (yet) in the master list. */
+  const unitOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    productUnits.forEach((u) => {
+      if (u.code) map.set(u.code, u.name || u.code);
+    });
+    products.forEach((p) => {
+      const code = p.unit?.code || p.unit?.name;
+      if (code) map.set(code, p.unit?.name || code);
+    });
+    return Array.from(map.entries()).map(([value, label]) => ({
+      value,
+      label,
+    }));
+  }, [productUnits, products]);
+
+  /* Ensure a previously-saved unit that is missing from the master list still
+     renders in the select instead of falling back to the placeholder. */
+  const unitOptionsFor = useCallback(
+    (unitValue: string) => {
+      if (!unitValue) return unitOptions;
+      if (unitOptions.some((o) => o.value === unitValue)) return unitOptions;
+      return [{ value: unitValue, label: unitValue }, ...unitOptions];
+    },
+    [unitOptions],
+  );
+
   const categoryOptions = useMemo(
     () =>
       productCategories.map((c) => ({ value: String(c.id), label: c.name })),
@@ -314,7 +353,8 @@ export default function DeliveryReleasePage() {
         ),
         cell: ({ getValue }) => {
           const val = Number(getValue());
-          if (val <= 0) return <span className="text-muted-foreground italic">Draft</span>;
+          if (val <= 0)
+            return <span className="text-muted-foreground italic">Draft</span>;
           return (
             <span className="font-semibold tabular-nums">
               {String(getValue())}
@@ -349,8 +389,8 @@ export default function DeliveryReleasePage() {
         cell: ({ row }) => `${row.original.items?.length ?? 0} item(s)`,
       },
       {
-        id: "linkedSIs",
-        header: "Linked SIs",
+        id: "linkedSRs",
+        header: "Linked SRs",
         cell: ({ row }) => {
           const linked = siLookup.get(row.original.drNumber);
           if (!linked || linked.length === 0) {
@@ -396,9 +436,7 @@ export default function DeliveryReleasePage() {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => {
-          const locked = ["completed", "deleted"].includes(
-            row.original.status,
-          );
+          const locked = ["completed", "deleted"].includes(row.original.status);
           return (
             <div className="flex items-center gap-1">
               <Button
@@ -526,7 +564,11 @@ export default function DeliveryReleasePage() {
       toast.error("Delivered by is required.");
       return;
     }
-    if (!selectedCompany || lineItems.length === 0 || !lineItems.some((li) => li.productCode || li.description.trim())) {
+    if (
+      !selectedCompany ||
+      lineItems.length === 0 ||
+      !lineItems.some((li) => li.productCode || li.description.trim())
+    ) {
       toast.error("Please select a customer and add at least one valid item.");
       return;
     }
@@ -553,21 +595,20 @@ export default function DeliveryReleasePage() {
       const drNumber = res.drNumber;
       if (contracts.length > 0 && drNumber) {
         try {
-          const { default: contractReleaseService } = await import(
-            "@/lib/services/contractRelease.service"
-          );
+          const { default: contractReleaseService } =
+            await import("@/lib/services/contractRelease.service");
           const validRows = lineItems.filter((li) => li.productCode);
           for (const row of validRows) {
             const matchingContract = contracts.find(
               (c: any) => c.productCode === row.productCode && c.contractId,
             );
             if (matchingContract?.contractId) {
-              const contractItems =
-                await contractItemService.getByContractId(
-                  matchingContract.contractId,
-                );
+              const contractItems = await contractItemService.getByContractId(
+                matchingContract.contractId,
+              );
               const matchingItem = contractItems.find(
-                (ci: any) => ci.productCode === row.productCode && ci.status === "Active",
+                (ci: any) =>
+                  ci.productCode === row.productCode && ci.status === "Active",
               );
               if (matchingItem) {
                 await contractReleaseService
@@ -813,17 +854,20 @@ export default function DeliveryReleasePage() {
             quantity: li.quantity,
           })),
       };
-      await deliveryService.update(editTarget.drNumber, payload);
+      const res = await deliveryService.update(editTarget.drNumber, payload);
+      const updatedDrNumber = res?.drNumber ?? editTarget.drNumber;
       toast.success(
-        editTarget.drNumber > 0
-          ? `DR #${editTarget.drNumber} updated.`
+        updatedDrNumber > 0
+          ? `DR #${updatedDrNumber} updated.`
           : `Draft DR updated.`,
       );
 
-      // Regenerate PDF for the updated DR (skip for drafts)
+      // Regenerate PDF for the updated DR (skip for drafts).
+      // When a draft is promoted to a real status, the API assigns a fresh
+      // sequential DR number — use that returned number for the PDF file.
       if (editStatus !== "draft") {
         deliveryService
-          .savePdfToDrive(editTarget.drNumber, editTarget.companyName, editDate)
+          .savePdfToDrive(updatedDrNumber, editTarget.companyName, editDate)
           .catch(() => {
             // PDF regen is best-effort — don't block the update flow
           });
@@ -998,15 +1042,15 @@ export default function DeliveryReleasePage() {
                       </Button>
                     </>
                   )}
-                  <Input
-                    value={item.unit}
-                    onChange={(e) =>
-                      updateLineItem(idx, "unit", e.target.value)
-                    }
-                    placeholder="Unit"
-                    readOnly={!manualRows.has(idx)}
-                    className={manualRows.has(idx) ? "w-20 shrink-0" : "w-20 shrink-0 bg-muted text-muted-foreground"}
-                  />
+                  <div className="w-28 shrink-0">
+                    <SearchableSelect
+                      value={item.unit}
+                      onValueChange={(v) => updateLineItem(idx, "unit", v)}
+                      options={unitOptionsFor(item.unit)}
+                      placeholder="Unit"
+                      searchPlaceholder="Search units..."
+                    />
+                  </div>
                   <Input
                     className="w-24 shrink-0"
                     type="number"
@@ -1107,7 +1151,10 @@ export default function DeliveryReleasePage() {
               ) : null}
               Save Draft
             </Button>
-            <Button onClick={handleSaveAndPrint} disabled={drafting || printing}>
+            <Button
+              onClick={handleSaveAndPrint}
+              disabled={drafting || printing}
+            >
               {printing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -1257,9 +1304,7 @@ export default function DeliveryReleasePage() {
                         className="shrink-0"
                         title="Type manually"
                         onClick={() =>
-                          setEditManualRows(
-                            (prev) => new Set(prev).add(idx),
-                          )
+                          setEditManualRows((prev) => new Set(prev).add(idx))
                         }
                       >
                         <Pencil className="h-4 w-4" />
@@ -1279,14 +1324,15 @@ export default function DeliveryReleasePage() {
                       )
                     }
                   />
-                  <Input
-                    value={item.unit}
-                    onChange={(e) =>
-                      updateEditLineItem(idx, "unit", e.target.value)
-                    }
-                    readOnly={!editManualRows.has(idx)}
-                    className={editManualRows.has(idx) ? "w-16 shrink-0" : "w-16 shrink-0 bg-muted text-muted-foreground"}
-                  />
+                  <div className="w-28 shrink-0">
+                    <SearchableSelect
+                      value={item.unit}
+                      onValueChange={(v) => updateEditLineItem(idx, "unit", v)}
+                      options={unitOptionsFor(item.unit)}
+                      placeholder="Unit"
+                      searchPlaceholder="Search units..."
+                    />
+                  </div>
                   <Button
                     variant="ghost"
                     size="icon"

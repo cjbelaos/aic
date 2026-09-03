@@ -462,8 +462,16 @@ export async function updateDeliveryReceipt(
     const newStatus = payload.status ?? oldStatus;
     const updatedAt = new Date().toISOString();
 
+    // A draft uses a negative placeholder as its DR number. When it is
+    // promoted to a real status (draft -> created/printed/completed), assign
+    // a real sequential DR number now so the finalized receipt has one.
+    let effectiveDrNumber = drNumber;
+    if (drNumber <= 0 && newStatus !== "draft") {
+      effectiveDrNumber = await generateNextDrNumber(sheets, spreadsheetId);
+    }
+
     const updatedRow = [
-      String(drNumber), // A: DRNumber
+      String(effectiveDrNumber), // A: DRNumber (assigned when a draft is promoted)
       payload.date ?? String(currentRow[1] ?? "").trim(), // B
       payload.companyId ?? String(currentRow[2] ?? "").trim(), // C
       payload.poNo !== undefined
@@ -501,11 +509,34 @@ export async function updateDeliveryReceipt(
           range: DR_STATUS_HISTORY_RANGE,
           valueInputOption: "USER_ENTERED",
           requestBody: {
-            values: [[String(drNumber), oldStatus, newStatus, userId || "System", updatedAt]],
+            values: [[String(effectiveDrNumber), oldStatus, newStatus, userId || "System", updatedAt]],
           },
         });
       } catch (e) {
         console.warn("Failed to log DR status change:", e);
+      }
+    }
+
+    // If a draft was promoted but items were not included in this update,
+    // re-key the existing item rows so they point at the new DR number
+    // instead of the negative draft placeholder.
+    if (effectiveDrNumber !== drNumber && !payload.items) {
+      const orphanItemRows = await findDrItemRows(
+        sheets,
+        spreadsheetId,
+        drNumber,
+      );
+      if (orphanItemRows.length > 0) {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            valueInputOption: "USER_ENTERED",
+            data: orphanItemRows.map((r) => ({
+              range: `${DELIVERY_RECEIPT_ITEMS_SHEET}!A${r.rowNumber}`,
+              values: [[String(effectiveDrNumber)]],
+            })),
+          },
+        });
       }
     }
 
@@ -534,7 +565,7 @@ export async function updateDeliveryReceipt(
       }
 
       const itemRows = payload.items.map((item) => [
-        String(drNumber),
+        String(effectiveDrNumber),
         item.productCode,
         item.quantity,
         item.unit,
@@ -555,7 +586,7 @@ export async function updateDeliveryReceipt(
       (c) => c.companyId === updatedRow[2] || c.id === updatedRow[2],
     );
     return {
-      drNumber,
+      drNumber: effectiveDrNumber,
       date: updatedRow[1],
       companyId: updatedRow[2],
       companyName: company?.companyName || updatedRow[2],
