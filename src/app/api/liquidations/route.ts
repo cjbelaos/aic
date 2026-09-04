@@ -77,7 +77,11 @@ export async function POST(req: NextRequest) {
           { error: "totalAmountRequested must be a non-negative number." },
           { status: 400 },
         );
-      await updateLiquidationRequestedAmount(liquidationId, amount);
+      await updateLiquidationRequestedAmount(
+        liquidationId,
+        amount,
+        session.userId,
+      );
       return NextResponse.json({ success: true, liquidationId });
     }
 
@@ -95,7 +99,7 @@ export async function POST(req: NextRequest) {
           { error: "At least one receipt item is required." },
           { status: 400 },
         );
-      const result = await addReceiptItems(liquidationId, items);
+      const result = await addReceiptItems(liquidationId, items, session.userId);
       return NextResponse.json({
         success: true,
         liquidationId: result.liquidation.liquidationId,
@@ -115,7 +119,7 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         );
       }
-      await replaceReceiptItems(liquidationId, items);
+      await replaceReceiptItems(liquidationId, items, session.userId);
       return NextResponse.json({
         success: true,
         liquidationId,
@@ -131,7 +135,7 @@ export async function POST(req: NextRequest) {
           { error: "Missing required field: liquidationId." },
           { status: 400 },
         );
-      await updateLiquidationStatus(liquidationId, "SUBMITTED");
+      await updateLiquidationStatus(liquidationId, "SUBMITTED", session.userId);
       return NextResponse.json({
         success: true,
         liquidationId,

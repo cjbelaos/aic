@@ -367,8 +367,10 @@ function validateItems(items: ReceiptItemInput[]): ReceiptItemInput[] {
 
 function mapReceiptItemToRow(
   item: ReceiptItem,
-  auditBy = "System",
-  auditAt = new Date().toISOString(),
+  updatedBy = "System",
+  updatedAt = new Date().toISOString(),
+  createdBy = updatedBy,
+  createdAt = updatedAt,
 ): string[] {
   return [
     item.receiptItemId,
@@ -402,10 +404,10 @@ function mapReceiptItemToRow(
     item.vat !== undefined && item.vat !== null ? String(item.vat) : "",
     item.ewt !== undefined && item.ewt !== null ? String(item.ewt) : "",
     // ── Audit columns (AC..AF) ──
-    auditBy, // AC CreatedBy
-    auditAt, // AD CreatedAt
-    auditBy, // AE UpdatedBy
-    auditAt, // AF UpdatedAt
+    createdBy, // AC CreatedBy
+    createdAt, // AD CreatedAt
+    updatedBy, // AE UpdatedBy
+    updatedAt, // AF UpdatedAt
   ];
 }
 
@@ -711,7 +713,15 @@ export async function replaceReceiptItems(
       range: `${RECEIPT_ITEMS_SHEET}!A:AF`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: added.map((it) => mapReceiptItemToRow(it, who, now)),
+        values: added.map((it) =>
+          mapReceiptItemToRow(
+            it,
+            who,
+            now,
+            liquidation.createdBy || who,
+            liquidation.createdAt || now,
+          ),
+        ),
       },
     });
   }
@@ -956,6 +966,7 @@ export async function updateLiquidationControlNo(
     });
   }
 
+  await touchLiquidationAuditColumns(rowNumber, requestingUserId);
   invalidateLiquidationCache();
 }
 
