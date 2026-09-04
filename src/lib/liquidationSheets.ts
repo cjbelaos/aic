@@ -10,8 +10,8 @@ import type {
 // ── Constants ──
 const LIQUIDATIONS_SHEET = "Liquidations";
 const RECEIPT_ITEMS_SHEET = "ReceiptItems";
-const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:K`; // A=liquidationId, B=controlNo, C=userId, D=totalAmount, E=status, F=approvedByUserId, G=approvedByName, H=approvedBySignatureUrl, I=approvedDate, J=approvalComment, K=totalAmountRequested
-const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:AB`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=miscellaneousCode, F=amount, G=receiptImageUrl
+const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:O`; // A=liquidationId, B=controlNo, C=userId, D=totalAmount, E=status, F=approvedByUserId, G=approvedByName, H=approvedBySignatureUrl, I=approvedDate, J=approvalComment, K=totalAmountRequested, L=createdBy, M=createdAt, N=updatedBy, O=updatedAt
+const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:AF`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=miscellaneousCode, F=amount, G=receiptImageUrl, …:AB extended receipt columns, AC=createdBy, AD=createdAt, AE=updatedBy, AF=updatedAt
 
 // ── Simple TTL Cache (matches ftiSheets.ts pattern) ──
 const cache = new Map<string, { value: unknown; expires: number }>();
@@ -48,6 +48,24 @@ function invalidateLiquidationCache(): void {
 // ── Helpers ──
 function generateUUID(): string {
   return crypto.randomUUID();
+}
+
+/**
+ * Touches the audit columns (N=UpdatedBy, O=UpdatedAt) of a Liquidations row.
+ */
+async function touchLiquidationAuditColumns(
+  rowNumber: number,
+  updatedBy: string,
+): Promise<void> {
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const sheets = await getSheetsClient();
+  const updatedAt = new Date().toISOString();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${LIQUIDATIONS_SHEET}!N${rowNumber}:O${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[updatedBy || "System", updatedAt]] },
+  });
 }
 
 async function getSheetId(sheetName: string): Promise<number> {
@@ -114,6 +132,11 @@ async function getAllLiquidationsRaw(): Promise<Liquidation[]> {
       totalAmountRequested: (row[10] || "").toString().trim()
         ? parseFloat((row[10] || "0").toString().trim())
         : undefined,
+      // ── Audit columns (L..O) ──
+      createdBy: (row[11] || "").toString().trim() || undefined,
+      createdAt: (row[12] || "").toString().trim() || undefined,
+      updatedBy: (row[13] || "").toString().trim() || undefined,
+      updatedAt: (row[14] || "").toString().trim() || undefined,
     }))
     .filter((entry) => entry.liquidationId.length > 0);
 }
@@ -166,6 +189,11 @@ async function getAllReceiptItemsRaw(): Promise<ReceiptItem[]> {
         grossAmount: parseNum(25),
         vat: parseNum(26),
         ewt: parseNum(27),
+        // ── Audit columns (AC..AF) ──
+        createdBy: parseStr(28),
+        createdAt: parseStr(29),
+        updatedBy: parseStr(30),
+        updatedAt: parseStr(31),
       };
     })
     .filter((entry) => entry.receiptItemId.length > 0);
@@ -337,7 +365,11 @@ function validateItems(items: ReceiptItemInput[]): ReceiptItemInput[] {
   });
 }
 
-function mapReceiptItemToRow(item: ReceiptItem): string[] {
+function mapReceiptItemToRow(
+  item: ReceiptItem,
+  auditBy = "System",
+  auditAt = new Date().toISOString(),
+): string[] {
   return [
     item.receiptItemId,
     item.liquidationId,
@@ -369,6 +401,11 @@ function mapReceiptItemToRow(item: ReceiptItem): string[] {
       : "",
     item.vat !== undefined && item.vat !== null ? String(item.vat) : "",
     item.ewt !== undefined && item.ewt !== null ? String(item.ewt) : "",
+    // ── Audit columns (AC..AF) ──
+    auditBy, // AC CreatedBy
+    auditAt, // AD CreatedAt
+    auditBy, // AE UpdatedBy
+    auditAt, // AF UpdatedAt
   ];
 }
 
@@ -429,6 +466,7 @@ export async function createLiquidationDraft(input: {
     totalAmountRequested = isNaN(manual) || manual < 0 ? 0 : manual;
   }
 
+  const now = new Date().toISOString();
   const liquidation: Liquidation = {
     liquidationId: generateUUID(),
     controlNo: (input.controlNo || "").toString().trim(),
@@ -436,11 +474,15 @@ export async function createLiquidationDraft(input: {
     totalAmount: 0,
     totalAmountRequested,
     status: "SAVED",
+    createdBy: input.userId,
+    createdAt: now,
+    updatedBy: input.userId,
+    updatedAt: now,
   };
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${LIQUIDATIONS_SHEET}!A:K`,
+    range: `${LIQUIDATIONS_SHEET}!A:O`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [
@@ -458,6 +500,10 @@ export async function createLiquidationDraft(input: {
           totalAmountRequested !== undefined
             ? String(totalAmountRequested)
             : "",
+          liquidation.createdBy,
+          liquidation.createdAt,
+          liquidation.updatedBy,
+          liquidation.updatedAt,
         ],
       ],
     },
@@ -475,6 +521,7 @@ export async function createLiquidationDraft(input: {
 export async function updateLiquidationRequestedAmount(
   liquidationId: string,
   totalAmountRequested: number,
+  updatedBy = "System",
 ): Promise<void> {
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const all = await getAllLiquidations();
@@ -488,6 +535,7 @@ export async function updateLiquidationRequestedAmount(
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [[String(safe)]] },
   });
+  await touchLiquidationAuditColumns(idx + 2, updatedBy);
   invalidateLiquidationCache();
 }
 
@@ -498,6 +546,7 @@ export async function updateLiquidationRequestedAmount(
 export async function addReceiptItems(
   liquidationId: string,
   itemsToAdd: ReceiptItemInput[],
+  updatedBy = "System",
 ): Promise<{ liquidation: Liquidation; added: ReceiptItem[] }> {
   const liquidation = await getLiquidationById(liquidationId);
   if (!liquidation) throw new Error(`Liquidation ${liquidationId} not found.`);
@@ -512,6 +561,8 @@ export async function addReceiptItems(
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
 
+  const who = updatedBy || "System";
+  const now = new Date().toISOString();
   const added: ReceiptItem[] = validItems.map((item) => ({
     receiptItemId: generateUUID(),
     liquidationId,
@@ -545,10 +596,10 @@ export async function addReceiptItems(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${RECEIPT_ITEMS_SHEET}!A:AB`,
+    range: `${RECEIPT_ITEMS_SHEET}!A:AF`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: added.map(mapReceiptItemToRow),
+      values: added.map((it) => mapReceiptItemToRow(it, who, now)),
     },
   });
 
@@ -566,6 +617,12 @@ export async function addReceiptItems(
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[String(total)]] },
     });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${LIQUIDATIONS_SHEET}!N${idx + 2}:O${idx + 2}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[who, now]] },
+    });
   }
 
   invalidateLiquidationCache();
@@ -582,6 +639,7 @@ export async function addReceiptItems(
 export async function replaceReceiptItems(
   liquidationId: string,
   itemsToSave: ReceiptItemInput[],
+  updatedBy = "System",
 ): Promise<Liquidation> {
   const liquidation = await getLiquidationById(liquidationId);
   if (!liquidation) throw new Error(`Liquidation ${liquidationId} not found.`);
@@ -599,6 +657,8 @@ export async function replaceReceiptItems(
 
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
+  const who = updatedBy || "System";
+  const now = new Date().toISOString();
 
   const receiptRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -614,7 +674,9 @@ export async function replaceReceiptItems(
   await deleteSheetRows(RECEIPT_ITEMS_SHEET, rowNumbers);
 
   if (validItems.length > 0) {
-    const added: ReceiptItem[] = validItems.map((item) => ({
+    const who = updatedBy || "System";
+  const now = new Date().toISOString();
+  const added: ReceiptItem[] = validItems.map((item) => ({
       receiptItemId: generateUUID(),
       liquidationId,
       date: item.date,
@@ -646,10 +708,10 @@ export async function replaceReceiptItems(
     }));
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${RECEIPT_ITEMS_SHEET}!A:AB`,
+      range: `${RECEIPT_ITEMS_SHEET}!A:AF`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: added.map(mapReceiptItemToRow),
+        values: added.map((it) => mapReceiptItemToRow(it, who, now)),
       },
     });
   }
@@ -666,6 +728,12 @@ export async function replaceReceiptItems(
       range: `${LIQUIDATIONS_SHEET}!D${idx + 2}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[String(total)]] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${LIQUIDATIONS_SHEET}!N${idx + 2}:O${idx + 2}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[who, now]] },
     });
   }
 
@@ -698,6 +766,7 @@ export async function resolveApproverForRequester(userId: string): Promise<{
 export async function updateLiquidationStatus(
   liquidationId: string,
   status: string,
+  updatedBy = "System",
 ): Promise<void> {
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const all = await getAllLiquidations();
@@ -705,6 +774,7 @@ export async function updateLiquidationStatus(
   if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found`);
   const rowNumber = idx + 2;
   const sheets = await getSheetsClient();
+  await touchLiquidationAuditColumns(rowNumber, updatedBy);
 
   if (status.toUpperCase() === "SUBMITTED") {
     const current = all[idx];
@@ -793,6 +863,7 @@ export async function updateLiquidationApproval(
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [[comment || ""]] },
   });
+  await touchLiquidationAuditColumns(rowNumber, approvedByUserId);
 
   invalidateLiquidationCache();
 }

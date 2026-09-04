@@ -52,6 +52,11 @@ export interface Liquidation {
   approvedBySignatureUrl?: string;
   approvedDate?: string;
   approvalComment?: string;
+  // ── Audit columns (appended at the end of the Liquidations sheet) ──
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 export interface DocumentReferences {
@@ -92,6 +97,11 @@ export interface ReceiptItem
   category: ReceiptCategory | string;
   amount: number;
   receiptImageUrl: string;
+  // ── Audit columns (appended at the end of the ReceiptItems sheet) ──
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 /** A single line item supplied by the client before IDs / URLs are assigned. */

@@ -100,6 +100,20 @@ const STATUS_OPTIONS = [
   "REJECTED",
 ] as const;
 
+function formatAuditDate(value?: string): string {
+  if (!value) return "—";
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const date = new Date(normalized);
+  if (isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-PH", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export function LiquidationList() {
   const [liquidations, setLiquidations] = useState<LiquidationFull[]>([]);
   const [loading, setLoading] = useState(true);
@@ -314,7 +328,17 @@ export function LiquidationList() {
       }
       return true;
     });
+    // Default listing order: newest activity first (Date = UpdatedAt).
   }, [liquidations, userFilter, statusFilter]);
+
+  // Display order: latest first based on UpdatedAt (falling back to CreatedAt).
+  const sortedLiquidations = useMemo(() => {
+    return [...filteredLiquidations].sort((a, b) =>
+      (b.updatedAt || b.createdAt || "").localeCompare(
+        a.updatedAt || a.createdAt || "",
+      ),
+    );
+  }, [filteredLiquidations]);
 
   useEffect(() => {
     if (!previewLiquidation) return;
@@ -520,6 +544,15 @@ export function LiquidationList() {
 
   const columns: ColumnDef<LiquidationFull>[] = [
     {
+      accessorKey: "updatedAt",
+      header: "Date",
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-xs">
+          {formatAuditDate(row.original.updatedAt || row.original.createdAt)}
+        </span>
+      ),
+    },
+    {
       accessorKey: "controlNo",
       header: "Reference No.",
       cell: ({ row }) =>
@@ -670,7 +703,7 @@ export function LiquidationList() {
       <EntityTable
         title="Expense Liquidations"
         columns={columns}
-        data={filteredLiquidations}
+        data={sortedLiquidations}
         loading={false}
         headerActions={createNewElement}
       />
