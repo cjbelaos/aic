@@ -35,12 +35,21 @@ const authService = {
 
       // If the server responded with an error status code (e.g., 400, 401)
       if (axiosError.response && axiosError.response.data) {
-        return {
-          isSuccess: false,
-          errorMessages: axiosError.response.data.errorMessages || [
-            "Invalid credentials.",
-          ],
+        const data = axiosError.response.data as {
+          errorMessages?: string[];
         };
+        const status = axiosError.response.status;
+
+        const errorMessages =
+          data?.errorMessages?.length
+            ? data.errorMessages
+            : status === 400 || status === 401
+              ? ["Invalid username or password."]
+              : [
+                  `Login service error (HTTP ${status}). If this is your local dev server, it may be stale — restart it with 'npm run dev' and try again.`,
+                ];
+
+        return { isSuccess: false, errorMessages };
       }
 
       // Network or setup error

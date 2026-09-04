@@ -27,7 +27,6 @@ import {
   BriefcaseBusiness,
   FileSignature,
   ShieldAlert,
-  KeyRound,
 } from "lucide-react";
 import {
   Sidebar,
@@ -50,7 +49,6 @@ import {
 interface StoredUser {
   userId?: string;
   departmentId?: number;
-  userRoleId?: number;
 }
 
 function getStoredDepartmentId(): number | null {
@@ -65,24 +63,10 @@ function getStoredDepartmentId(): number | null {
   }
 }
 
-function getStoredUserRoleId(): number | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem("auth:user");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredUser;
-    return typeof parsed.userRoleId === "number" ? parsed.userRoleId : null;
-  } catch {
-    return null;
-  }
-}
-
 export function AppSidebar() {
   const pathname = usePathname();
   const [departmentId] = useState<number | null>(getStoredDepartmentId);
-  const [userRoleId] = useState<number | null>(getStoredUserRoleId);
   const canSeeTravel = departmentId === 1;
-  const isAdmin = userRoleId === 1;
 
   const isItemActive = (href: string): boolean => {
     if (href.includes("?")) {
@@ -516,32 +500,6 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-        {isAdmin && (
-          <>
-            <SidebarSeparator />
-            {/* ── Admin (userRoleId = 1 only) ──────────────────────── */}
-            <SidebarGroup>
-              <SidebarGroupLabel>Admin</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname.startsWith("/dashboard/admin/google-token")}
-                      tooltip="Google Token"
-                    >
-                      <Link href="/dashboard/admin/google-token">
-                        <KeyRound />
-                        <span>Google Token</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </>
-        )}
 
         {canSeeTravel && (
           <>

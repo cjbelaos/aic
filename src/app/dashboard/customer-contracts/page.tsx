@@ -62,6 +62,15 @@ const CONTRACT_STATUS_OPTIONS: ContractStatus[] = [
   "Inactive",
 ];
 
+// Currency formatter for monthly service fee display
+const formatCurrency = (value?: number) =>
+  value != null && !Number.isNaN(value)
+    ? new Intl.NumberFormat("en-PH", {
+        style: "currency",
+        currency: "PHP",
+      }).format(value)
+    : "None";
+
 /* ── Item State inside Form ─────────────────────────────── */
 interface ContractFormItem {
   id?: string; // Existing item has an ID
@@ -99,7 +108,7 @@ const EMPTY_FORM: CustomerContractFormState = {
   endDate: undefined,
   status: "Active",
   monthlyServiceFee: "",
-  items: [{ ...EMPTY_FORM_ITEM }],
+  items: [],
 };
 
 /* ── Grouped Customer Data Structure for Display ────────── */
@@ -235,9 +244,26 @@ export default function CustomerContractsPage() {
         },
       },
       {
+        accessorKey: "monthlyServiceFee",
+        id: "monthlyServiceFee",
+        header: "Monthly Service Fee",
+        cell: ({ row }) => (
+          <span className="text-xs font-mono text-foreground">
+            {formatCurrency(row.original.monthlyServiceFee)}
+          </span>
+        ),
+      },
+      {
         id: "products",
         header: "Contracted Products",
         cell: ({ row }) => {
+          if (row.original.items.length === 0) {
+            return (
+              <span className="text-xs italic text-muted-foreground">
+                No items — service-only
+              </span>
+            );
+          }
           return (
             <div className="flex flex-col gap-2 py-1">
               {row.original.items.map((item) => {
@@ -284,8 +310,11 @@ export default function CustomerContractsPage() {
         header: "Total Products",
         cell: ({ row }) => (
           <Badge variant="outline" className="font-semibold">
-            {row.original.items.length} Product
-            {row.original.items.length > 1 ? "s" : ""}
+            {row.original.items.length === 0
+              ? "None"
+              : `${row.original.items.length} Product${
+                  row.original.items.length > 1 ? "s" : ""
+                }`}
           </Badge>
         ),
       },
@@ -445,8 +474,8 @@ export default function CustomerContractsPage() {
       setError("End Date is required.");
       return;
     }
-    if (form.items.length === 0) {
-      setError("At least one product item is required.");
+    if (form.items.length === 0 && !form.monthlyServiceFee) {
+      setError("Provide at least one product item or a monthly service fee.");
       return;
     }
 
@@ -812,6 +841,13 @@ export default function CustomerContractsPage() {
                 </Button>
               </div>
 
+              {form.items.length === 0 && (
+                <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
+                  No product items. This contract is service-only — just set the
+                  monthly service fee above.
+                </p>
+              )}
+
               {form.items.map((item, index) => (
                 <div
                   key={item.id || `new-${index}`}
@@ -821,18 +857,17 @@ export default function CustomerContractsPage() {
                     <span className="text-xs font-semibold text-muted-foreground">
                       Item #{index + 1}
                     </span>
-                    {form.items.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={() => removeProductRow(index)}
-                        disabled={saving}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      onClick={() => removeProductRow(index)}
+                      disabled={saving}
+                      title="Remove item"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

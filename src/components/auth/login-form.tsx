@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import authService from "@/lib/services/auth.service";
+import { GoogleTokenPanel } from "@/components/auth/google-token-panel";
 
 interface FieldErrors {
   username?: string;
@@ -246,6 +247,8 @@ export function LoginForm() {
           </form>
         </CardContent>
       </Card>
+
+      <GoogleTokenPanel />
     </div>
   );
 }
