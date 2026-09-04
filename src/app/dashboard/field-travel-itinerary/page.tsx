@@ -46,7 +46,9 @@ import FTIPreviewModal from "@/components/fti-preview-modal";
 import FTIPrintDocument from "@/components/fti-print-document";
 import type { DraftItinerary } from "@/components/fti-print-document";
 import LiquidationPreviewModal from "@/components/liquidation-preview-modal";
-import LiquidationPrintDocument from "@/components/liquidation-print-document";
+import LiquidationPrintDocument, {
+  type LiquidationFtiComparison,
+} from "@/components/liquidation-print-document";
 import { EntityTable } from "@/components/ui/entity-table";
 import ftiService from "@/lib/services/fti.service";
 import { userApproverService } from "@/lib/services/userApprover.service";
@@ -235,6 +237,8 @@ export default function FieldTravelItineraryPage() {
   const [liquidationPreview, setLiquidationPreview] =
     useState<LiquidationFull | null>(null);
   const [liquidationPreviewOpen, setLiquidationPreviewOpen] = useState(false);
+  const [liquidationFtiComparison, setLiquidationFtiComparison] =
+    useState<LiquidationFtiComparison | null>(null);
   const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
   const [liquidationDownloadingPdf, setLiquidationDownloadingPdf] =
     useState(false);
@@ -1562,6 +1566,42 @@ export default function FieldTravelItineraryPage() {
         }
         setLiquidationPreview(full);
         setLiquidationPreviewOpen(true);
+        // Build the FTI comparison totals (fuel / toll / misc) when the
+        // liquidation is linked to an FTI so the printed document can show
+        // an FTI row above the Subtotal row.
+        if (full.controlNo) {
+          try {
+            const ftiFull = await ftiService.getRequest(full.controlNo);
+            const miscTotals = new Map<string, number>();
+            for (const detail of ftiFull.details || []) {
+              for (const expense of detail.expenses || []) {
+                miscTotals.set(
+                  expense.miscCode,
+                  (miscTotals.get(expense.miscCode) || 0) +
+                    (expense.amount || 0),
+                );
+              }
+            }
+            setLiquidationFtiComparison({
+              fuel: (ftiFull.details || []).reduce(
+                (sum, detail) => sum + (detail.fuelSubTotal || 0),
+                0,
+              ),
+              toll: (ftiFull.details || []).reduce(
+                (sum, detail) => sum + (detail.tollFee || 0),
+                0,
+              ),
+              misc: Array.from(miscTotals.entries()).map(([code, amount]) => ({
+                code,
+                amount,
+              })),
+            });
+          } catch {
+            setLiquidationFtiComparison(null);
+          }
+        } else {
+          setLiquidationFtiComparison(null);
+        }
       } else {
         toast.error("Liquidation not found.");
       }
@@ -2190,6 +2230,7 @@ export default function FieldTravelItineraryPage() {
             categories={[...miscLookup.keys()]}
             miscLookup={miscLookup}
             advances={liquidationPreview.totalAmountRequested || 0}
+            fti={liquidationFtiComparison}
             onDownloadPdf={handleLiquidationDownloadPdf}
             downloadingPdf={liquidationDownloadingPdf}
             onDownloadImage={handleLiquidationDownloadImage}
@@ -2215,6 +2256,7 @@ export default function FieldTravelItineraryPage() {
             categories={[...miscLookup.keys()]}
             miscLookup={miscLookup}
             advances={liquidationPreview?.totalAmountRequested || 0}
+            fti={liquidationFtiComparison}
             id="fti-liquidation-print-content"
             approvedBy={liquidationPreview?.approvedByName}
             approvedBySignatureUrl={liquidationPreview?.approvedBySignatureUrl}

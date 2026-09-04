@@ -4,15 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import {
   Loader2,
-  ReceiptText,
   Eye,
   Trash2,
   Plus,
-  ChevronDown,
   Pencil,
-  ExternalLink,
   FileText,
-  X,
+  ChevronDown,
+  ReceiptText,
 } from "lucide-react";
 import { EntityTable } from "@/components/ui/entity-table";
 import { Button } from "@/components/ui/button";
@@ -37,7 +35,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import {
   Table,
   TableBody,
@@ -46,18 +43,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent } from "@/components/ui/card";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { toast } from "sonner";
 import { liquidationService } from "@/lib/services/liquidation.service";
-import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import { ftiService } from "@/lib/services/fti.service";
+import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import { userService } from "@/lib/services/user.service";
-import type { LiquidationFull } from "@/types/liquidation";
-import type { FTIRequestFull } from "@/types/fti";
 import { LiquidationForm } from "@/components/liquidation-form";
 import LiquidationPreviewModal from "@/components/liquidation-preview-modal";
-import LiquidationPrintDocument from "@/components/liquidation-print-document";
-import FTIPreviewModal from "@/components/fti-preview-modal";
+import LiquidationPrintDocument, {
+  type LiquidationFtiComparison,
+} from "@/components/liquidation-print-document";
+import type { LiquidationFull } from "@/types/liquidation";
 
 interface StoredUser {
   userId?: string;
@@ -112,50 +109,32 @@ export function LiquidationList() {
   const [userFilter, setUserFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
-  // Preview modal state
   const [previewLiquidation, setPreviewLiquidation] =
     useState<LiquidationFull | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingImage, setDownloadingImage] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
-  // Items modal state
   const [itemsModalOpen, setItemsModalOpen] = useState(false);
   const [selectedLiquidation, setSelectedLiquidation] =
     useState<LiquidationFull | null>(null);
 
-  // Lookup map for miscellaneous code → description
   const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
-  // Requester user IDs for which the current user is the mapped approver
   const [mappedRequesterIds, setMappedRequesterIds] = useState<Set<string>>(
     new Set(),
   );
 
-  // Create modal state
   const [createOpen, setCreateOpen] = useState(false);
   const [createMode, setCreateMode] = useState<"fti" | "other">("fti");
   const [createInitialControlNo, setCreateInitialControlNo] = useState("");
-
-  // Edit modal state (pre-populated LiquidationForm)
   const [editingLiquidation, setEditingLiquidation] =
     useState<LiquidationFull | null>(null);
-
-  // FTI preview modal state (for clicking the ControlNo link)
-  const [viewFtiRequest, setViewFtiRequest] = useState<FTIRequestFull | null>(
-    null,
-  );
-  const [viewFtiModalOpen, setViewFtiModalOpen] = useState(false);
-  // Resolved signature URL for old approved records that don't have one stored
-  const [viewFtiSignatureUrl, setViewFtiSignatureUrl] = useState("");
-  const [viewFtiRegenerating, setViewFtiRegenerating] = useState(false);
-
-  // Resolved full name for the preview modal's Technician / Prepared by fields
-  const [previewFullName, setPreviewFullName] = useState("");
-
-  // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<LiquidationFull | null>(
     null,
   );
+  const [previewFullName, setPreviewFullName] = useState("");
+  const [previewFtiComparison, setPreviewFtiComparison] =
+    useState<LiquidationFtiComparison | null>(null);
 
   const currentUserId = storedUser.userId || "";
   const userRoleId = storedUser.userRoleId || 0;
@@ -181,8 +160,7 @@ export function LiquidationList() {
     };
   }, []);
 
-  // Fetch the approver mappings so the current user can approve liquidations
-  // even when approvedByUserId wasn't persisted on the liquidation row.
+  // Fetch mapped approvers
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -200,7 +178,7 @@ export function LiquidationList() {
           setMappedRequesterIds(mapped);
         }
       } catch {
-        // Non-critical; fall back to approvedByUserId check only.
+        // Non-critical.
       }
     })();
     return () => {
@@ -288,9 +266,7 @@ export function LiquidationList() {
       return false;
     }
     if (currentUserId === "") return false;
-    // Directly assigned approver (approvedByUserId was set on submit)
     if (liquidation.approvedByUserId === currentUserId) return true;
-    // Fallback: mapped approver for the requester.
     return mappedRequesterIds.has(liquidation.userId);
   };
 
@@ -314,7 +290,6 @@ export function LiquidationList() {
       currency: "PHP",
     }).format(value);
 
-  // Derive the user list (admin filter) from the loaded liquidations.
   const users = useMemo(() => {
     const map = new Map<string, string>();
     for (const l of liquidations) {
@@ -341,7 +316,79 @@ export function LiquidationList() {
     });
   }, [liquidations, userFilter, statusFilter]);
 
-  // ── Preview → PDF / Image export (mirrors the FTI page flow) ──
+  useEffect(() => {
+    if (!previewLiquidation) return;
+    const name = previewLiquidation.requesterName;
+    if (name) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const profile = await userService.getUserById(
+          previewLiquidation.userId,
+        );
+        if (!cancelled && profile?.fullName) {
+          setPreviewFullName(profile.fullName);
+        }
+      } catch {
+        if (!cancelled) setPreviewFullName(previewLiquidation.userId);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewLiquidation]);
+
+  // Fetch the linked FTI's fuel/toll/misc totals so the printed document can
+  // render the FTI comparison row when previewing an FTI-linked liquidation.
+  useEffect(() => {
+    const controlNo = previewLiquidation?.controlNo;
+    if (!controlNo) {
+      setPreviewFtiComparison(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const ftiFull = await ftiService.getRequest(controlNo);
+        if (cancelled) return;
+        const miscTotals = new Map<string, number>();
+        for (const detail of ftiFull.details || []) {
+          for (const expense of detail.expenses || []) {
+            miscTotals.set(
+              expense.miscCode,
+              (miscTotals.get(expense.miscCode) || 0) + (expense.amount || 0),
+            );
+          }
+        }
+        setPreviewFtiComparison({
+          fuel: (ftiFull.details || []).reduce(
+            (sum, detail) => sum + (detail.fuelSubTotal || 0),
+            0,
+          ),
+          toll: (ftiFull.details || []).reduce(
+            (sum, detail) => sum + (detail.tollFee || 0),
+            0,
+          ),
+          misc: Array.from(miscTotals.entries()).map(([code, amount]) => ({
+            code,
+            amount,
+          })),
+        });
+      } catch {
+        if (!cancelled) setPreviewFtiComparison(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewLiquidation?.controlNo]);
+
+  const previewDisplayName =
+    previewLiquidation?.requesterName ||
+    previewFullName ||
+    previewLiquidation?.userId ||
+    "";
+
   const getLiquidationPrintElement = () =>
     document.getElementById("liquidation-list-print-content");
 
@@ -424,222 +471,16 @@ export function LiquidationList() {
     }
   };
 
+  const handleViewItems = (liquidation: LiquidationFull) => {
+    setSelectedLiquidation(liquidation);
+    setItemsModalOpen(true);
+  };
+
   const openCreate = (mode: "fti" | "other", controlNo = "") => {
     setCreateMode(mode);
     setCreateInitialControlNo(controlNo);
     setCreateOpen(true);
   };
-
-  const handleViewFti = async (controlNo: string) => {
-    try {
-      const full = await ftiService.getRequest(controlNo);
-      setViewFtiRequest(full);
-
-      // If the record has a signature URL stored, use it directly.
-      // Otherwise try to resolve it from the Users sheet for old records.
-      if (full.approvedBySignatureUrl) {
-        setViewFtiSignatureUrl(full.approvedBySignatureUrl);
-      } else if (full.approvedByName && full.approvedByUserId) {
-        // Try to resolve signature by searching the Users sheet
-        try {
-          const users = await userService.getAllUsers();
-          const approver = users.find(
-            (u) => u.userId === full.approvedByUserId,
-          );
-          if (approver?.signature) {
-            setViewFtiSignatureUrl(`/api/images/drive/${approver.signature}`);
-          } else {
-            // Fallback: try by username matching the approvedByName
-            try {
-              const sig = await userService.getSignatureByUsername(
-                full.approvedByName,
-              );
-              if (sig?.imageUrl) {
-                setViewFtiSignatureUrl(sig.imageUrl);
-              }
-            } catch {
-              setViewFtiSignatureUrl("");
-            }
-          }
-        } catch {
-          setViewFtiSignatureUrl("");
-        }
-      } else {
-        setViewFtiSignatureUrl("");
-      }
-
-      setViewFtiModalOpen(true);
-    } catch {
-      toast.error("Failed to load FTI details.");
-    }
-  };
-
-  const handleRegenerateFtiPdf = async () => {
-    if (!viewFtiRequest) return;
-    setViewFtiRegenerating(true);
-    try {
-      // 1. Re-resolve signature if not already present
-      let signatureUrl = viewFtiSignatureUrl;
-      if (!signatureUrl && viewFtiRequest.approvedByName) {
-        try {
-          const sig = await userService.getSignatureByUsername(
-            viewFtiRequest.approvedByName,
-          );
-          if (sig?.imageUrl) {
-            signatureUrl = sig.imageUrl;
-            setViewFtiSignatureUrl(signatureUrl);
-          }
-        } catch {
-          // proceed without signature
-        }
-      }
-
-      // 2. Pre-fetch the signature image as a data URL so html2canvas can
-      //    render it without hitting the auth-required proxy endpoint.
-      let signatureDataUrl = "";
-      if (signatureUrl) {
-        try {
-          const imgRes = await fetch(signatureUrl);
-          if (imgRes.ok) {
-            const imgBlob = await imgRes.blob();
-            signatureDataUrl = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(imgBlob);
-            });
-            // Temporarily swap the src to the data URL so html2canvas sees it
-            const imgElements = document.querySelectorAll<HTMLImageElement>(
-              'img[alt="Approver Signature"]',
-            );
-            imgElements.forEach((img) => {
-              img.dataset.originalSrc = img.src;
-              img.src = signatureDataUrl;
-            });
-            // Wait for the swap to render
-            await new Promise((r) => setTimeout(r, 100));
-          }
-        } catch {
-          // proceed without signature
-        }
-      }
-
-      // 3. Generate the PDF from the preview document
-      const element = document.getElementById("fti-preview-content");
-      if (!element) throw new Error("FTI preview document not found.");
-
-      const html2canvas = (await import("html2canvas-pro")).default;
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        backgroundColor: "#ffffff",
-      });
-      const { jsPDF } = await import("jspdf");
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "landscape",
-        unit: "mm",
-        format: "a4",
-      });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let position = 0;
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      let heightLeft = imgHeight - pageHeight;
-      while (heightLeft > 0) {
-        position -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      const blob = pdf.output("blob");
-
-      // 4. Upload the regenerated PDF to Drive
-      const fd = new FormData();
-      fd.append("pdf", blob, `FTI_${viewFtiRequest.controlNo}.pdf`);
-      fd.append("ftiRef", viewFtiRequest.controlNo);
-
-      // Restore original image srcs before the await (so the UI snaps back)
-      if (signatureDataUrl) {
-        const imgElements = document.querySelectorAll<HTMLImageElement>(
-          'img[alt="Approver Signature"]',
-        );
-        imgElements.forEach((img) => {
-          if (img.dataset.originalSrc) {
-            img.src = img.dataset.originalSrc;
-          }
-        });
-      }
-      const res = await fetch("/api/fti/save-pdf-to-drive", {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) {
-        let detail = `Failed to save PDF to Google Drive (${res.status}).`;
-        try {
-          const data = await res.json();
-          if (data?.error) detail = data.error;
-        } catch {
-          // keep generic
-        }
-        throw new Error(detail);
-      }
-      const result = await res.json();
-
-      // 5. Update the signature URL in the sheet if it was missing
-      if (!viewFtiRequest.approvedBySignatureUrl && signatureUrl) {
-        await ftiService.approveAction(
-          viewFtiRequest.controlNo,
-          "approve",
-          "",
-          result.fileLink,
-          viewFtiRequest.approvedByName,
-          signatureUrl,
-        );
-      }
-
-      toast.success("PDF regenerated and saved to Drive successfully.");
-      // Refresh the FTI request data to show updated file link
-      const refreshed = await ftiService.getRequest(viewFtiRequest.controlNo);
-      setViewFtiRequest(refreshed);
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to regenerate PDF.",
-      );
-    } finally {
-      setViewFtiRegenerating(false);
-    }
-  };
-
-  // Resolve the full name for the preview modal's Technician / Prepared by fields.
-  useEffect(() => {
-    if (!previewLiquidation) {
-      setPreviewFullName("");
-      return;
-    }
-    const name = previewLiquidation.requesterName;
-    if (name) {
-      setPreviewFullName(name);
-      return;
-    }
-    // Fallback: resolve from the user service
-    let cancelled = false;
-    (async () => {
-      try {
-        const profile = await userService.getUserById(
-          previewLiquidation.userId,
-        );
-        if (!cancelled && profile?.fullName) {
-          setPreviewFullName(profile.fullName);
-        }
-      } catch {
-        setPreviewFullName(previewLiquidation.userId);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [previewLiquidation]);
 
   // Deep-link support: /dashboard/expense-liquidation?controlNo=CTRL-...
   // (e.g. "Add Expense Liquidation" from the FTI preview modal).
@@ -653,30 +494,42 @@ export function LiquidationList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleViewItems = (liquidation: LiquidationFull) => {
-    setSelectedLiquidation(liquidation);
-    setItemsModalOpen(true);
-  };
+  const createNewElement = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className="bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-600 text-white w-full sm:w-auto">
+          <Plus className="mr-2 h-4 w-4" />
+          Create New
+          <ChevronDown className="ml-1 h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {departmentId === 1 && (
+          <DropdownMenuItem onClick={() => openCreate("fti")}>
+            <ReceiptText className="h-4 w-4" />
+            FTI Linked
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={() => openCreate("other")}>
+          <Plus className="h-4 w-4" />
+          No FTI (Other)
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   const columns: ColumnDef<LiquidationFull>[] = [
     {
       accessorKey: "controlNo",
-      header: "FTI Control No.",
+      header: "Reference No.",
       cell: ({ row }) =>
         row.original.controlNo ? (
-          <Button
-            variant="link"
-            size="sm"
-            className="font-mono text-blue-600 font-medium h-auto p-0"
-            onClick={() => handleViewFti(row.original.controlNo)}
-            title="View FTI details"
-          >
+          <span className="font-mono text-blue-600 font-medium">
             {row.original.controlNo}
-            <ExternalLink className="ml-1 h-3 w-3" />
-          </Button>
+          </span>
         ) : (
           <Badge variant="outline" className="text-muted-foreground">
-            No FTI (Other)
+            No Reference
           </Badge>
         ),
     },
@@ -781,32 +634,9 @@ export function LiquidationList() {
     );
   }
 
-  const createNewElement = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button className="bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-600 text-white w-full sm:w-auto">
-          <Plus className="mr-2 h-4 w-4" />
-          Create New
-          <ChevronDown className="ml-1 h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {departmentId === 1 && (
-          <DropdownMenuItem onClick={() => openCreate("fti")}>
-            <ReceiptText className="h-4 w-4" />
-            FTI Linked
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onClick={() => openCreate("other")}>
-          <Plus className="h-4 w-4" />
-          No FTI (Other)
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-
   return (
     <div className="p-6 space-y-4">
+      {/* ── Filters ── */}
       <div className="flex flex-wrap items-center gap-2">
         {isAdmin && (
           <Select value={userFilter} onValueChange={setUserFilter}>
@@ -847,14 +677,14 @@ export function LiquidationList() {
 
       {/* Items Modal - Table View */}
       <Dialog open={itemsModalOpen} onOpenChange={setItemsModalOpen}>
-        <DialogContent className="sm:max-w-5xl max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-6xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
               Receipt Items
               {selectedLiquidation && (
                 <span className="text-sm font-normal text-muted-foreground ml-2">
-                  {selectedLiquidation.controlNo || "No FTI"} •{" "}
+                  {selectedLiquidation.controlNo || "No Reference"} •{" "}
                   {selectedLiquidation.items.length} item(s)
                 </span>
               )}
@@ -887,8 +717,20 @@ export function LiquidationList() {
                         <TableHead className="font-semibold text-xs min-w-[150px]">
                           Description
                         </TableHead>
+                        <TableHead className="font-semibold text-xs whitespace-nowrap">
+                          Supplier
+                        </TableHead>
                         <TableHead className="font-semibold text-xs text-right whitespace-nowrap">
                           Amount
+                        </TableHead>
+                        <TableHead className="font-semibold text-xs text-right whitespace-nowrap">
+                          Gross
+                        </TableHead>
+                        <TableHead className="font-semibold text-xs text-right whitespace-nowrap">
+                          VAT
+                        </TableHead>
+                        <TableHead className="font-semibold text-xs text-right whitespace-nowrap">
+                          EWT
                         </TableHead>
                         <TableHead className="font-semibold text-xs text-center whitespace-nowrap">
                           Receipt
@@ -897,43 +739,53 @@ export function LiquidationList() {
                     </TableHeader>
                     <TableBody>
                       {selectedLiquidation?.items.map((item) => (
-                        <TableRow
-                          key={item.receiptItemId}
-                          className="border-b border-border/50 hover:bg-muted/30"
-                        >
-                          <TableCell className="whitespace-nowrap text-sm font-medium">
+                        <TableRow key={item.receiptItemId}>
+                          <TableCell className="text-xs whitespace-nowrap">
                             {item.date}
                           </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant="secondary"
-                              className="text-xs whitespace-nowrap"
-                            >
-                              {miscLookup.get(item.category) || item.category}
-                            </Badge>
+                          <TableCell className="text-xs font-medium">
+                            {miscLookup.get(item.category) || item.category}
                           </TableCell>
-                          <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
-                            <span title={item.description}>
-                              {item.description}
-                            </span>
+                          <TableCell className="text-xs">
+                            {item.description}
+                            {(item.siNumber || item.orNumber) && (
+                              <span className="block text-[10px] text-muted-foreground">
+                                {item.siNumber
+                                  ? `SI: ${item.siNumber}`
+                                  : `OR: ${item.orNumber}`}
+                              </span>
+                            )}
                           </TableCell>
-                          <TableCell className="text-sm font-bold text-right whitespace-nowrap">
-                            {formatCurrency(item.amount)}
+                          <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">
+                            {item.supplierName || "—"}
+                          </TableCell>
+                          <TableCell className="text-xs text-right font-mono">
+                            {formatCurrency(item.amount || 0)}
+                          </TableCell>
+                          <TableCell className="text-xs text-right font-mono">
+                            {item.grossAmount != null
+                              ? formatCurrency(item.grossAmount)
+                              : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs text-right font-mono">
+                            {item.vat != null ? formatCurrency(item.vat) : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs text-right font-mono">
+                            {item.ewt != null ? formatCurrency(item.ewt) : "—"}
                           </TableCell>
                           <TableCell className="text-center">
                             {item.receiptImageUrl ? (
                               <a
                                 href={item.receiptImageUrl}
                                 target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors whitespace-nowrap"
+                                rel="noreferrer"
+                                className="text-[10px] text-blue-600 underline"
                               >
-                                <FileText className="h-3.5 w-3.5" />
-                                <span>View</span>
+                                View
                               </a>
                             ) : (
-                              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                No receipt
+                              <span className="text-[10px] text-muted-foreground">
+                                —
                               </span>
                             )}
                           </TableCell>
@@ -948,130 +800,131 @@ export function LiquidationList() {
         </DialogContent>
       </Dialog>
 
-      {/* Preview modal (with approval controls) */}
-      <LiquidationPreviewModal
-        open={previewLiquidation !== null}
-        onOpenChange={(open) => {
-          if (!open) setPreviewLiquidation(null);
-        }}
-        controlNo={previewLiquidation?.controlNo || ""}
-        fullName={previewFullName}
-        items={
-          previewLiquidation?.items?.map((item) => ({
-            date: item.date,
-            description: item.description,
-            category: item.category,
-            amount: item.amount,
-            receiptImageUrl: item.receiptImageUrl || undefined,
-          })) || []
-        }
-        categories={[...miscLookup.keys()]}
-        miscLookup={miscLookup}
-        advances={previewLiquidation?.totalAmountRequested || 0}
-        onDownloadPdf={handleDownloadPdf}
-        downloadingPdf={downloadingPdf}
-        onDownloadImage={handleDownloadImage}
-        downloadingImage={downloadingImage}
-        approvalActions={
-          previewLiquidation && canApprove(previewLiquidation)
-            ? {
-                onApprove: (comment) =>
-                  handleApprovalAction(
-                    previewLiquidation.liquidationId,
-                    "approve",
-                    comment,
-                  ),
-                onRequestChange: (comment) =>
-                  handleApprovalAction(
-                    previewLiquidation.liquidationId,
-                    "request_change",
-                    comment,
-                  ),
-                onReject: (comment) =>
-                  handleApprovalAction(
-                    previewLiquidation.liquidationId,
-                    "reject",
-                    comment,
-                  ),
-                actionInProgress:
-                  approvingId === previewLiquidation.liquidationId,
+      {/* ── Preview modal ── */}
+      {previewLiquidation && (
+        <>
+          <LiquidationPreviewModal
+            open={previewLiquidation !== null}
+            onOpenChange={(open) => {
+              if (!open) setPreviewLiquidation(null);
+            }}
+            controlNo={previewLiquidation.controlNo || ""}
+            fullName={previewDisplayName}
+            items={previewLiquidation.items.map((it) => ({
+              date: it.date,
+              description: it.description,
+              category: it.category,
+              amount: it.amount,
+              receiptImageUrl: it.receiptImageUrl || undefined,
+              siNumber: it.siNumber || undefined,
+              siDate: it.siDate || undefined,
+              drNumber: it.drNumber || undefined,
+              drDate: it.drDate || undefined,
+              crNumber: it.crNumber || undefined,
+              crDate: it.crDate || undefined,
+              bsNumber: it.bsNumber || undefined,
+              bsDate: it.bsDate || undefined,
+              orNumber: it.orNumber || undefined,
+              orDate: it.orDate || undefined,
+              othersDate: it.othersDate || undefined,
+              refNo: it.refNo || undefined,
+              tin: it.tin || undefined,
+              supplierName: it.supplierName || undefined,
+              address: it.address || undefined,
+              checkNo: it.checkNo || undefined,
+              cvNo: it.cvNo || undefined,
+              particulars: it.particulars || undefined,
+              grossAmount: it.grossAmount,
+              vat: it.vat,
+              ewt: it.ewt,
+            }))}
+            categories={Array.from(miscLookup.keys())}
+            miscLookup={miscLookup}
+            advances={previewLiquidation?.totalAmountRequested || 0}
+            fti={previewFtiComparison}
+            onDownloadPdf={handleDownloadPdf}
+            downloadingPdf={downloadingPdf}
+            onDownloadImage={handleDownloadImage}
+            downloadingImage={downloadingImage}
+            readOnly={!canApprove(previewLiquidation)}
+            approvalActions={
+              canApprove(previewLiquidation)
+                ? {
+                    onApprove: (comment) =>
+                      handleApprovalAction(
+                        previewLiquidation.liquidationId,
+                        "approve",
+                        comment,
+                      ),
+                    onRequestChange: (comment) =>
+                      handleApprovalAction(
+                        previewLiquidation.liquidationId,
+                        "request_change",
+                        comment,
+                      ),
+                    onReject: (comment) =>
+                      handleApprovalAction(
+                        previewLiquidation.liquidationId,
+                        "reject",
+                        comment,
+                      ),
+                    actionInProgress:
+                      approvingId === previewLiquidation.liquidationId,
+                  }
+                : undefined
+            }
+            approvalComment={previewLiquidation.approvalComment || ""}
+            approvalStatus={previewLiquidation.status}
+            approvedBy={previewLiquidation.approvedByName || ""}
+            approvedBySignatureUrl={
+              previewLiquidation.approvedBySignatureUrl || ""
+            }
+          />
+          <div className="fixed -left-[9999px] top-0" aria-hidden="true">
+            <LiquidationPrintDocument
+              controlNo={previewLiquidation.controlNo || ""}
+              fullName={previewDisplayName}
+              items={previewLiquidation.items.map((it) => ({
+                date: it.date,
+                description: it.description,
+                category: it.category,
+                amount: it.amount,
+                receiptImageUrl: it.receiptImageUrl || undefined,
+                siNumber: it.siNumber || undefined,
+                siDate: it.siDate || undefined,
+                drNumber: it.drNumber || undefined,
+                drDate: it.drDate || undefined,
+                crNumber: it.crNumber || undefined,
+                crDate: it.crDate || undefined,
+                bsNumber: it.bsNumber || undefined,
+                bsDate: it.bsDate || undefined,
+                orNumber: it.orNumber || undefined,
+                orDate: it.orDate || undefined,
+                othersDate: it.othersDate || undefined,
+                refNo: it.refNo || undefined,
+                tin: it.tin || undefined,
+                supplierName: it.supplierName || undefined,
+                address: it.address || undefined,
+                checkNo: it.checkNo || undefined,
+                cvNo: it.cvNo || undefined,
+                particulars: it.particulars || undefined,
+                grossAmount: it.grossAmount,
+                vat: it.vat,
+                ewt: it.ewt,
+              }))}
+              categories={Array.from(miscLookup.keys())}
+              miscLookup={miscLookup}
+              advances={previewLiquidation?.totalAmountRequested || 0}
+              fti={previewFtiComparison}
+              id="liquidation-list-print-content"
+              approvedBy={previewLiquidation.approvedByName || ""}
+              approvedBySignatureUrl={
+                previewLiquidation.approvedBySignatureUrl || ""
               }
-            : undefined
-        }
-        approvalComment={previewLiquidation?.approvalComment}
-        approvalStatus={previewLiquidation?.status}
-        approvedBy={previewLiquidation?.approvedByName}
-        approvedBySignatureUrl={previewLiquidation?.approvedBySignatureUrl}
-      />
-
-      {/* Off-screen printable document for export */}
-      <div className="fixed -left-[9999px] top-0" aria-hidden="true">
-        <LiquidationPrintDocument
-          controlNo={previewLiquidation?.controlNo || ""}
-          fullName={previewFullName}
-          items={
-            previewLiquidation?.items?.map((item) => ({
-              date: item.date,
-              description: item.description,
-              category: item.category,
-              amount: item.amount,
-              receiptImageUrl: item.receiptImageUrl || undefined,
-            })) || []
-          }
-          categories={[...miscLookup.keys()]}
-          miscLookup={miscLookup}
-          advances={previewLiquidation?.totalAmountRequested || 0}
-          id="liquidation-list-print-content"
-          approvedBy={previewLiquidation?.approvedByName}
-          approvedBySignatureUrl={previewLiquidation?.approvedBySignatureUrl}
-        />
-      </div>
-
-      {/* FTI Preview Modal (clicking the ControlNo link) */}
-      <FTIPreviewModal
-        open={viewFtiModalOpen}
-        onOpenChange={setViewFtiModalOpen}
-        batchItems={
-          viewFtiRequest?.details?.map((det) => {
-            const miscAmount = det.expenses.reduce((s, e) => s + e.amount, 0);
-            const miscExpenses = det.expenses.map((e) => ({
-              code: e.miscCode,
-              description: e.miscCode,
-              amount: e.amount,
-            }));
-            return {
-              id: det.detailId || crypto.randomUUID(),
-              date: det.date,
-              itinerary: det.itinerary,
-              description: det.description,
-              km: det.km,
-              fuelPrice: det.fuelPrice,
-              tollFee: det.tollFee,
-              miscellaneous: det.expenses.map((e) => e.miscCode).join(", "),
-              miscExpenses,
-              miscAmount,
-              fuelAmount: det.fuelSubTotal,
-              totalAmount: det.fuelSubTotal + det.tollFee + miscAmount,
-              origin: "AERICH INNOVATION CORP.",
-              destinations: [],
-            };
-          }) || []
-        }
-        ftiRef={viewFtiRequest?.controlNo || ""}
-        technician={viewFtiRequest?.userName || ""}
-        fullName={viewFtiRequest?.userName || ""}
-        readOnly
-        approvalStatus={viewFtiRequest?.status}
-        approvalComment={viewFtiRequest?.approvalComment}
-        approvedBy={viewFtiRequest?.approvedByName}
-        approvedBySignatureUrl={viewFtiSignatureUrl}
-        onRegeneratePdf={
-          viewFtiRequest?.status?.toUpperCase() === "APPROVED"
-            ? handleRegenerateFtiPdf
-            : undefined
-        }
-        regeneratingPdf={viewFtiRegenerating}
-      />
+            />
+          </div>
+        </>
+      )}
 
       {/* Create modal */}
       <Dialog
@@ -1094,6 +947,7 @@ export function LiquidationList() {
             </DialogTitle>
           </DialogHeader>
           <LiquidationForm
+            key={`create-${createMode}-${createInitialControlNo}`}
             userId={currentUserId}
             initialControlNo={createInitialControlNo}
             restrictToOther={departmentId !== 1 || createMode === "other"}

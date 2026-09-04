@@ -13,9 +13,22 @@ interface LiquidationPrintDocumentProps {
   miscLookup?: Map<string, string>;
   /** FTI Total Amount of the linked ControlNo. */
   advances: number;
+  /**
+   * FTI totals (fuel / toll / misc per code) used to render an FTI
+   * comparison row just above the Subtotal row. Only rendered when the
+   * liquidation is FTI-linked and this prop is provided.
+   */
+  fti?: LiquidationFtiComparison | null;
   id?: string;
   approvedBy?: string;
   approvedBySignatureUrl?: string;
+}
+
+/** FTI totals for the comparison row on a liquidation's printable document. */
+export interface LiquidationFtiComparison {
+  fuel: number;
+  toll: number;
+  misc: { code: string; amount: number }[];
 }
 
 function toFixed2(n: number): string {
@@ -35,10 +48,16 @@ export default function LiquidationPrintDocument({
   categories,
   miscLookup,
   advances,
+  fti,
   id = "liquidation-preview-content",
   approvedBy,
   approvedBySignatureUrl,
 }: LiquidationPrintDocumentProps) {
+  // Use Gross Amount (falling back to Net Amount) so the printed pivot matches
+  // the amounts shown in the form's Receipt Items table.
+  const amountOf = (it: ReceiptItemInput): number =>
+    it.grossAmount ?? it.amount ?? 0;
+
   // Categories used as column headers — exclude "Others" since there's a
   // dedicated catch-all "Others" column in the pivot table.
   const activeCategories = categories.filter((c) => c !== "Others" && c);
@@ -46,22 +65,21 @@ export default function LiquidationPrintDocument({
   // into the "Others" catch-all column.
   const isKnown = (cat: string) => activeCategories.includes(cat);
 
-  const subtotal = items.reduce((s, i) => s + (i.amount || 0), 0);
+  const subtotal = items.reduce((s, i) => s + amountOf(i), 0);
   // Dynamic settlement label/value based on comparison of expenses vs advances.
   const difference = subtotal - advances;
   const hasAdvances = advances > 0;
   const hasAmountToReturn = hasAdvances && difference < 0;
-  const settlement =
-    hasAmountToReturn
-      ? { label: "Amount to Return" }
-      : !hasAdvances
-        ? { label: "Total Reimbursement" }
-        : difference > 0
-          ? {
-              label: "Total Reimbursement",
-              hint: "(Positive Amount — Company pays employee)",
-            }
-          : { label: "Net Amount Due / Settled", hint: "(₱0.00)" };
+  const settlement = hasAmountToReturn
+    ? { label: "Amount to Return" }
+    : !hasAdvances
+      ? { label: "Total Reimbursement" }
+      : difference > 0
+        ? {
+            label: "Total Reimbursement",
+            hint: "(Positive Amount — Company pays employee)",
+          }
+        : { label: "Net Amount Due / Settled", hint: "(₱0.00)" };
   const settlementValue = hasAmountToReturn
     ? Math.abs(difference)
     : !hasAdvances || difference === 0
@@ -73,15 +91,37 @@ export default function LiquidationPrintDocument({
   const catTotal = (cat: string) =>
     items
       .filter((i) => i.category === cat)
-      .reduce((s, i) => s + (i.amount || 0), 0);
+      .reduce((s, i) => s + amountOf(i), 0);
 
   // Only include category columns that have at least one item using them.
   const usedCategories = activeCategories.filter((cat) => catTotal(cat) > 0);
 
   const othersTotal = items
     .filter((i) => !isKnown(i.category))
-    .reduce((s, i) => s + (i.amount || 0), 0);
+    .reduce((s, i) => s + amountOf(i), 0);
   const showOthersColumn = othersTotal > 0;
+
+  // FTI amount that belongs in each pivot column (for comparison only):
+  // - FTI fuel → the Fuel column (matched by code/description)
+  // - FTI toll → the Toll/RFID column (matched by code/description)
+  // - FTI misc expenses → the corresponding miscellaneous column by code
+  const ftiAmountForCat = (cat: string): number => {
+    if (!fti) return 0;
+    const code = cat.toLowerCase();
+    const desc = (miscLookup?.get(cat) || cat).toLowerCase();
+    if (code === "fuel" || desc.includes("fuel") || desc.includes("gasoline")) {
+      return fti.fuel || 0;
+    }
+    if (
+      code === "rfid" ||
+      code.includes("toll") ||
+      desc.includes("rfid") ||
+      desc.includes("toll")
+    ) {
+      return fti.toll || 0;
+    }
+    return fti.misc.find((e) => e.code === cat)?.amount || 0;
+  };
 
   // Sort items by date ascending for display.
   const sortedItems = [...items].sort((a, b) => a.date.localeCompare(b.date));
@@ -94,9 +134,10 @@ export default function LiquidationPrintDocument({
       className="bg-white text-black p-8 rounded border space-y-4 text-xs select-none min-w-[850px] mx-auto shadow-sm"
       style={{ fontFamily: "Arial, sans-serif" }}
     >
-      {/* ── Header (mirrors FTI printable document) ── */}
+      {/* ── Header ── */}
       <div className="bg-white border-t-4 border-b-2 border-[#00a2e8] py-4 px-6 relative flex items-center justify-between shadow-xs rounded-t">
         <div className="absolute left-6 top-1/2 -translate-y-1/2 flex items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo.png"
             alt="Company Logo"
@@ -180,7 +221,9 @@ export default function LiquidationPrintDocument({
                 Others
               </th>
             )}
-            <th className="px-1.5 py-1 text-center font-medium text-gray-800">Total</th>
+            <th className="px-1.5 py-1 text-center font-medium text-gray-800">
+              Total
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -200,33 +243,72 @@ export default function LiquidationPrintDocument({
                   key={cat}
                   className="border-r border-black px-1.5 py-0.5 text-right font-mono"
                 >
-                  {item.category === cat ? toFixed2(item.amount) : ""}
+                  {item.category === cat ? toFixed2(amountOf(item)) : ""}
                 </td>
               ))}
               {showOthersColumn && (
                 <td className="border-r border-black px-1.5 py-0.5 text-right font-mono">
-                  {!isKnown(item.category) ? toFixed2(item.amount) : ""}
+                  {!isKnown(item.category) ? toFixed2(amountOf(item)) : ""}
                 </td>
               )}
               <td className="px-1.5 py-0.5 text-right font-mono font-semibold">
-                {toFixed2(item.amount)}
+                {toFixed2(amountOf(item))}
               </td>
             </tr>
           ))}
 
-          {/* ── Subtotal row (per-category sums) ── */}
+          {/* ── FTI comparison row (FTI-linked liquidations only) ── */}
+          {controlNo && fti && (
+            <tr className="border-b border-black bg-gray-50/70 text-[10px] text-gray-600">
+              <td
+                colSpan={2}
+                className="border-r border-black px-1.5 py-1 font-medium italic"
+              >
+                FTI Total (for comparison)
+              </td>
+              {usedCategories.map((cat) => {
+                const value = ftiAmountForCat(cat);
+                return (
+                  <td
+                    key={cat}
+                    className="border-r border-black px-1.5 py-1 text-right font-mono"
+                  >
+                    {value > 0 ? toFixed2(value) : ""}
+                  </td>
+                );
+              })}
+              {showOthersColumn && (
+                <td className="border-r border-black px-1.5 py-1" />
+              )}
+              <td className="px-1.5 py-1" />
+            </tr>
+          )}
+
+          {/* ── Subtotal row ── */}
           <tr className="border-b border-black font-semibold bg-gray-50">
             <td className="border-r border-black px-1.5 py-1" colSpan={2}>
               Subtotal
             </td>
-            {usedCategories.map((cat) => (
-              <td
-                key={cat}
-                className="border-r border-black px-1.5 py-1 text-right font-mono"
-              >
-                {catTotal(cat) ? toFixed2(catTotal(cat)) : ""}
-              </td>
-            ))}
+            {usedCategories.map((cat) => {
+              const value = catTotal(cat);
+              const ftiValue = ftiAmountForCat(cat);
+              return (
+                <td
+                  key={cat}
+                  className="border-r border-black px-1.5 py-1 text-right font-mono"
+                >
+                  {value
+                    ? ftiValue > 0 && value > ftiValue ? (
+                        <span className="text-red-600 font-bold">
+                          {toFixed2(value)}
+                        </span>
+                      ) : (
+                        toFixed2(value)
+                      )
+                    : ""}
+                </td>
+              );
+            })}
             {showOthersColumn && (
               <td className="border-r border-black px-1.5 py-1 text-right font-mono">
                 {othersTotal ? toFixed2(othersTotal) : ""}
@@ -252,7 +334,7 @@ export default function LiquidationPrintDocument({
         </tbody>
       </table>
 
-      {/* ── Summary block (bottom right) ── */}
+      {/* ── Summary block ── */}
       <div className="flex justify-end pt-2">
         <div className="w-72 space-y-1 border border-black rounded-sm px-4 py-3">
           <div className="flex items-center justify-between">
@@ -299,8 +381,8 @@ export default function LiquidationPrintDocument({
           <div className="inline-flex items-center gap-1">
             <span className="font-normal text-gray-800">Approved by:</span>
             <div className="relative inline-block">
-              {/* Centered signature floating directly above the full name */}
               {approvedBy && approvedBySignatureUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={approvedBySignatureUrl}
                   alt="Approver Signature"

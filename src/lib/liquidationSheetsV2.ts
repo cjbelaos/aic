@@ -481,15 +481,26 @@ export async function createLiquidationDraftV2(input: {
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
 
-  const manual = parseFloat(String(input.totalAmountRequested ?? "0"));
-  const totalAmountRequested = isNaN(manual) || manual < 0 ? 0 : manual;
+  // When a ControlNo exists the TotalAmountRequested comes from the FTI's
+  // TotalAmount (mirrors the production Liquidations tab). Otherwise it is
+  // manually provided by the user.
+  let totalAmountRequested: number | undefined;
+  if (controlNo) {
+    const { getAllFTIRequests } = await import("@/lib/ftiSheets");
+    const requests = await getAllFTIRequests().catch(() => []);
+    const matched = requests.find((r) => r.controlNo === controlNo);
+    totalAmountRequested = matched?.totalAmount ?? undefined;
+  } else {
+    const manual = parseFloat(String(input.totalAmountRequested ?? "0"));
+    totalAmountRequested = isNaN(manual) || manual < 0 ? 0 : manual;
+  }
 
   const liquidation: Liquidation = {
     liquidationId: generateUUID(),
     controlNo,
     userId: input.userId,
     totalAmount: 0,
-    totalAmountRequested: controlNo === "" ? totalAmountRequested : undefined,
+    totalAmountRequested,
     status: "SAVED",
   };
 
@@ -510,7 +521,7 @@ export async function createLiquidationDraftV2(input: {
           "",
           "",
           "",
-          controlNo === "" ? String(totalAmountRequested) : "",
+          totalAmountRequested != null ? String(totalAmountRequested) : "",
         ],
       ],
     },

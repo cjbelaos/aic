@@ -11,7 +11,7 @@ import type {
 const LIQUIDATIONS_SHEET = "Liquidations";
 const RECEIPT_ITEMS_SHEET = "ReceiptItems";
 const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:K`; // A=liquidationId, B=controlNo, C=userId, D=totalAmount, E=status, F=approvedByUserId, G=approvedByName, H=approvedBySignatureUrl, I=approvedDate, J=approvalComment, K=totalAmountRequested
-const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:G`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=miscellaneousCode, F=amount, G=receiptImageUrl
+const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:AB`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=miscellaneousCode, F=amount, G=receiptImageUrl
 
 // ── Simple TTL Cache (matches ftiSheets.ts pattern) ──
 const cache = new Map<string, { value: unknown; expires: number }>();
@@ -127,15 +127,47 @@ async function getAllReceiptItemsRaw(): Promise<ReceiptItem[]> {
   });
   const rows = res.data.values || [];
   return rows
-    .map((row) => ({
-      receiptItemId: (row[0] || "").toString().trim(),
-      liquidationId: (row[1] || "").toString().trim(),
-      date: (row[2] || "").toString().trim(),
-      description: (row[3] || "").toString().trim(),
-      category: (row[4] || "").toString().trim(),
-      amount: parseFloat((row[5] || "0").toString().trim()) || 0,
-      receiptImageUrl: (row[6] || "").toString().trim(),
-    }))
+    .map((row) => {
+      const parseStr = (idx: number) =>
+        (row[idx] || "").toString().trim() || undefined;
+      const parseNum = (idx: number) => {
+        const str = (row[idx] || "").toString().trim();
+        if (!str) return undefined;
+        const val = parseFloat(str);
+        return isNaN(val) ? undefined : val;
+      };
+
+      return {
+        receiptItemId: (row[0] || "").toString().trim(),
+        liquidationId: (row[1] || "").toString().trim(),
+        date: (row[2] || "").toString().trim(),
+        description: (row[3] || "").toString().trim(),
+        category: (row[4] || "").toString().trim(),
+        amount: parseFloat((row[5] || "0").toString().trim()) || 0,
+        receiptImageUrl: (row[6] || "").toString().trim(),
+        siNumber: parseStr(7),
+        siDate: parseStr(8),
+        drNumber: parseStr(9),
+        drDate: parseStr(10),
+        crNumber: parseStr(11),
+        crDate: parseStr(12),
+        bsNumber: parseStr(13),
+        bsDate: parseStr(14),
+        orNumber: parseStr(15),
+        orDate: parseStr(16),
+        othersDate: parseStr(17),
+        refNo: parseStr(18),
+        tin: parseStr(19),
+        supplierName: parseStr(20),
+        address: parseStr(21),
+        checkNo: parseStr(22),
+        cvNo: parseStr(23),
+        particulars: parseStr(24),
+        grossAmount: parseNum(25),
+        vat: parseNum(26),
+        ewt: parseNum(27),
+      };
+    })
     .filter((entry) => entry.receiptItemId.length > 0);
 }
 
@@ -209,7 +241,9 @@ export async function getLiquidationFullByControlNoForUser(
   if (!liquidation) return undefined;
   return {
     ...liquidation,
-    items: items.filter((item) => item.liquidationId === liquidation.liquidationId),
+    items: items.filter(
+      (item) => item.liquidationId === liquidation.liquidationId,
+    ),
   };
 }
 
@@ -254,14 +288,88 @@ function validateItems(items: ReceiptItemInput[]): ReceiptItemInput[] {
     if (!item.description || !item.description.trim()) {
       throw new Error("Description is required for every receipt item.");
     }
+
+    const sanitizeText = (val?: string) => {
+      const trimmed = (val || "").toString().trim();
+      return trimmed ? trimmed.toUpperCase() : undefined;
+    };
+
+    const sanitizeDate = (val?: string) => {
+      const trimmed = (val || "").toString().trim();
+      return trimmed ? trimmed : undefined;
+    };
+
+    const sanitizeNum = (val?: number | string) => {
+      if (val === undefined || val === null || val === "") return undefined;
+      const parsed = parseFloat(String(val));
+      if (isNaN(parsed) || parsed < 0) return undefined;
+      return Math.round(parsed * 100) / 100;
+    };
+
     return {
       date: item.date,
       description: item.description.trim().toUpperCase(),
       category,
       amount: Math.round(amount * 100) / 100,
       receiptImageUrl: (item.receiptImageUrl || "").trim(),
+      siNumber: sanitizeText(item.siNumber),
+      siDate: sanitizeDate(item.siDate),
+      drNumber: sanitizeText(item.drNumber),
+      drDate: sanitizeDate(item.drDate),
+      crNumber: sanitizeText(item.crNumber),
+      crDate: sanitizeDate(item.crDate),
+      bsNumber: sanitizeText(item.bsNumber),
+      bsDate: sanitizeDate(item.bsDate),
+      orNumber: sanitizeText(item.orNumber),
+      orDate: sanitizeDate(item.orDate),
+      othersDate: sanitizeDate(item.othersDate),
+      refNo: sanitizeText(item.refNo),
+      tin: sanitizeText(item.tin),
+      supplierName: sanitizeText(item.supplierName),
+      address: sanitizeText(item.address),
+      checkNo: sanitizeText(item.checkNo),
+      cvNo: sanitizeText(item.cvNo),
+      particulars: (item.particulars || "").toString().trim() || undefined,
+      grossAmount: sanitizeNum(item.grossAmount),
+      vat: sanitizeNum(item.vat),
+      ewt: sanitizeNum(item.ewt),
     };
   });
+}
+
+function mapReceiptItemToRow(item: ReceiptItem): string[] {
+  return [
+    item.receiptItemId,
+    item.liquidationId,
+    item.date,
+    item.description,
+    item.category,
+    String(item.amount),
+    item.receiptImageUrl || "",
+    item.siNumber || "",
+    item.siDate || "",
+    item.drNumber || "",
+    item.drDate || "",
+    item.crNumber || "",
+    item.crDate || "",
+    item.bsNumber || "",
+    item.bsDate || "",
+    item.orNumber || "",
+    item.orDate || "",
+    item.othersDate || "",
+    item.refNo || "",
+    item.tin || "",
+    item.supplierName || "",
+    item.address || "",
+    item.checkNo || "",
+    item.cvNo || "",
+    item.particulars || "",
+    item.grossAmount !== undefined && item.grossAmount !== null
+      ? String(item.grossAmount)
+      : "",
+    item.vat !== undefined && item.vat !== null ? String(item.vat) : "",
+    item.ewt !== undefined && item.ewt !== null ? String(item.ewt) : "",
+  ];
 }
 
 // ── Writers ──
@@ -412,29 +520,42 @@ export async function addReceiptItems(
     category: item.category,
     amount: item.amount,
     receiptImageUrl: item.receiptImageUrl || "",
+    siNumber: item.siNumber,
+    siDate: item.siDate,
+    drNumber: item.drNumber,
+    drDate: item.drDate,
+    crNumber: item.crNumber,
+    crDate: item.crDate,
+    bsNumber: item.bsNumber,
+    bsDate: item.bsDate,
+    orNumber: item.orNumber,
+    orDate: item.orDate,
+    othersDate: item.othersDate,
+    refNo: item.refNo,
+    tin: item.tin,
+    supplierName: item.supplierName,
+    address: item.address,
+    checkNo: item.checkNo,
+    cvNo: item.cvNo,
+    particulars: item.particulars,
+    grossAmount: item.grossAmount,
+    vat: item.vat,
+    ewt: item.ewt,
   }));
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${RECEIPT_ITEMS_SHEET}!A:G`,
+    range: `${RECEIPT_ITEMS_SHEET}!A:AB`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: added.map((item) => [
-        item.receiptItemId,
-        item.liquidationId,
-        item.date,
-        item.description,
-        item.category,
-        String(item.amount),
-        item.receiptImageUrl,
-      ]),
+      values: added.map(mapReceiptItemToRow),
     },
   });
 
   const allItems = await getAllReceiptItems();
   const total = allItems
     .filter((item) => item.liquidationId === liquidationId)
-    .reduce((sum, item) => sum + item.amount, 0);
+    .reduce((sum, item) => sum + (item.grossAmount ?? item.amount ?? 0), 0);
 
   const all = await getAllLiquidations();
   const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
@@ -501,21 +622,34 @@ export async function replaceReceiptItems(
       category: item.category,
       amount: item.amount,
       receiptImageUrl: item.receiptImageUrl || "",
+      siNumber: item.siNumber,
+      siDate: item.siDate,
+      drNumber: item.drNumber,
+      drDate: item.drDate,
+      crNumber: item.crNumber,
+      crDate: item.crDate,
+      bsNumber: item.bsNumber,
+      bsDate: item.bsDate,
+      orNumber: item.orNumber,
+      orDate: item.orDate,
+      othersDate: item.othersDate,
+      refNo: item.refNo,
+      tin: item.tin,
+      supplierName: item.supplierName,
+      address: item.address,
+      checkNo: item.checkNo,
+      cvNo: item.cvNo,
+      particulars: item.particulars,
+      grossAmount: item.grossAmount,
+      vat: item.vat,
+      ewt: item.ewt,
     }));
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${RECEIPT_ITEMS_SHEET}!A:G`,
+      range: `${RECEIPT_ITEMS_SHEET}!A:AB`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: added.map((item) => [
-          item.receiptItemId,
-          item.liquidationId,
-          item.date,
-          item.description,
-          item.category,
-          String(item.amount),
-          item.receiptImageUrl,
-        ]),
+        values: added.map(mapReceiptItemToRow),
       },
     });
   }
@@ -523,7 +657,7 @@ export async function replaceReceiptItems(
   const allItems = await getAllReceiptItems();
   const total = allItems
     .filter((item) => item.liquidationId === liquidationId)
-    .reduce((sum, item) => sum + item.amount, 0);
+    .reduce((sum, item) => sum + (item.grossAmount ?? item.amount ?? 0), 0);
   const all = await getAllLiquidations();
   const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
   if (idx >= 0) {
@@ -705,8 +839,7 @@ export async function updateLiquidationControlNo(
   if (trimmed) {
     const existing = all.find(
       (entry) =>
-        entry.controlNo === trimmed &&
-        entry.liquidationId !== liquidationId,
+        entry.controlNo === trimmed && entry.liquidationId !== liquidationId,
     );
     if (existing) {
       throw new Error(

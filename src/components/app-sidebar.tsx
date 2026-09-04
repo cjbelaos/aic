@@ -480,23 +480,6 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith(
-                    "/dashboard/expense-liquidation-v2",
-                  )}
-                  tooltip="Expense Liquidation V2 (Testing)"
-                >
-                  <Link href="/dashboard/expense-liquidation-v2">
-                    <Receipt />
-                    <span>Expense Liquidation V2</span>
-                  </Link>
-                </SidebarMenuButton>
-                <SidebarMenuBadge className="bg-amber-500 text-white uppercase text-[9px] font-bold tracking-wide shadow-sm">
-                  TESTING
-                </SidebarMenuBadge>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

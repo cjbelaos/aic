@@ -15,6 +15,8 @@ import {
   Lock,
   FileText,
   Calculator,
+  HelpCircle,
+  HelpCircle as QuestionIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +46,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { liquidationV2Service } from "@/lib/services/liquidation-v2.service";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
@@ -59,7 +74,6 @@ import type {
 
 const EDITABLE_STATUSES = ["SAVED", "REQUESTED_FOR_CHANGE"];
 
-/** Maps FTI request statuses to badge tailwind classes (matches production). */
 function statusBadgeClass(status: string): string {
   switch ((status || "").toUpperCase()) {
     case "APPROVED":
@@ -77,10 +91,10 @@ function statusBadgeClass(status: string): string {
 }
 
 /**
- * Labeled text input. `uppercase` renders the value in caps (CSS transform +
- * stored value normalization) so free-text fields are ALWAYS uppercase.
+ * Reusable field input equipped with a large visual helper Dialog modal
+ * to clearly display guide snippets from /public/guides/
  */
-function Field({
+function FieldWithGuide({
   label,
   value,
   onChange,
@@ -88,6 +102,10 @@ function Field({
   type = "text",
   hint,
   uppercase = false,
+  subLabel,
+  guideImagePath,
+  guideTitle,
+  guideDescription,
 }: {
   label: string;
   value: string;
@@ -96,10 +114,67 @@ function Field({
   type?: string;
   hint?: string;
   uppercase?: boolean;
+  subLabel?: string;
+  guideImagePath?: string;
+  guideTitle?: string;
+  guideDescription?: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Label className="text-sm font-medium">{label}</Label>
+
+          {guideImagePath && (
+            <Dialog>
+              <DialogTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-0.5 text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 transition-colors"
+                >
+                  <QuestionIcon className="h-3.5 w-3.5 text-blue-500" />
+                  <span>Where to find?</span>
+                </button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-2xl w-[92vw] max-h-[88vh] flex flex-col p-6 z-50">
+                <DialogHeader className="border-b pb-3">
+                  <DialogTitle className="text-base font-semibold">
+                    {guideTitle || `Finding "${label}" on Receipt`}
+                  </DialogTitle>
+                  {guideDescription && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {guideDescription}
+                    </p>
+                  )}
+                </DialogHeader>
+
+                <div className="flex-1 overflow-auto rounded-lg border bg-muted/20 p-2 flex items-center justify-center my-2 min-h-[300px]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={guideImagePath}
+                    alt={`Sample snippet for ${label}`}
+                    className="w-full h-auto object-contain max-h-[60vh] rounded"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.style.display = "none";
+                      if (target.parentElement) {
+                        target.parentElement.innerHTML = `<div class="p-8 text-center text-xs text-muted-foreground font-mono">Image snippet placeholder:<br/><span class="text-blue-600">${guideImagePath}</span><br/><br/>(Upload cropped snippet image to public/guides/ folder)</div>`;
+                      }
+                    }}
+                  />
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
+
+        {subLabel && (
+          <span className="text-[10px] text-muted-foreground font-normal">
+            {subLabel}
+          </span>
+        )}
+      </div>
+
       <Input
         type={type}
         inputMode={type === "number" ? "decimal" : undefined}
@@ -126,7 +201,6 @@ export function LiquidationFormV2({
   userId: string;
   onCancel?: () => void;
   editingLiquidation?: LiquidationFullV2 | null;
-  /** When true, forces "Other (No FTI)" mode (mirrors production). */
   restrictToOther?: boolean;
 }) {
   const isEditing = !!editingLiquidation;
@@ -136,12 +210,10 @@ export function LiquidationFormV2({
       (editingLiquidation?.status || "").toUpperCase(),
     );
 
-  // Active liquidation: created lazily on the first Add Item, or the one being edited.
   const [liquidationId, setLiquidationId] = useState(
     editingLiquidation?.liquidationId || "",
   );
 
-  // ── Liquidation type: "fti" (linked to an FTI) or "other" (no FTI) ──
   const [ftiRequests, setFtiRequests] = useState<FTIRequestSummary[]>([]);
   const [loadingFti, setLoadingFti] = useState(true);
   const [liqType, setLiqType] = useState<"fti" | "other">(() =>
@@ -156,7 +228,6 @@ export function LiquidationFormV2({
   const [controlNo, setControlNo] = useState(
     editingLiquidation?.controlNo || "",
   );
-  // Manual Total Amount Requested for "Other" liquidations (no FTI ControlNo).
   const [totalAmountRequested, setTotalAmountRequested] = useState(
     editingLiquidation && !editingLiquidation.controlNo
       ? editingLiquidation.totalAmountRequested != null
@@ -165,7 +236,6 @@ export function LiquidationFormV2({
       : "",
   );
 
-  // ── Items (restored from an editing liquidation) ──
   const [items, setItems] = useState<ReceiptItemV2Input[]>(() =>
     editingLiquidation
       ? editingLiquidation.items.map((it) => ({
@@ -194,7 +264,6 @@ export function LiquidationFormV2({
   );
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
-  // ── Vendor Information (batch-level; stamped on every line item) ──
   const [supplierName, setSupplierName] = useState(
     editingLiquidation?.items[0]?.supplierName || "",
   );
@@ -204,7 +273,6 @@ export function LiquidationFormV2({
   const [tin, setTin] = useState(editingLiquidation?.items[0]?.tin || "");
   const [refNo, setRefNo] = useState(editingLiquidation?.items[0]?.refNo || "");
 
-  // ── Miscellaneous categories (value = code, label = description) ──
   const [categories, setCategories] = useState<string[]>([]);
   const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
   const [loadingCategories, setLoadingCategories] = useState(true);
@@ -218,27 +286,23 @@ export function LiquidationFormV2({
   const [successLiquidationId, setSuccessLiquidationId] = useState<
     string | null
   >(null);
-// ── Line-item draft state ──
+
   const [draftDate, setDraftDate] = useState("");
   const [draftCategory, setDraftCategory] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
-  // Gross Amount is required; EWT is optional manual. VAT and Net Amount are
-  // auto-computed (button-gated — not all receipts are VATable) and rendered
-  // as disabled read-only.
   const [draftGross, setDraftGross] = useState("");
   const [draftEwt, setDraftEwt] = useState("");
-  // When true, VAT 12% is applied to this line (VATable receipt).
   const [draftApplyVat, setDraftApplyVat] = useState(false);
-  // Document references (no per-doc dates — the item Date applies).
+
   const [draftSiNo, setDraftSiNo] = useState("");
   const [draftDrNo, setDraftDrNo] = useState("");
   const [draftCrNo, setDraftCrNo] = useState("");
   const [draftBsNo, setDraftBsNo] = useState("");
   const [draftOrNo, setDraftOrNo] = useState("");
-  // Accounting references.
   const [draftCheckNo, setDraftCheckNo] = useState("");
   const [draftCvNo, setDraftCvNo] = useState("");
-  // Receipt upload.
+  const [draftRefNo, setDraftRefNo] = useState("");
+
   const [draftReceiptUrl, setDraftReceiptUrl] = useState("");
   const [draftReceiptPreviewUrl, setDraftReceiptPreviewUrl] = useState("");
   const [draftReceiptFile, setDraftReceiptFile] = useState<File | null>(null);
@@ -255,23 +319,44 @@ export function LiquidationFormV2({
   const requestedAmount =
     isNaN(requestedParsed) || requestedParsed < 0 ? 0 : requestedParsed;
 
-  const totalAmount = items.reduce((sum, it) => sum + (it.amount || 0), 0);
-  const grossTotal = items.reduce((sum, it) => sum + (it.grossAmount || 0), 0);
-  const vatTotal = items.reduce((sum, it) => sum + (it.vat || 0), 0);
-  const ewtTotal = items.reduce((sum, it) => sum + (it.ewt || 0), 0);
+  // Calculate total amount based on Gross Amount (fallback to Net Amount)
+  const getItemGross = (it: ReceiptItemV2Input) =>
+    it.grossAmount ?? it.amount ?? 0;
+  const totalAmount = items.reduce((sum, it) => sum + getItemGross(it), 0);
+
+  // ── Summary-block computations (mirror production liquidation-form) ──
+  const advances = isOther ? requestedAmount : selectedFti?.totalAmount || 0;
+  const difference = totalAmount - advances;
+  const hasAdvances = advances > 0;
+  const hasAmountToReturn = hasAdvances && difference < 0;
+  const settlement = hasAmountToReturn
+    ? { label: "Amount to Return" }
+    : !hasAdvances
+      ? { label: "Total Reimbursement" }
+      : difference > 0
+        ? {
+            label: "Total Reimbursement",
+            hint: "(Positive Amount — Company pays employee)",
+          }
+        : { label: "Net Amount Due / Settled", hint: "(₱0.00)" };
+  const settlementValue = hasAmountToReturn
+    ? Math.abs(difference)
+    : !hasAdvances || difference === 0
+      ? difference === 0
+        ? 0
+        : totalAmount
+      : difference;
 
   const categoryTotals = Object.fromEntries(
     categories.map((cat) => [
       cat,
       items
         .filter((it) => it.miscellaneousCode === cat)
-        .reduce((s, it) => s + (it.amount || 0), 0),
+        .reduce((s, it) => s + getItemGross(it), 0),
     ]),
   );
-  // Only show columns that have at least one item using them.
-  const displayCategories = categories.filter(
-    (cat) => categoryTotals[cat] > 0,
-  );
+
+  const displayCategories = categories.filter((cat) => categoryTotals[cat] > 0);
   const sortedItems = [...items].sort((a, b) => a.date.localeCompare(b.date));
 
   const formatCurrency = (value: number) =>
@@ -280,10 +365,6 @@ export function LiquidationFormV2({
       currency: "PHP",
     }).format(value);
 
-  // ── Auto-computed VAT / Net for the current draft line item ──
-  // VAT = Gross ÷ 1.12 × 12% (Gross treated as VAT-inclusive). Only applied
-  // when "Apply VAT" is toggled on (VATable receipt) — otherwise VAT = 0.
-  // Net = Gross − VAT − EWT (EWT optional manual).
   const draftGrossNum = parseFloat(draftGross);
   const draftEwtNum = parseFloat(draftEwt);
   const hasGrossInput =
@@ -297,11 +378,14 @@ export function LiquidationFormV2({
       ? Math.round(draftEwtNum * 100) / 100
       : 0;
   const draftNet = hasGrossInput
-    ? Math.max(0, Math.round((draftGrossNum - draftVat - draftEwtValue) * 100) / 100)
+    ? Math.max(
+        0,
+        Math.round((draftGrossNum - draftVat - draftEwtValue) * 100) / 100,
+      )
     : 0;
   const draftVatText = hasGrossInput ? draftVat.toFixed(2) : "";
   const draftNetText = hasGrossInput ? draftNet.toFixed(2) : "";
-// Load the user's APPROVED FTI requests to select from (mirrors production).
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -330,7 +414,6 @@ export function LiquidationFormV2({
     };
   }, [userId]);
 
-  // Load miscellaneous categories (value = code, display = description).
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -352,7 +435,6 @@ export function LiquidationFormV2({
     };
   }, []);
 
-  // Resolve the requester's full name from the Users sheet.
   useEffect(() => {
     let cancelled = false;
     if (!userId) return;
@@ -371,17 +453,14 @@ export function LiquidationFormV2({
     };
   }, [userId]);
 
-  // ── Type switch handlers ──
   const handleTypeChange = (linkedToFti: boolean) => {
     if (restrictToOther || isEditing || isLocked) return;
     if (linkedToFti) {
-      // FTI Linked
       setLiqType("fti");
       setLiquidationId("");
       setItems([]);
       setTotalAmountRequested("");
     } else {
-      // No FTI (Other)
       setLiqType("other");
       setControlNo("");
       setLiquidationId("");
@@ -389,7 +468,8 @@ export function LiquidationFormV2({
       setTotalAmountRequested("");
     }
   };
-const resetDraft = () => {
+
+  const resetDraft = () => {
     setEditingIndex(null);
     setDraftDate("");
     setDraftCategory("");
@@ -404,6 +484,7 @@ const resetDraft = () => {
     setDraftOrNo("");
     setDraftCheckNo("");
     setDraftCvNo("");
+    setDraftRefNo("");
     if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
     setDraftReceiptFile(null);
     setDraftPreviewSrc("");
@@ -438,7 +519,6 @@ const resetDraft = () => {
     setDraftReceiptName("");
   };
 
-  // ── Line-item add / update ──
   const handleAddOrUpdateItem = async () => {
     if (isLocked) {
       toast.error(
@@ -463,14 +543,14 @@ const resetDraft = () => {
       toast.error("Please enter a valid Gross Amount.");
       return;
     }
-    // VAT only when the "Apply VAT" toggle is on (VATable receipt), else 0.
-    // Net = Gross − VAT − EWT (EWT manual).
+
     const vat = draftApplyVat
       ? Math.round((gross / 1.12) * 0.12 * 100) / 100
       : 0;
     const ewt = draftEwtValue;
     const net = Math.max(0, Math.round((gross - vat - ewt) * 100) / 100);
-let finalReceiptUrl = draftReceiptUrl;
+
+    let finalReceiptUrl = draftReceiptUrl;
     let finalReceiptPreviewUrl = draftReceiptPreviewUrl;
     let uploadedFileId = "";
 
@@ -493,7 +573,6 @@ let finalReceiptUrl = draftReceiptUrl;
       }
     }
 
-    // Particulars = the Miscellaneous Description (same as Category label).
     const miscDescription = miscLookup.get(draftCategory) || draftCategory;
 
     const item: ReceiptItemV2Input = {
@@ -505,15 +584,14 @@ let finalReceiptUrl = draftReceiptUrl;
       vat: vat > 0 ? vat : undefined,
       ewt: ewt > 0 ? ewt : undefined,
       particulars: miscDescription,
-      siNumber: draftSiNo.trim() || undefined,
-      drNumber: draftDrNo.trim() || undefined,
-      crNumber: draftCrNo.trim() || undefined,
-      bsNumber: draftBsNo.trim() || undefined,
-      orNumber: draftOrNo.trim() || undefined,
-      checkNo: draftCheckNo.trim() || undefined,
-      cvNo: draftCvNo.trim() || undefined,
-      // Batch-level vendor info is stamped onto every line item.
-      refNo: refNo || undefined,
+      siNumber: draftSiNo.trim().toUpperCase() || undefined,
+      drNumber: draftDrNo.trim().toUpperCase() || undefined,
+      crNumber: draftCrNo.trim().toUpperCase() || undefined,
+      bsNumber: draftBsNo.trim().toUpperCase() || undefined,
+      orNumber: draftOrNo.trim().toUpperCase() || undefined,
+      checkNo: draftCheckNo.trim().toUpperCase() || undefined,
+      cvNo: draftCvNo.trim().toUpperCase() || undefined,
+      refNo: draftRefNo.trim().toUpperCase() || refNo || undefined,
       tin: tin || undefined,
       supplierName: supplierName || undefined,
       address: supplierAddress || undefined,
@@ -546,13 +624,18 @@ let finalReceiptUrl = draftReceiptUrl;
         setItems((prev) => [...prev, item]);
         toast.success("Receipt item added.");
         resetDraft();
+        // The new item already captured the vendor data — clear the
+        // Vendor Information card so the next receipt starts fresh.
+        setSupplierName("");
+        setSupplierAddress("");
+        setTin("");
+        setRefNo("");
       }
     } catch (error) {
       console.error("Failed to persist receipt item:", error);
       if (uploadedFileId) {
         try {
           await liquidationV2Service.deleteReceipt(uploadedFileId);
-          console.info("Rolled back orphaned receipt file:", uploadedFileId);
         } catch (rollbackError) {
           console.error("Failed to roll back receipt file:", rollbackError);
         }
@@ -575,7 +658,8 @@ let finalReceiptUrl = draftReceiptUrl;
       setUploading(false);
     }
   };
-const handleEditItem = (index: number) => {
+
+  const handleEditItem = (index: number) => {
     const it = items[index];
     if (!it) return;
     if (isLocked) {
@@ -601,6 +685,7 @@ const handleEditItem = (index: number) => {
     setDraftOrNo(it.orNumber || "");
     setDraftCheckNo(it.checkNo || "");
     setDraftCvNo(it.cvNo || "");
+    setDraftRefNo(it.refNo || "");
     setDraftReceiptUrl(it.receiptImageUrl || "");
     setDraftReceiptPreviewUrl(it.receiptPreviewUrl || "");
     setDraftReceiptIsImage(
@@ -635,14 +720,15 @@ const handleEditItem = (index: number) => {
     }
   };
 
-  // ── Submit ──
   const handleSubmit = async () => {
     if (isLocked) {
       toast.error("This liquidation has already been submitted.");
       return;
     }
     if (!liquidationId) {
-      toast.error("No active liquidation to submit. Add at least one item first.");
+      toast.error(
+        "No active liquidation to submit. Add at least one item first.",
+      );
       return;
     }
     if (items.length === 0) {
@@ -678,7 +764,7 @@ const handleEditItem = (index: number) => {
       setSubmitting(false);
     }
   };
-// ── Preview → PDF / Image export (mirrors the production flow) ──
+
   const getLiquidationPrintElement = () =>
     document.getElementById("liquidation-preview-content");
 
@@ -764,7 +850,7 @@ const handleEditItem = (index: number) => {
   const isImageUrl = (url: string) =>
     /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(url) &&
     !url.includes("drive.google.com");
-// ── Success feedback screen ──
+
   if (successLiquidationId) {
     return (
       <Card className="mx-auto max-w-2xl">
@@ -814,7 +900,7 @@ const handleEditItem = (index: number) => {
         </p>
       </div>
 
-      {/* ── Liquidation Type (FTI Linked / No FTI) ── */}
+      {/* ── Liquidation Type ── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Liquidation Type</CardTitle>
@@ -823,12 +909,12 @@ const handleEditItem = (index: number) => {
               ? "Create an expense liquidation without an FTI ControlNo."
               : isEditing
                 ? "Edit the receipts and details for this liquidation."
-                : "Link to an APPROVED FTI, or create a \"No FTI\" liquidation."}
+                : 'Link to an APPROVED FTI, or create a "No FTI" liquidation.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-{!restrictToOther && !isEditing && (
+            {!restrictToOther && !isEditing && (
               <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/40 p-4">
                 <div className="flex items-center gap-3">
                   <Switch
@@ -855,7 +941,7 @@ const handleEditItem = (index: number) => {
 
             {isOther ? (
               <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
-                <Field
+                <FieldWithGuide
                   label="Total Amount Requested (₱)"
                   type="number"
                   value={totalAmountRequested}
@@ -896,7 +982,6 @@ const handleEditItem = (index: number) => {
                   </Select>
                 )}
 
-                {/* ── ControlNo preview panel ── */}
                 {selectedFti && (
                   <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3 text-sm">
                     <div className="flex items-center justify-between gap-2">
@@ -931,7 +1016,8 @@ const handleEditItem = (index: number) => {
           </div>
         </CardContent>
       </Card>
-{/* ── Vendor Information (full-width rows for mobile) ── */}
+
+      {/* ── Vendor Information ── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Vendor Information</CardTitle>
@@ -940,39 +1026,40 @@ const handleEditItem = (index: number) => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Field
+          <FieldWithGuide
             label="Supplier Name"
             value={supplierName}
             onChange={setSupplierName}
-            placeholder="e.g. SHELL GAS STATION"
+            placeholder="E.G. SHELL GAS STATION"
             uppercase
+            guideImagePath="/guides/supplier-name.png"
+            guideTitle="1. Supplier / Store Name"
+            guideDescription="Usually prominently printed at the topmost header of the receipt or invoice."
           />
-          <Field
+          <FieldWithGuide
             label="Supplier Address"
             value={supplierAddress}
             onChange={setSupplierAddress}
-            placeholder="e.g. BRGY. BANAY BANAY, CABUYAO CITY, LAGUNA"
+            placeholder="E.G. BRGY. BANAY BANAY, CABUYAO CITY, LAGUNA"
             uppercase
+            guideImagePath="/guides/supplier-address.png"
+            guideTitle="2. Supplier Business Address"
+            guideDescription="Located directly below the supplier/store name."
           />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field
-              label="TIN"
-              value={tin}
-              onChange={setTin}
-              placeholder="e.g. 000-000-000-000"
-              uppercase
-            />
-            <Field
-              label="Ref No"
-              value={refNo}
-              onChange={setRefNo}
-              placeholder="e.g. REF-101"
-              uppercase
-            />
-          </div>
+          <FieldWithGuide
+            label="TIN"
+            value={tin}
+            onChange={setTin}
+            placeholder="E.G. 000-000-000-000"
+            uppercase
+            guideImagePath="/guides/tin.png"
+            guideTitle="3. Tax Identification Number (TIN)"
+            guideDescription="Look for 'VAT REG TIN', 'NON-VAT REG TIN', or 'TIN:' near the top header."
+          />
         </CardContent>
       </Card>
-{/* ── Add Receipt Item ── */}
+
+      {/* ── Add Receipt Item ── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
@@ -983,11 +1070,14 @@ const handleEditItem = (index: number) => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Field
+          <FieldWithGuide
             label="Date"
             type="date"
             value={draftDate}
             onChange={setDraftDate}
+            guideImagePath="/guides/receipt-date.png"
+            guideTitle="4. Transaction Date"
+            guideDescription="Look for 'Date:' or transaction timestamp on the receipt."
           />
 
           <div className="space-y-1.5">
@@ -1032,20 +1122,28 @@ const handleEditItem = (index: number) => {
             </p>
           </div>
 
-          <Field
+          <FieldWithGuide
             label="Description"
             value={draftDescription}
             onChange={setDraftDescription}
-            placeholder="e.g. LUNCH DURING FIELD SERVICE"
+            placeholder="E.G. LUNCH DURING FIELD SERVICE"
             uppercase
+            guideImagePath="/guides/description.png"
+            guideTitle="Item Particulars / Description"
+            guideDescription="Specific itemized descriptions or reason for the expense."
           />
-<Field
+
+          <FieldWithGuide
             label="Gross Amount (₱)"
             type="number"
             value={draftGross}
             onChange={setDraftGross}
             placeholder="0.00"
+            guideImagePath="/guides/gross-amount.png"
+            guideTitle="5. Total Gross Amount"
+            guideDescription="Look for 'TOTAL', 'AMOUNT DUE', or 'TOTAL AMOUNT' at the bottom of the receipt."
           />
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label>Net Amount (₱) — auto</Label>
@@ -1069,7 +1167,7 @@ const handleEditItem = (index: number) => {
                 className="h-11 text-base bg-muted text-muted-foreground"
               />
             </div>
-            <Field
+            <FieldWithGuide
               label="EWT (₱) — optional"
               type="number"
               value={draftEwt}
@@ -1078,7 +1176,7 @@ const handleEditItem = (index: number) => {
             />
           </div>
 
-          {/* ── VAT trigger (only VATable receipts get VAT applied) ── */}
+          {/* ── VAT trigger ── */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border bg-muted/40 p-3">
             <div className="space-y-0.5">
               <p className="text-sm font-semibold">
@@ -1087,8 +1185,8 @@ const handleEditItem = (index: number) => {
                   : "Non-VAT / VAT not applied"}
               </p>
               <p className="text-xs text-muted-foreground">
-                Press the button only for VATable receipts. VAT = Gross ÷ 1.12
-                × 12%; Net = Gross − VAT − EWT.
+                Press the button only for VATable receipts. VAT = Gross ÷ 1.12 ×
+                12%; Net = Gross − VAT − EWT.
               </p>
             </div>
             <Button
@@ -1096,9 +1194,7 @@ const handleEditItem = (index: number) => {
               variant={draftApplyVat ? "default" : "outline"}
               size="sm"
               className={
-                draftApplyVat
-                  ? "bg-blue-600 hover:bg-blue-700 text-white"
-                  : ""
+                draftApplyVat ? "bg-blue-600 hover:bg-blue-700 text-white" : ""
               }
               onClick={() => setDraftApplyVat((prev) => !prev)}
             >
@@ -1106,69 +1202,177 @@ const handleEditItem = (index: number) => {
               {draftApplyVat ? "Remove VAT" : "Apply VAT 12%"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Gross Amount is required. VAT is applied only when you press Apply
-            VAT 12%; Net is always auto-computed as Gross − VAT − EWT.
-          </p>
 
-          {/* ── SI / DR / CR / BS / OR References (numbers only) ── */}
-          <div className="pt-2">
-            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              SI / DR / CR / BS / OR References
-            </Label>
-            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Field
+          {/* ── FOOLPROOF DOCUMENT REFERENCES SECTION ── */}
+          <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div>
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Document References
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Fill in the reference field that matches your receipt or
+                  document.
+                </p>
+              </div>
+
+              {/* Reference Guide Tooltip */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                    >
+                      <HelpCircle className="h-3.5 w-3.5" />
+                      <span>Reference Guide</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="left"
+                    className="max-w-xs text-xs space-y-1"
+                  >
+                    <p className="font-semibold border-b pb-1">
+                      Which field should I use?
+                    </p>
+                    <p>
+                      <strong>SI:</strong> Sales Invoice (Goods/Items)
+                    </p>
+                    <p>
+                      <strong>OR:</strong> Official Receipt (Services/Utilities)
+                    </p>
+                    <p>
+                      <strong>DR:</strong> Delivery Receipt
+                    </p>
+                    <p>
+                      <strong>CR:</strong> Collection Receipt
+                    </p>
+                    <p>
+                      <strong>BS:</strong> Billing Statement
+                    </p>
+                    <p>
+                      <strong>Check / CV:</strong> Payment Voucher & Check
+                      details
+                    </p>
+                    <p className="pt-1 text-amber-600 font-medium">
+                      <strong>Ref No:</strong> Use ONLY if none of the above
+                      apply (e.g. Waybill, Statement of Account).
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* 6. SI Number */}
+              <FieldWithGuide
                 label="SI Number"
+                subLabel="Sales Invoice"
                 value={draftSiNo}
                 onChange={setDraftSiNo}
-                placeholder="e.g. SI-0001"
+                placeholder="E.G. SI-0001"
                 uppercase
+                guideImagePath="/guides/si-number.png"
+                guideTitle="6. Sales Invoice Number (S.I. #)"
+                guideDescription="Look for 'S.I. #', 'SI NO.', or 'SALES INVOICE #' printed on the receipt."
               />
-              <Field
+
+              {/* 7. OR Number */}
+              <FieldWithGuide
                 label="OR Number"
+                subLabel="Official Receipt"
                 value={draftOrNo}
                 onChange={setDraftOrNo}
-                placeholder="e.g. OR-0001"
+                placeholder="E.G. OR-0001"
                 uppercase
+                guideImagePath="/guides/or-number.png"
+                guideTitle="7. Official Receipt Number (O.R. #)"
+                guideDescription="Look for 'O.R. #', 'OR NO.', or 'OFFICIAL RECEIPT NO.'."
               />
-              <Field
+
+              {/* 8. DR Number */}
+              <FieldWithGuide
                 label="DR Number"
+                subLabel="Delivery Receipt"
                 value={draftDrNo}
                 onChange={setDraftDrNo}
-                placeholder="e.g. DR-0001"
+                placeholder="E.G. DR-0001"
                 uppercase
+                guideImagePath="/guides/dr-number.png"
+                guideTitle="8. Delivery Receipt Number (D.R. #)"
+                guideDescription="Look for 'D.R. #', 'DR NO.', or 'DELIVERY RECEIPT'."
               />
-              <Field
+
+              {/* 9. CR Number */}
+              <FieldWithGuide
                 label="CR Number"
+                subLabel="Collection Receipt"
                 value={draftCrNo}
                 onChange={setDraftCrNo}
-                placeholder="e.g. CR-0001"
+                placeholder="E.G. CR-0001"
                 uppercase
+                guideImagePath="/guides/cr-number.png"
+                guideTitle="9. Collection Receipt Number (C.R. #)"
+                guideDescription="Look for 'C.R. #', 'CR NO.', or 'COLLECTION RECEIPT'."
               />
-              <Field
+
+              {/* 10. BS Number */}
+              <FieldWithGuide
                 label="BS Number"
+                subLabel="Billing Statement"
                 value={draftBsNo}
                 onChange={setDraftBsNo}
-                placeholder="e.g. BS-0001"
+                placeholder="E.G. BS-0001"
                 uppercase
+                guideImagePath="/guides/bs-number.png"
+                guideTitle="10. Billing Statement Number (B.S. #)"
+                guideDescription="Look for 'STATEMENT NO.', 'BILLING NO.', or 'B.S. #'."
               />
-              <Field
+
+              {/* 11. Check No */}
+              <FieldWithGuide
                 label="Check No"
+                subLabel="Check Payment"
                 value={draftCheckNo}
                 onChange={setDraftCheckNo}
-                placeholder="e.g. CHK-101"
+                placeholder="E.G. CHK-101"
                 uppercase
+                guideImagePath="/guides/check-number.png"
+                guideTitle="11. Check Number"
+                guideDescription="Check number issued or indicated on check payment vouchers."
               />
-              <Field
+
+              {/* 12. CV No */}
+              <FieldWithGuide
                 label="CV No"
+                subLabel="Check Voucher"
                 value={draftCvNo}
                 onChange={setDraftCvNo}
-                placeholder="e.g. CV-2026-001"
+                placeholder="E.G. CV-2026-001"
                 uppercase
+                guideImagePath="/guides/cv-number.png"
+                guideTitle="12. Check Voucher Number (C.V. #)"
+                guideDescription="Look for 'CHECK VOUCHER NO.' or 'C.V. #' on company vouchers."
               />
+
+              {/* Ref No placed directly beside CV No (spans 2 columns on lg screens) */}
+              <div className="lg:col-span-2">
+                <FieldWithGuide
+                  label="Ref No (Other / Fallback)"
+                  subLabel="Use ONLY if no standard reference applies"
+                  value={draftRefNo}
+                  onChange={setDraftRefNo}
+                  placeholder="E.G. STATEMENT OF ACCOUNT, ORDER SLIP, AIR WAYBILL"
+                  uppercase
+                  guideImagePath="/guides/ref-number.png"
+                  guideTitle="Other Document Reference"
+                  guideDescription="Use for Air Waybills, GCash Ref #, Statement of Accounts, or Order Slips."
+                />
+              </div>
             </div>
           </div>
-{/* ── Receipt photo capture / upload ── */}
+
+          {/* ── Receipt photo capture / upload ── */}
           <div className="space-y-1.5">
             <Label>Receipt Photo</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -1277,7 +1481,8 @@ const handleEditItem = (index: number) => {
           </Button>
         </CardContent>
       </Card>
-{/* ── Receipt Items (pivot: Date | Description | <categories> | Total) ── */}
+
+      {/* ── Receipt Items Pivot Table ── */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1333,6 +1538,7 @@ const handleEditItem = (index: number) => {
                         (item.receiptImageUrl
                           ? isImageUrl(item.receiptImageUrl)
                           : true);
+                      const itemGross = item.grossAmount ?? item.amount ?? 0;
                       return (
                         <TableRow key={`${item.date}-${originalIndex}`}>
                           <TableCell className="whitespace-nowrap font-medium">
@@ -1347,12 +1553,12 @@ const handleEditItem = (index: number) => {
                               className="text-right font-mono"
                             >
                               {item.miscellaneousCode === cat
-                                ? formatCurrency(item.amount)
+                                ? formatCurrency(itemGross)
                                 : ""}
                             </TableCell>
                           ))}
                           <TableCell className="text-right font-bold">
-                            {formatCurrency(item.amount)}
+                            {formatCurrency(itemGross)}
                           </TableCell>
                           <TableCell className="text-center">
                             {item.receiptImageUrl ? (
@@ -1384,7 +1590,7 @@ const handleEditItem = (index: number) => {
                               </span>
                             )}
                           </TableCell>
-<TableCell className="text-right">
+                          <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               <Button
                                 type="button"
@@ -1450,29 +1656,45 @@ const handleEditItem = (index: number) => {
                   </TableFooter>
                 </Table>
               </div>
-<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-                  <p className="text-muted-foreground">Gross Amount</p>
-                  <p className="font-bold">{formatCurrency(grossTotal)}</p>
-                </div>
-                <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-                  <p className="text-muted-foreground">VAT</p>
-                  <p className="font-bold">{formatCurrency(vatTotal)}</p>
-                </div>
-                <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-                  <p className="text-muted-foreground">EWT</p>
-                  <p className="font-bold">{formatCurrency(ewtTotal)}</p>
-                </div>
-                <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-                  <p className="text-muted-foreground">Net Amount</p>
-                  <p className="font-bold">{formatCurrency(totalAmount)}</p>
+
+              {/* ── Summary block (bottom right) ── */}
+              <div className="flex justify-end">
+                <div className="w-full max-w-xs space-y-1 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">
+                      Total Expenses
+                    </span>
+                    <span className="font-mono font-semibold">
+                      {formatCurrency(totalAmount)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Cash Advances</span>
+                    <span className="font-mono font-semibold">
+                      {formatCurrency(advances)}
+                    </span>
+                  </div>
+                  <div className="flex items-start justify-between gap-2 border-t pt-1">
+                    <span className="font-semibold">
+                      {settlement.label}
+                      {settlement.hint && (
+                        <span className="block text-[10px] font-normal text-muted-foreground">
+                          {settlement.hint}
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 font-mono font-bold">
+                      {formatCurrency(settlementValue)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </>
           )}
         </CardContent>
       </Card>
-{/* ── Preview modal + off-screen printable document ── */}
+
+      {/* ── Preview modal + off-screen printable document ── */}
       <LiquidationPreviewModalV2
         open={previewOpen}
         onOpenChange={setPreviewOpen}
@@ -1481,6 +1703,7 @@ const handleEditItem = (index: number) => {
         items={items}
         categories={categories}
         miscLookup={miscLookup}
+        advances={advances}
         onDownloadPdf={handleDownloadPdf}
         downloadingPdf={downloadingPdf}
         onDownloadImage={handleDownloadImage}
@@ -1493,6 +1716,7 @@ const handleEditItem = (index: number) => {
           items={items}
           categories={categories}
           miscLookup={miscLookup}
+          advances={advances}
           id="liquidation-preview-content"
         />
       </div>

@@ -771,6 +771,7 @@ if (loading) {
             }))}
             categories={Array.from(miscLookup.keys())}
             miscLookup={miscLookup}
+            advances={previewLiquidation?.totalAmountRequested || 0}
             onDownloadPdf={handleDownloadPdf}
             downloadingPdf={downloadingPdf}
             onDownloadImage={handleDownloadImage}
@@ -843,6 +844,7 @@ if (loading) {
               }))}
               categories={Array.from(miscLookup.keys())}
               miscLookup={miscLookup}
+              advances={previewLiquidation?.totalAmountRequested || 0}
               id="liquidation-list-v2-print-content"
               approvedBy={previewLiquidation.approvedByName || ""}
               approvedBySignatureUrl={

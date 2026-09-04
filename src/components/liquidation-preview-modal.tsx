@@ -19,7 +19,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import LiquidationPrintDocument from "@/components/liquidation-print-document";
+import LiquidationPrintDocument, {
+  type LiquidationFtiComparison,
+} from "@/components/liquidation-print-document";
 import type { ReceiptItemInput } from "@/types/liquidation";
 
 interface LiquidationPreviewModalProps {
@@ -31,6 +33,8 @@ interface LiquidationPreviewModalProps {
   categories: string[];
   miscLookup?: Map<string, string>;
   advances: number;
+  /** FTI totals for the print document's comparison row. */
+  fti?: LiquidationFtiComparison | null;
   onDownloadPdf?: () => void;
   downloadingPdf?: boolean;
   onDownloadImage?: () => void;
@@ -59,6 +63,7 @@ export default function LiquidationPreviewModal({
   categories,
   miscLookup,
   advances,
+  fti,
   onDownloadPdf,
   downloadingPdf = false,
   onDownloadImage,
@@ -89,6 +94,7 @@ export default function LiquidationPreviewModal({
             categories={categories}
             miscLookup={miscLookup}
             advances={advances}
+            fti={fti}
             id="liquidation-preview-content"
             approvedBy={approvedBy}
             approvedBySignatureUrl={approvedBySignatureUrl}

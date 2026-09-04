@@ -54,8 +54,37 @@ export interface Liquidation {
   approvalComment?: string;
 }
 
+export interface DocumentReferences {
+  siNumber?: string;
+  siDate?: string;
+  drNumber?: string;
+  drDate?: string;
+  crNumber?: string;
+  crDate?: string;
+  bsNumber?: string;
+  bsDate?: string;
+  orNumber?: string;
+  orDate?: string;
+  othersDate?: string;
+}
+export interface VendorInformation {
+  refNo?: string;
+  tin?: string;
+  supplierName?: string;
+  address?: string;
+}
+export interface AccountingTaxFields {
+  checkNo?: string;
+  cvNo?: string;
+  particulars?: string;
+  grossAmount?: number;
+  vat?: number;
+  ewt?: number;
+}
+
 /** Child row in the `ReceiptItems` sheet. */
-export interface ReceiptItem {
+export interface ReceiptItem
+  extends DocumentReferences, VendorInformation, AccountingTaxFields {
   receiptItemId: string;
   liquidationId: string;
   date: string;
@@ -66,7 +95,8 @@ export interface ReceiptItem {
 }
 
 /** A single line item supplied by the client before IDs / URLs are assigned. */
-export interface ReceiptItemInput {
+export interface ReceiptItemInput
+  extends DocumentReferences, VendorInformation, AccountingTaxFields {
   date: string;
   description: string;
   category: string;

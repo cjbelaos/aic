@@ -1,34 +1,35 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import {
-  ArrowLeft,
-  Camera,
   Loader2,
   Plus,
   Trash2,
   Pencil,
+  Eye,
+  Camera,
   Upload,
   X,
-  Send,
-  ReceiptText,
-  FileText,
   CheckCircle2,
+  Send,
   Lock,
-  Eye,
+  FileText,
+  Calculator,
+  HelpCircle,
+  HelpCircle as QuestionIcon,
 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -45,331 +46,335 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { DatePicker } from "@/components/ui/date-picker";
-import type {
-  LiquidationFull,
-  LiquidationStatus,
-  ReceiptItemInput,
-} from "@/types/liquidation";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { toast } from "sonner";
 import { liquidationService } from "@/lib/services/liquidation.service";
-import { ftiService } from "@/lib/services/fti.service";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import { userService } from "@/lib/services/user.service";
+import { ftiService } from "@/lib/services/fti.service";
 import type { FTIRequestSummary } from "@/types/fti";
 import LiquidationPreviewModal from "@/components/liquidation-preview-modal";
-import LiquidationPrintDocument from "@/components/liquidation-print-document";
+import LiquidationPrintDocument, {
+  type LiquidationFtiComparison,
+} from "@/components/liquidation-print-document";
+import type {
+  LiquidationFull,
+  ReceiptItemInput,
+} from "@/types/liquidation";
 
-/** Maps FTI request statuses to badge tailwind classes (matches FTI page). */
+const EDITABLE_STATUSES = ["SAVED", "REQUESTED_FOR_CHANGE"];
+
 function statusBadgeClass(status: string): string {
-  switch (status.toUpperCase()) {
+  switch ((status || "").toUpperCase()) {
     case "APPROVED":
       return "bg-green-100 text-green-800";
     case "REQUESTED_FOR_CHANGE":
       return "bg-amber-100 text-amber-800";
-    case "REJECTED":
-      return "bg-red-100 text-red-800";
+    case "SUBMITTED":
     case "SENT":
       return "bg-blue-100 text-blue-800";
-    case "SAVED":
     case "DRAFT":
+    case "SAVED":
     default:
       return "bg-gray-100 text-gray-800";
   }
 }
 
-const EDITABLE_STATUSES: LiquidationStatus[] = [
-  "SAVED",
-  "REQUESTED_FOR_CHANGE",
-];
+/**
+ * Reusable field input equipped with a large visual helper Dialog modal
+ * to clearly display guide snippets from /public/guides/
+ */
+function FieldWithGuide({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  hint,
+  uppercase = false,
+  subLabel,
+  guideImagePath,
+  guideTitle,
+  guideDescription,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
+  hint?: string;
+  uppercase?: boolean;
+  subLabel?: string;
+  guideImagePath?: string;
+  guideTitle?: string;
+  guideDescription?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Label className="text-sm font-medium">{label}</Label>
+
+          {guideImagePath && (
+            <Dialog>
+              <DialogTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-0.5 text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 transition-colors"
+                >
+                  <QuestionIcon className="h-3.5 w-3.5 text-blue-500" />
+                  <span>Where to find?</span>
+                </button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-2xl w-[92vw] max-h-[88vh] flex flex-col p-6 z-50">
+                <DialogHeader className="border-b pb-3">
+                  <DialogTitle className="text-base font-semibold">
+                    {guideTitle || `Finding "${label}" on Receipt`}
+                  </DialogTitle>
+                  {guideDescription && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {guideDescription}
+                    </p>
+                  )}
+                </DialogHeader>
+
+                <div className="flex-1 overflow-auto rounded-lg border bg-muted/20 p-2 flex items-center justify-center my-2 min-h-[300px]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={guideImagePath}
+                    alt={`Sample snippet for ${label}`}
+                    className="w-full h-auto object-contain max-h-[60vh] rounded"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.style.display = "none";
+                      if (target.parentElement) {
+                        target.parentElement.innerHTML = `<div class="p-8 text-center text-xs text-muted-foreground font-mono">Image snippet placeholder:<br/><span class="text-blue-600">${guideImagePath}</span><br/><br/>(Upload cropped snippet image to public/guides/ folder)</div>`;
+                      }
+                    }}
+                  />
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
+
+        {subLabel && (
+          <span className="text-[10px] text-muted-foreground font-normal">
+            {subLabel}
+          </span>
+        )}
+      </div>
+
+      <Input
+        type={type}
+        inputMode={type === "number" ? "decimal" : undefined}
+        min={type === "number" ? "0" : undefined}
+        step={type === "number" ? "0.01" : undefined}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) =>
+          onChange(uppercase ? e.target.value.toUpperCase() : e.target.value)
+        }
+        className={uppercase ? "h-11 text-base uppercase" : "h-11 text-base"}
+      />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
 
 export function LiquidationForm({
   userId,
-  initialControlNo = "",
-  restrictToOther = false,
   onCancel,
   editingLiquidation,
+  restrictToOther = false,
+  initialControlNo = "",
 }: {
   userId: string;
-  initialControlNo?: string;
-  /** When true, forces "Other (No FTI)" mode and hides the FTI type selector. */
-  restrictToOther?: boolean;
-  /** Optional callback rendered as a "Back to list" button. */
   onCancel?: () => void;
-  /**
-   * When provided, pre-populates the form with an existing liquidation so it
-   * can be edited directly (items, control number, total amount requested...).
-   */
   editingLiquidation?: LiquidationFull | null;
+  restrictToOther?: boolean;
+  /** When creating an FTI-linked liquidation via deep link, pre-select the FTI. */
+  initialControlNo?: string;
 }) {
-  const [items, setItems] = useState<ReceiptItemInput[]>(() =>
-    editingLiquidation
-      ? editingLiquidation.items.map((item) => ({
-          date: item.date,
-          description: item.description,
-          category: item.category,
-          amount: item.amount,
-          receiptImageUrl: item.receiptImageUrl || undefined,
-        }))
-      : [],
-  );
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  // Active liquidation: created via createDraft (first Add Item click), or the
-  // existing liquidation being edited.
+  const isEditing = !!editingLiquidation;
+  const isLocked =
+    isEditing &&
+    !EDITABLE_STATUSES.includes(
+      (editingLiquidation?.status || "").toUpperCase(),
+    );
+
   const [liquidationId, setLiquidationId] = useState(
     editingLiquidation?.liquidationId || "",
   );
 
-  // FTI link (ControlNo) — empty means an "Other" liquidation without an FTI.
   const [ftiRequests, setFtiRequests] = useState<FTIRequestSummary[]>([]);
-  // Liquidation type: "fti" (linked to an FTI) or "other" (no FTI).
-  const [liqType, setLiqType] = useState<"fti" | "other">(
+  const [loadingFti, setLoadingFti] = useState(true);
+  const [liqType, setLiqType] = useState<"fti" | "other">(() =>
     editingLiquidation
       ? editingLiquidation.controlNo
         ? "fti"
         : "other"
-      : "fti",
+      : restrictToOther
+        ? "other"
+        : "fti",
   );
   const [controlNo, setControlNo] = useState(
-    editingLiquidation?.controlNo || initialControlNo,
+    editingLiquidation?.controlNo || initialControlNo || "",
   );
-  const [loadingFti, setLoadingFti] = useState(true);
-  const [loadingLiquidation, setLoadingLiquidation] = useState(false);
-  const [isLocked, setIsLocked] = useState(() =>
-    editingLiquidation
-      ? !EDITABLE_STATUSES.includes(
-          (editingLiquidation.status || "").toUpperCase() as LiquidationStatus,
-        )
-      : false,
-  );
-  const [lastLoadedControlNo, setLastLoadedControlNo] = useState(
-    editingLiquidation?.controlNo || "",
-  );
-  // Manual TotalAmountRequested for "Other" liquidations (no FTI ControlNo).
-  const [totalAmountRequested, setTotalAmountRequested] = useState(() =>
-    editingLiquidation && !editingLiquidation.controlNo &&
-    editingLiquidation.totalAmountRequested != null
-      ? String(editingLiquidation.totalAmountRequested)
+  const [totalAmountRequested, setTotalAmountRequested] = useState(
+    editingLiquidation && !editingLiquidation.controlNo
+      ? editingLiquidation.totalAmountRequested != null
+        ? String(editingLiquidation.totalAmountRequested)
+        : ""
       : "",
   );
-  // Miscellaneous category options (fetched via the same source as the FTI page).
+
+  const [items, setItems] = useState<ReceiptItemInput[]>(() =>
+    editingLiquidation
+      ? editingLiquidation.items.map((it) => ({
+          date: it.date,
+          description: it.description,
+          category: it.category,
+          amount: it.amount,
+          receiptImageUrl: it.receiptImageUrl || undefined,
+          siNumber: it.siNumber || undefined,
+          drNumber: it.drNumber || undefined,
+          crNumber: it.crNumber || undefined,
+          bsNumber: it.bsNumber || undefined,
+          orNumber: it.orNumber || undefined,
+          refNo: it.refNo || undefined,
+          tin: it.tin || undefined,
+          supplierName: it.supplierName || undefined,
+          address: it.address || undefined,
+          checkNo: it.checkNo || undefined,
+          cvNo: it.cvNo || undefined,
+          particulars: it.particulars || undefined,
+          grossAmount: it.grossAmount || undefined,
+          vat: it.vat || undefined,
+          ewt: it.ewt || undefined,
+        }))
+      : [],
+  );
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
+  const [supplierName, setSupplierName] = useState(
+    editingLiquidation?.items[0]?.supplierName || "",
+  );
+  const [supplierAddress, setSupplierAddress] = useState(
+    editingLiquidation?.items[0]?.address || "",
+  );
+  const [tin, setTin] = useState(editingLiquidation?.items[0]?.tin || "");
+  const [refNo, setRefNo] = useState(editingLiquidation?.items[0]?.refNo || "");
+
   const [categories, setCategories] = useState<string[]>([]);
+  const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
   const [loadingCategories, setLoadingCategories] = useState(true);
-  // Preview / export state
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [downloadingImage, setDownloadingImage] = useState(false);
-  // Full name resolved from the Users sheet (fallback to localStorage).
   const [resolvedFullName, setResolvedFullName] = useState("");
 
-  const isEditing = !!editingLiquidation;
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewFtiComparison, setPreviewFtiComparison] =
+    useState<LiquidationFtiComparison | null>(null);
 
+  // Load the linked FTI's fuel/toll/misc totals whenever the preview is open
+  // so the printable document can show the FTI comparison row.
   useEffect(() => {
-    let cancelled = false;
-    // Support deep-link: /dashboard/expense-liquidation?controlNo=CTRL-...
-    let preselected = "";
-    if (typeof window !== "undefined") {
-      preselected =
-        new URLSearchParams(window.location.search).get("controlNo") || "";
-    }
-    (async () => {
-      try {
-        const requests = await ftiService.getRequests();
-        if (!cancelled) {
-          // Technicians can only link to their own FTI requests (the API
-          // already restricts to session user for non-admins). Disregard
-          // DRAFT and SAVED, and sort latest to oldest by dateCreated.
-          const myId = userId;
-          const usable = requests
-            .filter(
-              (r) =>
-                r.status.toUpperCase() === "APPROVED" &&
-                (!myId || r.userId === myId),
-            )
-            .sort((a, b) =>
-              (b.dateCreated || "").localeCompare(a.dateCreated || ""),
-            );
-          setFtiRequests(usable);
-          // Pre-select the deep-linked ControlNo if it is one of the usable
-          // requests (e.g. clicked "Add Liquidation" from the FTI page).
-          // Never override while editing an existing liquidation.
-          if (
-            !isEditing &&
-            preselected &&
-            usable.some((r) => r.controlNo === preselected)
-          ) {
-            setControlNo(preselected);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to load FTI requests:", error);
-      } finally {
-        if (!cancelled) setLoadingFti(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, isEditing]);
-
-  // Load miscellaneous categories (same source as the FTI page dropdown).
-  // Stores the code (e.g. "MEAL") as the category value; the description
-  // (e.g. "Meal") is resolved for display via a lookup map.
-  const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const all = await miscellaneousService.getAll();
-        if (!cancelled) {
-          setCategories(all.map((m) => m.code).filter(Boolean));
-          setMiscLookup(new Map(all.map((m) => [m.code, m.description])));
-        }
-      } catch (error) {
-        console.error("Failed to load miscellaneous categories:", error);
-        if (!cancelled) {
-          toast.error("Failed to load receipt categories.");
-        }
-      } finally {
-        if (!cancelled) setLoadingCategories(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Resolve the technician's full name from the Users sheet so the printed /
-  // previewed document shows the real name (not just the localStorage copy).
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!userId) return;
-    (async () => {
-      try {
-        const profile = await userService.getUserById(userId);
-
-        if (!cancelled && profile?.fullName) {
-          setResolvedFullName(profile.fullName);
-        }
-      } catch (error) {
-        // Fall back to the localStorage fullName/userName.
-        console.debug("Failed to resolve user fullName:", error);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
-
-  // When the selected FTI ControlNo changes, restore the existing
-  // liquidation (its liquidationId + receipt items). This is the core fix
-  // for the bug where re-selecting an FTI showed an empty receipt list.
-  // When ControlNo is empty ("Other" liquidation), we start fresh — EXCEPT
-  // when editing an existing "Other" liquidation, where the pre-populated
-  // state must be preserved.
-  useEffect(() => {
-    let cancelled = false;
-    const controlNoToLoad = controlNo.trim();
-    if (!controlNoToLoad) {
-      if (isEditing) return;
-      // Switching to an "Other" liquidation without an FTI: reset batch.
-      setLiquidationId("");
-      setItems([]);
-      setIsLocked(false);
-      setLastLoadedControlNo("");
-      setTotalAmountRequested("");
+    if (!previewOpen || !controlNo) {
+      setPreviewFtiComparison(null);
       return;
     }
-
-    // If we already restored this ControlNo, don't re-fetch.
-    if (lastLoadedControlNo === controlNoToLoad) return;
-
-    setLoadingLiquidation(true);
+    let cancelled = false;
     (async () => {
       try {
-        const liquidation =
-          await liquidationService.getByControlNo(controlNoToLoad);
+        const ftiFull = await ftiService.getRequest(controlNo);
         if (cancelled) return;
-        if (liquidation) {
-          setLiquidationId(liquidation.liquidationId);
-          const receiptItems: ReceiptItemInput[] = liquidation.items.map(
-            (item) => ({
-              date: item.date,
-              description: item.description,
-              category: item.category,
-              amount: item.amount,
-              receiptImageUrl: item.receiptImageUrl || undefined,
-              // The API does not return preview/type metadata; reconstruct
-              // preview from the Drive URL when rendering.
-            }),
-          );
-          setItems(receiptItems);
-          setIsLocked(
-            !EDITABLE_STATUSES.includes(
-              (liquidation.status || "").toUpperCase() as LiquidationStatus,
-            ),
-          );
-          toast.success(
-            `Loaded existing liquidation (${liquidation.items.length} receipt item(s)).`,
-          );
-        } else {
-          // Fresh ControlNo → start a brand new batch.
-          setLiquidationId("");
-          setItems([]);
-          setIsLocked(false);
+        const miscTotals = new Map<string, number>();
+        for (const detail of ftiFull.details || []) {
+          for (const expense of detail.expenses || []) {
+            miscTotals.set(
+              expense.miscCode,
+              (miscTotals.get(expense.miscCode) || 0) + (expense.amount || 0),
+            );
+          }
         }
-        setLastLoadedControlNo(controlNoToLoad);
-      } catch (error) {
-        console.error("Failed to load liquidation by controlNo:", error);
-        if (!cancelled) {
-          toast.error("Failed to load existing receipts for this FTI.");
-        }
-      } finally {
-        if (!cancelled) setLoadingLiquidation(false);
+        setPreviewFtiComparison({
+          fuel: (ftiFull.details || []).reduce(
+            (sum, detail) => sum + (detail.fuelSubTotal || 0),
+            0,
+          ),
+          toll: (ftiFull.details || []).reduce(
+            (sum, detail) => sum + (detail.tollFee || 0),
+            0,
+          ),
+          misc: Array.from(miscTotals.entries()).map(([code, amount]) => ({
+            code,
+            amount,
+          })),
+        });
+      } catch {
+        if (!cancelled) setPreviewFtiComparison(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [controlNo, lastLoadedControlNo, isEditing]);
+  }, [previewOpen, controlNo]);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingImage, setDownloadingImage] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [successLiquidationId, setSuccessLiquidationId] = useState<
+    string | null
+  >(null);
 
-  // Line-item input draft
-  const [draftDate, setDraftDate] = useState<Date | undefined>(undefined);
-  const [draftDescription, setDraftDescription] = useState("");
+  const [draftDate, setDraftDate] = useState("");
   const [draftCategory, setDraftCategory] = useState("");
-  const [draftAmount, setDraftAmount] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
+  const [draftGross, setDraftGross] = useState("");
+  const [draftEwt, setDraftEwt] = useState("");
+  const [draftApplyVat, setDraftApplyVat] = useState(false);
+
+  const [draftSiNo, setDraftSiNo] = useState("");
+  const [draftDrNo, setDraftDrNo] = useState("");
+  const [draftCrNo, setDraftCrNo] = useState("");
+  const [draftBsNo, setDraftBsNo] = useState("");
+  const [draftOrNo, setDraftOrNo] = useState("");
+  const [draftCheckNo, setDraftCheckNo] = useState("");
+  const [draftCvNo, setDraftCvNo] = useState("");
+  const [draftRefNo, setDraftRefNo] = useState("");
+
   const [draftReceiptUrl, setDraftReceiptUrl] = useState("");
   const [draftReceiptPreviewUrl, setDraftReceiptPreviewUrl] = useState("");
   const [draftReceiptFile, setDraftReceiptFile] = useState<File | null>(null);
   const [draftPreviewSrc, setDraftPreviewSrc] = useState("");
   const [draftReceiptIsImage, setDraftReceiptIsImage] = useState(true);
   const [draftReceiptName, setDraftReceiptName] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [successLiquidationId, setSuccessLiquidationId] = useState<
-    string | null
-  >(null);
-  const [submittedTotal, setSubmittedTotal] = useState(0);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const totalAmount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
-
-  const isOther = liqType === "other";
-  // The FTI request currently linked via the ControlNo (used for Advances).
+  const isOther = liqType === "other" || restrictToOther;
   const selectedFti = ftiRequests.find((r) => r.controlNo === controlNo);
-  const ftiAdvances = selectedFti?.totalAmount || 0;
-  // The manual TotalAmountRequested to persist for an "Other" liquidation.
-  const requestedAmountParsed = parseFloat(totalAmountRequested);
-  const effectiveRequestedAmount = isOther
-    ? isNaN(requestedAmountParsed) || requestedAmountParsed < 0
-      ? 0
-      : requestedAmountParsed
-    : ftiAdvances;
-  const advances = isOther ? effectiveRequestedAmount : ftiAdvances;
+  const requestedParsed = parseFloat(totalAmountRequested);
+  const requestedAmount =
+    isNaN(requestedParsed) || requestedParsed < 0 ? 0 : requestedParsed;
 
-  // Dynamic settlement label/value based on comparison of expenses vs advances.
+  const getItemGross = (it: ReceiptItemInput) =>
+    it.grossAmount ?? it.amount ?? 0;
+  const totalAmount = items.reduce((sum, it) => sum + getItemGross(it), 0);
+
+  const advances = isOther ? requestedAmount : selectedFti?.totalAmount || 0;
   const difference = totalAmount - advances;
   const hasAdvances = advances > 0;
   const hasAmountToReturn = hasAdvances && difference < 0;
@@ -391,20 +396,16 @@ export function LiquidationForm({
         : totalAmount
       : difference;
 
-  // Per-category column subtotals for the pivot table.
   const categoryTotals = Object.fromEntries(
     categories.map((cat) => [
       cat,
       items
-        .filter((i) => i.category === cat)
-        .reduce((s, i) => s + (i.amount || 0), 0),
+        .filter((it) => it.category === cat)
+        .reduce((s, it) => s + getItemGross(it), 0),
     ]),
   );
 
-  // Only show columns that have at least one item using them.
   const displayCategories = categories.filter((cat) => categoryTotals[cat] > 0);
-
-  // Sort items by date ascending for display.
   const sortedItems = [...items].sort((a, b) => a.date.localeCompare(b.date));
 
   const formatCurrency = (value: number) =>
@@ -413,16 +414,169 @@ export function LiquidationForm({
       currency: "PHP",
     }).format(value);
 
-  const isImageUrl = (url: string) =>
-    /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(url) &&
-    !url.includes("drive.google.com");
+  const draftGrossNum = parseFloat(draftGross);
+  const draftEwtNum = parseFloat(draftEwt);
+  const hasGrossInput =
+    draftGross !== "" && !isNaN(draftGrossNum) && draftGrossNum >= 0;
+  const draftVat =
+    hasGrossInput && draftApplyVat
+      ? Math.round((draftGrossNum / 1.12) * 0.12 * 100) / 100
+      : 0;
+  const draftEwtValue =
+    draftEwt !== "" && !isNaN(draftEwtNum) && draftEwtNum > 0
+      ? Math.round(draftEwtNum * 100) / 100
+      : 0;
+  const draftNet = hasGrossInput
+    ? Math.max(
+        0,
+        Math.round((draftGrossNum - draftVat - draftEwtValue) * 100) / 100,
+      )
+    : 0;
+  const draftVatText = hasGrossInput ? draftVat.toFixed(2) : "";
+  const draftNetText = hasGrossInput ? draftNet.toFixed(2) : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const requests = await ftiService.getRequests();
+        if (!cancelled) {
+          const usable = requests
+            .filter(
+              (r) =>
+                r.status.toUpperCase() === "APPROVED" &&
+                (!userId || r.userId === userId),
+            )
+            .sort((a, b) =>
+              (b.dateCreated || "").localeCompare(a.dateCreated || ""),
+            );
+          setFtiRequests(usable);
+        }
+      } catch (error) {
+        console.error("Failed to load FTI requests:", error);
+      } finally {
+        if (!cancelled) setLoadingFti(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await miscellaneousService.getAll();
+        if (!cancelled) {
+          setCategories(all.map((m) => m.code).filter(Boolean));
+          setMiscLookup(new Map(all.map((m) => [m.code, m.description])));
+        }
+      } catch (error) {
+        console.error("Failed to load miscellaneous categories:", error);
+        if (!cancelled) toast.error("Failed to load receipt categories.");
+      } finally {
+        if (!cancelled) setLoadingCategories(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) return;
+    (async () => {
+      try {
+        const profile = await userService.getUserById(userId);
+        if (!cancelled && profile?.fullName) {
+          setResolvedFullName(profile.fullName);
+        }
+      } catch (error) {
+        console.debug("Failed to resolve user fullName:", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // Restore existing receipts when an FTI ControlNo is selected
+  useEffect(() => {
+    let cancelled = false;
+    if (!controlNo || isEditing || liqType !== "fti") return;
+    (async () => {
+      try {
+        const existing = await liquidationService.getByControlNo(controlNo);
+        if (!cancelled && existing) {
+          setLiquidationId(existing.liquidationId);
+          setItems(
+            existing.items.map((it) => ({
+              date: it.date,
+              description: it.description,
+              category: it.category,
+              amount: it.amount,
+              receiptImageUrl: it.receiptImageUrl || undefined,
+              siNumber: it.siNumber || undefined,
+              drNumber: it.drNumber || undefined,
+              crNumber: it.crNumber || undefined,
+              bsNumber: it.bsNumber || undefined,
+              orNumber: it.orNumber || undefined,
+              refNo: it.refNo || undefined,
+              tin: it.tin || undefined,
+              supplierName: it.supplierName || undefined,
+              address: it.address || undefined,
+              checkNo: it.checkNo || undefined,
+              cvNo: it.cvNo || undefined,
+              particulars: it.particulars || undefined,
+              grossAmount: it.grossAmount || undefined,
+              vat: it.vat || undefined,
+              ewt: it.ewt || undefined,
+            })),
+          );
+        }
+      } catch (err) {
+        console.error("Failed to restore existing liquidation by ControlNo:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [controlNo, isEditing, liqType]);
+
+  const handleTypeChange = (linkedToFti: boolean) => {
+    if (restrictToOther || isEditing || isLocked) return;
+    if (linkedToFti) {
+      setLiqType("fti");
+      setLiquidationId("");
+      setItems([]);
+      setTotalAmountRequested("");
+    } else {
+      setLiqType("other");
+      setControlNo("");
+      setLiquidationId("");
+      setItems([]);
+      setTotalAmountRequested("");
+    }
+  };
 
   const resetDraft = () => {
     setEditingIndex(null);
-    setDraftDate(undefined);
-    setDraftDescription("");
+    setDraftDate("");
     setDraftCategory("");
-    setDraftAmount("");
+    setDraftDescription("");
+    setDraftGross("");
+    setDraftEwt("");
+    setDraftApplyVat(false);
+    setDraftSiNo("");
+    setDraftDrNo("");
+    setDraftCrNo("");
+    setDraftBsNo("");
+    setDraftOrNo("");
+    setDraftCheckNo("");
+    setDraftCvNo("");
+    setDraftRefNo("");
     if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
     setDraftReceiptFile(null);
     setDraftPreviewSrc("");
@@ -432,13 +586,8 @@ export function LiquidationForm({
     setDraftReceiptName("");
   };
 
-  // ── Receipt photo: store locally first (no Drive upload yet) ──
-  // The photo is kept as a browser File + object-URL preview so the user can
-  // retake/remove it freely. It is only uploaded to Google Drive when the
-  // item is added/updated via handleAddOrUpdateItem.
   const handleFileSelected = (file?: File) => {
     if (!file) return;
-    // Release the previous local preview if one existed.
     if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
     setDraftReceiptFile(file);
     setDraftPreviewSrc(URL.createObjectURL(file));
@@ -446,7 +595,6 @@ export function LiquidationForm({
     setDraftReceiptName(file.name);
     setDraftReceiptUrl("");
     setDraftReceiptPreviewUrl("");
-    // Reset input values so selecting the same file again re-triggers change
     if (cameraInputRef.current) cameraInputRef.current.value = "";
     if (fileInputRef.current) fileInputRef.current.value = "";
     const active = document.activeElement as HTMLInputElement | null;
@@ -463,7 +611,6 @@ export function LiquidationForm({
     setDraftReceiptName("");
   };
 
-  // ── Line-item add / update (uploads photo to Drive only at this point) ──
   const handleAddOrUpdateItem = async () => {
     if (isLocked) {
       toast.error(
@@ -471,68 +618,78 @@ export function LiquidationForm({
       );
       return;
     }
-    if (isOther && requestedAmountParsed < 0) {
-      toast.error("Please enter a valid Total Amount Requested.");
-      return;
-    }
     if (!draftDate) {
       toast.error("Please select a date.");
-      return;
-    }
-    if (!draftDescription.trim()) {
-      toast.error("Please enter a description.");
       return;
     }
     if (!draftCategory) {
       toast.error("Please select a category.");
       return;
     }
-    const amount = parseFloat(draftAmount);
-    if (isNaN(amount) || amount < 0) {
-      toast.error("Please enter a valid amount.");
+    if (!draftDescription.trim()) {
+      toast.error("Please enter a description.");
+      return;
+    }
+    const gross = parseFloat(draftGross);
+    if (isNaN(gross) || gross < 0) {
+      toast.error("Please enter a valid Gross Amount.");
       return;
     }
 
-    const dateStr = `${draftDate.getFullYear()}-${String(
-      draftDate.getMonth() + 1,
-    ).padStart(2, "0")}-${String(draftDate.getDate()).padStart(2, "0")}`;
+    const vat = draftApplyVat
+      ? Math.round((gross / 1.12) * 0.12 * 100) / 100
+      : 0;
+    const ewt = draftEwtValue;
+    const net = Math.max(0, Math.round((gross - vat - ewt) * 100) / 100);
 
     let finalReceiptUrl = draftReceiptUrl;
     let finalReceiptPreviewUrl = draftReceiptPreviewUrl;
-    let finalReceiptIsImage = draftReceiptIsImage;
-    // fileId of a Drive file uploaded during THIS attempt (used for rollback).
     let uploadedFileId = "";
 
-    // Upload the NEW locally-held photo to Drive when the item is committed.
     if (draftReceiptFile && !draftReceiptUrl) {
       setUploading(true);
       try {
-        const result = await liquidationService.uploadReceipt(draftReceiptFile);
+        const result =
+          await liquidationService.uploadReceipt(draftReceiptFile);
         finalReceiptUrl = result.receiptImageUrl;
         finalReceiptPreviewUrl = result.proxyUrl;
-        finalReceiptIsImage = draftReceiptIsImage;
         uploadedFileId = result.fileId || "";
-        // NOTE: no success toast here — we only notify after BOTH the Drive
-        // upload AND the Google Sheet write succeed (see below).
       } catch (error) {
         console.error("Receipt upload failed:", error);
         const message =
           error instanceof Error ? error.message : "Unknown upload error.";
         toast.error(`Upload failed: ${message}`);
-        return; // Keep the draft so the user can retry.
+        return;
       } finally {
         setUploading(false);
       }
     }
 
+    const miscDescription = miscLookup.get(draftCategory) || draftCategory;
+
     const item: ReceiptItemInput = {
-      date: dateStr,
+      date: draftDate,
       description: draftDescription.trim().toUpperCase(),
       category: draftCategory,
-      amount: Math.round(amount * 100) / 100,
+      amount: net,
+      grossAmount: gross,
+      vat: vat > 0 ? vat : undefined,
+      ewt: ewt > 0 ? ewt : undefined,
+      particulars: miscDescription,
+      siNumber: draftSiNo.trim().toUpperCase() || undefined,
+      drNumber: draftDrNo.trim().toUpperCase() || undefined,
+      crNumber: draftCrNo.trim().toUpperCase() || undefined,
+      bsNumber: draftBsNo.trim().toUpperCase() || undefined,
+      orNumber: draftOrNo.trim().toUpperCase() || undefined,
+      checkNo: draftCheckNo.trim().toUpperCase() || undefined,
+      cvNo: draftCvNo.trim().toUpperCase() || undefined,
+      refNo: draftRefNo.trim().toUpperCase() || refNo || undefined,
+      tin: tin || undefined,
+      supplierName: supplierName || undefined,
+      address: supplierAddress || undefined,
       receiptImageUrl: finalReceiptUrl || undefined,
       receiptPreviewUrl: finalReceiptPreviewUrl || undefined,
-      receiptIsImage: finalReceiptUrl ? finalReceiptIsImage : undefined,
+      receiptIsImage: finalReceiptUrl ? draftReceiptIsImage : undefined,
     };
 
     setUploading(true);
@@ -550,7 +707,7 @@ export function LiquidationForm({
         if (!activeId) {
           const draft = await liquidationService.createDraft(
             controlNo,
-            isOther ? effectiveRequestedAmount : undefined,
+            isOther ? requestedAmount : undefined,
           );
           activeId = draft.liquidationId;
           setLiquidationId(activeId);
@@ -559,23 +716,20 @@ export function LiquidationForm({
         setItems((prev) => [...prev, item]);
         toast.success("Receipt item added.");
         resetDraft();
+        setSupplierName("");
+        setSupplierAddress("");
+        setTin("");
+        setRefNo("");
       }
     } catch (error) {
       console.error("Failed to persist receipt item:", error);
-      // Roll back the Drive file uploaded in this attempt so the photo and the
-      // sheet record succeed or fail together (best effort — a failed rollback
-      // is non-fatal and just leaves an orphaned file rather than losing data).
       if (uploadedFileId) {
         try {
           await liquidationService.deleteReceipt(uploadedFileId);
-          console.info("Rolled back orphaned receipt file:", uploadedFileId);
         } catch (rollbackError) {
           console.error("Failed to roll back receipt file:", rollbackError);
         }
       }
-      // Keep the draft intact (date/description/category/amount) so the user
-      // can retry. The local file reference is cleared so the next attempt
-      // re-uploads rather than re-using a possibly-deleted Drive file.
       setDraftReceiptFile(null);
       if (draftPreviewSrc) {
         URL.revokeObjectURL(draftPreviewSrc);
@@ -596,32 +750,38 @@ export function LiquidationForm({
   };
 
   const handleEditItem = (index: number) => {
-    const item = items[index];
-    if (!item) return;
+    const it = items[index];
+    if (!it) return;
     if (isLocked) {
       toast.error(
         "This liquidation has been submitted and can no longer be edited.",
       );
       return;
     }
-    // Clear any locally-held photo from a previous unattached draft so the
-    // editor starts fresh from the item's existing Drive receipt.
     if (draftPreviewSrc) URL.revokeObjectURL(draftPreviewSrc);
     setDraftReceiptFile(null);
     setDraftPreviewSrc("");
     setEditingIndex(index);
-    const [y, m, d] = item.date.split("-").map(Number);
-    setDraftDate(new Date(y, (m || 1) - 1, d || 1));
-    setDraftDescription(item.description);
-    setDraftCategory(item.category);
-    setDraftAmount(String(item.amount));
-    setDraftReceiptUrl(item.receiptImageUrl || "");
-    setDraftReceiptPreviewUrl(item.receiptPreviewUrl || "");
+    setDraftDate(it.date);
+    setDraftCategory(it.category);
+    setDraftDescription(it.description);
+    setDraftGross(it.grossAmount != null ? String(it.grossAmount) : "");
+    setDraftEwt(it.ewt != null ? String(it.ewt) : "");
+    setDraftApplyVat(it.vat != null && it.vat > 0);
+    setDraftSiNo(it.siNumber || "");
+    setDraftDrNo(it.drNumber || "");
+    setDraftCrNo(it.crNumber || "");
+    setDraftBsNo(it.bsNumber || "");
+    setDraftOrNo(it.orNumber || "");
+    setDraftCheckNo(it.checkNo || "");
+    setDraftCvNo(it.cvNo || "");
+    setDraftRefNo(it.refNo || "");
+    setDraftReceiptUrl(it.receiptImageUrl || "");
+    setDraftReceiptPreviewUrl(it.receiptPreviewUrl || "");
     setDraftReceiptIsImage(
-      item.receiptIsImage ??
-        (item.receiptImageUrl ? isImageUrl(item.receiptImageUrl) : true),
+      it.receiptIsImage ?? (it.receiptImageUrl ? true : true),
     );
-    setDraftReceiptName(item.receiptImageUrl ? "Receipt attached" : "");
+    setDraftReceiptName(it.receiptImageUrl ? "Receipt attached" : "");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -632,14 +792,15 @@ export function LiquidationForm({
       );
       return;
     }
+    if (!liquidationId) {
+      toast.error("No active liquidation to remove from. Add an item first.");
+      return;
+    }
     const remaining = items.filter((_, idx) => idx !== index);
     setUploading(true);
     try {
       await liquidationService.replace(liquidationId, remaining);
       setItems(remaining);
-      if (editingIndex === index) {
-        resetDraft();
-      }
       toast.success("Receipt item removed.");
     } catch (error) {
       console.error("Failed to remove receipt item:", error);
@@ -649,7 +810,6 @@ export function LiquidationForm({
     }
   };
 
-  // ── Submit (flips status SAVED → SUBMITTED + auto-assigns approver) ──
   const handleSubmit = async () => {
     if (isLocked) {
       toast.error("This liquidation has already been submitted.");
@@ -665,16 +825,28 @@ export function LiquidationForm({
       toast.error("Add at least one receipt item before submitting.");
       return;
     }
+    if (isOther && totalAmountRequested === "") {
+      toast.error("Please enter the Total Amount Requested.");
+      return;
+    }
+    if (liquidationId) {
+      const parsed = parseFloat(totalAmountRequested);
+      if (isOther && !isNaN(parsed) && parsed >= 0) {
+        try {
+          await liquidationService.updateRequestedAmount(
+            liquidationId,
+            parsed,
+          );
+        } catch (error) {
+          console.error("Failed to persist requested amount:", error);
+        }
+      }
+    }
     setSubmitting(true);
     try {
       const result = await liquidationService.submit(liquidationId);
-      setSubmittedTotal(totalAmount);
-      setSuccessLiquidationId(result.liquidationId);
       toast.success(`Liquidation submitted! ID: ${result.liquidationId}`);
-      // Clear the form for the next batch
-      setItems([]);
-      setLiquidationId("");
-      resetDraft();
+      setSuccessLiquidationId(result.liquidationId);
     } catch (error) {
       console.error("Liquidation submit failed:", error);
       toast.error("Failed to submit liquidation. Please try again.");
@@ -683,14 +855,8 @@ export function LiquidationForm({
     }
   };
 
-  const handleStartNew = () => {
-    setSuccessLiquidationId(null);
-    setSubmittedTotal(0);
-  };
-
-  // ── Preview → PDF / Image export (mirrors the FTI page flow) ──
   const getLiquidationPrintElement = () =>
-    document.getElementById("liquidation-print-content");
+    document.getElementById("liquidation-preview-content");
 
   const generatePdfBlob = async (): Promise<Blob> => {
     const element = getLiquidationPrintElement();
@@ -771,7 +937,10 @@ export function LiquidationForm({
     }
   };
 
-  // ── Success feedback screen ──
+  const isImageUrl = (url: string) =>
+    /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(url) &&
+    !url.includes("drive.google.com");
+
   if (successLiquidationId) {
     return (
       <Card className="mx-auto max-w-2xl">
@@ -779,37 +948,27 @@ export function LiquidationForm({
           <CheckCircle2 className="h-16 w-16 text-green-500" />
           <CardTitle className="text-2xl">Liquidation Submitted!</CardTitle>
           <p className="text-muted-foreground">
-            Your expense liquidation was recorded successfully.
+            Your expense liquidation was successfully recorded.
           </p>
           <div className="w-full rounded-lg border bg-muted px-4 py-3 font-mono text-xs break-all sm:text-sm">
             Liquidation ID: {successLiquidationId}
           </div>
           <p className="text-muted-foreground">
-            Linked FTI:{" "}
+            FTI Control No:{" "}
             <span className="font-mono font-semibold text-foreground">
-              {controlNo}
+              {controlNo || "—"}
             </span>
           </p>
-          <p className="text-muted-foreground">
-            Total Amount:{" "}
-            <span className="font-semibold text-foreground">
-              {formatCurrency(submittedTotal)}
-            </span>
-          </p>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:justify-center">
-            <Button size="lg" className="h-12" onClick={handleStartNew}>
-              <Plus className="mr-2 h-5 w-5" />
-              New Liquidation
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setSuccessLiquidationId(null)}
+            >
+              Start New
             </Button>
             {onCancel && (
-              <Button
-                size="lg"
-                variant="outline"
-                className="h-12"
-                onClick={onCancel}
-              >
-                <ArrowLeft className="mr-2 h-5 w-5" />
-                Back to list
+              <Button variant="ghost" onClick={onCancel}>
+                Back to List
               </Button>
             )}
           </div>
@@ -819,45 +978,8 @@ export function LiquidationForm({
   }
 
   return (
-    <div className="space-y-4 pb-2">
-      {onCancel && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="-ml-2"
-          onClick={onCancel}
-        >
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Back to list
-        </Button>
-      )}
-      {/* ── Header & context ── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <ReceiptText className="h-5 w-5" />
-            Expense Liquidation
-          </CardTitle>
-          <CardDescription>
-            Submit your reimbursable expenses and attach receipt photos.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <Label className="text-xs text-muted-foreground">Technician</Label>
-            <p className="truncate font-medium">{resolvedFullName}</p>
-          </div>
-          <div className="shrink-0 rounded-lg border bg-muted px-4 py-2 text-right">
-            <Label className="text-[10px] text-muted-foreground">Total</Label>
-            <p className="text-lg font-bold tracking-tight">
-              {formatCurrency(totalAmount)}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Link to FTI (ControlNo) or "Other" liquidation ── */}
+    <div className="space-y-4">
+      {/* ── Liquidation Type ── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Liquidation Type</CardTitle>
@@ -866,69 +988,50 @@ export function LiquidationForm({
               ? "Create an expense liquidation without an FTI ControlNo."
               : isEditing
                 ? "Edit the receipts and details for this liquidation."
-                : 'Link to an FTI, or create an "Other" liquidation without an FTI ControlNo.'}
+                : 'Link to an APPROVED FTI, or create a "No FTI" liquidation.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
             {!restrictToOther && !isEditing && (
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant={!isOther ? "default" : "outline"}
-                  onClick={() => {
-                    setLiqType("fti");
-                    // Clear any loaded "Other" state so the FTI view starts fresh.
-                    setLiquidationId("");
-                    setItems([]);
-                    setTotalAmountRequested("");
-                    setIsLocked(false);
-                    setLastLoadedControlNo("");
-                  }}
-                >
-                  FTI Linked
-                </Button>
-                <Button
-                  type="button"
-                  variant={isOther ? "default" : "outline"}
-                  onClick={() => {
-                    setLiqType("other");
-                    setControlNo("");
-                    setLastLoadedControlNo("");
-                    // Clear any loaded FTI state so the Other view starts fresh.
-                    setLiquidationId("");
-                    setItems([]);
-                    setTotalAmountRequested("");
-                    setIsLocked(false);
-                  }}
-                >
-                  Other (No FTI)
-                </Button>
+              <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/40 p-4">
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="liq-type-switch"
+                    checked={liqType === "fti"}
+                    onCheckedChange={handleTypeChange}
+                  />
+                  <div className="space-y-0.5">
+                    <Label
+                      htmlFor="liq-type-switch"
+                      className="text-sm font-semibold"
+                    >
+                      {liqType === "fti" ? "FTI Linked" : "No FTI (Other)"}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {liqType === "fti"
+                        ? "Select an APPROVED FTI request to link this liquidation."
+                        : "Enter the Total Amount Requested manually."}
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 
-            {isOther || restrictToOther ? (
+            {isOther ? (
               <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
-                <div className="space-y-2">
-                  <Label>Total Amount Requested (₱)</Label>
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={totalAmountRequested}
-                    onChange={(e) => setTotalAmountRequested(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Enter the total amount requested for this liquidation since
-                    there is no FTI ControlNo.
-                  </p>
-                </div>
+                <FieldWithGuide
+                  label="Total Amount Requested (₱)"
+                  type="number"
+                  value={totalAmountRequested}
+                  onChange={setTotalAmountRequested}
+                  placeholder="0.00"
+                  hint="Enter the total amount requested for this liquidation since there is no FTI ControlNo."
+                />
               </div>
             ) : (
               <div className="space-y-2">
-                <Label>FTI Control Number</Label>
+                <Label>FTI Control No.</Label>
                 {loadingFti ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -958,47 +1061,84 @@ export function LiquidationForm({
                   </Select>
                 )}
 
-                {/* ── ControlNo preview panel ── */}
-                {(() => {
-                  const selected = selectedFti;
-                  if (!selected) return null;
-                  return (
-                    <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">Status</span>
-                        <Badge
-                          className={statusBadgeClass(selected.status)}
-                          variant="outline"
-                        >
-                          {selected.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">
-                          Date Created
-                        </span>
-                        <span className="font-medium">
-                          {selected.dateCreated}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">
-                          FTI Total Amount
-                        </span>
-                        <span className="font-bold">
-                          {formatCurrency(selected.totalAmount || 0)}
-                        </span>
-                      </div>
+                {selectedFti && (
+                  <div className="mt-3 space-y-2 rounded-xl border bg-muted/40 p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">Status</span>
+                      <Badge
+                        className={statusBadgeClass(selectedFti.status)}
+                        variant="outline"
+                      >
+                        {selectedFti.status}
+                      </Badge>
                     </div>
-                  );
-                })()}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">
+                        Date Created
+                      </span>
+                      <span className="font-medium">
+                        {selectedFti.dateCreated}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">
+                        FTI Total Amount
+                      </span>
+                      <span className="font-bold">
+                        {formatCurrency(selectedFti.totalAmount || 0)}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      {/* ── Line item entry ── */}
+      {/* ── Vendor Information ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Vendor Information</CardTitle>
+          <CardDescription>
+            Entered once and stamped on every receipt item you add.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <FieldWithGuide
+            label="Supplier Name"
+            value={supplierName}
+            onChange={setSupplierName}
+            placeholder="E.G. SHELL GAS STATION"
+            uppercase
+            guideImagePath="/guides/supplier-name.png"
+            guideTitle="1. Supplier / Store Name"
+            guideDescription="Usually prominently printed at the topmost header of the receipt or invoice."
+          />
+          <FieldWithGuide
+            label="Supplier Address"
+            value={supplierAddress}
+            onChange={setSupplierAddress}
+            placeholder="E.G. BRGY. BANAY BANAY, CABUYAO CITY, LAGUNA"
+            uppercase
+            guideImagePath="/guides/supplier-address.png"
+            guideTitle="2. Supplier Business Address"
+            guideDescription="Located directly below the supplier/store name."
+          />
+          <FieldWithGuide
+            label="TIN"
+            value={tin}
+            onChange={setTin}
+            placeholder="E.G. 000-000-000-000"
+            uppercase
+            guideImagePath="/guides/tin.png"
+            guideTitle="3. Tax Identification Number (TIN)"
+            guideDescription="Look for 'VAT REG TIN', 'NON-VAT REG TIN', or 'TIN:' near the top header."
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── Add Receipt Item ── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
@@ -1009,16 +1149,31 @@ export function LiquidationForm({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Date</Label>
-            <DatePicker value={draftDate} onChange={setDraftDate} />
-          </div>
+          <FieldWithGuide
+            label="Date"
+            type="date"
+            value={draftDate}
+            onChange={setDraftDate}
+            guideImagePath="/guides/receipt-date.png"
+            guideTitle="4. Transaction Date"
+            guideDescription="Look for 'Date:' or transaction timestamp on the receipt."
+          />
 
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label>Category</Label>
-            <Select value={draftCategory} onValueChange={setDraftCategory}>
+            <Select
+              value={draftCategory}
+              onValueChange={setDraftCategory}
+              disabled={loadingCategories}
+            >
               <SelectTrigger className="h-11 text-base">
-                <SelectValue placeholder="Select category" />
+                <SelectValue
+                  placeholder={
+                    loadingCategories
+                      ? "Loading categories..."
+                      : "Select category"
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 {loadingCategories ? (
@@ -1039,36 +1194,282 @@ export function LiquidationForm({
                 )}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              {draftCategory
+                ? `Selected: ${miscLookup.get(draftCategory) || draftCategory}`
+                : "Category selection shows the Miscellaneous description."}
+            </p>
           </div>
 
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <Input
-              className="h-11 text-base"
-              placeholder="e.g. Lunch during field service"
-              value={draftDescription}
-              onChange={(e) => setDraftDescription(e.target.value)}
-            />
-          </div>
+          <FieldWithGuide
+            label="Description"
+            value={draftDescription}
+            onChange={setDraftDescription}
+            placeholder="E.G. LUNCH DURING FIELD SERVICE"
+            uppercase
+            guideImagePath="/guides/description.png"
+            guideTitle="Item Particulars / Description"
+            guideDescription="Specific itemized descriptions or reason for the expense."
+          />
 
-          <div className="space-y-2">
-            <Label>Amount (₱)</Label>
-            <Input
-              className="h-11 text-lg"
+          <FieldWithGuide
+            label="Gross Amount (₱)"
+            type="number"
+            value={draftGross}
+            onChange={setDraftGross}
+            placeholder="0.00"
+            guideImagePath="/guides/gross-amount.png"
+            guideTitle="5. Total Gross Amount"
+            guideDescription="Look for 'TOTAL', 'AMOUNT DUE', or 'TOTAL AMOUNT' at the bottom of the receipt."
+          />
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>Net Amount (₱) — auto</Label>
+              <Input
+                type="number"
+                value={draftNetText}
+                disabled
+                readOnly
+                placeholder="0.00"
+                className="h-11 text-base bg-muted text-muted-foreground"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>VAT (₱) — auto</Label>
+              <Input
+                type="number"
+                value={draftVatText}
+                disabled
+                readOnly
+                placeholder="0.00"
+                className="h-11 text-base bg-muted text-muted-foreground"
+              />
+            </div>
+            <FieldWithGuide
+              label="EWT (₱) — optional"
               type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
+              value={draftEwt}
+              onChange={setDraftEwt}
               placeholder="0.00"
-              value={draftAmount}
-              onChange={(e) => setDraftAmount(e.target.value)}
             />
           </div>
 
-          {/* ── Receipt photo capture / upload (mobile-first) ── */}
-          <div className="space-y-2">
+          {/* ── VAT trigger ── */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border bg-muted/40 p-3">
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold">
+                {draftApplyVat
+                  ? "VAT 12% applied to this receipt"
+                  : "Non-VAT / VAT not applied"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Press the button only for VATable receipts. VAT = Gross ÷ 1.12 ×
+                12%; Net = Gross − VAT − EWT.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant={draftApplyVat ? "default" : "outline"}
+              size="sm"
+              className={
+                draftApplyVat ? "bg-blue-600 hover:bg-blue-700 text-white" : ""
+              }
+              onClick={() => setDraftApplyVat((prev) => !prev)}
+            >
+              <Calculator className="mr-2 h-4 w-4" />
+              {draftApplyVat ? "Remove VAT" : "Apply VAT 12%"}
+            </Button>
+          </div>
+
+          {/* ── FOOLPROOF DOCUMENT REFERENCES SECTION ── */}
+          <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div>
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Document References
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Fill in the reference field that matches your receipt or
+                  document.
+                </p>
+              </div>
+
+              {/* Reference Guide Tooltip */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                    >
+                      <HelpCircle className="h-3.5 w-3.5" />
+                      <span>Reference Guide</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="left"
+                    className="max-w-xs text-xs space-y-1"
+                  >
+                    <p className="font-semibold border-b pb-1">
+                      Which field should I use?
+                    </p>
+                    <p>
+                      <strong>SI:</strong> Sales Invoice (Goods/Items)
+                    </p>
+                    <p>
+                      <strong>OR:</strong> Official Receipt (Services/Utilities)
+                    </p>
+                    <p>
+                      <strong>DR:</strong> Delivery Receipt
+                    </p>
+                    <p>
+                      <strong>CR:</strong> Collection Receipt
+                    </p>
+                    <p>
+                      <strong>BS:</strong> Billing Statement
+                    </p>
+                    <p>
+                      <strong>Check / CV:</strong> Payment Voucher & Check
+                      details
+                    </p>
+                    <p className="pt-1 text-amber-600 font-medium">
+                      <strong>Ref No:</strong> Use ONLY if none of the above
+                      apply (e.g. Waybill, Statement of Account).
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* 6. SI Number */}
+              <FieldWithGuide
+                label="SI Number"
+                subLabel="Sales Invoice"
+                value={draftSiNo}
+                onChange={setDraftSiNo}
+                placeholder="E.G. SI-0001"
+                uppercase
+                guideImagePath="/guides/si-number.png"
+                guideTitle="6. Sales Invoice Number (S.I. #)"
+                guideDescription="Look for 'S.I. #', 'SI NO.', or 'SALES INVOICE #' printed on the receipt."
+              />
+
+              {/* 7. OR Number */}
+              <FieldWithGuide
+                label="OR Number"
+                subLabel="Official Receipt"
+                value={draftOrNo}
+                onChange={setDraftOrNo}
+                placeholder="E.G. OR-0001"
+                uppercase
+                guideImagePath="/guides/or-number.png"
+                guideTitle="7. Official Receipt Number (O.R. #)"
+                guideDescription="Look for 'O.R. #', 'OR NO.', or 'OFFICIAL RECEIPT NO.'."
+              />
+
+              {/* 8. DR Number */}
+              <FieldWithGuide
+                label="DR Number"
+                subLabel="Delivery Receipt"
+                value={draftDrNo}
+                onChange={setDraftDrNo}
+                placeholder="E.G. DR-0001"
+                uppercase
+                guideImagePath="/guides/dr-number.png"
+                guideTitle="8. Delivery Receipt Number (D.R. #)"
+                guideDescription="Look for 'D.R. #', 'DR NO.', or 'DELIVERY RECEIPT'."
+              />
+
+              {/* 9. CR Number */}
+              <FieldWithGuide
+                label="CR Number"
+                subLabel="Collection Receipt"
+                value={draftCrNo}
+                onChange={setDraftCrNo}
+                placeholder="E.G. CR-0001"
+                uppercase
+                guideImagePath="/guides/cr-number.png"
+                guideTitle="9. Collection Receipt Number (C.R. #)"
+                guideDescription="Look for 'C.R. #', 'CR NO.', or 'COLLECTION RECEIPT'."
+              />
+
+              {/* 10. BS Number */}
+              <FieldWithGuide
+                label="BS Number"
+                subLabel="Billing Statement"
+                value={draftBsNo}
+                onChange={setDraftBsNo}
+                placeholder="E.G. BS-0001"
+                uppercase
+                guideImagePath="/guides/bs-number.png"
+                guideTitle="10. Billing Statement Number (B.S. #)"
+                guideDescription="Look for 'STATEMENT NO.', 'BILLING NO.', or 'B.S. #'."
+              />
+
+              {/* 11. Check No */}
+              <FieldWithGuide
+                label="Check No"
+                subLabel="Check Payment"
+                value={draftCheckNo}
+                onChange={setDraftCheckNo}
+                placeholder="E.G. CHK-101"
+                uppercase
+                guideImagePath="/guides/check-number.png"
+                guideTitle="11. Check Number"
+                guideDescription="Check number issued or indicated on check payment vouchers."
+              />
+
+              {/* 12. CV No */}
+              <FieldWithGuide
+                label="CV No"
+                subLabel="Check Voucher"
+                value={draftCvNo}
+                onChange={setDraftCvNo}
+                placeholder="E.G. CV-2026-001"
+                uppercase
+                guideImagePath="/guides/cv-number.png"
+                guideTitle="12. Check Voucher Number (C.V. #)"
+                guideDescription="Look for 'CHECK VOUCHER NO.' or 'C.V. #' on company vouchers."
+              />
+
+              {/* Ref No placed directly beside CV No (spans 2 columns on lg screens) */}
+              <div className="lg:col-span-2">
+                <FieldWithGuide
+                  label="Ref No (Other / Fallback)"
+                  subLabel="Use ONLY if no standard reference applies"
+                  value={draftRefNo}
+                  onChange={setDraftRefNo}
+                  placeholder="E.G. STATEMENT OF ACCOUNT, ORDER SLIP, AIR WAYBILL"
+                  uppercase
+                  guideImagePath="/guides/ref-number.png"
+                  guideTitle="Other Document Reference"
+                  guideDescription="Use for Air Waybills, GCash Ref #, Statement of Accounts, or Order Slips."
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* ── Receipt photo capture / upload ── */}
+          <div className="space-y-1.5">
             <Label>Receipt Photo</Label>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => handleFileSelected(e.target.files?.[0])}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(e) => handleFileSelected(e.target.files?.[0])}
+              />
               <Button
                 type="button"
                 size="lg"
@@ -1091,85 +1492,43 @@ export function LiquidationForm({
                 Upload
               </Button>
             </div>
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => handleFileSelected(e.target.files?.[0])}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,application/pdf"
-              className="hidden"
-              onChange={(e) => handleFileSelected(e.target.files?.[0])}
-            />
 
-            {uploading && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Uploading receipt...
-              </div>
-            )}
-
-            {(draftReceiptFile || draftReceiptUrl) && (
-              <div className="space-y-2">
+            {draftPreviewSrc && (
+              <div className="flex items-center gap-3 rounded-lg border p-2">
                 {draftReceiptIsImage ? (
-                  <div className="overflow-hidden rounded-xl border bg-muted">
-                    <img
-                      src={
-                        draftPreviewSrc ||
-                        draftReceiptPreviewUrl ||
-                        draftReceiptUrl
-                      }
-                      alt="Receipt preview"
-                      className="max-h-64 w-full object-contain"
-                    />
-                  </div>
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={draftPreviewSrc}
+                    alt="Receipt preview"
+                    className="h-14 w-14 rounded border object-cover"
+                  />
                 ) : (
-                  <div className="flex items-center gap-3 rounded-xl border bg-muted p-4">
-                    <FileText className="h-8 w-8 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {draftReceiptName || "PDF receipt"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        PDF file attached
-                      </p>
-                    </div>
+                  <div className="flex h-14 w-14 items-center justify-center rounded border text-muted-foreground">
+                    <FileText className="h-6 w-6" />
                   </div>
                 )}
-                {draftReceiptFile && !draftReceiptUrl && (
-                  <p className="text-xs font-medium text-amber-600">
-                    Saved locally — will upload to Drive when you add this item.
-                  </p>
-                )}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="max-w-[45%] truncate text-xs text-muted-foreground">
-                    {draftReceiptName || "Receipt file"}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-10"
-                      onClick={() => cameraInputRef.current?.click()}
-                    >
-                      <Camera className="mr-1 h-4 w-4" />
-                      Retake
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-10 text-destructive"
-                      onClick={handleRemoveReceipt}
-                    >
-                      <X className="mr-1 h-4 w-4" />
-                      Remove
-                    </Button>
-                  </div>
+                <span className="max-w-[45%] truncate text-xs text-muted-foreground">
+                  {draftReceiptName || "Receipt file"}
+                </span>
+                <div className="ml-auto flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10"
+                    onClick={() => cameraInputRef.current?.click()}
+                  >
+                    <Camera className="mr-1 h-4 w-4" />
+                    Retake
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 text-destructive"
+                    onClick={handleRemoveReceipt}
+                  >
+                    <X className="mr-1 h-4 w-4" />
+                    Remove
+                  </Button>
                 </div>
               </div>
             )}
@@ -1202,7 +1561,7 @@ export function LiquidationForm({
         </CardContent>
       </Card>
 
-      {/* ── Itemized summary (pivot table: Date | Description | <categories> | Total | Receipt | Actions) ── */}
+      {/* ── Receipt Items Pivot Table ── */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1213,7 +1572,6 @@ export function LiquidationForm({
                   ? "No items added yet."
                   : `${items.length} item(s) — Total: ${formatCurrency(totalAmount)}`}
                 {isLocked && " (Locked — already submitted)"}
-                {loadingLiquidation && " (Loading…)"}
               </CardDescription>
             </div>
             <Button
@@ -1221,7 +1579,7 @@ export function LiquidationForm({
               variant="outline"
               size="sm"
               onClick={() => setPreviewOpen(true)}
-              disabled={items.length === 0 || loadingLiquidation}
+              disabled={items.length === 0}
             >
               <Eye className="mr-2 h-4 w-4" />
               Preview
@@ -1229,12 +1587,7 @@ export function LiquidationForm({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {loadingLiquidation ? (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading receipts…
-            </div>
-          ) : items.length === 0 ? (
+          {items.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               Add receipt items above to build your liquidation batch.
             </p>
@@ -1257,15 +1610,14 @@ export function LiquidationForm({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {sortedItems.map((item, index) => {
-                      // Resolve the original index in the unsorted items array
-                      // so edit/delete operations target the correct item.
+                    {sortedItems.map((item) => {
                       const originalIndex = items.indexOf(item);
                       const isImage =
                         item.receiptIsImage ??
                         (item.receiptImageUrl
                           ? isImageUrl(item.receiptImageUrl)
                           : true);
+                      const itemGross = item.grossAmount ?? item.amount ?? 0;
                       return (
                         <TableRow key={`${item.date}-${originalIndex}`}>
                           <TableCell className="whitespace-nowrap font-medium">
@@ -1280,12 +1632,12 @@ export function LiquidationForm({
                               className="text-right font-mono"
                             >
                               {item.category === cat
-                                ? formatCurrency(item.amount)
+                                ? formatCurrency(itemGross)
                                 : ""}
                             </TableCell>
                           ))}
                           <TableCell className="text-right font-bold">
-                            {formatCurrency(item.amount)}
+                            {formatCurrency(itemGross)}
                           </TableCell>
                           <TableCell className="text-center">
                             {item.receiptImageUrl ? (
@@ -1296,6 +1648,7 @@ export function LiquidationForm({
                                 aria-label="Open receipt"
                               >
                                 {isImage ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
                                   <img
                                     src={
                                       item.receiptPreviewUrl ||
@@ -1351,7 +1704,6 @@ export function LiquidationForm({
                     })}
                   </TableBody>
                   <TableFooter>
-                    {/* ── Subtotal row (per-category sums) ── */}
                     <TableRow>
                       <TableCell colSpan={2} className="font-semibold">
                         Subtotal
@@ -1368,7 +1720,6 @@ export function LiquidationForm({
                       </TableCell>
                       <TableCell colSpan={2} />
                     </TableRow>
-                    {/* ── Grand Total row ── */}
                     <TableRow>
                       <TableCell
                         colSpan={displayCategories.length + 2}
@@ -1432,6 +1783,7 @@ export function LiquidationForm({
         categories={categories}
         miscLookup={miscLookup}
         advances={advances}
+        fti={previewFtiComparison}
         onDownloadPdf={handleDownloadPdf}
         downloadingPdf={downloadingPdf}
         onDownloadImage={handleDownloadImage}
@@ -1445,11 +1797,12 @@ export function LiquidationForm({
           categories={categories}
           miscLookup={miscLookup}
           advances={advances}
-          id="liquidation-print-content"
+          fti={previewFtiComparison}
+          id="liquidation-preview-content"
         />
       </div>
 
-      {/* ── Sticky bottom submit bar (always reachable on mobile) ── */}
+      {/* ── Sticky bottom submit bar ── */}
       <div className="sticky bottom-0 z-10 -mx-1 border-t bg-background/95 px-3 py-3 backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <div className="shrink-0">
