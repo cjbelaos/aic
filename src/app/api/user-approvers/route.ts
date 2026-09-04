@@ -19,16 +19,18 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const requesterUserId = searchParams.get("requesterUserId");
     const departmentId = searchParams.get("departmentId");
+    const approvalType = searchParams.get("approvalType") || undefined;
 
     if (requesterUserId && departmentId) {
       const approver = await getApproverForRequester(
         requesterUserId,
         parseInt(departmentId, 10) || 0,
+        approvalType,
       );
       return NextResponse.json(approver, { status: 200 });
     }
 
-    const approvers = await getUserApprovers();
+    const approvers = await getUserApprovers(approvalType);
     return NextResponse.json(approvers, { status: 200 });
   } catch (error) {
     const message =
@@ -48,6 +50,7 @@ export async function POST(request: Request) {
 
     const requesterUserId = (body.requesterUserId || "").trim();
     const approverUserId = (body.approverUserId || "").trim();
+    const approvalType = (body.approvalType || "").trim();
 
     if (!requesterUserId || !approverUserId) {
       return NextResponse.json(
@@ -58,6 +61,17 @@ export async function POST(request: Request) {
     if (requesterUserId === approverUserId) {
       return NextResponse.json(
         { error: "A user cannot be their own approver." },
+        { status: 400 },
+      );
+    }
+    if (
+      approvalType &&
+      approvalType !== "*" &&
+      approvalType !== "FTI" &&
+      approvalType !== "LIQUIDATION"
+    ) {
+      return NextResponse.json(
+        { error: "approvalType must be one of: FTI, LIQUIDATION, or *." },
         { status: 400 },
       );
     }
@@ -121,6 +135,7 @@ export async function POST(request: Request) {
       departmentId,
       requesterUserId,
       approverUserId,
+      approvalType: approvalType || "*",
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {

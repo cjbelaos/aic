@@ -8,9 +8,14 @@ const api = axios.create({
 });
 
 export const userApproverService = {
-  async getAll(): Promise<UserApprover[]> {
+  async getAll(approvalType?: string): Promise<UserApprover[]> {
     try {
-      const response = await api.get<UserApprover[]>("/user-approvers");
+      const params = approvalType
+        ? { approvalType }
+        : {};
+      const response = await api.get<UserApprover[]>("/user-approvers", {
+        params,
+      });
       return response.data;
     } catch (error: any) {
       throw new Error(

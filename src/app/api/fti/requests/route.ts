@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const [requests, users, approvers] = await Promise.all([
       getAllFTIRequests(),
       getUsers(),
-      getUserApprovers().catch(() => []),
+      getUserApprovers("FTI").catch(() => []),
     ]);
 
     const userMap = new Map(users.map((u) => [u.userId, u.fullName]));

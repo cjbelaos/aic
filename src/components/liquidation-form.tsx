@@ -237,8 +237,8 @@ export function LiquidationForm({
     editingLiquidation && !editingLiquidation.controlNo
       ? editingLiquidation.totalAmountRequested != null
         ? String(editingLiquidation.totalAmountRequested)
-        : ""
-      : "",
+        : "0"
+      : "0",
   );
 
   const [items, setItems] = useState<ReceiptItemInput[]>(() =>
@@ -551,13 +551,13 @@ export function LiquidationForm({
       setLiqType("fti");
       setLiquidationId("");
       setItems([]);
-      setTotalAmountRequested("");
+      setTotalAmountRequested("0");
     } else {
       setLiqType("other");
       setControlNo("");
       setLiquidationId("");
       setItems([]);
-      setTotalAmountRequested("");
+      setTotalAmountRequested("0");
     }
   };
 
@@ -849,7 +849,11 @@ export function LiquidationForm({
       setSuccessLiquidationId(result.liquidationId);
     } catch (error) {
       console.error("Liquidation submit failed:", error);
-      toast.error("Failed to submit liquidation. Please try again.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to submit liquidation. Please try again.",
+      );
     } finally {
       setSubmitting(false);
     }

@@ -43,6 +43,7 @@ interface UserFormState {
   userRoleId: number;
   departmentId: number;
   positionId: number;
+  requiresApproval: boolean;
 }
 
 const EMPTY_FORM: UserFormState = {
@@ -53,6 +54,7 @@ const EMPTY_FORM: UserFormState = {
   userRoleId: 2,
   departmentId: 0,
   positionId: 0,
+  requiresApproval: true,
 };
 
 // Role ID → label mapping
@@ -164,6 +166,17 @@ export default function UsersPage() {
             : "—",
       },
       { accessorKey: "lastLogin", header: "Last Login" },
+      {
+        id: "requiresApproval",
+        header: "Approval",
+        cell: ({ row }) => (
+          <Badge
+            variant={row.original.requiresApproval ? "secondary" : "outline"}
+          >
+            {row.original.requiresApproval ? "Requires approval" : "Auto-approve"}
+          </Badge>
+        ),
+      },
     ],
     [deptMap, posMap],
   );
@@ -214,6 +227,9 @@ export default function UsersPage() {
       userRoleId: row.userRoleId,
       departmentId: row.departmentId,
       positionId: row.positionId,
+      requiresApproval: row.requiresApproval !== undefined
+        ? row.requiresApproval
+        : true,
     });
     setError("");
     setModalOpen(true);
@@ -250,6 +266,7 @@ export default function UsersPage() {
           userRoleId: form.userRoleId,
           departmentId: form.departmentId,
           positionId: form.positionId,
+          requiresApproval: form.requiresApproval,
           ...(form.password ? { password: form.password } : {}),
         };
         await userService.updateUser(editTarget.userId, payload);
@@ -263,6 +280,7 @@ export default function UsersPage() {
           userRoleId: form.userRoleId,
           departmentId: form.departmentId,
           positionId: form.positionId,
+          requiresApproval: form.requiresApproval,
         };
         await userService.createUser(payload);
         toast.success("User created successfully.");
@@ -477,6 +495,34 @@ export default function UsersPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="user-approval">Approval Required</Label>
+                  <Select
+                    value={form.requiresApproval ? "yes" : "no"}
+                    disabled={saving}
+                    onValueChange={(value) =>
+                      setForm((c) => ({
+                        ...c,
+                        requiresApproval: value === "yes",
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="user-approval" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yes">Yes — requires approval</SelectItem>
+                      <SelectItem value="no">
+                        No — auto-approve submissions
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    When &quot;No&quot;, this user's FTI and liquidation
+                    submissions are approved automatically without an approver.
+                  </p>
                 </div>
               </div>
 

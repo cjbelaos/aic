@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
         );
 
       const [approvers, users] = await Promise.all([
-        getUserApprovers().catch(() => []),
+        getUserApprovers("LIQUIDATION").catch(() => []),
         getUsers().catch(() => []),
       ]);
       const mapped = approvers.some(
@@ -343,7 +343,7 @@ export async function GET(req: NextRequest) {
       getLiquidationsFullByUser(session.userId),
       getAllLiquidations(),
       getAllReceiptItems(),
-      getUserApprovers().catch(() => []),
+      getUserApprovers("LIQUIDATION").catch(() => []),
       import("@/lib/userSheets").then((m) => m.getUsers()).catch(() => []),
     ]);
 

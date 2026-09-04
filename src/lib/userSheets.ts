@@ -9,7 +9,10 @@ import type {
 } from "@/types/user";
 
 const USERS_SHEET = "Users";
-const USERS_RANGE = `${USERS_SHEET}!A2:L`; // A=userId, B=username, C=fullName, D=email, E=passwordHash, F=salt, G=userRoleId, H=departmentId, I=positionId, J=createdAt, K=lastLogin, L=signature
+// A=userId, B=username, C=fullName, D=email, E=passwordHash, F=salt,
+// G=userRoleId, H=departmentId, I=positionId, J=createdAt, K=lastLogin,
+// L=signature, M=requiresApproval (YES/NO, empty ⇒ YES)
+const USERS_RANGE = `${USERS_SHEET}!A2:M`;
 
 // ── Simple TTL Cache ──────────────────────────
 // getUsers()/getUserById()/getUserByUsername() are called on hot paths
@@ -59,6 +62,16 @@ function parseNumericId(value: string): number {
 }
 
 /**
+ * Parses the Users!M (requiresApproval) cell. Empty/unknown values default to
+ * true so pre-existing users keep requiring approval (backward compatible).
+ * Only explicit NO/FALSE/0/N are treated as exempt.
+ */
+function parseRequiresApproval(value: string): boolean {
+  const v = (value || "").trim().toUpperCase();
+  return !(v === "NO" || v === "FALSE" || v === "0" || v === "N");
+}
+
+/**
  * Maps our Google Sheets row position indices straight into runtime objects
  */
 function rowToUser(row: string[], rowNumber: number): User | null {
@@ -78,11 +91,12 @@ function rowToUser(row: string[], rowNumber: number): User | null {
     createdAt: (row[9] || "").trim(), // J
     lastLogin: (row[10] || "").trim(), // K
     signature: (row[11] || "").trim() || undefined, // L
+    requiresApproval: parseRequiresApproval(row[12] || ""), // M
   };
 }
 
 /**
- * Maps user objects to sheet row data (12 columns, A-L).
+ * Maps user objects to sheet row data (13 columns, A-M).
  */
 function userToRow(user: User): string[] {
   return [
@@ -98,6 +112,7 @@ function userToRow(user: User): string[] {
     user.createdAt, // J
     user.lastLogin, // K
     user.signature || "", // L
+    user.requiresApproval ? "YES" : "NO", // M
   ];
 }
 
@@ -113,6 +128,7 @@ export function toPublicUser(user: User): PublicUser {
     createdAt: user.createdAt,
     lastLogin: user.lastLogin,
     signature: user.signature,
+    requiresApproval: user.requiresApproval,
   };
 }
 
@@ -209,12 +225,13 @@ export async function addUser(input: CreateUserInput): Promise<PublicUser> {
     positionId: input.positionId || 0,
     createdAt: new Date().toISOString().replace("T", " ").slice(0, 19),
     lastLogin: "",
+    requiresApproval: input.requiresApproval ?? true,
   };
 
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${USERS_SHEET}!A:L`,
+    range: `${USERS_SHEET}!A:M`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [userToRow(user)] },
   });
@@ -282,12 +299,16 @@ export async function updateUser(
       updatedData.signature !== undefined
         ? updatedData.signature
         : current.signature,
+    requiresApproval:
+      updatedData.requiresApproval !== undefined
+        ? updatedData.requiresApproval
+        : current.requiresApproval,
   };
 
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${USERS_SHEET}!A${rowNumber}:L${rowNumber}`,
+    range: `${USERS_SHEET}!A${rowNumber}:M${rowNumber}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [userToRow(updated)] },
   });

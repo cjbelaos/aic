@@ -181,7 +181,7 @@ export function LiquidationList() {
       try {
         const { default: userApproverService } =
           await import("@/lib/services/userApprover.service");
-        const all = await userApproverService.getAll();
+        const all = await userApproverService.getAll("LIQUIDATION");
         if (!cancelled) {
           const mapped = new Set<string>();
           for (const a of all) {

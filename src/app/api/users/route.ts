@@ -68,6 +68,10 @@ export async function POST(request: Request) {
       userRoleId: parseNumericId(body.userRoleId, 2),
       departmentId: parseNumericId(body.departmentId, 0),
       positionId: parseNumericId(body.positionId, 0),
+      requiresApproval:
+        body.requiresApproval === undefined
+          ? true
+          : Boolean(body.requiresApproval),
     };
 
     const user = await addUser(input);

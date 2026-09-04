@@ -11,6 +11,11 @@ export interface User {
   createdAt: string;
   lastLogin: string;
   signature?: string; // Drive file ID of uploaded e-Signature
+  /**
+   * When false, the user does NOT need approval: their FTI/liquidation
+   * submissions auto-approve. Defaults to true (requires approval).
+   */
+  requiresApproval: boolean;
 }
 
 export interface PublicUser {
@@ -24,6 +29,7 @@ export interface PublicUser {
   createdAt: string;
   lastLogin: string;
   signature?: string; // Drive file ID of uploaded e-Signature
+  requiresApproval: boolean;
 }
 
 export interface CreateUserInput {
@@ -35,6 +41,7 @@ export interface CreateUserInput {
   departmentId: number;
   positionId: number;
   signature?: string;
+  requiresApproval?: boolean;
 }
 
 export interface UpdateUserInput {
@@ -46,6 +53,7 @@ export interface UpdateUserInput {
   departmentId?: number;
   positionId?: number;
   signature?: string;
+  requiresApproval?: boolean;
 }
 
 export interface SessionUser {

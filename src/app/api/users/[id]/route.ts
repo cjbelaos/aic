@@ -30,6 +30,9 @@ export async function PUT(
       userRoleId: parseNumericId(body.userRoleId),
       departmentId: parseNumericId(body.departmentId),
       positionId: parseNumericId(body.positionId),
+      ...(body.requiresApproval !== undefined
+        ? { requiresApproval: Boolean(body.requiresApproval) }
+        : {}),
     };
 
     const user = await updateUser(id, updatedData);

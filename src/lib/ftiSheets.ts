@@ -399,7 +399,11 @@ export async function resolveApproverForRequester(
     const users = await getUsers().catch(() => []);
     const user = users.find((u) => u.userId === userId);
     if (!user) return null;
-    const mapping = await getApproverForRequester(userId, user.departmentId);
+    const mapping = await getApproverForRequester(
+      userId,
+      user.departmentId,
+      "FTI",
+    );
     return mapping ? { approverUserId: mapping.approverUserId } : null;
   } catch {
     return null;
@@ -492,24 +496,66 @@ export async function updateFTIRequestStatus(
   if (status.toUpperCase() === "SENT") {
     const req = all[idx];
     if (req && !req.approvedByUserId) {
-      const approver = await resolveApproverForRequester(req.userId);
-      if (approver) {
+      // Approval exemption: users flagged "does not require approval" have
+      // their FTI auto-approved on submission, without an approver.
+      const { getUsers } = await import("@/lib/userSheets");
+      const users = await getUsers().catch(() => []);
+      const requester = users.find((u) => u.userId === req.userId);
+
+      if (requester && requester.requiresApproval === false) {
         const sheets = await getSheetsClient();
+        const dateApproved = formatPhilippineTimestamp();
         await sheets.spreadsheets.values.update({
           spreadsheetId,
           range: `${FTI_REQUEST_SHEET}!C${rowNumber}`,
           valueInputOption: "USER_ENTERED",
-          requestBody: { values: [[status]] },
+          requestBody: { values: [["APPROVED"]] },
         });
         await sheets.spreadsheets.values.update({
           spreadsheetId,
           range: `${FTI_REQUEST_SHEET}!G${rowNumber}`,
           valueInputOption: "USER_ENTERED",
-          requestBody: { values: [[approver.approverUserId]] },
+          requestBody: { values: [[req.userId]] },
         });
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${FTI_REQUEST_SHEET}!H${rowNumber}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [[requester.fullName]] },
+        });
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${FTI_REQUEST_SHEET}!J${rowNumber}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [[dateApproved]] },
+        });
+        // Mirror the approved details into the legacy FTIList tab (non-fatal).
+        await exportFTIListOnApproval(controlNo).catch(() => {});
         invalidateFTICache();
         return;
       }
+
+      const approver = await resolveApproverForRequester(req.userId);
+      if (!approver) {
+        throw new Error(
+          "No approver is configured for this user. Contact your administrator before submitting.",
+        );
+      }
+      const sheets = await getSheetsClient();
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${FTI_REQUEST_SHEET}!C${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[status]] },
+      });
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${FTI_REQUEST_SHEET}!G${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[approver.approverUserId]] },
+      });
+      invalidateFTICache();
+      return;
     }
   }
 

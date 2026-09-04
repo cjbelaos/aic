@@ -39,6 +39,7 @@ interface ApproverFormState {
   requesterUserId: string;
   approverUserId: string;
   approvalLevel: number;
+  approvalType: string;
 }
 
 const EMPTY_FORM: ApproverFormState = {
@@ -46,6 +47,7 @@ const EMPTY_FORM: ApproverFormState = {
   requesterUserId: "",
   approverUserId: "",
   approvalLevel: 1,
+  approvalType: "*",
 };
 
 export default function UserApproversPage() {
@@ -171,6 +173,22 @@ export default function UserApproversPage() {
           <Badge variant="secondary">Level {row.original.approvalLevel}</Badge>
         ),
       },
+      {
+        id: "approvalType",
+        header: "Module",
+        cell: ({ row }) => {
+          const type = row.original.approvalType;
+          const label =
+            !type || type === "*"
+              ? "All (FTI + Liquidation)"
+              : type === "FTI"
+                ? "FTI"
+                : type === "LIQUIDATION"
+                  ? "Liquidation"
+                  : type;
+          return <Badge variant="outline">{label}</Badge>;
+        },
+      },
     ],
     [userMap, deptMap],
   );
@@ -254,6 +272,7 @@ export default function UserApproversPage() {
         requesterUserId: form.requesterUserId,
         approverUserId: form.approverUserId,
         approvalLevel: form.approvalLevel,
+        approvalType: form.approvalType,
       });
       toast.success("User-approver mapping created successfully.");
       await loadData();
@@ -416,6 +435,34 @@ export default function UserApproversPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="ua-module">Module</Label>
+                  <Select
+                    value={form.approvalType}
+                    disabled={saving}
+                    onValueChange={(value) =>
+                      setForm((c) => ({ ...c, approvalType: value }))
+                    }
+                  >
+                    <SelectTrigger id="ua-module" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="*">
+                        All (FTI + Liquidation)
+                      </SelectItem>
+                      <SelectItem value="FTI">FTI</SelectItem>
+                      <SelectItem value="LIQUIDATION">
+                        Liquidation
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Choose which module this approver applies to. &quot;All&quot;
+                    applies the same mapping to both FTI and liquidation.
+                  </p>
                 </div>
               </div>
 

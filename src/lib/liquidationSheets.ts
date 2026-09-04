@@ -233,6 +233,67 @@ export async function getLiquidationById(
   return all.find((entry) => entry.liquidationId === liquidationId);
 }
 
+/**
+ * Reads a single liquidation directly from the sheet, bypassing the TTL cache.
+ * Used by write paths immediately after creating a row, because the warm cache
+ * can lag behind the just-appended row (Google Sheets eventual consistency),
+ * which otherwise surfaces as a spurious "Liquidation ... not found" on the
+ * next request (e.g. add-item right after create for an "Other" liquidation).
+ */
+export async function getLiquidationByIdFresh(
+  liquidationId: string,
+): Promise<Liquidation | undefined> {
+  const all = await getAllLiquidationsRaw();
+  return all.find((entry) => entry.liquidationId === liquidationId);
+}
+
+/**
+ * Read a liquidation for a write operation using a cache-bypassing read, with a
+ * longer retry + backoff to absorb Google Sheets' eventual-consistency delay
+ * right after a create/append. Throws a clear error (with diagnostics) only if
+ * it still cannot be found.
+ */
+async function readLiquidationForWrite(
+  liquidationId: string,
+  attempts = 6,
+): Promise<Liquidation> {
+  const delaysMs = [0, 100, 200, 400, 800, 1000];
+  for (let i = 0; i < attempts; i++) {
+    const liquidation = await getLiquidationByIdFresh(liquidationId);
+    if (liquidation) return liquidation;
+    if (i < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[i] ?? 400));
+    }
+  }
+  // Diagnostics: log what the sheet actually contains so we can tell whether
+  // the row was appended but is unmapped/unreadable vs. genuinely absent.
+  try {
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const sheets = await getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: RANGE_LIQUIDATIONS,
+    });
+    const rows = res.data.values || [];
+    console.error(
+      `[liquidation] NOT FOUND ${liquidationId} after ${attempts} fresh reads. ` +
+        `Liquidations sheet has ${rows.length} data rows. ` +
+        `Any-column match: ${rows.some((r) =>
+          r.some((cell) => (cell || "").toString().trim() === liquidationId,
+          ))}. Column-A ids: ${rows
+          .slice(0, 5)
+          .map((r) => (r[0] || "").toString().trim())
+          .join(", ")}...`,
+    );
+  } catch (diagError) {
+    console.error(
+      `[liquidation] NOT FOUND ${liquidationId} — diagnostics unavailable:`,
+      diagError,
+    );
+  }
+  throw new Error(`Liquidation ${liquidationId} not found.`);
+}
+
 /** Liquidation joined with its receipt items (for the history page). */
 export async function getLiquidationFull(
   liquidationId: string,
@@ -550,8 +611,7 @@ export async function addReceiptItems(
   itemsToAdd: ReceiptItemInput[],
   updatedBy = "System",
 ): Promise<{ liquidation: Liquidation; added: ReceiptItem[] }> {
-  const liquidation = await getLiquidationById(liquidationId);
-  if (!liquidation) throw new Error(`Liquidation ${liquidationId} not found.`);
+  const liquidation = await readLiquidationForWrite(liquidationId);
   const status = (liquidation.status || "SAVED").toUpperCase();
   if (!["SAVED", "REQUESTED_FOR_CHANGE"].includes(status)) {
     throw new Error(
@@ -605,12 +665,15 @@ export async function addReceiptItems(
     },
   });
 
-  const allItems = await getAllReceiptItems();
+  // Use cache-bypassing reads for the recompute so the just-appended item and
+  // parent row are always included regardless of the TTL cache state.
+  invalidateLiquidationCache();
+  const allItems = await getAllReceiptItemsRaw();
   const total = allItems
     .filter((item) => item.liquidationId === liquidationId)
     .reduce((sum, item) => sum + (item.grossAmount ?? item.amount ?? 0), 0);
 
-  const all = await getAllLiquidations();
+  const all = await getAllLiquidationsRaw();
   const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
   if (idx >= 0) {
     await sheets.spreadsheets.values.update({
@@ -628,7 +691,9 @@ export async function addReceiptItems(
   }
 
   invalidateLiquidationCache();
-  const refreshed = await getLiquidationById(liquidationId);
+  const refreshed = all.find(
+    (entry) => entry.liquidationId === liquidationId,
+  );
   if (!refreshed) throw new Error("Failed to reload liquidation.");
   return { liquidation: refreshed, added };
 }
@@ -643,8 +708,7 @@ export async function replaceReceiptItems(
   itemsToSave: ReceiptItemInput[],
   updatedBy = "System",
 ): Promise<Liquidation> {
-  const liquidation = await getLiquidationById(liquidationId);
-  if (!liquidation) throw new Error(`Liquidation ${liquidationId} not found.`);
+  const liquidation = await readLiquidationForWrite(liquidationId);
   const status = (liquidation.status || "SAVED").toUpperCase();
   if (!["SAVED", "REQUESTED_FOR_CHANGE"].includes(status)) {
     throw new Error(
@@ -726,11 +790,11 @@ export async function replaceReceiptItems(
     });
   }
 
-  const allItems = await getAllReceiptItems();
+  const allItems = await getAllReceiptItemsRaw();
   const total = allItems
     .filter((item) => item.liquidationId === liquidationId)
     .reduce((sum, item) => sum + (item.grossAmount ?? item.amount ?? 0), 0);
-  const all = await getAllLiquidations();
+  const all = await getAllLiquidationsRaw();
   const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
   if (idx >= 0) {
     await sheets.spreadsheets.values.update({
@@ -748,7 +812,9 @@ export async function replaceReceiptItems(
   }
 
   invalidateLiquidationCache();
-  const refreshed = await getLiquidationById(liquidationId);
+  const refreshed = all.find(
+    (entry) => entry.liquidationId === liquidationId,
+  );
   if (!refreshed) throw new Error("Failed to reload liquidation.");
   return refreshed;
 }
@@ -765,7 +831,11 @@ export async function resolveApproverForRequester(userId: string): Promise<{
     const users = await getUsers().catch(() => []);
     const user = users.find((u) => u.userId === userId);
     if (!user) return null;
-    const mapping = await getApproverForRequester(userId, user.departmentId);
+    const mapping = await getApproverForRequester(
+      userId,
+      user.departmentId,
+      "LIQUIDATION",
+    );
     return mapping ? { approverUserId: mapping.approverUserId } : null;
   } catch {
     return null;
@@ -789,23 +859,65 @@ export async function updateLiquidationStatus(
   if (status.toUpperCase() === "SUBMITTED") {
     const current = all[idx];
     if (current && !current.approvedByUserId) {
-      const approver = await resolveApproverForRequester(current.userId);
-      if (approver) {
+      // Approval exemption: users flagged "does not require approval" have
+      // their liquidation auto-approved on submission, without an approver.
+      const { getUsers } = await import("@/lib/userSheets");
+      const users = await getUsers().catch(() => []);
+      const requester = users.find((u) => u.userId === current.userId);
+
+      if (requester && requester.requiresApproval === false) {
+        const approvedDate = new Date()
+          .toISOString()
+          .replace("T", " ")
+          .slice(0, 19);
         await sheets.spreadsheets.values.update({
           spreadsheetId,
           range: `${LIQUIDATIONS_SHEET}!E${rowNumber}`,
           valueInputOption: "USER_ENTERED",
-          requestBody: { values: [[status]] },
+          requestBody: { values: [["APPROVED"]] },
         });
         await sheets.spreadsheets.values.update({
           spreadsheetId,
           range: `${LIQUIDATIONS_SHEET}!F${rowNumber}`,
           valueInputOption: "USER_ENTERED",
-          requestBody: { values: [[approver.approverUserId]] },
+          requestBody: { values: [[current.userId]] },
+        });
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${LIQUIDATIONS_SHEET}!G${rowNumber}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [[requester.fullName]] },
+        });
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${LIQUIDATIONS_SHEET}!I${rowNumber}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [[approvedDate]] },
         });
         invalidateLiquidationCache();
         return;
       }
+
+      const approver = await resolveApproverForRequester(current.userId);
+      if (!approver) {
+        throw new Error(
+          "No approver is configured for this user. Contact your administrator before submitting.",
+        );
+      }
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${LIQUIDATIONS_SHEET}!E${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[status]] },
+      });
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${LIQUIDATIONS_SHEET}!F${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[approver.approverUserId]] },
+      });
+      invalidateLiquidationCache();
+      return;
     }
   }
 

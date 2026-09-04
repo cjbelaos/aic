@@ -26,7 +26,7 @@ async function isAuthorizedApprover(
   if (isAdmin) return true;
   if (full.approvedByUserId === sessionUserId) return true;
   try {
-    const approvers = await getUserApprovers();
+    const approvers = await getUserApprovers("FTI");
     return approvers.some(
       (m) =>
         m.approverUserId === sessionUserId && m.requesterUserId === full.userId,
