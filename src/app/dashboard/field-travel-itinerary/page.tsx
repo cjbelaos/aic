@@ -28,9 +28,11 @@ import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { LocationSearchableSelect } from "@/components/ui/location-searchable-select";
 import { LocationPickerDialog } from "@/components/location-picker-dialog";
-import { CompanyPickerDialog } from "@/components/company-picker-dialog";
-import type { LocationAddress } from "@/types/locationAddress";
-import type { Company } from "@/types/company";
+import {
+  deriveLocationStatus,
+  type LocationAddress,
+  type LocationStatus,
+} from "@/types/locationAddress";
 import { DatePicker } from "@/components/ui/date-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
@@ -109,6 +111,8 @@ interface LocationItem {
   locationId?: string;
   latitude?: number;
   longitude?: number;
+  /** Derived readiness; informational only — FTI does not filter on it. */
+  status?: LocationStatus;
 }
 
 interface ExpresswayGroup {
@@ -225,7 +229,6 @@ export default function FieldTravelItineraryPage() {
   const [approvedBy, setApprovedBy] = useState("");
   const [approvedBySignatureUrl, setApprovedBySignatureUrl] = useState("");
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
-  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
 
   // ── Liquidation preview state ──
   const [liquidationsSummary, setLiquidationsSummary] = useState<
@@ -589,14 +592,6 @@ export default function FieldTravelItineraryPage() {
     0,
   );
 
-  const handleCompanySaved = useCallback(
-    (company: Company) => {
-      loadFormInfo();
-      toast.success(`"${company.companyName}" is now available in the list.`);
-    },
-    [loadFormInfo],
-  );
-
   const handleLocationSaved = useCallback((loc: LocationAddress) => {
     setFormInfo((prev) => {
       if (!prev) return prev;
@@ -606,6 +601,7 @@ export default function FieldTravelItineraryPage() {
         locationId: loc.locationId,
         latitude: loc.latitude,
         longitude: loc.longitude,
+        status: deriveLocationStatus(loc),
       };
       const exists = prev.locations.some(
         (l) => l.companyName.toLowerCase() === loc.locationName.toLowerCase(),
@@ -2015,9 +2011,9 @@ export default function FieldTravelItineraryPage() {
   };
 
   const locationOptions = locations.map((loc) => ({
-    value: loc.companyName,
-    label: loc.companyName,
-  }));
+      value: loc.companyName,
+      label: loc.companyName,
+    }));
 
   const getAddress = (companyName: string) => {
     const loc = locations.find((l) => l.companyName === companyName);
@@ -2421,7 +2417,6 @@ export default function FieldTravelItineraryPage() {
                     placeholder="Select origin location"
                     searchPlaceholder="Search locations..."
                     onAddLocation={() => setLocationPickerOpen(true)}
-                    onAddCompany={() => setCompanyPickerOpen(true)}
                   />
                   <Input
                     value={getAddress(formData.origin)}
@@ -2488,7 +2483,6 @@ export default function FieldTravelItineraryPage() {
                         placeholder="Select destination location"
                         searchPlaceholder="Search locations..."
                         onAddLocation={() => setLocationPickerOpen(true)}
-                        onAddCompany={() => setCompanyPickerOpen(true)}
                       />
                       <Input
                         value={getAddress(dest.name)}
@@ -3098,12 +3092,6 @@ export default function FieldTravelItineraryPage() {
         open={locationPickerOpen}
         onOpenChange={setLocationPickerOpen}
         onSaved={handleLocationSaved}
-      />
-
-      <CompanyPickerDialog
-        open={companyPickerOpen}
-        onOpenChange={setCompanyPickerOpen}
-        onSaved={handleCompanySaved}
       />
     </div>
   );

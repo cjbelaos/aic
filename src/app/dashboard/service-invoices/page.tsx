@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,10 @@ const EMPTY_LINE_ITEM: LineItem = {
 };
 
 export default function ServiceInvoicesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const viewDrRaw = searchParams.get("viewDR");
+
   /* List state */
   const [invoices, setInvoices] = useState<ServiceInvoiceSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -605,6 +610,17 @@ export default function ServiceInvoicesPage() {
     ],
     [previewing],
   );
+  /* When arriving with ?viewDR=<dr#>, only show the Service Invoices (SRs)
+     linked to that Delivery Receipt. */
+  const displayInvoices = useMemo(() => {
+    if (!viewDrRaw) return invoices;
+    const target = String(viewDrRaw).trim();
+    return invoices.filter(
+      (inv) =>
+        inv.drNumber != null && String(inv.drNumber) === target,
+    );
+  }, [invoices, viewDrRaw]);
+
   /* Create modal handlers */
   const openCreateModal = () => {
     setInvoiceNo("");
@@ -829,10 +845,31 @@ export default function ServiceInvoicesPage() {
           </div>
         )} */}
 
+        {viewDrRaw && (
+          <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-blue-800">
+              Showing Service Invoices (SRs) linked to DR #
+              <span className="font-semibold">{viewDrRaw}</span>
+              <span className="text-blue-700/70">
+                {" "}
+                ({displayInvoices.length} found)
+              </span>
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-blue-300 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+              onClick={() => router.replace("/dashboard/service-invoices")}
+            >
+              Show All SRs
+            </Button>
+          </div>
+        )}
+
         <EntityTable
           title="Service Invoices"
           columns={columns}
-          data={invoices}
+          data={displayInvoices}
           loading={loading}
           onCreateNew={openCreateModal}
         />

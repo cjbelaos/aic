@@ -8,7 +8,6 @@ import {
   getKmPerLiter,
 } from "@/lib/ftiSheets";
 import { getLocationAddresses } from "@/lib/locationAddressSheets";
-import { getCompanies } from "@/lib/companySheets";
 import { getSession } from "@/lib/auth/session";
 import { getUsers } from "@/lib/userSheets";
 
@@ -20,7 +19,6 @@ export async function GET() {
       techList,
       miscellaneous,
       tollMatrixData,
-      companies,
       locationAddresses,
       expresswayGroups,
       kmPerLiter,
@@ -28,7 +26,6 @@ export async function GET() {
       getTechnicians(),
       getMiscellaneous(),
       getTollMatrix(),
-      getCompanies(),
       getLocationAddresses().catch(() => []),
       getExpresswayGroups(),
       getKmPerLiter(session?.userId || ""),
@@ -37,22 +34,21 @@ export async function GET() {
     // Map to backward-compatible formats
     const technicians = techList.map((t) => t.fullName);
     const miscCodes = miscellaneous.map((m) => m.code);
-    const locations = [
-      ...companies.map((c) => ({
-        companyName: c.companyName,
-        address: c.address,
-        locationId: c.companyId,
-        latitude: c.latitude,
-        longitude: c.longitude,
-      })),
-      ...locationAddresses.map((loc) => ({
-        companyName: loc.locationName,
-        address: loc.address,
-        locationId: loc.locationId,
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-      })),
-    ];
+    // FTI origins/destinations come ONLY from LocationAddresses (which already
+    // mirrors Companies when a row has a CompanyId). Companies' Address is the
+    // billing address used on printed documents, not the Google-Maps address
+    // FTI needs, so companies are intentionally excluded here. Distance is computed
+    // from the address string (coordinates are used when present, otherwise the
+    // address is sent), so the full location list is exposed — status is NOT a
+    // hard filter here; it is surfaced mainly on the Location Addresses page.
+    const locations = locationAddresses.map((loc) => ({
+      companyName: loc.locationName,
+      address: loc.address,
+      locationId: loc.locationId,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      status: loc.status,
+    }));
     const tollGates = tollMatrixData.gates || [];
 
     // Get current user's fullName + role + user list for the admin dropdown.

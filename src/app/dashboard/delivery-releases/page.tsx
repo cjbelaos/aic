@@ -449,17 +449,13 @@ export default function DeliveryReleasePage() {
                 size="icon"
                 className="h-7 w-7 text-blue-600 hover:text-blue-800"
                 onClick={() => {
-                  // Navigate to Service Invoice page with filter for this DR
+                  // Navigate to Service Invoices page filtered to the SRs
+                  // linked to this DR.
                   const drNumber = row.original.drNumber;
                   if (drNumber > 0) {
-                    sessionStorage.setItem(
-                      "viewSRPrefill",
-                      JSON.stringify({
-                        drNumber: drNumber,
-                        companyId: row.original.companyId,
-                      }),
+                    router.push(
+                      `/dashboard/service-invoices?viewDR=${drNumber}`,
                     );
-                    window.location.href = `/service-invoice?viewDR=${drNumber}`;
                   }
                 }}
                 title="View SRs"
@@ -467,6 +463,18 @@ export default function DeliveryReleasePage() {
                 <Eye className="h-3.5 w-3.5" />
               </Button>
             </div>
+          );
+        },
+      },
+      {
+        accessorKey: "deliveredBy",
+        header: "Delivered By",
+        cell: ({ getValue }) => {
+          const v = String(getValue() ?? "").trim();
+          return v ? (
+            <span>{v}</span>
+          ) : (
+            <span className="text-muted-foreground italic">—</span>
           );
         },
       },

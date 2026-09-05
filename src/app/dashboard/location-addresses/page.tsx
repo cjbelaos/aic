@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EntityTable } from "@/components/ui/entity-table";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -17,8 +18,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  LocationAddress,
-  CreateLocationAddressPayload,
+  LOCATION_STATUS_META,
+  type LocationAddress,
+  type CreateLocationAddressPayload,
 } from "@/types/locationAddress";
 import locationAddressService from "@/lib/services/locationAddress.service";
 import "leaflet/dist/leaflet.css";
@@ -69,8 +71,11 @@ const EMPTY_FORM: CreateLocationAddressPayload = {
   longitude: undefined,
 };
 
-const columns: ColumnDef<LocationAddress>[] = [
-  {
+function buildLocationColumns(
+  onConfigure: (row: LocationAddress) => void,
+): ColumnDef<LocationAddress>[] {
+  return [
+    {
     accessorKey: "locationName",
     header: ({ column }) => (
       <Button
@@ -82,9 +87,19 @@ const columns: ColumnDef<LocationAddress>[] = [
         Location Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
-    cell: ({ row }) => (
-      <span className="font-medium uppercase">{row.original.locationName}</span>
-    ),
+    cell: ({ row }) => {
+      const status = row.original.status;
+      return (
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium uppercase">{row.original.locationName}</span>
+          {status && status !== "ready" && (
+            <span className="text-xs text-muted-foreground italic">
+              — {LOCATION_STATUS_META[status].label}
+            </span>
+          )}
+        </div>
+      );
+    },
   },
   {
     accessorKey: "address",
@@ -124,7 +139,51 @@ const columns: ColumnDef<LocationAddress>[] = [
       </span>
     ),
   },
-];
+  {
+    accessorKey: "companyId",
+    header: "Company ID",
+    cell: ({ row }) => (
+      <span className="font-mono text-xs">
+        {row.original.companyId || "—"}
+      </span>
+    ),
+  },
+  {
+    id: "status",
+    header: "Status",
+    cell: ({ row }) => {
+      const status = row.original.status;
+      const meta = status ? LOCATION_STATUS_META[status] : null;
+      const variant =
+        status === "ready"
+          ? "secondary"
+          : status === "needs_coordinates"
+            ? "outline"
+            : "destructive";
+      return (
+        <div className="flex items-center gap-1.5">
+          {meta && (
+            <Badge variant={variant} title={meta.hint} className="whitespace-nowrap">
+              {meta.label}
+            </Badge>
+          )}
+          {status && status !== "ready" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-blue-600 hover:text-blue-800"
+              onClick={() => onConfigure(row.original)}
+              title="Configure address & coordinates"
+            >
+              <MapPin className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      );
+    },
+  },
+  ];
+}
 
 export default function LocationAddressesPage() {
   const [data, setData] = useState<LocationAddress[]>([]);
@@ -174,6 +233,7 @@ export default function LocationAddressesPage() {
       address: row.address,
       latitude: row.latitude,
       longitude: row.longitude,
+      companyId: row.companyId,
     });
     setPosition(
       row.latitude !== undefined && row.longitude !== undefined
@@ -293,6 +353,13 @@ export default function LocationAddressesPage() {
 
   const filteredData = useMemo(() => data, [data]);
   const showMap = mounted && modalOpen && typeof window !== "undefined";
+
+  // Columns depend on openEdit (Configure button opens the same edit modal).
+  const columns = useMemo(
+    () => buildLocationColumns(openEdit),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   return (
     <>

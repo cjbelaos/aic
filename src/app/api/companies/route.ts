@@ -6,6 +6,7 @@ import {
   clearAllCompanies,
 } from "@/lib/companySheets";
 import { addCompanyContact } from "@/lib/companyContactSheets";
+import { provisionLocationFromCompany } from "@/lib/locationAddressSheets";
 import { CreateCompanyPayload } from "@/types/company";
 import { CreateCompanyContactPayload } from "@/types/companyContact";
 
@@ -42,6 +43,23 @@ export async function POST(request: Request) {
           ...contact,
           companyId: created.companyId,
         });
+      }
+    }
+
+    // Auto-provision a LocationAddresses shell (name + CompanyId only; geodata
+    // is configured later on the Location Addresses page). Idempotent upsert —
+    // never duplicates. Non-fatal if the sync fails.
+    if (created?.companyId) {
+      try {
+        await provisionLocationFromCompany({
+          companyId: created.companyId,
+          companyName: created.companyName,
+        });
+      } catch (err) {
+        console.error(
+          "[COMPANY_POST] Location provisioning failed (company still created):",
+          err,
+        );
       }
     }
 
