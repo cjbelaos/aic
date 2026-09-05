@@ -400,7 +400,9 @@ export default function DeliveryReleasePage() {
         header: "Linked SRs",
         cell: ({ row }) => {
           const linked = siLookup.get(row.original.drNumber);
-          const locked = ["completed", "deleted"].includes(row.original.status);
+          const locked = ["completed", "deleted", "cancelled"].includes(
+            row.original.status,
+          );
 
           if (!linked || linked.length === 0) {
             // Show "Add SR" button if empty and not locked
@@ -495,6 +497,7 @@ export default function DeliveryReleasePage() {
             printed: { label: "Printed", variant: "default" },
             completed: { label: "Completed", variant: "default" },
             deleted: { label: "Deleted", variant: "destructive" },
+            cancelled: { label: "Cancelled", variant: "destructive" },
           };
           const cfg = map[s] || map.created;
           return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
@@ -504,7 +507,9 @@ export default function DeliveryReleasePage() {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => {
-          const locked = ["completed", "deleted"].includes(row.original.status);
+          const locked = ["completed", "deleted", "cancelled"].includes(
+            row.original.status,
+          );
           return (
             <div className="flex items-center gap-1">
               <Button
@@ -1472,6 +1477,7 @@ export default function DeliveryReleasePage() {
                   <SelectItem value="created">Created</SelectItem>
                   <SelectItem value="printed">Printed</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
             </div>

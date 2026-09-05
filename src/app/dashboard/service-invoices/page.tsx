@@ -515,6 +515,7 @@ export default function ServiceInvoicesPage() {
             paid: { label: "Paid", variant: "default" },
             void: { label: "Void", variant: "outline" },
             deleted: { label: "Deleted", variant: "destructive" },
+            cancelled: { label: "Cancelled", variant: "destructive" },
           };
           const cfg = map[s] || map.created;
           return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
@@ -525,7 +526,9 @@ export default function ServiceInvoicesPage() {
         header: "Actions",
         cell: ({ row }) => {
           const locked =
-            row.original.status === "deleted" || row.original.status === "void";
+            row.original.status === "deleted" ||
+            row.original.status === "void" ||
+            row.original.status === "cancelled";
           return (
             <div className="flex items-center gap-1">
               <Button
@@ -1093,6 +1096,7 @@ export default function ServiceInvoicesPage() {
                     <SelectItem value="draft">Draft</SelectItem>
                     <SelectItem value="paid">Paid</SelectItem>
                     <SelectItem value="void">Void</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

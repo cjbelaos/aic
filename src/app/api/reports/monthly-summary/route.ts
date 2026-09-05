@@ -30,7 +30,13 @@ export async function GET(request: Request) {
     // ── 1. Service Invoice Revenue ──
     const invoices = await getServiceInvoices();
     const monthInvoices = invoices.filter((inv) => {
-      if (!inv.date || inv.status === "deleted" || inv.status === "draft") return false;
+      if (
+        !inv.date ||
+        inv.status === "deleted" ||
+        inv.status === "draft" ||
+        inv.status === "cancelled"
+      )
+        return false;
       return inv.date >= startDate && inv.date <= endDate;
     });
 

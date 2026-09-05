@@ -38,27 +38,25 @@ const RIGHT_MARGIN = MARGIN_RIGHT;
 const DATE_TOP = 187.04; // 5.25cm from top
 const DATE_RIGHT = 111.32; // 3.6cm from right
 
-// Customer positioning (B5):
-// - From top: 6.64cm (251px)
-// - From left: 4.1cm (154.98px) from left, extends to right margin
-const CUSTOMER_TOP = 251; // 6.64cm from top
+// Item grid line height definition
+const ITEM_LINE_HEIGHT = 24.57; // 6.5mm = 0.65cm = 24.57px
+const HALF_LINE_HEIGHT = ITEM_LINE_HEIGHT / 2; // ~12.28px shift up (1/2 character height)
 
-// TIN positioning (B6):
-// - From top: 7.54cm (285px)
-const TIN_TOP = 285; // 7.54cm from top
+// Customer positioning (B5) - Moved 1/2 line up:
+const CUSTOMER_TOP = 251 - HALF_LINE_HEIGHT; // 6.64cm from top - 1/2 line
 
-// Address positioning (B7):
-// - From top: 8.4cm (317.52px) to 8.7cm (328.86px) from top
-const ADDRESS_TOP = 316.22; // 8.55cm from top
+// TIN positioning (B6) - Moved 1/2 line up:
+const TIN_TOP = 285 - HALF_LINE_HEIGHT; // 7.54cm from top - 1/2 line
+
+// Address positioning (B7) - Moved 1/2 line up:
+const ADDRESS_TOP = 316.22 - HALF_LINE_HEIGHT; // 8.55cm from top - 1/2 line
 
 // Left position for customer, TIN, and address
 const CUSTOMER_LEFT = 154.98; // 4.1cm from left
 
-// Item grid
+// Item grid - Moved 1/2 line up:
 // - First line: 9.8cm to 10.45cm from top
-// - Each line: 6.5mm (0.65cm) height
-const ITEMS_TOP = 392.11; // 10.125cm from top
-const ITEM_LINE_HEIGHT = 24.57; // 6.5mm = 0.65cm = 24.57px
+const ITEMS_TOP = 392.11 - HALF_LINE_HEIGHT; // 10.125cm from top - 1/2 line
 const MAX_ITEM_ROWS = 19; // rows 10-28
 
 // Summary table positioning:
@@ -86,6 +84,7 @@ const PREPARED_BY_LEFT = MARGIN_LEFT;
 
 // Self height for Prepared By (approximately 1 line height at 11pt)
 const SELF_HEIGHT = 16; // 1 self height (approx 1 line height)
+const VERTICAL_SHIFT = SELF_HEIGHT; // 1 character/line height down
 
 const FONT_SIZE = 11;
 
@@ -354,7 +353,7 @@ export default function ServiceInvoicePrintDocument({
       <div
         style={{
           position: "absolute",
-          top: DATE_TOP,
+          top: DATE_TOP + VERTICAL_SHIFT,
           right: DATE_RIGHT,
           fontSize: FONT_SIZE,
           fontFamily: FONT_FAMILY,
@@ -365,13 +364,13 @@ export default function ServiceInvoicePrintDocument({
       </div>
 
       {/* ---------------------------------------------------------------------
-       * CUSTOMER - moved .2cm down
+       * CUSTOMER - moved 1/2 line height up
        * -------------------------------------------------------------------*/}
 
       <div
         style={{
           position: "absolute",
-          top: CUSTOMER_TOP,
+          top: CUSTOMER_TOP + VERTICAL_SHIFT,
           left: CUSTOMER_LEFT,
           right: RIGHT_MARGIN,
           fontSize: 13,
@@ -384,13 +383,13 @@ export default function ServiceInvoicePrintDocument({
       </div>
 
       {/* ---------------------------------------------------------------------
-       * TIN - moved .1cm down
+       * TIN - moved 1/2 line height up
        * -------------------------------------------------------------------*/}
 
       <div
         style={{
           position: "absolute",
-          top: TIN_TOP,
+          top: TIN_TOP + VERTICAL_SHIFT,
           left: CUSTOMER_LEFT,
           right: RIGHT_MARGIN,
           fontSize: FONT_SIZE,
@@ -401,13 +400,13 @@ export default function ServiceInvoicePrintDocument({
       </div>
 
       {/* ---------------------------------------------------------------------
-       * ADDRESS
+       * ADDRESS - moved 1/2 line height up
        * -------------------------------------------------------------------*/}
 
       <div
         style={{
           position: "absolute",
-          top: ADDRESS_TOP,
+          top: ADDRESS_TOP + VERTICAL_SHIFT,
           left: CUSTOMER_LEFT,
           right: RIGHT_MARGIN,
           fontSize: FONT_SIZE,
@@ -418,13 +417,13 @@ export default function ServiceInvoicePrintDocument({
       </div>
 
       {/* ---------------------------------------------------------------------
-       * ITEM TABLE
+       * ITEM TABLE - moved 1/2 line height up
        * -------------------------------------------------------------------*/}
 
       <div
         style={{
           position: "absolute",
-          top: ITEMS_TOP - 22,
+          top: ITEMS_TOP - 22 + VERTICAL_SHIFT,
           left: LEFT_INDENT,
           right: RIGHT_MARGIN,
         }}
@@ -520,7 +519,7 @@ export default function ServiceInvoicePrintDocument({
       <div
         style={{
           position: "absolute",
-          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3,
+          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3 + VERTICAL_SHIFT,
 
           /*
            * Same 3-character shift as the Amount column.
@@ -687,7 +686,7 @@ export default function ServiceInvoicePrintDocument({
       <div
         style={{
           position: "absolute",
-          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3,
+          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3 + VERTICAL_SHIFT,
           right: ADDITIONAL_TABLE_RIGHT,
           width: ADDITIONAL_TABLE_WIDTH,
         }}
@@ -741,7 +740,7 @@ export default function ServiceInvoicePrintDocument({
         style={{
           position: "absolute",
           left: PREPARED_BY_LEFT,
-          top: PREPARED_BY_TOP + SELF_HEIGHT, // Moved 1 self height down
+          top: PREPARED_BY_TOP + VERTICAL_SHIFT, // Moved 1 self height down
           width: PREPARED_BY_WIDTH,
           fontSize: FONT_SIZE,
           display: "flex",
