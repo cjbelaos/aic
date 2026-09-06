@@ -4,6 +4,7 @@ import type {
   CreateDepartmentInput,
   UpdateDepartmentInput,
 } from "@/types/department";
+import type { User } from "@/types/user";
 
 const api = axios.create({
   baseURL: "/api",
@@ -19,6 +20,19 @@ export const departmentService = {
     } catch (error: any) {
       throw new Error(
         error.response?.data?.error || "Failed to load departments.",
+      );
+    }
+  },
+
+  async getUsersByDepartment(departmentId: number): Promise<User[]> {
+    try {
+      const response = await api.get<User[]>(
+        `/departments/${departmentId}/users`,
+      );
+      return response.data;
+    } catch (error: any) {
+      throw new Error(
+        error.response?.data?.error || "Failed to load department users.",
       );
     }
   },

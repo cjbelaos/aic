@@ -27,6 +27,7 @@ import {
   BriefcaseBusiness,
   FileSignature,
   ShieldAlert,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -408,6 +409,18 @@ export function AppSidebar() {
                   <Link href="/dashboard/#">
                     <ClipboardList />
                     <span>Machine Orders</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/document-tracker")}
+                  tooltip="Document Tracker"
+                >
+                  <Link href="/dashboard/document-tracker">
+                    <ClipboardCheck />
+                    <span>Document Tracker</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
