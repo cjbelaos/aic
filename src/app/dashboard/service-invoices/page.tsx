@@ -527,9 +527,7 @@ export default function ServiceInvoicesPage() {
         header: "Actions",
         cell: ({ row }) => {
           const locked =
-            row.original.status === "deleted" ||
-            row.original.status === "void" ||
-            row.original.status === "cancelled";
+            row.original.status === "deleted" || row.original.status === "void";
           return (
             <div className="flex items-center gap-1">
               <Button

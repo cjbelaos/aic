@@ -194,7 +194,7 @@ export default function DeliveryReleasePage() {
       }
       setModalOpen(true);
     } catch {
-      // ignore — malformed sessionStorage data
+      // ignore
     }
   }, [searchParams]);
 
@@ -213,7 +213,6 @@ export default function DeliveryReleasePage() {
       setProductCategories(Array.isArray(catData) ? catData : []);
     });
 
-    // Fetch SIs and build drNumber→SI lookup
     serviceInvoiceService
       .getAll()
       .then((sis) => {
@@ -247,7 +246,6 @@ export default function DeliveryReleasePage() {
     })();
   }, []);
 
-  // Fetch contract entitlements (items) when company changes in modal
   useEffect(() => {
     if (!selectedCompany) {
       setContracts([]);
@@ -394,12 +392,18 @@ export default function DeliveryReleasePage() {
         id: "linkedSRs",
         header: "Linked SRs",
         cell: ({ row }) => {
-          const linked = siLookup.get(row.original.drNumber);
+          const linked = siLookup.get(row.original.drNumber) || [];
+          const activeSRs = linked.filter(
+            (si: any) => si.status !== "cancelled" && si.status !== "deleted",
+          );
+          const cancelledSRs = linked.filter(
+            (si: any) => si.status === "cancelled" || si.status === "deleted",
+          );
           const locked = ["completed", "deleted", "cancelled"].includes(
             row.original.status,
           );
 
-          if (!linked || linked.length === 0) {
+          if (linked.length === 0) {
             if (locked) {
               return <span className="text-xs text-muted-foreground">—</span>;
             }
@@ -423,26 +427,31 @@ export default function DeliveryReleasePage() {
           }
 
           return (
-            <div className="flex items-center gap-1">
-              <div className="flex flex-wrap gap-1">
-                {linked.slice(0, 2).map((si: any) => (
+            <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1">
+                {activeSRs.map((si: any) => (
                   <span
                     key={si.invoiceNo}
-                    className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono"
+                    className="text-xs bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono font-medium border border-blue-200 dark:border-blue-800"
+                    title={`Active SR #${si.invoiceNo}`}
                   >
                     {si.invoiceNo}
                   </span>
                 ))}
-                {linked.length > 2 && (
-                  <span className="text-xs text-muted-foreground">
-                    +{linked.length - 2} more
+                {cancelledSRs.map((si: any) => (
+                  <span
+                    key={si.invoiceNo}
+                    className="text-xs bg-muted/50 text-muted-foreground line-through px-1.5 py-0.5 rounded font-mono border border-border"
+                    title={`Cancelled SR #${si.invoiceNo}`}
+                  >
+                    {si.invoiceNo}
                   </span>
-                )}
+                ))}
               </div>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-blue-600 hover:text-blue-800"
+                className="h-7 w-7 text-blue-600 hover:text-blue-800 shrink-0"
                 onClick={() => {
                   const drNumber = row.original.drNumber;
                   if (drNumber > 0) {
@@ -451,7 +460,7 @@ export default function DeliveryReleasePage() {
                     );
                   }
                 }}
-                title="View SRs"
+                title="View Linked SRs"
               >
                 <Eye className="h-3.5 w-3.5" />
               </Button>
@@ -589,7 +598,11 @@ export default function DeliveryReleasePage() {
     }
     sessionStorage.setItem(
       "siPrefill",
-      JSON.stringify({ drNumber, companyName }),
+      JSON.stringify({
+        drNumber,
+        companyName,
+        returnTo: "/dashboard/delivery-releases",
+      }),
     );
     router.push("/dashboard/service-invoices");
   };
@@ -1051,10 +1064,10 @@ export default function DeliveryReleasePage() {
               {lineItems.length > 0 && (
                 <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
                   <div className="flex-1 min-w-[200px]">Item / Description</div>
-                  <div className="w-10 shrink-0" /> {/* Toggle button spacer */}
+                  <div className="w-10 shrink-0" />
                   <div className="w-28 shrink-0">Unit</div>
                   <div className="w-24 shrink-0">Qty</div>
-                  <div className="w-10 shrink-0" /> {/* Delete button spacer */}
+                  <div className="w-10 shrink-0" />
                 </div>
               )}
 
@@ -1324,10 +1337,10 @@ export default function DeliveryReleasePage() {
               {editLineItems.length > 0 && (
                 <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
                   <div className="flex-1 min-w-[200px]">Item / Description</div>
-                  <div className="w-10 shrink-0" /> {/* Toggle button spacer */}
+                  <div className="w-10 shrink-0" />
                   <div className="w-28 shrink-0">Unit</div>
                   <div className="w-24 shrink-0">Qty</div>
-                  <div className="w-10 shrink-0" /> {/* Delete button spacer */}
+                  <div className="w-10 shrink-0" />
                 </div>
               )}
 
@@ -1542,10 +1555,13 @@ export default function DeliveryReleasePage() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 text-muted-foreground">
                     <tr className="text-left">
-                      <th className="px-3 py-2 font-medium">Product Code</th>
+                      <th className="px-3 py-2 font-medium w-16 text-right">
+                        Qty
+                      </th>
+                      <th className="px-3 py-2 font-medium w-20 text-center">
+                        Unit
+                      </th>
                       <th className="px-3 py-2 font-medium">Description</th>
-                      <th className="px-3 py-2 font-medium text-right">Unit</th>
-                      <th className="px-3 py-2 font-medium text-right">Qty</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1553,29 +1569,32 @@ export default function DeliveryReleasePage() {
                     viewItemsTarget.items.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={4}
+                          colSpan={3}
                           className="px-3 py-4 text-center text-muted-foreground"
                         >
                           No items on this receipt.
                         </td>
                       </tr>
                     ) : (
-                      (viewItemsTarget.items || []).map((item, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {item.productCode || "—"}
-                          </td>
-                          <td className="px-3 py-2">
-                            {item.description || item.productCode || "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {item.unit || "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {item.quantity}
-                          </td>
-                        </tr>
-                      ))
+                      (viewItemsTarget.items || []).map((item, i) => {
+                        const descriptionText =
+                          item.description?.trim() ||
+                          productNameByCode[item.productCode] ||
+                          item.productCode ||
+                          "—";
+
+                        return (
+                          <tr key={i} className="border-t">
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {item.quantity}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {item.unit || "—"}
+                            </td>
+                            <td className="px-3 py-2">{descriptionText}</td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
