@@ -296,9 +296,6 @@ export default function DeliveryReleasePage() {
     [products],
   );
 
-  /* Unit options come from the product-units master list. Also merge in the
-     unit codes already attached to products so legacy/historical units stay
-     selectable even if they are not (yet) in the master list. */
   const unitOptions = useMemo(() => {
     const map = new Map<string, string>();
     productUnits.forEach((u) => {
@@ -314,8 +311,6 @@ export default function DeliveryReleasePage() {
     }));
   }, [productUnits, products]);
 
-  /* Ensure a previously-saved unit that is missing from the master list still
-     renders in the select instead of falling back to the placeholder. */
   const unitOptionsFor = useCallback(
     (unitValue: string) => {
       if (!unitValue) return unitOptions;
@@ -405,7 +400,6 @@ export default function DeliveryReleasePage() {
           );
 
           if (!linked || linked.length === 0) {
-            // Show "Add SR" button if empty and not locked
             if (locked) {
               return <span className="text-xs text-muted-foreground">—</span>;
             }
@@ -428,7 +422,6 @@ export default function DeliveryReleasePage() {
             );
           }
 
-          // Has linked SRs - show view button
           return (
             <div className="flex items-center gap-1">
               <div className="flex flex-wrap gap-1">
@@ -451,8 +444,6 @@ export default function DeliveryReleasePage() {
                 size="icon"
                 className="h-7 w-7 text-blue-600 hover:text-blue-800"
                 onClick={() => {
-                  // Navigate to Service Invoices page filtered to the SRs
-                  // linked to this DR.
                   const drNumber = row.original.drNumber;
                   if (drNumber > 0) {
                     router.push(
@@ -591,8 +582,6 @@ export default function DeliveryReleasePage() {
     [previewingDr, siLookup],
   );
 
-  /* Create SR: stores the same "siPrefill" key the Service Invoices page
-     reads (see openCreateModal prefill flow), then navigates there. */
   const handleCreateSR = (drNumber: number, companyName: string) => {
     if (drNumber <= 0) {
       toast.error("Cannot create SR for draft DR.");
@@ -645,7 +634,6 @@ export default function DeliveryReleasePage() {
     setManualRows((prev) => {
       const next = new Set(prev);
       next.delete(index);
-      // re-index: decrement all indices above the removed one
       const updated = new Set<number>();
       for (const v of next) updated.add(v > index ? v - 1 : v);
       return updated;
@@ -688,7 +676,6 @@ export default function DeliveryReleasePage() {
       const res = await deliveryService.createAndPopulateSheet(payload);
       toast.success("Delivery receipt recorded!");
 
-      // ── Trigger contract releases for matching contract items ──
       const drNumber = res.drNumber;
       if (contracts.length > 0 && drNumber) {
         try {
@@ -719,15 +706,11 @@ export default function DeliveryReleasePage() {
                     row.productCode,
                     drNumber,
                   )
-                  .catch(() => {
-                    // non-fatal — release processing is best-effort
-                  });
+                  .catch(() => {});
               }
             }
           }
-        } catch {
-          // non-fatal — contract release is best-effort during DR creation
-        }
+        } catch {}
       }
 
       setDrResult(res);
@@ -740,7 +723,6 @@ export default function DeliveryReleasePage() {
     }
   };
 
-  /* Save Draft handler */
   const handleSaveDraft = async () => {
     if (!selectedCompany) {
       toast.error("Please select a customer.");
@@ -771,7 +753,6 @@ export default function DeliveryReleasePage() {
     }
   };
 
-  /* Quick Add Product handlers */
   const handleOpenQuickAddProduct = (
     searchText: string,
     mode: "create" | "edit",
@@ -828,7 +809,6 @@ export default function DeliveryReleasePage() {
       const pData = await productService.getAll();
       setProducts(Array.isArray(pData) ? pData : []);
 
-      // Auto-select the newly added product in the originating line item.
       if (quickAddContext) {
         const code = created?.code || "";
         const unit = created?.unit?.code || quickAddUnit;
@@ -864,7 +844,6 @@ export default function DeliveryReleasePage() {
     }
   };
 
-  /* Delete handler */
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     setSubmitting(true);
@@ -884,7 +863,6 @@ export default function DeliveryReleasePage() {
     }
   };
 
-  /* Populate edit form when target changes */
   useEffect(() => {
     if (editTarget) {
       setEditDate(editTarget.date);
@@ -901,7 +879,6 @@ export default function DeliveryReleasePage() {
           quantity: item.quantity,
         })),
       );
-      // Pre-populate manual rows for items that have description but no productCode
       const manual = new Set<number>();
       editTarget.items.forEach((item, i) => {
         if (!item.productCode && item.description?.trim()) manual.add(i);
@@ -910,7 +887,6 @@ export default function DeliveryReleasePage() {
     }
   }, [editTarget]);
 
-  /* Edit line item helpers */
   const addEditLineItem = () =>
     setEditLineItems((prev) => [...prev, { ...EMPTY_LINE_ITEM }]);
   const removeEditLineItem = (idx: number) => {
@@ -930,7 +906,6 @@ export default function DeliveryReleasePage() {
       prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)),
     );
 
-  /* Edit save handler */
   const handleEditSave = async () => {
     if (!editTarget) return;
     setEditSubmitting(true);
@@ -959,15 +934,10 @@ export default function DeliveryReleasePage() {
           : `Draft DR updated.`,
       );
 
-      // Regenerate PDF for the updated DR (skip for drafts).
-      // When a draft is promoted to a real status, the API assigns a fresh
-      // sequential DR number — use that returned number for the PDF file.
       if (editStatus !== "draft") {
         deliveryService
           .savePdfToDrive(updatedDrNumber, editTarget.companyName, editDate)
-          .catch(() => {
-            // PDF regen is best-effort — don't block the update flow
-          });
+          .catch(() => {});
       }
 
       setEditTarget(null);
@@ -1003,7 +973,6 @@ export default function DeliveryReleasePage() {
           </DialogHeader>
 
           <div className="space-y-6">
-            {/* Row 1: Customer Name (6 cols), DR No. (3 cols), Date (3 cols) */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
               <div className="space-y-1.5 md:col-span-6">
                 <Label>
@@ -1049,7 +1018,6 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
-            {/* Row 2: PO NO. and TR# */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>PO NO.</Label>
@@ -1069,7 +1037,7 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
-            {/* Products Section */}
+            {/* Products Section - Create DR */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Label className="text-base font-semibold">
@@ -1080,10 +1048,19 @@ export default function DeliveryReleasePage() {
                 </Button>
               </div>
 
+              {lineItems.length > 0 && (
+                <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
+                  <div className="flex-1 min-w-[200px]">Item / Description</div>
+                  <div className="w-10 shrink-0" /> {/* Toggle button spacer */}
+                  <div className="w-28 shrink-0">Unit</div>
+                  <div className="w-24 shrink-0">Qty</div>
+                  <div className="w-10 shrink-0" /> {/* Delete button spacer */}
+                </div>
+              )}
+
               {lineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
                   {manualRows.has(idx) ? (
-                    /* Free-text manual entry */
                     <>
                       <Input
                         className="flex-1 min-w-[200px]"
@@ -1096,7 +1073,7 @@ export default function DeliveryReleasePage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="shrink-0"
+                        className="w-10 shrink-0"
                         title="Switch to product selector"
                         onClick={() => {
                           setManualRows((prev) => {
@@ -1110,7 +1087,6 @@ export default function DeliveryReleasePage() {
                       </Button>
                     </>
                   ) : (
-                    /* Product selector */
                     <>
                       <div className="flex-1 min-w-[200px]">
                         <SearchableSelect
@@ -1129,7 +1105,7 @@ export default function DeliveryReleasePage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="shrink-0"
+                        className="w-10 shrink-0"
                         title="Type manually"
                         onClick={() => {
                           setManualRows((prev) => new Set(prev).add(idx));
@@ -1164,7 +1140,7 @@ export default function DeliveryReleasePage() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="text-destructive shrink-0"
+                    className="w-10 text-destructive shrink-0"
                     onClick={() => removeLineItem(idx)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -1173,7 +1149,6 @@ export default function DeliveryReleasePage() {
               ))}
             </div>
 
-            {/* Row 3: Prepared By and Delivered By */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>
@@ -1194,7 +1169,6 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
-            {/* Row 4: Comments */}
             <div className="space-y-2">
               <Label>Comments / Special Instructions</Label>
               <Textarea
@@ -1205,7 +1179,6 @@ export default function DeliveryReleasePage() {
               />
             </div>
 
-            {/* Entitlements Card */}
             {selectedCompany && contracts.length > 0 && (
               <Card>
                 <CardContent className="pt-4 space-y-2">
@@ -1263,7 +1236,6 @@ export default function DeliveryReleasePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Print Preview Modal (after creation) */}
       <DeliveryReceiptPreviewModal
         dr={drResult}
         open={!!drResult}
@@ -1272,7 +1244,6 @@ export default function DeliveryReleasePage() {
         }}
       />
 
-      {/* Delete Confirmation */}
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         title="Delete Delivery Receipt"
@@ -1301,7 +1272,6 @@ export default function DeliveryReleasePage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-6">
-            {/* Row 1: Customer Name and Date */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Customer</Label>
@@ -1323,7 +1293,6 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
-            {/* Row 2: PO NO. and TR# */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>PO NO.</Label>
@@ -1341,7 +1310,7 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
-            {/* Products Section */}
+            {/* Products Section - Edit DR */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Label className="text-base font-semibold">
@@ -1351,6 +1320,17 @@ export default function DeliveryReleasePage() {
                   <Plus className="h-4 w-4 mr-1" /> Add Item
                 </Button>
               </div>
+
+              {editLineItems.length > 0 && (
+                <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
+                  <div className="flex-1 min-w-[200px]">Item / Description</div>
+                  <div className="w-10 shrink-0" /> {/* Toggle button spacer */}
+                  <div className="w-28 shrink-0">Unit</div>
+                  <div className="w-24 shrink-0">Qty</div>
+                  <div className="w-10 shrink-0" /> {/* Delete button spacer */}
+                </div>
+              )}
+
               {editLineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
                   {editManualRows.has(idx) ? (
@@ -1366,7 +1346,7 @@ export default function DeliveryReleasePage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="shrink-0"
+                        className="w-10 shrink-0"
                         title="Switch to product selector"
                         onClick={() =>
                           setEditManualRows((prev) => {
@@ -1398,7 +1378,7 @@ export default function DeliveryReleasePage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="shrink-0"
+                        className="w-10 shrink-0"
                         title="Type manually"
                         onClick={() =>
                           setEditManualRows((prev) => new Set(prev).add(idx))
@@ -1408,6 +1388,15 @@ export default function DeliveryReleasePage() {
                       </Button>
                     </>
                   )}
+                  <div className="w-28 shrink-0">
+                    <SearchableSelect
+                      value={item.unit}
+                      onValueChange={(v) => updateEditLineItem(idx, "unit", v)}
+                      options={unitOptionsFor(item.unit)}
+                      placeholder="Unit"
+                      searchPlaceholder="Search units..."
+                    />
+                  </div>
                   <Input
                     className="w-24 shrink-0"
                     type="number"
@@ -1421,19 +1410,10 @@ export default function DeliveryReleasePage() {
                       )
                     }
                   />
-                  <div className="w-28 shrink-0">
-                    <SearchableSelect
-                      value={item.unit}
-                      onValueChange={(v) => updateEditLineItem(idx, "unit", v)}
-                      options={unitOptionsFor(item.unit)}
-                      placeholder="Unit"
-                      searchPlaceholder="Search units..."
-                    />
-                  </div>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-destructive shrink-0"
+                    className="w-10 text-destructive shrink-0"
                     onClick={() => removeEditLineItem(idx)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -1442,7 +1422,6 @@ export default function DeliveryReleasePage() {
               ))}
             </div>
 
-            {/* Prepared By and Delivered By */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Prepared By</Label>
@@ -1465,7 +1444,6 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
-            {/* Status */}
             <div className="space-y-2">
               <Label>Status</Label>
               <Select value={editStatus} onValueChange={setEditStatus}>
@@ -1482,7 +1460,6 @@ export default function DeliveryReleasePage() {
               </Select>
             </div>
 
-            {/* Comments */}
             <div className="space-y-2">
               <Label>Comments / Special Instructions</Label>
               <Textarea
@@ -1511,7 +1488,6 @@ export default function DeliveryReleasePage() {
         </DialogContent>
       </Dialog>
 
-      {/* View DR Modal */}
       <DeliveryReceiptPreviewModal
         dr={viewDr}
         open={!!viewDr}
@@ -1520,7 +1496,6 @@ export default function DeliveryReleasePage() {
         }}
       />
 
-      {/* View DR Items Modal */}
       <Dialog
         open={!!viewItemsTarget}
         onOpenChange={(v) => {
@@ -1549,7 +1524,9 @@ export default function DeliveryReleasePage() {
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Date</Label>
-                  <div className="font-medium">{viewItemsTarget.date || "—"}</div>
+                  <div className="font-medium">
+                    {viewItemsTarget.date || "—"}
+                  </div>
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">
@@ -1572,7 +1549,8 @@ export default function DeliveryReleasePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {viewItemsTarget.items && viewItemsTarget.items.length === 0 ? (
+                    {viewItemsTarget.items &&
+                    viewItemsTarget.items.length === 0 ? (
                       <tr>
                         <td
                           colSpan={4}
@@ -1630,7 +1608,6 @@ export default function DeliveryReleasePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Quick Add Product Dialog */}
       <Dialog open={quickAddProductOpen} onOpenChange={setQuickAddProductOpen}>
         <DialogContent
           className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"

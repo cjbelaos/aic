@@ -206,13 +206,12 @@ export default function ServiceInvoicesPage() {
             description: `${item.description} (${cycle})`,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            amount:
-              item.amount ?? (item.quantity || 0) * (item.unitPrice || 0),
+            amount: item.amount ?? (item.quantity || 0) * (item.unitPrice || 0),
           });
         }
         cycle++;
       }
-// Resolve the preparer's position from the Positions sheet (best-effort)
+      // Resolve the preparer's position from the Positions sheet (best-effort)
       // so the HTML print document shows the position below the full name.
       let preparedByPosition = "";
       try {
@@ -254,7 +253,9 @@ export default function ServiceInvoicesPage() {
       await fetchList();
     } catch (err: any) {
       toast.error(
-        err?.response?.data?.error || err?.message || "Failed to duplicate items.",
+        err?.response?.data?.error ||
+          err?.message ||
+          "Failed to duplicate items.",
       );
     } finally {
       setTesting(false);
@@ -619,8 +620,7 @@ export default function ServiceInvoicesPage() {
     if (!viewDrRaw) return invoices;
     const target = String(viewDrRaw).trim();
     return invoices.filter(
-      (inv) =>
-        inv.drNumber != null && String(inv.drNumber) === target,
+      (inv) => inv.drNumber != null && String(inv.drNumber) === target,
     );
   }, [invoices, viewDrRaw]);
 
@@ -796,7 +796,10 @@ export default function ServiceInvoicesPage() {
             unitPrice: Number(li.unitPrice) || 0,
           })),
       };
-      const res = await serviceInvoiceService.update(editTarget.invoiceNo, payload);
+      const res = await serviceInvoiceService.update(
+        editTarget.invoiceNo,
+        payload,
+      );
       const updatedInvoiceNo = res?.invoiceNo ?? editTarget.invoiceNo;
       toast.success(`Invoice ${updatedInvoiceNo} updated.`);
 
@@ -936,6 +939,18 @@ export default function ServiceInvoicesPage() {
                   <Plus className="h-4 w-4 mr-1" /> Add Item
                 </Button>
               </div>
+
+              {/* Header Labels */}
+              {lineItems.length > 0 && (
+                <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
+                  <div className="flex-1 min-w-[200px]">Item / Description</div>
+                  <div className="w-24 shrink-0">Qty</div>
+                  <div className="w-28 shrink-0">Unit Price</div>
+                  <div className="w-28 shrink-0 text-right">Amount</div>
+                  {/* Spacer for delete button alignment */}
+                  <div className="w-9 shrink-0" />
+                </div>
+              )}
 
               {lineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
@@ -1110,6 +1125,18 @@ export default function ServiceInvoicesPage() {
                   <Plus className="h-4 w-4 mr-1" /> Add Item
                 </Button>
               </div>
+
+              {/* Header Labels */}
+              {editLineItems.length > 0 && (
+                <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
+                  <div className="flex-1 min-w-[200px]">Item / Description</div>
+                  <div className="w-24 shrink-0">Qty</div>
+                  <div className="w-28 shrink-0">Unit Price</div>
+                  <div className="w-28 shrink-0 text-right">Amount</div>
+                  {/* Spacer for delete button alignment */}
+                  <div className="w-9 shrink-0" />
+                </div>
+              )}
 
               {editLineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
