@@ -741,43 +741,42 @@ export default function DocumentTrackerPage() {
                 Array.from(groupedDocuments.entries()).map(
                   ([customer, docs]) => (
                     <Collapsible key={customer} defaultOpen>
-                      <CollapsibleTrigger className="w-full">
-                        <div className="flex items-center justify-between px-4 py-2 bg-muted/30 hover:bg-muted/50 border-t">
-                          <div className="flex items-center gap-3">
-                            <Checkbox
-                              checked={isGroupFullySelected(docs)}
-                              data-state={
-                                isGroupPartiallySelected(docs)
-                                  ? "indeterminate"
-                                  : isGroupFullySelected(docs)
-                                    ? "checked"
-                                    : "unchecked"
-                              }
-                              onCheckedChange={() => toggleGroupSelection(docs)}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                            <span className="font-medium">{customer}</span>
-                            <Badge variant="secondary" className="text-xs">
-                              {docs.length} document{docs.length > 1 ? "s" : ""}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">
-                              {
-                                docs.filter((d) =>
-                                  selectedDocuments.includes(d.value),
-                                ).length
-                              }{" "}
-                              selected
-                            </span>
-                            {isGroupFullySelected(docs) ? (
-                              <ChevronUp className="h-4 w-4" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4" />
-                            )}
-                          </div>
+                      <div className="flex items-center justify-between px-4 py-2 bg-muted/30 hover:bg-muted/50 border-t">
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            checked={isGroupFullySelected(docs)}
+                            data-state={
+                              isGroupPartiallySelected(docs)
+                                ? "indeterminate"
+                                : isGroupFullySelected(docs)
+                                  ? "checked"
+                                  : "unchecked"
+                            }
+                            onCheckedChange={() =>
+                              toggleGroupSelection(docs)
+                            }
+                          />
                         </div>
-                      </CollapsibleTrigger>
+                        <CollapsibleTrigger className="flex flex-1 items-center gap-2">
+                          <span className="font-medium">{customer}</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {docs.length} document{docs.length > 1 ? "s" : ""}
+                          </Badge>
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {
+                              docs.filter((d) =>
+                                selectedDocuments.includes(d.value),
+                              ).length
+                            }{" "}
+                            selected
+                          </span>
+                          {isGroupFullySelected(docs) ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </CollapsibleTrigger>
+                      </div>
                       <CollapsibleContent>
                         {docs.map((doc) => (
                           <div

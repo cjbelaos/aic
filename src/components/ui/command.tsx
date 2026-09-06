@@ -76,6 +76,17 @@ function CommandInput({
           "flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
+        onWheel={(event) => {
+          // A focused text input swallows mouse-wheel and does not scroll the
+          // options list (confirmed browser behavior). Forward the wheel delta
+          // to the CommandList so scrolling over the search box still works.
+          if (document.activeElement !== event.currentTarget) return;
+          const root = event.currentTarget.closest('[data-slot="command"]');
+          const list = root?.querySelector('[data-slot="command-list"]');
+          if (list && list.scrollHeight > list.clientHeight) {
+            list.scrollTop += event.deltaY;
+          }
+        }}
         {...props}
       />
     </div>
@@ -90,7 +101,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "max-h-[300px] scroll-py-1 overflow-x-hidden overflow-y-auto",
+        "max-h-[300px] min-h-0 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain",
         className
       )}
       {...props}
