@@ -295,6 +295,18 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
+                  isActive={isItemActive("/dashboard/purchase-orders")}
+                  tooltip="Purchase Orders"
+                >
+                  <Link href="/dashboard/purchase-orders">
+                    <ShoppingCart />
+                    <span>Purchase Orders</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
                   isActive={isItemActive("/dashboard/service-invoices")}
                   tooltip="Service Invoices"
                 >
@@ -373,18 +385,6 @@ export function AppSidebar() {
                   <Link href="/dashboard/quotations">
                     <FileText />
                     <span>Quotations</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive("/dashboard/#")}
-                  tooltip="Purchase Orders"
-                >
-                  <Link href="/dashboard/#">
-                    <ShoppingCart />
-                    <span>Purchase Orders</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
