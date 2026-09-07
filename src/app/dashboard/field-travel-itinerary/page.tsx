@@ -252,6 +252,14 @@ export default function FieldTravelItineraryPage() {
     if (formInfo?.isAdmin) return true;
     const currentUserId = formInfo?.currentUserId;
     if (!currentUserId) return false;
+    // Owners (technicians) may view the PDF and items of their own FTI once
+    // the request has been approved.
+    if (
+      item.userId === currentUserId &&
+      item.status.toUpperCase() === "APPROVED"
+    ) {
+      return true;
+    }
     if (item.approvedByUserId === currentUserId) return true;
     return approvers.some(
       (m) =>
