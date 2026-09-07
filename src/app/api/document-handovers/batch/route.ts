@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { requireAdminSession } from "@/lib/auth/session";
 import { createDocumentHandovers } from "@/lib/documentHandoverSheets";
 import { CreateDocumentHandoverInput } from "@/types/documentHandover";
 
 /**
  * POST /api/document-handovers/batch
- * Creates multiple document handover records.
+ * Creates multiple document handover records. Admin only.
  */
 export async function POST(request: NextRequest) {
-  const session = await requireAuthenticatedSession();
+  const session = await requireAdminSession();
   if (session instanceof Response) return session;
 
   try {

@@ -64,6 +64,22 @@ export default function DocumentTrackerPage() {
     fullName: string;
   }>({ userId: "", fullName: "" });
 
+  /* Role context — userRoleId is stored in auth:user (1 = Admin) */
+  const [currentUserRoleId] = useState<number>(() => {
+    if (typeof window === "undefined") return 2;
+    try {
+      const raw = window.localStorage.getItem("auth:user");
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed.userRoleId ?? 2;
+    } catch {
+      return 2;
+    }
+  });
+  const isAdmin = currentUserRoleId === 1;
+  const [myDocsOnly, setMyDocsOnly] = useState<boolean>(
+    () => currentUserRoleId !== 1,
+  );
+
   /* Modal open states */
   const [modalOpen, setModalOpen] = useState(false);
   const [returnModalOpen, setReturnModalOpen] = useState(false);
@@ -124,55 +140,58 @@ export default function DocumentTrackerPage() {
       }));
       setAssignees(assigneeList);
 
-      // 4. Fetch available documents (DRs and SRs not yet handed over)
-      const handedOverNumbers = new Set(
-        handoversData.map((h) => h.documentNumber),
-      );
-
+      // 4. Fetch available documents (DRs and SRs not yet handed over).
+      //    Only admins/secretaries can hand out new documents.
+      let handedOverNumbers = new Set<string>();
       let drs: any[] = [];
       let srs: any[] = [];
-      try {
-        [drs, srs] = await Promise.all([
-          deliveryService.getAll(),
-          serviceInvoiceService.getAll(),
-        ]);
-      } catch {
-        // ignore
+      if (isAdmin) {
+        handedOverNumbers = new Set(
+          handoversData.map((h) => h.documentNumber),
+        );
+        try {
+          [drs, srs] = await Promise.all([
+            deliveryService.getAll(),
+            serviceInvoiceService.getAll(),
+          ]);
+        } catch {
+          // ignore
+        }
+
+        const drOptions: DocumentOption[] = (drs || [])
+          .filter(
+            (dr: any) =>
+              !handedOverNumbers.has(String(dr.drNumber)) &&
+              dr.status !== "deleted" &&
+              dr.drNumber > 0,
+          )
+          .map((dr: any) => ({
+            value: `dr_${dr.drNumber}`,
+            documentType: "delivery_receipt" as const,
+            documentNumber: String(dr.drNumber),
+            customerName: dr.companyName || "",
+            date: dr.date,
+            label: `DR #${dr.drNumber} — ${dr.companyName || ""}`,
+          }));
+
+        const srOptions: DocumentOption[] = (srs || [])
+          .filter(
+            (sr: any) =>
+              !handedOverNumbers.has(sr.invoiceNo) &&
+              sr.status !== "deleted" &&
+              !sr.invoiceNo.startsWith("DRAFT-"),
+          )
+          .map((sr: any) => ({
+            value: `sr_${sr.invoiceNo}`,
+            documentType: "service_invoice" as const,
+            documentNumber: sr.invoiceNo,
+            customerName: sr.companyName || "",
+            date: sr.date,
+            label: `SR #${sr.invoiceNo} — ${sr.companyName || ""}`,
+          }));
+
+        setDocumentOptions([...drOptions, ...srOptions]);
       }
-
-      const drOptions: DocumentOption[] = (drs || [])
-        .filter(
-          (dr: any) =>
-            !handedOverNumbers.has(String(dr.drNumber)) &&
-            dr.status !== "deleted" &&
-            dr.drNumber > 0,
-        )
-        .map((dr: any) => ({
-          value: `dr_${dr.drNumber}`,
-          documentType: "delivery_receipt" as const,
-          documentNumber: String(dr.drNumber),
-          customerName: dr.companyName || "",
-          date: dr.date,
-          label: `DR #${dr.drNumber} — ${dr.companyName || ""}`,
-        }));
-
-      const srOptions: DocumentOption[] = (srs || [])
-        .filter(
-          (sr: any) =>
-            !handedOverNumbers.has(sr.invoiceNo) &&
-            sr.status !== "deleted" &&
-            !sr.invoiceNo.startsWith("DRAFT-"),
-        )
-        .map((sr: any) => ({
-          value: `sr_${sr.invoiceNo}`,
-          documentType: "service_invoice" as const,
-          documentNumber: sr.invoiceNo,
-          customerName: sr.companyName || "",
-          date: sr.date,
-          label: `SR #${sr.invoiceNo} — ${sr.companyName || ""}`,
-        }));
-
-      setDocumentOptions([...drOptions, ...srOptions]);
     } catch (error) {
       console.error("Error fetching data:", error);
       toast.error("Failed to load document tracker data.");
@@ -180,7 +199,7 @@ export default function DocumentTrackerPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     fetchData();
@@ -223,9 +242,19 @@ export default function DocumentTrackerPage() {
     return groups;
   }, [filteredDocumentOptions]);
 
+  /* Rows actually shown — admin sees all (unless toggled), a non-admin is
+     scoped to their own assignments by both the server and this filter. */
+  const viewedHandovers = useMemo(
+    () =>
+      myDocsOnly && currentUser.userId
+        ? handovers.filter((h) => h.assignedToId === currentUser.userId)
+        : handovers,
+    [handovers, myDocsOnly, currentUser.userId],
+  );
+
   const assignedDocs = useMemo(
-    () => handovers.filter((h) => h.status === "handed_over"),
-    [handovers],
+    () => viewedHandovers.filter((h) => h.status === "handed_over"),
+    [viewedHandovers],
   );
 
   const stats = useMemo(() => {
@@ -535,7 +564,20 @@ export default function DocumentTrackerPage() {
             Track physical documents assigned to staff and monitor returns
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 pr-2">
+            <Checkbox
+              id="my-docs-only"
+              checked={myDocsOnly}
+              onCheckedChange={(checked) => setMyDocsOnly(!!checked)}
+            />
+            <Label
+              htmlFor="my-docs-only"
+              className="text-sm cursor-pointer select-none"
+            >
+              My Docs Only
+            </Label>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -562,10 +604,12 @@ export default function DocumentTrackerPage() {
             <BadgeCheck className="h-4 w-4" />
             Batch Return
           </Button>
-          <Button onClick={() => setModalOpen(true)} className="gap-2">
-            <Hand className="h-4 w-4" />
-            Assign Document
-          </Button>
+          {isAdmin && (
+            <Button onClick={() => setModalOpen(true)} className="gap-2">
+              <Hand className="h-4 w-4" />
+              Assign Document
+            </Button>
+          )}
         </div>
       </div>
 
@@ -619,11 +663,12 @@ export default function DocumentTrackerPage() {
       <EntityTable
         title="Handover Records"
         columns={columns}
-        data={handovers}
+        data={viewedHandovers}
         loading={loading}
       />
 
-      {/* ── Assign Document Dialog ────────────────────────────────────────── */}
+      {/* ── Assign Document Dialog (admin only) ────────────────────────────── */}
+      {isAdmin && (
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
@@ -883,6 +928,7 @@ export default function DocumentTrackerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      )}
 
       {/* ── Batch Return Dialog ──────────────────────────────────────────── */}
 

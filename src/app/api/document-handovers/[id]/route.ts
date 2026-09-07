@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuthenticatedSession } from "@/lib/auth/session";
+import {
+  requireAuthenticatedSession,
+  isAdminRole,
+} from "@/lib/auth/session";
 import {
   getDocumentHandovers,
   returnDocumentHandovers,
@@ -28,6 +31,16 @@ export async function GET(
       );
     }
 
+    if (
+      !isAdminRole(session.userRoleId) &&
+      handover.assignedToId !== session.userId
+    ) {
+      return NextResponse.json(
+        { error: "Forbidden. You can only view documents assigned to you." },
+        { status: 403 },
+      );
+    }
+
     return NextResponse.json(handover, { status: 200 });
   } catch (error) {
     const message =
@@ -51,6 +64,27 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
     const { notes } = body;
+
+    // Ownership check: non-admins may only return their own documents.
+    const handovers = await getDocumentHandovers();
+    const handover = handovers.find((h) => h.id === id);
+
+    if (!handover) {
+      return NextResponse.json(
+        { error: `Document handover with ID ${id} not found.` },
+        { status: 404 },
+      );
+    }
+
+    if (
+      !isAdminRole(session.userRoleId) &&
+      handover.assignedToId !== session.userId
+    ) {
+      return NextResponse.json(
+        { error: "Forbidden. You can only return documents assigned to you." },
+        { status: 403 },
+      );
+    }
 
     await returnDocumentHandovers({
       ids: [id],
