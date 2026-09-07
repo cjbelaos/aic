@@ -523,6 +523,51 @@ export default function ServiceInvoicesPage() {
         },
       },
       {
+        id: "lastUpdated",
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            Last Updated
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        cell: ({ row }) => {
+          const updatedAt = row.original.updatedAt;
+          const createdAt = row.original.createdAt;
+          const timestamp = updatedAt || createdAt;
+
+          if (!timestamp) {
+            return <span className="text-muted-foreground italic">—</span>;
+          }
+
+          try {
+            const date = new Date(timestamp);
+            const dateStr = date.toLocaleDateString("en-PH", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            });
+            const timeStr = date.toLocaleTimeString("en-PH", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+            });
+            return (
+              <div className="flex flex-col text-xs">
+                <span className="text-foreground">{dateStr}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {timeStr}
+                </span>
+              </div>
+            );
+          } catch {
+            return <span className="text-muted-foreground italic">—</span>;
+          }
+        },
+      },
+      {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => {
@@ -610,7 +655,7 @@ export default function ServiceInvoicesPage() {
         },
       },
     ],
-    [previewing],
+    [previewing, uploading, uploadTarget],
   );
   /* When arriving with ?viewDR=<dr#>, only show the Service Invoices (SRs)
      linked to that Delivery Receipt. */
