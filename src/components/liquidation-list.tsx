@@ -284,6 +284,25 @@ export function LiquidationList() {
     return mappedRequesterIds.has(liquidation.userId);
   };
 
+  // Mirrors the FTI page's view rule: regular users (owners) may only view
+  // the PDF/printable document of their own liquidation once it has been
+  // approved, while admins, BOD and assigned approvers always keep access
+  // (needed for the review/approval workflow).
+  const canViewLiquidation = (liquidation: LiquidationFull): boolean => {
+    if (isAdmin || isBod) return true;
+    const status = (liquidation.status || "").toUpperCase();
+    if (
+      currentUserId !== "" &&
+      liquidation.userId === currentUserId &&
+      status === "APPROVED"
+    ) {
+      return true;
+    }
+    if (currentUserId === "") return false;
+    if (liquidation.approvedByUserId === currentUserId) return true;
+    return mappedRequesterIds.has(liquidation.userId);
+  };
+
   const handleDeleteConfirm = async () => {
     const id = deleteTarget?.liquidationId;
     if (!id) return;
@@ -610,15 +629,17 @@ export function LiquidationList() {
             >
               <FileText className="h-4 w-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setPreviewLiquidation(liquidation)}
-              title="Preview"
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
+            {canViewLiquidation(liquidation) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setPreviewLiquidation(liquidation)}
+                title="Preview"
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+            )}
             {canEditLiquidation(liquidation) && (
               <Button
                 variant="ghost"
@@ -875,9 +896,17 @@ export function LiquidationList() {
             miscLookup={miscLookup}
             advances={previewLiquidation?.totalAmountRequested || 0}
             fti={previewFtiComparison}
-            onDownloadPdf={handleDownloadPdf}
+            onDownloadPdf={
+              canViewLiquidation(previewLiquidation)
+                ? handleDownloadPdf
+                : undefined
+            }
             downloadingPdf={downloadingPdf}
-            onDownloadImage={handleDownloadImage}
+            onDownloadImage={
+              canViewLiquidation(previewLiquidation)
+                ? handleDownloadImage
+                : undefined
+            }
             downloadingImage={downloadingImage}
             readOnly={!canApprove(previewLiquidation)}
             approvalActions={
