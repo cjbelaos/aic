@@ -1,21 +1,37 @@
 import { google, sheets_v4, drive_v3 } from "googleapis";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 
 /** Service-account email for this project's Google Sheets/Drive access. */
 const SERVICE_ACCOUNT_EMAIL =
   process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
   "aic-service-account@aic-nextjs-sheets-db-501208.iam.gserviceaccount.com";
 
+const AUTH_SCOPES = [
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/drive.file",
+];
+
 /**
  * Shared Auth client builder used by all Google API wrappers.
  *
  * PREFERRED: Service Account (JWT) — never expires, no refresh token,
- * no `invalid_grant`. Uses GOOGLE_SERVICE_ACCOUNT_KEY (raw service-account
- * JSON, see .env.local) or GOOGLE_PRIVATE_KEY + GOOGLE_SERVICE_ACCOUNT_EMAIL.
- * The service account must be granted Editor access on the database
- * spreadsheet and the Drive folders used for uploads.
+ * no `invalid_grant`. Credentials can be supplied three ways, in priority
+ * order:
+ *
+ *   1. GOOGLE_SERVICE_ACCOUNT_KEY  — the full service-account JSON (or a PEM
+ *      private key). This is the ONLY portable option for serverless hosts
+ *      like Vercel, because it lives in an env var, not the filesystem.
+ *   2. GOOGLE_SERVICE_ACCOUNT_KEY_FILE — a PEM/JSON file path. Local-dev
+ *      convenience only. It is only used when the file actually EXISTS; if
+ *      the variable is set but the file is missing (e.g. stale Vercel
+ *      config), auth falls through to the methods above instead of crashing.
+ *   3. GOOGLE_PRIVATE_KEY + GOOGLE_SERVICE_ACCOUNT_EMAIL — PEM content in an
+ *      env var (also portable).
  *
  * FALLBACK: OAuth2 refresh-token flow (original behavior).
+ *
+ * The service account must be granted Editor access on the database
+ * spreadsheet and the Drive folders used for uploads.
  */
 export async function createOAuth2Client() {
   const saKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -24,38 +40,63 @@ export async function createOAuth2Client() {
   const saPrivateKey = process.env.GOOGLE_PRIVATE_KEY;
   const saKeyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
 
-  if (saKeyFile) {
-    return buildJWTFromFile(saKeyFile, saEmail);
-  }
-
+  // 1. GOOGLE_SERVICE_ACCOUNT_KEY — raw service-account JSON (or PEM).
   if (saKey) {
+    const trimmed = saKey.trim();
+    if (trimmed.startsWith("-----BEGIN")) {
+      return new google.auth.JWT({
+        email: saEmail,
+        key: trimmed.replace(/\\n/g, "\n"),
+        scopes: AUTH_SCOPES,
+      });
+    }
     try {
-      const parsed = JSON.parse(saKey) as {
-        client_email: string;
+      const parsed = JSON.parse(trimmed) as {
+        client_email?: string;
         private_key: string;
       };
       return new google.auth.JWT({
-        email: parsed.client_email,
+        email: parsed.client_email || saEmail,
         key: parsed.private_key.replace(/\\n/g, "\n"),
-        scopes: [
-          "https://www.googleapis.com/auth/spreadsheets",
-          "https://www.googleapis.com/auth/drive.file",
-        ],
+        scopes: AUTH_SCOPES,
       });
     } catch {
-      throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON.");
+      throw new Error(
+        "GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON. Set it to the full service-account JSON (or a PEM private key).",
+      );
     }
   }
 
+  // 2. GOOGLE_SERVICE_ACCOUNT_KEY_FILE — local-dev convenience. Only used when
+  //    the file exists. On serverless hosts the file is never deployed, so a
+  //    configured-but-missing path falls through instead of throwing ENOENT.
+  if (saKeyFile) {
+    try {
+      if (existsSync(saKeyFile)) {
+        return buildJWTFromFile(saKeyFile, saEmail);
+      }
+    } catch {
+      // File is misconfigured/unreadable — fall through to env credentials.
+    }
+  }
+
+  // 3. GOOGLE_PRIVATE_KEY + GOOGLE_SERVICE_ACCOUNT_EMAIL.
   if (saEmail && saPrivateKey) {
     return new google.auth.JWT({
       email: saEmail,
       key: saPrivateKey.replace(/\\n/g, "\n"),
-      scopes: [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.file",
-      ],
+      scopes: AUTH_SCOPES,
     });
+  }
+
+  // 4. The admin configured file-based auth but the file is missing. Give a
+  //    clear fix instead of an opaque ENOENT. Raising here (before the OAuth
+  //    fallback) surfaces the real problem; the error message tells them how
+  //    to switch to a portable credential.
+  if (saKeyFile) {
+    throw new Error(
+      `GOOGLE_SERVICE_ACCOUNT_KEY_FILE is set to "${saKeyFile}" but the file does not exist on this host. File paths do not work on Vercel/serverless. Set GOOGLE_SERVICE_ACCOUNT_KEY (full service-account JSON) or GOOGLE_PRIVATE_KEY + GOOGLE_SERVICE_ACCOUNT_EMAIL instead, or remove GOOGLE_SERVICE_ACCOUNT_KEY_FILE to use the OAuth fallback.`,
+    );
   }
 
   // ── Fallback: OAuth2 refresh token ──
@@ -83,10 +124,6 @@ export async function createOAuth2Client() {
 /** Reads a PEM or service-account JSON file and returns a JWT auth client. */
 function buildJWTFromFile(filePath: string, fallbackEmail: string) {
   const raw = readFileSync(filePath, "utf8").trim();
-  const scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.file",
-  ];
   if (raw.startsWith("{")) {
     const parsed = JSON.parse(raw) as {
       client_email?: string;
@@ -95,10 +132,10 @@ function buildJWTFromFile(filePath: string, fallbackEmail: string) {
     return new google.auth.JWT({
       email: parsed.client_email || fallbackEmail,
       key: parsed.private_key.replace(/\\n/g, "\n"),
-      scopes,
+      scopes: AUTH_SCOPES,
     });
   }
-  return new google.auth.JWT({ email: fallbackEmail, key: raw, scopes });
+  return new google.auth.JWT({ email: fallbackEmail, key: raw, scopes: AUTH_SCOPES });
 }
 
 /**

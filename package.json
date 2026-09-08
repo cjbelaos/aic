@@ -25,6 +25,7 @@
     "googleapis": "^173.0.0",
     "html2canvas-pro": "^2.2.1",
     "html2pdf.js": "^0.14.0",
+    "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.23.0",
@@ -45,6 +46,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^19",
