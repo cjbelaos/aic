@@ -687,9 +687,13 @@ export default function ContractReleasesPage() {
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Choose a contract..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[24rem]">
                     {contracts.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
+                      <SelectItem
+                        key={c.id}
+                        value={c.id}
+                        className="truncate"
+                      >
                         {c.companyName || c.companyId}
                         {c.description ? ` - ${c.description}` : ""}
                       </SelectItem>

@@ -16,6 +16,14 @@ import { ChevronDownIcon, CheckIcon, ChevronUpIcon, SearchIcon } from "lucide-re
  * reports visibility so the content can show a "No results found." state.
  *
  * Opt out on an individual dropdown with: <SelectContent searchable={false}>
+ *
+ * Positioning: we default to Radix's "popper" mode, which anchors the popup
+ * to the trigger. The alternative "item-aligned" mode anchors the popup to
+ * the selected item's text, so hiding filtered items re-measures the list and
+ * re-anchors the whole popup — making the search box visibly jump around on
+ * every keystroke. Popper keeps the popup (and search box) locked to the
+ * trigger while the list filters. Pass position="item-aligned" explicitly if
+ * you intentionally want item-aligned behavior on a non-searchable dropdown.
  * ───────────────────────────────────────────────────────────────────────── */
 
 type SelectSearchContextValue = {
@@ -95,8 +103,8 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
-  align = "center",
+  position = "popper",
+  align = "start",
   searchable = true,
   searchPlaceholder = "Search...",
   emptyText = "No results found.",
@@ -203,7 +211,7 @@ function SelectContent({
             <SelectPrimitive.Viewport
               data-position={position}
               className={cn(
-                "data-[position=popper]:h-(--radix-select-trigger-height) data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)",
+                "data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width) data-[position=popper]:max-h-(--radix-select-content-available-height)",
                 "min-h-0 overflow-y-auto overscroll-contain",
                 position === "popper" && ""
               )}
