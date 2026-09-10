@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to fetch contracts.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof Error && error.name === "ContractConflictError" ? 409 : 500 });
   }
 }
 
@@ -86,6 +86,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to create contract.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof Error && error.name === "ContractConflictError" ? 409 : 500 });
   }
 }

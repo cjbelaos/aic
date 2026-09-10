@@ -4,6 +4,8 @@ export interface PurchaseOrderItem {
   purchaseOrderId?: string;
   itemNo: number;
   productCode?: string;
+  productId?: string;
+  supplierProductId?: string;
   description: string;
   quantity: number;
   unit: string;

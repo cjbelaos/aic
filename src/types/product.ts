@@ -4,6 +4,8 @@ import { ProductUnit } from "@/types/product-unit";
 
 export interface Product {
   id: string; // prod_<rowNumber> (row-based ID for row targeting)
+  /** Stable V2 identity. Equals id for normalized products. */
+  productId?: string;
   code: string;
   name: string;
   category: ProductCategory;
@@ -11,6 +13,9 @@ export interface Product {
   unit: ProductUnit;
   costPerUnit: number;
   pricePerUnit: number;
+  defaultSellingPrice?: number;
+  sourceVersion?: "v1" | "v2";
+  supplierCount?: number;
   supplier: Company;
 }
 

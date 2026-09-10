@@ -11,6 +11,19 @@ import {
   PurchaseOrderItem,
   POStatusEntry,
 } from "@/types/purchaseOrder";
+import { getPurchaseOrderItemsV2, replacePurchaseOrderItemsV2 } from "@/lib/transactionItemV2Sheets";
+import { getSupplierProductsV2 } from "@/lib/supplierProductV2Sheets";
+
+async function validateCatalogItemsForSupplier(items: PurchaseOrderItem[], supplierId: string): Promise<void> {
+  const catalogItems = items.filter((item) => item.supplierProductId);
+  if (!catalogItems.length) return;
+  const offerings = await getSupplierProductsV2({ supplierId, status: "active" });
+  for (const item of catalogItems) {
+    const offering = offerings.find((entry) => entry.supplierProductId === item.supplierProductId);
+    if (!offering) throw new Error(`Supplier product "${item.supplierProductId}" is not active for supplier "${supplierId}".`);
+    if (item.productId && item.productId !== offering.productId) throw new Error(`Supplier product "${item.supplierProductId}" does not match product "${item.productId}".`);
+  }
+}
 
 const PURCHASE_ORDERS_SHEET = "PurchaseOrders";
 const PURCHASE_ORDERS_RANGE = `${PURCHASE_ORDERS_SHEET}!A2:Q`;
@@ -66,7 +79,7 @@ async function getSheetTabGid(
 }
 
 function buildExportUrl(spreadsheetId: string, gid: number): string {
-  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=pdf&portrait=true&size=letter&gridlines=false&gid=${gid}`;
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=pdf&portrait=true&size=a4&gridlines=false&gid=${gid}`;
 }
 
 async function fetchExportPdfBase64(printUrl: string): Promise<string> {
@@ -180,6 +193,8 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
       if (!itemsByPO.has(poId)) itemsByPO.set(poId, []);
       itemsByPO.get(poId)!.push(item);
     }
+    const v2Items = await getPurchaseOrderItemsV2();
+    for (const [poNumber, items] of v2Items) itemsByPO.set(poNumber, items);
 
     const suppliers = await getCompanies().catch(() => []);
 
@@ -269,6 +284,7 @@ export async function processPurchaseOrder(
     const supplier = suppliers.find((s) => s.companyId === payload.supplierId);
     if (!supplier)
       throw new Error(`Supplier "${payload.supplierId}" not found.`);
+    await validateCatalogItemsForSupplier(payload.items, payload.supplierId);
     const supplierName = supplier.companyName;
     const address = supplier.address || "";
     const tin = supplier.tin || "";
@@ -307,24 +323,7 @@ export async function processPurchaseOrder(
       requestBody: { values: [headerRow] },
     });
 
-    const itemRows = payload.items.map((item) => [
-      poNumber,
-      item.itemNo || 0,
-      item.description || "",
-      item.quantity,
-      item.unit,
-      item.pricePerUnit || 0,
-      item.totalAmount ?? item.quantity * (item.pricePerUnit || 0),
-    ]);
-
-    if (itemRows.length > 0) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: PURCHASE_ORDER_ITEMS_RANGE,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: itemRows },
-      });
-    }
+    await replacePurchaseOrderItemsV2(poNumber, payload.items);
 
 
     return {
@@ -420,6 +419,7 @@ export async function updatePurchaseOrder(
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
+    await replacePurchaseOrderItemsV2(poNumber, []);
 
     if (newStatus !== oldStatus) {
       try {
@@ -487,23 +487,7 @@ export async function updatePurchaseOrder(
         });
       }
 
-      const itemRows = payload.items.map((item) => [
-        String(effectivePONumber),
-        item.itemNo || 0,
-        item.description || "",
-        item.quantity,
-        item.unit,
-        item.pricePerUnit || 0,
-        item.totalAmount ?? item.quantity * (item.pricePerUnit || 0),
-      ]);
-      if (itemRows.length > 0) {
-        await sheets.spreadsheets.values.append({
-          spreadsheetId,
-          range: PURCHASE_ORDER_ITEMS_RANGE,
-          valueInputOption: "USER_ENTERED",
-          requestBody: { values: itemRows },
-        });
-      }
+      await replacePurchaseOrderItemsV2(String(effectivePONumber), payload.items);
     }
 
     const suppliers = await getCompanies().catch(() => []);

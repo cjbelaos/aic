@@ -158,7 +158,7 @@ export default function PurchaseOrderFormSimPage() {
           Print / Save as PDF
         </button>
         <button className="sim-btn" onClick={handleDownloadPdf} disabled={pdfBusy}>
-          {pdfBusy ? "Generating…" : "Download PDF (letter)"}
+          {pdfBusy ? "Generating…" : "Download PDF (A4)"}
         </button>
       </div>
 

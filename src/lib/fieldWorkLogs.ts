@@ -8,7 +8,7 @@ export interface FieldWorkLogInput {
   date: string;
   customer: string;
   workDescription: string;
-  timeStart: string;
+  timeStart: string;  
   timeEnd: string;
   customerRep: string;
   customerSignature: string; // Base64 data string or URL

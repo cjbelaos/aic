@@ -31,10 +31,14 @@ import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
+import supplierProductV2Service from "@/lib/services/supplier-product-v2.service";
+import type { SupplierProductV2 } from "@/types/supplier-product";
 import productUnitService from "@/lib/services/product-unit.service";
 import productCategoryService from "@/lib/services/product-category.service";
 import userService from "@/lib/services/user.service";
 import purchaseOrderService from "@/lib/services/purchase-order.service";
+import paymentTermService from "@/lib/services/payment-term.service";
+import type { PaymentTerm } from "@/types/paymentTerm";
 import { generatePurchaseOrderPdfBase64 } from "@/lib/purchaseOrderPdf";
 import { PurchaseOrderPreviewModal } from "@/components/purchase-order-preview-modal";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
@@ -57,6 +61,8 @@ import { ProductUnit } from "@/types/product-unit";
 interface LineItem {
   itemNo: number;
   productCode: string;
+  productId: string;
+  supplierProductId: string;
   unit: string;
   description: string;
   quantity: number;
@@ -67,6 +73,8 @@ interface LineItem {
 const EMPTY_LINE_ITEM: LineItem = {
   itemNo: 1,
   productCode: "",
+  productId: "",
+  supplierProductId: "",
   unit: "PC",
   description: "",
   quantity: 1,
@@ -82,6 +90,7 @@ export default function PurchaseOrderPage() {
   /* Reference data */
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [supplierProducts, setSupplierProducts] = useState<SupplierProductV2[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
     [],
@@ -101,6 +110,7 @@ export default function PurchaseOrderPage() {
   const [comments, setComments] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("");
+  const [paymentTermOptions, setPaymentTermOptions] = useState<PaymentTerm[]>([]);
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [drafting, setDrafting] = useState(false);
@@ -176,7 +186,8 @@ export default function PurchaseOrderPage() {
       productService.getAll(),
       productUnitService.getAll(),
       productCategoryService.getAll(),
-    ]).then(([cData, pData, uData, catData]) => {
+      paymentTermService.getAll(),
+    ]).then(([cData, pData, uData, catData, termsData]) => {
       // Filter only suppliers
       const suppliers = Array.isArray(cData)
         ? cData.filter(
@@ -187,6 +198,7 @@ export default function PurchaseOrderPage() {
       setProducts(Array.isArray(pData) ? pData : []);
       setProductUnits(Array.isArray(uData) ? uData : []);
       setProductCategories(Array.isArray(catData) ? catData : []);
+      setPaymentTermOptions((termsData ?? []).filter((term) => term.status === "Active"));
     });
 
     (async () => {
@@ -213,9 +225,22 @@ export default function PurchaseOrderPage() {
   );
 
   const productOptions = useMemo(
-    () => products.map((p) => ({ value: p.code, label: p.name })),
-    [products],
+    () => supplierProducts.map((offering) => ({
+      value: offering.supplierProductId,
+      label: offering.supplierProductCode
+        ? `${offering.supplierProductCode} - ${offering.supplierProductName}`
+        : offering.supplierProductName,
+    })),
+    [supplierProducts],
   );
+
+  useEffect(() => {
+    const request = selectedSupplier
+      ? supplierProductV2Service.getAll({ supplierId: selectedSupplier, status: "active" })
+      : Promise.resolve([] as SupplierProductV2[]);
+    request
+      .then(setSupplierProducts).catch(() => setSupplierProducts([]));
+  }, [selectedSupplier]);
 
   const unitOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -518,14 +543,17 @@ export default function PurchaseOrderPage() {
 
   const updateLineItem = (index: number, field: keyof LineItem, value: any) => {
     const updated = [...lineItems];
-    if (field === "productCode") {
-      const prod = products.find((p) => p.code === value);
+    if (field === "supplierProductId") {
+      const offering = supplierProducts.find((p) => p.supplierProductId === value);
+      const prod = products.find((p) => p.id === offering?.productId);
       updated[index] = {
         ...updated[index],
-        productCode: value,
+        supplierProductId: String(value),
+        productId: offering?.productId || "",
+        productCode: prod?.code || "",
         unit: prod?.unit?.code || "PC",
-        description: prod?.name || "",
-        pricePerUnit: prod?.pricePerUnit || 0,
+        description: offering?.supplierProductName || prod?.name || "",
+        pricePerUnit: offering?.costPerUnit || 0,
       };
     } else {
       updated[index] = { ...updated[index], [field]: value };
@@ -582,6 +610,8 @@ export default function PurchaseOrderPage() {
         items: lineItems.map((item) => ({
           itemNo: item.itemNo,
           productCode: item.productCode,
+          productId: item.productId,
+          supplierProductId: item.supplierProductId,
           unit: item.unit,
           description: item.description,
           quantity: item.quantity,
@@ -640,6 +670,8 @@ export default function PurchaseOrderPage() {
         items: lineItems.map((item) => ({
           itemNo: item.itemNo,
           productCode: item.productCode,
+          productId: item.productId,
+          supplierProductId: item.supplierProductId,
           unit: item.unit,
           description: item.description,
           quantity: item.quantity,
@@ -771,6 +803,7 @@ export default function PurchaseOrderPage() {
 
   useEffect(() => {
     if (editTarget) {
+      setSelectedSupplier(editTarget.supplierId);
       setEditDate(editTarget.date);
       setEditPrNumber(editTarget.prNumber || "");
       setEditComments(editTarget.comments || "");
@@ -783,6 +816,8 @@ export default function PurchaseOrderPage() {
         editTarget.items.map((item) => ({
           itemNo: item.itemNo || 0,
           productCode: item.productCode || "",
+          productId: item.productId || "",
+          supplierProductId: item.supplierProductId || "",
           unit: item.unit || "",
           description: item.description || "",
           quantity: item.quantity || 0,
@@ -819,7 +854,13 @@ export default function PurchaseOrderPage() {
     setEditLineItems((prev) =>
       prev.map((item, i) => {
         if (i === idx) {
-          const updated = { ...item, [field]: value };
+          const offering = field === "supplierProductId"
+            ? supplierProducts.find((p) => p.supplierProductId === value)
+            : undefined;
+          const product = products.find((p) => p.id === offering?.productId);
+          const updated = field === "supplierProductId"
+            ? { ...item, supplierProductId: String(value), productId: offering?.productId || "", productCode: product?.code || "", description: offering?.supplierProductName || product?.name || "", unit: product?.unit?.code || "PC", pricePerUnit: offering?.costPerUnit || 0 }
+            : { ...item, [field]: value };
           if (field === "quantity" || field === "pricePerUnit") {
             updated.totalAmount = calculateTotal(
               updated.quantity,
@@ -850,6 +891,8 @@ export default function PurchaseOrderPage() {
           .map((li) => ({
             itemNo: li.itemNo,
             productCode: li.productCode,
+            productId: li.productId,
+            supplierProductId: li.supplierProductId,
             unit: li.unit,
             description: li.description,
             quantity: li.quantity,
@@ -966,11 +1009,7 @@ export default function PurchaseOrderPage() {
               </div>
               <div className="space-y-2">
                 <Label>Payment Terms</Label>
-                <Input
-                  value={paymentTerms}
-                  onChange={(e) => setPaymentTerms(e.target.value)}
-                  placeholder="e.g. Net 30"
-                />
+                <Select value={paymentTerms} onValueChange={setPaymentTerms}><SelectTrigger><SelectValue placeholder="Select payment terms" /></SelectTrigger><SelectContent>{paymentTermOptions.map((term) => <SelectItem key={term.paymentTermId} value={term.name}>{term.name}</SelectItem>)}</SelectContent></Select>
               </div>
             </div>
 
@@ -1033,12 +1072,12 @@ export default function PurchaseOrderPage() {
                     <>
                       <div className="flex-1 min-w-[200px]">
                         <SearchableSelect
-                          value={item.productCode}
+                          value={item.supplierProductId}
                           onValueChange={(v) =>
-                            updateLineItem(idx, "productCode", v)
+                            updateLineItem(idx, "supplierProductId", v)
                           }
                           options={productOptions}
-                          placeholder="Select Product"
+                          placeholder="Select supplier product"
                           onAddOption={(searchText) =>
                             handleOpenQuickAddProduct(searchText, "create", idx)
                           }
@@ -1262,10 +1301,7 @@ export default function PurchaseOrderPage() {
               </div>
               <div className="space-y-2">
                 <Label>Payment Terms</Label>
-                <Input
-                  value={editPaymentTerms}
-                  onChange={(e) => setEditPaymentTerms(e.target.value)}
-                />
+                <Select value={editPaymentTerms} onValueChange={setEditPaymentTerms}><SelectTrigger><SelectValue placeholder="Select payment terms" /></SelectTrigger><SelectContent>{[...new Set([editPaymentTerms, ...paymentTermOptions.map((term) => term.name)])].filter(Boolean).map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select>
               </div>
             </div>
 
@@ -1328,9 +1364,9 @@ export default function PurchaseOrderPage() {
                     <>
                       <div className="flex-1 min-w-[200px]">
                         <SearchableSelect
-                          value={item.productCode}
+                          value={item.supplierProductId}
                           onValueChange={(v) =>
-                            updateEditLineItem(idx, "productCode", v)
+                            updateEditLineItem(idx, "supplierProductId", v)
                           }
                           options={productOptions}
                           placeholder="Select Product"

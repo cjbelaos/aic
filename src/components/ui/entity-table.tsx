@@ -52,6 +52,8 @@ interface EntityTableProps<TData> {
   onDelete?: (row: TData) => void;
   onExport?: (data: TData[]) => void;
   onImport?: (file: File) => void;
+  onRowClick?: (row: TData) => void;
+  getRowId?: (row: TData) => string;
 }
 
 export function EntityTable<TData>({
@@ -65,6 +67,8 @@ export function EntityTable<TData>({
   onDelete,
   onExport,
   onImport,
+  onRowClick,
+  getRowId,
 }: EntityTableProps<TData>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
@@ -84,7 +88,7 @@ export function EntityTable<TData>({
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={() => onEdit(row.original)}
+            onClick={(event) => { event.stopPropagation(); onEdit(row.original); }}
           >
             <Pencil className="h-4 w-4" />
           </Button>
@@ -94,7 +98,7 @@ export function EntityTable<TData>({
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-destructive"
-            onClick={() => onDelete(row.original)}
+            onClick={(event) => { event.stopPropagation(); onDelete(row.original); }}
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -116,6 +120,7 @@ export function EntityTable<TData>({
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getRowId,
     manualPagination: false,
     autoResetPageIndex: false, // Prevent data refreshes from yanking users back to page 1
   });
@@ -299,7 +304,7 @@ export function EntityTable<TData>({
                 </TableRow>
               ) : table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow key={row.id} onClick={() => onRowClick?.(row.original)} className={onRowClick ? "cursor-pointer" : undefined}>
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id}>
                         {flexRender(

@@ -26,6 +26,7 @@ import {
 import productService from "@/lib/services/product.service";
 import companyService from "@/lib/services/company.service";
 import customerPriceService from "@/lib/services/customer-price.service";
+import paymentTermService from "@/lib/services/payment-term.service";
 import quotationService from "@/lib/services/quotation.service";
 import { userService } from "@/lib/services/user.service";
 import { positionService } from "@/lib/services/position.service";
@@ -33,6 +34,7 @@ import { QuotationCustomer } from "@/lib/services/quotation.service";
 import companyContactService from "@/lib/services/companyContact.service";
 import { isExecutivePositionTitle } from "@/lib/positionUtils";
 import { Product } from "@/types/product";
+import type { PaymentTerm } from "@/types/paymentTerm";
 import { CustomerPrice } from "@/types/customer-price";
 import type { PublicUser } from "@/types/user";
 import type { Position } from "@/types/position";
@@ -93,11 +95,6 @@ function customerLabel(c: QuotationCustomer): string {
 
 /* ── Constants ─────────────────────────────────────────── */
 
-const PAYMENT_TERMS = [
-  "COD",
-  "50% DP, 50% Full payment upon completion",
-  "Special Terms",
-];
 const DELIVERY_TERMS = [
   "7-15 days upon confirmation of PO",
   "30-45 days upon confirmation of order",
@@ -191,6 +188,7 @@ export function QuotationForm({
   const [customers, setCustomers] = useState<QuotationCustomer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customerPrices, setCustomerPrices] = useState<CustomerPrice[]>([]);
+  const [paymentTermOptions, setPaymentTermOptions] = useState<PaymentTerm[]>([]);
 
   const [customerId, setCustomerId] = useState("");
   const [projectDescription, setProjectDescription] = useState(
@@ -211,7 +209,7 @@ export function QuotationForm({
   const [discount, setDiscount] = useState(initialData?.discount || 0);
 
   const [paymentTerms, setPaymentTerms] = useState(
-    initialData?.terms || PAYMENT_TERMS[0],
+    initialData?.terms || "",
   );
   const [deliveryTerms, setDeliveryTerms] = useState(
     initialData?.delivery || DELIVERY_TERMS[0],
@@ -339,13 +337,14 @@ export function QuotationForm({
           setQuotationNo(generatedNo);
         }
 
-        const [cRes, pRes, cpRes, uRes, posRes, contactRes] = await Promise.all([
+        const [cRes, pRes, cpRes, uRes, posRes, contactRes, termsRes] = await Promise.all([
           companyService.getAll(),
           productService.getAll(),
           customerPriceService.getAll(),
           userService.getAllUsers(),
           positionService.getAll(),
           companyContactService.getAll(),
+          paymentTermService.getAll(),
         ]);
 
         const customerCompanies = (cRes ?? []).filter(
@@ -369,6 +368,7 @@ export function QuotationForm({
         setCustomers(mappedCustomers);
         setProducts(pRes ?? []);
         setCustomerPrices(cpRes ?? []);
+        setPaymentTermOptions((termsRes ?? []).filter((term) => term.status === "Active"));
         setAllUsers(uRes ?? []);
         setPositions(posRes ?? []);
 
@@ -434,7 +434,7 @@ export function QuotationForm({
               );
               return {
                 id: generateId(),
-                productId: matchedProduct ? String(matchedProduct.id) : "",
+                productId: item.productId || (matchedProduct ? String(matchedProduct.productId || matchedProduct.id) : ""),
                 description: matchedProduct ? "" : (item.description || ""),
                 quantity: item.quantity,
                 unit: item.unit,
@@ -631,6 +631,8 @@ export function QuotationForm({
       const description = item.description.trim() || matchedProd?.name || "Manual Entry Item";
       return {
         quotationNo: quotationNo,
+        productId: item.productId || undefined,
+        productCodeSnapshot: matchedProd?.code || undefined,
         description,
         quantity: item.quantity,
         unit: item.unit,
@@ -682,6 +684,8 @@ export function QuotationForm({
       quotationDescription: payload.quotationDescription,
       items: payload.items.map((item: any) => ({
         quotationNo: payload.quotationNo,
+        productId: item.productId,
+        productCodeSnapshot: item.productCodeSnapshot,
         description: item.description,
         quantity: item.quantity,
         unit: item.unit,
@@ -1304,7 +1308,7 @@ export function QuotationForm({
             label="Terms of Payment"
             value={paymentTerms}
             onChange={setPaymentTerms}
-            options={PAYMENT_TERMS}
+            options={[...new Set([paymentTerms, ...paymentTermOptions.map((term) => term.name)])].filter(Boolean)}
             disabled={isSaving || readOnly}
           />
           <TermsSelect

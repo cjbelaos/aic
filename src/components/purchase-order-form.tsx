@@ -24,7 +24,6 @@ function formatDateMMMMDDYYYY(dateStr?: string): string {
   const d = new Date(dateStr + (dateStr.length === 10 ? "T00:00:00" : ""));
   if (isNaN(d.getTime())) return dateStr;
 
-
   return d.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -112,7 +111,7 @@ const PO_FORM_STYLES = `
   @media print {
     .po-container { border: none; padding: 10mm; }
   }
-  @page { size: letter; margin:  10mm; }
+  @page { size: A4; margin:  10mm; }
 `;
 export function PurchaseOrderForm({
   po,
@@ -123,10 +122,16 @@ export function PurchaseOrderForm({
 }) {
   const items = Array.isArray(po.items) ? po.items : [];
   const displayRows = Math.max(items.length, minRows);
-  const subtotal = po.totalAmount ?? items.reduce( ( sum , item ) => sum + ( item.totalAmount ?? item.quantity * ( item.pricePerUnit ??  ​0 ) ) ,  ​0 ) ;
+  const subtotal =
+    po.totalAmount ??
+    items.reduce(
+      (sum, item) =>
+        sum + (item.totalAmount ?? item.quantity * (item.pricePerUnit ?? 0)),
+      0,
+    );
 
   const dateStr = formatDateMMMMDDYYYY(po.date);
-  const isDraft = po.poNumber ?.startsWith("DRAFT-") ?? false;
+  const isDraft = po.poNumber?.startsWith("DRAFT-") ?? false;
 
   return (
     <>
@@ -141,7 +146,7 @@ export function PurchaseOrderForm({
                 <div>BLK 4 LOT 2 BAMBOO ORCHARD BANAY - BANAY</div>
                 <div>CABUYAO CITY, LAGUNA</div>
                 <div>aerichinnovationcorp@gmail.com</div>
-                <div>0939 - 910 - juxtaposition0597</div>
+                <div>0939 - 910 - 0597</div>
               </td>
               <td className="po-header-right">
                 <div className="po-title">PURCHASE ORDER</div>
@@ -198,7 +203,7 @@ export function PurchaseOrderForm({
             </tr>
           </thead>
           <tbody>
-{Array.from( { length: displayRows } ).map( ( _ , i ) => {
+            {Array.from({ length: displayRows }).map((_, i) => {
               const item = items[i];
               const total = item
                 ? (item.totalAmount ?? item.quantity * (item.pricePerUnit ?? 0))
@@ -221,10 +226,16 @@ export function PurchaseOrderForm({
             {/* Subtotal row */}
             <tr className="po-subtotal-row">
               <td colSpan={4} style={{ border: "none" }} />
-              <td className="po-text-right" style={{ border: "none", fontWeight: "bold" }}>
+              <td
+                className="po-text-right"
+                style={{ border: "none", fontWeight: "bold" }}
+              >
                 SUBTOTAL
               </td>
-              <td className="po-text-right po-subtotal-amount" style={{ fontWeight: "bold" }}>
+              <td
+                className="po-text-right po-subtotal-amount"
+                style={{ fontWeight: "bold" }}
+              >
                 {formatMoney(subtotal)}
               </td>
             </tr>
@@ -233,7 +244,9 @@ export function PurchaseOrderForm({
 
         {/* Comments Box */}
         <div className="po-comments-box">
-          <div className="po-comments-header">Comments or Special Instructions</div>
+          <div className="po-comments-header">
+            Comments or Special Instructions
+          </div>
           <div className="po-comments-content">{po.comments || ""}</div>
         </div>
 
@@ -244,13 +257,17 @@ export function PurchaseOrderForm({
               <td style={{ width: "12%" }}>Prepared by:</td>
               <td style={{ width: "35%" }}>
                 <div className="po-sig-line">{po.preparedBy || "—"}</div>
-                <div className="po-sig-caption">Signature Over Printed Name</div>
+                <div className="po-sig-caption">
+                  Signature Over Printed Name
+                </div>
               </td>
               <td style={{ width: "6%" }} />
               <td style={{ width: "12%" }}>Approved by:</td>
               <td style={{ width: "35%" }}>
                 <div className="po-sig-line">{po.approvedBy || "—"}</div>
-                <div className="po-sig-caption">Signature Over Printed Name</div>
+                <div className="po-sig-caption">
+                  Signature Over Printed Name
+                </div>
               </td>
             </tr>
             <tr>
@@ -260,7 +277,9 @@ export function PurchaseOrderForm({
               <td>Noted by:</td>
               <td>
                 <div className="po-sig-line">{po.notedBy || "—"}</div>
-                <div className="po-sig-caption">Signature Over Printed Name</div>
+                <div className="po-sig-caption">
+                  Signature Over Printed Name
+                </div>
               </td>
               <td colSpan={3} />
             </tr>

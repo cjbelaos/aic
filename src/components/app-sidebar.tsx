@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Package,
+  Boxes,
   Users,
   Building2,
   Cpu,
@@ -28,6 +29,7 @@ import {
   FileSignature,
   ShieldAlert,
   ClipboardCheck,
+  CalendarDays,
 } from "lucide-react";
 import {
   Sidebar,
@@ -35,7 +37,6 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
-  SidebarMenuBadge,
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubButton,
@@ -50,6 +51,7 @@ import {
 interface StoredUser {
   userId?: string;
   departmentId?: number;
+  userRoleId?: number;
 }
 
 function getStoredDepartmentId(): number | null {
@@ -64,10 +66,17 @@ function getStoredDepartmentId(): number | null {
   }
 }
 
+function getStoredRoleId(): number | null {
+  if (typeof window === "undefined") return null;
+  try { const raw = window.localStorage.getItem("auth:user"); const value = raw ? JSON.parse(raw) as StoredUser : null; return typeof value?.userRoleId === "number" ? value.userRoleId : null; } catch { return null; }
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
   const [departmentId] = useState<number | null>(getStoredDepartmentId);
+  const [roleId] = useState<number | null>(getStoredRoleId);
   const canSeeTravel = departmentId === 1;
+  const isAdmin = roleId === 1;
 
   const isItemActive = (href: string): boolean => {
     if (href.includes("?")) {
@@ -120,6 +129,23 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/supplier-products")}
+                  tooltip="Supplier Products"
+                >
+                  <Link href="/dashboard/supplier-products">
+                    <Boxes />
+                    <span>Supplier Products</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              {isAdmin && <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isItemActive("/dashboard/payment-terms")} tooltip="Payment Terms">
+                  <Link href="/dashboard/payment-terms"><CalendarDays /><span>Payment Terms</span></Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -188,6 +214,29 @@ export function AppSidebar() {
                   <Link href="/dashboard/vehicles">
                     <Car />
                     <span>Vehicles</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        {/* ── Purchasing ───────────────────────────────────────────── */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Purchasing</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/purchase-orders")}
+                  tooltip="Purchase Orders"
+                >
+                  <Link href="/dashboard/purchase-orders">
+                    <ShoppingCart />
+                    <span>Purchase Orders</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -289,18 +338,6 @@ export function AppSidebar() {
                   <Link href="/dashboard/delivery-releases">
                     <Truck />
                     <span>Delivery Release</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive("/dashboard/purchase-orders")}
-                  tooltip="Purchase Orders"
-                >
-                  <Link href="/dashboard/purchase-orders">
-                    <ShoppingCart />
-                    <span>Purchase Orders</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

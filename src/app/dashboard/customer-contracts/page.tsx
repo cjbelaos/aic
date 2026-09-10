@@ -139,6 +139,7 @@ export default function CustomerContractsPage() {
     const map = new Map<string, string>();
     productsList.forEach((p) => {
       map.set(p.code, p.name);
+      if (p.productId) map.set(p.productId, p.name);
     });
     return map;
   }, [productsList]);
@@ -152,26 +153,13 @@ export default function CustomerContractsPage() {
     return map;
   }, [companies]);
 
-  // Group contracts by Company Name for display
+  // Preserve one row per ContractId. Customer names are hydrated for display,
+  // but never used as an identity/grouping key.
   const groupedContracts = useMemo<GroupedCustomerContract[]>(() => {
-    const map = new Map<string, ContractWithItems>();
-
-    data.forEach((contract) => {
-      const companyName = companyMap.get(contract.companyId) || "Unknown";
-      if (map.has(contract.companyId)) {
-        const existingContract = map.get(contract.companyId)!;
-        map.set(contract.companyId, {
-          ...existingContract,
-          items: [...existingContract.items, ...contract.items],
-        });
-      } else {
-        map.set(contract.companyId, { ...contract, companyName });
-      }
-    });
-
-    return Array.from(map.values()).map((contract) => ({
+    return data.map((contract) => ({
       ...contract,
       companyName: companyMap.get(contract.companyId) || "Unknown",
+      items: contract.items.filter((item) => item.contractId === contract.id),
     }));
   }, [data, companyMap]);
 
@@ -268,7 +256,7 @@ export default function CustomerContractsPage() {
             <div className="flex flex-col gap-2 py-1">
               {row.original.items.map((item) => {
                 const productName =
-                  productMap.get(item.productCode) || item.productCode;
+                  productMap.get(item.productId || item.productCode) || item.productCode;
 
                 return (
                   <div
@@ -365,7 +353,8 @@ export default function CustomerContractsPage() {
 
   useEffect(() => {
     if (companies.length === 0) return;
-    loadContracts();
+    const timer = window.setTimeout(() => void loadContracts(), 0);
+    return () => window.clearTimeout(timer);
   }, [companies, loadContracts]);
 
   const customerOptions = useMemo(
@@ -380,7 +369,7 @@ export default function CustomerContractsPage() {
   const productOptions = useMemo(
     () =>
       productsList.map((p) => ({
-        value: p.code,
+        value: p.productId || p.id,
         label: p.name ? `${p.name} (${p.code})` : p.code,
       })),
     [productsList],
@@ -419,7 +408,7 @@ export default function CustomerContractsPage() {
         row.monthlyServiceFee != null ? String(row.monthlyServiceFee) : "",
       items: row.items.map((item) => ({
         id: item.id,
-        productId: item.productCode,
+        productId: item.productId || item.productCode,
         entitledQty: item.entitledQty,
         frequency: item.frequency,
         status: item.status,
@@ -443,10 +432,10 @@ export default function CustomerContractsPage() {
     }));
   };
 
-  const updateProductRow = (
+  const updateProductRow = <K extends keyof ContractFormItem>(
     index: number,
-    field: keyof ContractFormItem,
-    value: any,
+    field: K,
+    value: ContractFormItem[K],
   ) => {
     setForm((prev) => {
       const updated = [...prev.items];
@@ -547,7 +536,10 @@ export default function CustomerContractsPage() {
         // Delete items that were removed
         if (itemsToDelete.length > 0) {
           await Promise.all(
-            itemsToDelete.map((item) => contractItemService.delete(item.id)),
+            itemsToDelete.map((item) => {
+              if (item.contractId !== contractId) throw new Error(`Entitlement ${item.id} does not belong to contract ${contractId}.`);
+              return contractItemService.delete(item.id, contractId);
+            }),
           );
         }
 
@@ -557,9 +549,10 @@ export default function CustomerContractsPage() {
             (e) => e.id === formItem.id,
           );
           if (existingItem) {
+            if (existingItem.contractId !== contractId) throw new Error(`Entitlement ${existingItem.id} does not belong to contract ${contractId}.`);
             // Only update if there are changes
             if (
-              existingItem.productCode !== formItem.productId ||
+              existingItem.productId !== formItem.productId ||
               existingItem.entitledQty !== formItem.entitledQty ||
               existingItem.frequency !== formItem.frequency ||
               existingItem.status !== formItem.status
@@ -567,7 +560,8 @@ export default function CustomerContractsPage() {
               await contractItemService.update({
                 id: formItem.id!,
                 contractId,
-                productCode: formItem.productId,
+                productId: formItem.productId,
+                productCode: existingItem.productCode,
                 entitledQty: formItem.entitledQty,
                 frequency: formItem.frequency,
                 status: formItem.status,
@@ -580,7 +574,8 @@ export default function CustomerContractsPage() {
         for (const item of itemsToCreate) {
           await contractItemService.create({
             contractId,
-            productCode: item.productId,
+            productId: item.productId,
+            productCode: "",
             entitledQty: item.entitledQty,
             frequency: item.frequency,
             status: item.status,
@@ -608,7 +603,8 @@ export default function CustomerContractsPage() {
         for (const item of form.items) {
           await contractItemService.create({
             contractId,
-            productCode: item.productId,
+            productId: item.productId,
+            productCode: "",
             entitledQty: item.entitledQty,
             frequency: item.frequency,
             status: item.status,
@@ -623,11 +619,11 @@ export default function CustomerContractsPage() {
         }".`,
       );
       setModalOpen(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Save error:", err);
       const apiErrorMsg =
-        err?.response?.data?.error ||
-        err?.message ||
+        (typeof err === "object" && err !== null && "response" in err && typeof err.response === "object" && err.response !== null && "data" in err.response && typeof err.response.data === "object" && err.response.data !== null && "error" in err.response.data ? String(err.response.data.error) : undefined) ||
+        (err instanceof Error ? err.message : undefined) ||
         "Server error. Please try again.";
       setError(apiErrorMsg);
     } finally {
@@ -642,11 +638,11 @@ export default function CustomerContractsPage() {
       await contractService.delete(deleteTarget.id);
       await loadContracts();
       toast.success(`Deleted contract for "${deleteTarget.companyName}".`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Delete error:", err);
       const apiErrorMsg =
-        err?.response?.data?.error ||
-        err?.message ||
+        (typeof err === "object" && err !== null && "response" in err && typeof err.response === "object" && err.response !== null && "data" in err.response && typeof err.response.data === "object" && err.response.data !== null && "error" in err.response.data ? String(err.response.data.error) : undefined) ||
+        (err instanceof Error ? err.message : undefined) ||
         "Failed to delete contract.";
       toast.error(apiErrorMsg);
     } finally {
@@ -665,6 +661,7 @@ export default function CustomerContractsPage() {
         onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
+        getRowId={(row) => row.id}
       />
 
       <Dialog
@@ -934,7 +931,7 @@ export default function CustomerContractsPage() {
                       <Select
                         value={item.status}
                         onValueChange={(val) =>
-                          updateProductRow(index, "status", val)
+                          updateProductRow(index, "status", val as "Active" | "Inactive")
                         }
                         disabled={saving}
                       >

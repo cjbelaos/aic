@@ -22,6 +22,9 @@ export interface Quotation {
 
 export interface QuotationDetail {
   quotationNo: string;
+  /** Stable ProductsV2 reference when this is a catalog item. */
+  productId?: string;
+  productCodeSnapshot?: string;
   description: string;
   quantity: number;
   unit: string;

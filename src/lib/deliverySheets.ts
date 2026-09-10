@@ -11,6 +11,7 @@ import {
   DeliveryItem,
   DRStatusEntry,
 } from "@/types/deliveryReceipt";
+import { getDeliveryItemsV2, replaceDeliveryItemsV2 } from "@/lib/transactionItemV2Sheets";
 
 const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:A`;
@@ -127,6 +128,8 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
       if (!itemsByDr.has(drId)) itemsByDr.set(drId, []);
       itemsByDr.get(drId)!.push(item);
     }
+    const v2Items = await getDeliveryItemsV2();
+    for (const [drNumber, items] of v2Items) itemsByDr.set(drNumber, items);
 
     // Resolve companies once
     const companies = await getCompanies().catch(() => []);
@@ -280,22 +283,7 @@ export async function processDeliveryReceipt(
     });
 
     // 3b. Log item rows to DeliveryReceiptItems sheet
-    const itemRows = payload.items.map((item) => [
-      String(drNumber),
-      item.productCode,
-      item.quantity,
-      item.unit,
-      "active",
-    ]);
-
-    if (itemRows.length > 0) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: DELIVERY_RECEIPT_ITEMS_RANGE,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: itemRows },
-      });
-    }
+    await replaceDeliveryItemsV2(drNumber, payload.items);
 
     // 4. Populate template and export PDF (skip for drafts)
     let pdfBase64: string | undefined;
@@ -564,21 +552,7 @@ export async function updateDeliveryReceipt(
         });
       }
 
-      const itemRows = payload.items.map((item) => [
-        String(effectiveDrNumber),
-        item.productCode,
-        item.quantity,
-        item.unit,
-        "active",
-      ]);
-      if (itemRows.length > 0) {
-        await sheets.spreadsheets.values.append({
-          spreadsheetId,
-          range: DELIVERY_RECEIPT_ITEMS_RANGE,
-          valueInputOption: "USER_ENTERED",
-          requestBody: { values: itemRows },
-        });
-      }
+      await replaceDeliveryItemsV2(effectiveDrNumber, payload.items);
     }
 
     const companies = await getCompanies().catch(() => []);
@@ -661,6 +635,7 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
     }
 
     // ── 2. Fetch all ContractReleases linked to this DR ──
+    await replaceDeliveryItemsV2(drNumber, []);
     const { getContractReleases } = await import("@/lib/contractReleaseSheets");
     const { upsertPeriodSummary } =
       await import("@/lib/contractPeriodSummarySheets");

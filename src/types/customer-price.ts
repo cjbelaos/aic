@@ -1,6 +1,3 @@
-import { Company } from "./company";
-import { Product } from "@/types/product";
-
 export interface CustomerPrice {
   id: string;
   /** The company name string (foreign key to Company). */
@@ -11,6 +8,11 @@ export interface CustomerPrice {
   productCode: string;
   /** Optional numeric product ID fallback. */
   productId?: number | string;
+  customerProductName?: string;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  status?: "active" | "inactive";
+  sourceVersion?: "v1" | "v2";
   /** The custom price per unit for this company-product pair. */
   pricePerUnit: number;
   /** Optional alias for pricePerUnit used in some sheets. */

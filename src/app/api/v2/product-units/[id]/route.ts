@@ -1,0 +1,6 @@
+import { NextResponse } from "next/server";
+import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { updateProductUnitV2 } from "@/lib/productReferenceV2Sheets";
+import type { ProductUnitV2 } from "@/types/product-reference-v2";
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) { const session = await requireAuthenticatedSession(); if (session instanceof Response) return session; try { const { id } = await params; return NextResponse.json(await updateProductUnitV2(id, (await request.json()) as Partial<Omit<ProductUnitV2, "unitId">>)); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update unit." }, { status: 500 }); } }
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) { const session = await requireAuthenticatedSession(); if (session instanceof Response) return session; try { const { id } = await params; return NextResponse.json(await updateProductUnitV2(id, { status: "inactive" })); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to deactivate unit." }, { status: 500 }); } }

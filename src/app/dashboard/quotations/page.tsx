@@ -167,6 +167,8 @@ export default function QuotationsPage() {
       quotationDescription: quot.description || "",
       items: (quot.items || []).map((item) => ({
         quotationNo: item.quotationNo,
+        productId: item.productId,
+        productCodeSnapshot: item.productCodeSnapshot,
         description: item.description || "",
         quantity: item.quantity || 0,
         unit: item.unit || "",
@@ -345,6 +347,8 @@ export default function QuotationsPage() {
           approvedBy: selectedQuotation.approvedBy || "",
           sentBy: selectedQuotation.sentBy || "",
           items: formPayload.items.map((item) => ({
+            productId: item.productId,
+            productCodeSnapshot: item.productCodeSnapshot,
             description: item.description,
             quantity: item.quantity,
             unit: item.unit,

@@ -5,7 +5,9 @@ import {
   PurchaseOrderResponse,
 } from "@/types/purchaseOrder";
 
-const BASE_PATH = "/api/purchase-orders";
+// apiClient already uses `/api` as its base URL. Supplying `/api` here made
+// requests resolve to `/api/api/purchase-orders` and caused a 404 on the PO list.
+const BASE_PATH = "/purchase-orders";
 
 const purchaseOrderService = {
   getAll: (): Promise<PurchaseOrderSummary[]> => {

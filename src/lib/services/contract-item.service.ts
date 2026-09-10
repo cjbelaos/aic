@@ -79,9 +79,9 @@ const contractItemService = {
   /**
    * Clears a contract line item row from the Google Sheet by ID
    */
-  delete: async (id: string): Promise<void> => {
+  delete: async (id: string, contractId: string): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/${id}`);
+      await axios.delete(`${API_BASE_URL}/${id}`, { params: { contractId } });
     } catch (error) {
       console.error(
         `Failed to delete contract item with ID ${id} in service layer:`,

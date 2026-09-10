@@ -5,7 +5,7 @@ import {
   UpdateCustomerPricePayload,
 } from "@/types/customer-price";
 
-const API_BASE_URL = "/api/customer-prices";
+const API_BASE_URL = "/api/v2/customer-prices";
 
 const customerPriceService = {
   /**

@@ -1,4 +1,5 @@
 export interface DeliveryItem {
+  productId?: string;
   productCode: string;
   unit: string;
   description: string;

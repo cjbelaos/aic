@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "audit:products-v2": "node --env-file=.env.local scripts/product-v2-migration.mjs",
+    "migrate:products-v2": "node --env-file=.env.local scripts/product-v2-migration.mjs --apply"
+    ,"audit:contracts": "node --env-file=.env.local scripts/audit-contract-integrity.mjs"
+    ,"test:contract-integrity": "node scripts/audit-contract-integrity.mjs --self-test"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.11",

@@ -6,6 +6,8 @@ import {
   AgreementType,
   ContractStatus,
 } from "@/types/contract";
+import { ContractConflictError, duplicateContractIds, nextContractId } from "@/lib/contractIntegrity";
+import type { sheets_v4 } from "googleapis";
 
 const CONTRACTS_SHEET = "Contracts";
 const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:I`;
@@ -65,8 +67,17 @@ export async function addContract(
     });
     const existingRows = existingResponse.data.values || [];
 
-    const newRowNumber = existingRows.length + 2;
-    const contractId = `CTR-${String(newRowNumber - 1).padStart(4, "0")}`;
+    const existingIds = existingRows.map((row) => String(row[0] ?? "").trim());
+    const duplicates = duplicateContractIds(existingIds);
+    if (duplicates.length) throw new ContractConflictError(`Duplicate ContractId values already exist: ${duplicates.join(", ")}. Creation was stopped.`);
+    const contractId = nextContractId(existingIds);
+
+    // Best-effort conflict check immediately before append. Google Sheets does
+    // not provide a compare-and-swap transaction, so simultaneous requests can
+    // still race between this read and the append.
+    const latestResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${CONTRACTS_SHEET}!A2:A` });
+    const latestIds = (latestResponse.data.values ?? []).map((row) => String(row[0] ?? "").trim());
+    if (latestIds.includes(contractId)) throw new ContractConflictError(`ContractId ${contractId} already exists. Please retry creation.`);
 
     const newRowValues = [
       contractId,
@@ -190,13 +201,17 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
       throw new Error(`Sheet "${CONTRACTS_SHEET}" not found.`);
 
     const itemSheetId = resolveSheetId("ContractItems");
+    const itemV2SheetId = resolveSheetId("ContractItemsV2");
     const releaseSheetId = resolveSheetId("ContractReleases");
 
     // Read all raw rows so indices map 1:1 to the sheet.
-    const [contractRes, itemRes, releaseRes] = await Promise.all([
+    const [contractRes, itemRes, itemV2Res, releaseRes] = await Promise.all([
       sheets.spreadsheets.values.get({ spreadsheetId, range: CONTRACTS_RANGE }),
       itemSheetId !== undefined
         ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractItems!A2:F" })
+        : Promise.resolve(null),
+      itemV2SheetId !== undefined
+        ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractItemsV2!A2:G" })
         : Promise.resolve(null),
       releaseSheetId !== undefined
         ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractReleases!A2:M" })
@@ -205,15 +220,22 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
 
     const contractRows = contractRes.data.values || [];
     const itemRows = itemRes?.data?.values || [];
+    const itemV2Rows = itemV2Res?.data?.values || [];
     const releaseRows = releaseRes?.data?.values || [];
 
     // Find the contract row.
-    const contractIdx = contractRows.findIndex(
-      (row) => String(row[0] || "").trim() === id,
-    );
-    if (contractIdx === -1) return;
+    const contractMatches = contractRows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => String(row[0] || "").trim() === id);
+    if (contractMatches.length === 0) return;
+    if (contractMatches.length > 1) {
+      throw new ContractConflictError(
+        `Cannot safely delete ${id}: ${contractMatches.length} parent rows share this ContractId.`,
+      );
+    }
+    const contractIdx = contractMatches[0].index;
 
-    const requests: any[] = [];
+    const requests: sheets_v4.Schema$Request[] = [];
 
     // 1) Delete the contract row itself.
     requests.push({
@@ -245,6 +267,12 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
             },
           });
         });
+    }
+
+    if (itemV2SheetId !== undefined) {
+      itemV2Rows.map((row, i) => ({ row, i })).filter(({ row }) => String(row[1] || "").trim() === id).sort((a, b) => b.i - a.i).forEach(({ i }) => {
+        requests.push({ deleteDimension: { range: { sheetId: itemV2SheetId, dimension: "ROWS", startIndex: i + 1, endIndex: i + 2 } } });
+      });
     }
 
     // 3) Cascade: delete all ContractReleases that reference this contract.

@@ -105,7 +105,7 @@ async function getSheetTabGid(
 }
 
 function buildExportUrl(spreadsheetId: string, gid: number): string {
-  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=pdf&portrait=true&size=letter&gridlines=false&gid=${gid}`;
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=pdf&portrait=true&size=a4&gridlines=false&gid=${gid}`;
 }
 
 async function fetchExportPdfBase64(printUrl: string): Promise<string> {

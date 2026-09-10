@@ -33,7 +33,8 @@ export async function PUT(
       error instanceof Error
         ? error.message
         : "Failed to update contract item.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = /belongs to contract|not migrated/i.test(message) ? 409 : /not found/i.test(message) ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
@@ -42,7 +43,7 @@ export async function PUT(
  * Removes/clears a contract line item row by ID.
  */
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await requireAuthenticatedSession();
@@ -50,7 +51,9 @@ export async function DELETE(
 
   try {
     const { id } = await params;
-    await deleteContractItemFromSheets(id);
+    const contractId = new URL(request.url).searchParams.get("contractId") || undefined;
+    if (!contractId) return NextResponse.json({ error: "ContractId is required to delete an entitlement." }, { status: 400 });
+    await deleteContractItemFromSheets(id, contractId);
     return NextResponse.json(
       { message: "Contract item deleted successfully." },
       { status: 200 },
@@ -60,6 +63,7 @@ export async function DELETE(
       error instanceof Error
         ? error.message
         : "Failed to delete contract item.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = /belongs to contract/i.test(message) ? 409 : /not found/i.test(message) ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

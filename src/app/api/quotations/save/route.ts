@@ -126,6 +126,8 @@ export async function POST(request: Request) {
       fileUrl,
       status: finalStatus,
       items: (payload.items || []).map((item: any) => ({
+        productId: item.productId || undefined,
+        productCodeSnapshot: item.productCodeSnapshot || undefined,
         description: item.description || item.name || "",
         qty: item.quantity || item.qty || 0,
         unit: item.unit || "",

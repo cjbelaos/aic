@@ -20,6 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProductDetailDrawer } from "@/components/product-detail-drawer";
 
 // Services
 import productService from "@/lib/services/product.service";
@@ -155,19 +156,6 @@ const columns: ColumnDef<Product>[] = [
     ),
   },
   {
-    accessorKey: "description",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Description <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-  },
-  {
     id: "unitName",
     accessorFn: (row) => row.unit?.name || "",
     header: ({ column }) => (
@@ -182,26 +170,9 @@ const columns: ColumnDef<Product>[] = [
     ),
   },
   {
-    accessorKey: "costPerUnit",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Cost/Unit <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-    cell: ({ row }) => (
-      <span className="text-blue-600">
-        {row.original.costPerUnit.toLocaleString("en-PH", {
-          style: "currency",
-          currency: "PHP",
-          minimumFractionDigits: 2,
-        })}
-      </span>
-    ),
+    accessorKey: "supplierCount",
+    header: "Supplier Count",
+    cell: ({ row }) => row.original.supplierCount ?? 0,
   },
   {
     accessorKey: "pricePerUnit",
@@ -212,7 +183,7 @@ const columns: ColumnDef<Product>[] = [
         className="-ml-3 h-8 font-semibold"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
-        Price/Unit <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
+        Default Selling Price <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
     cell: ({ row }) => {
@@ -228,20 +199,6 @@ const columns: ColumnDef<Product>[] = [
       );
     },
   },
-  {
-    id: "supplierName",
-    accessorFn: (row) => row.supplier?.companyName || "",
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 font-semibold"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        Supplier Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
-      </Button>
-    ),
-  },
 ];
 
 /* ── Helper: Fixed lookup state assignment mapping variables ── */
@@ -254,9 +211,7 @@ function buildCreatePayload(
   },
 ): CreateProductPayload {
   const cat = lookup.categories.find((c) => String(c.id) === form.categoryId);
-  const u = lookup.units.find(
-    (unit) => String(unit.id) === form.productUnitId,
-  );
+  const u = lookup.units.find((unit) => String(unit.id) === form.productUnitId);
   const supp = lookup.companies.find((s) => String(s.id) === form.supplierId);
 
   return {
@@ -295,6 +250,7 @@ export default function ProductsPage() {
   const [editTarget, setEditTarget] = useState<Product | null>(null);
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const [detailTarget, setDetailTarget] = useState<Product | null>(null);
   const [suppliers, setSuppliers] = useState<Company[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
@@ -442,16 +398,8 @@ export default function ProductsPage() {
   );
 
   const handleSave = async () => {
-    if (!form.description.trim()) {
-      setError("Description is required.");
-      return;
-    }
-    if (form.costPerUnit <= 0) {
-      setError("Cost per unit must be greater than 0.");
-      return;
-    }
-    if (!form.supplierId) {
-      setError("Supplier selection is required.");
+    if (!form.name.trim() || !form.categoryId || !form.productUnitId) {
+      setError("Product name, category, and unit are required.");
       return;
     }
 
@@ -695,7 +643,7 @@ export default function ProductsPage() {
   return (
     <>
       <EntityTable
-        title="Product List"
+        title="Products"
         columns={columns}
         data={data}
         loading={loading}
@@ -704,6 +652,7 @@ export default function ProductsPage() {
         onDelete={(row) => setDeleteTarget(row)}
         onExport={() => exportToExcel(data)}
         onImport={handleImport}
+        onRowClick={setDetailTarget}
       />
 
       <Dialog
@@ -761,18 +710,22 @@ export default function ProductsPage() {
               />
             </div>
 
-            {/* Description */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-desc">Description</Label>
-              <Input
-                id="p-desc"
-                value={form.description}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, description: e.target.value }))
-                }
-              />
-            </div>
+            {false && (
+              <>
+                {/* Legacy supplier-specific fields are managed in SupplierProductsV2. */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="p-desc">Description</Label>
+                  <Input
+                    id="p-desc"
+                    value={form.description}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, description: e.target.value }))
+                    }
+                  />
+                </div>
+              </>
+            )}
 
             {/* Unit */}
             <div className="space-y-1.5">
@@ -789,27 +742,29 @@ export default function ProductsPage() {
               />
             </div>
 
-            {/* Cost & Price */}
+            {/* Default selling price */}
             <div className="grid grid-cols-2 gap-3">
+              {false && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="p-cost">Cost / Unit *</Label>
+                  <Input
+                    id="p-cost"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={form.costPerUnit}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        costPerUnit: parseFloat(e.target.value) || 0,
+                      }))
+                    }
+                  />
+                </div>
+              )}
               <div className="space-y-1.5">
-                <Label htmlFor="p-cost">Cost / Unit *</Label>
-                <Input
-                  id="p-cost"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={form.costPerUnit}
-                  disabled={saving}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      costPerUnit: parseFloat(e.target.value) || 0,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="p-price">Price / Unit</Label>
+                <Label htmlFor="p-price">Default Selling Price</Label>
                 <Input
                   id="p-price"
                   type="number"
@@ -829,18 +784,24 @@ export default function ProductsPage() {
               </div>
             </div>
 
-            {/* Supplier */}
-            <div className="space-y-1.5">
-              <Label htmlFor="p-supplier">Supplier *</Label>
-              <SearchableSelect
-                value={form.supplierId}
-                onValueChange={(v) => setForm((f) => ({ ...f, supplierId: v }))}
-                options={supplierOptions}
-                placeholder="Select supplier"
-                searchPlaceholder="Search suppliers..."
-                disabled={saving}
-              />
-            </div>
+            {false && (
+              <>
+                {/* Suppliers are edited as separate SupplierProductsV2 records. */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="p-supplier">Supplier *</Label>
+                  <SearchableSelect
+                    value={form.supplierId}
+                    onValueChange={(v) =>
+                      setForm((f) => ({ ...f, supplierId: v }))
+                    }
+                    options={supplierOptions}
+                    placeholder="Select supplier"
+                    searchPlaceholder="Search suppliers..."
+                    disabled={saving}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter>
@@ -865,6 +826,13 @@ export default function ProductsPage() {
         description={`Are you sure you want to delete "${deleteTarget?.description}"? This action cannot be undone.`}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
+      />
+      <ProductDetailDrawer
+        product={detailTarget}
+        open={!!detailTarget}
+        onOpenChange={(open) => {
+          if (!open) setDetailTarget(null);
+        }}
       />
     </>
   );

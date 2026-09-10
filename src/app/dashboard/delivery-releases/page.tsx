@@ -57,6 +57,7 @@ import { ProductCategory } from "@/types/product-category";
 import { ProductUnit } from "@/types/product-unit";
 
 interface LineItem {
+  productId: string;
   productCode: string;
   unit: string;
   description: string;
@@ -64,6 +65,7 @@ interface LineItem {
 }
 
 const EMPTY_LINE_ITEM: LineItem = {
+  productId: "",
   productCode: "",
   unit: "PC",
   description: "",
@@ -185,6 +187,7 @@ export default function DeliveryReleasePage() {
       if (prefill.items && prefill.items.length > 0) {
         setLineItems(
           prefill.items.map((item: any) => ({
+            productId: item.productId || "",
             productCode: item.productCode || "",
             unit: item.unit || "PC",
             description: item.description || "",
@@ -677,6 +680,7 @@ export default function DeliveryReleasePage() {
       const prod = products.find((p) => p.code === value);
       updated[index] = {
         ...updated[index],
+        productId: prod?.id || "",
         productCode: value,
         unit: prod?.unit?.code || "PC",
         description: prod?.name || "",
@@ -931,6 +935,7 @@ export default function DeliveryReleasePage() {
       setEditStatus(editTarget.status || "created");
       setEditLineItems(
         editTarget.items.map((item) => ({
+          productId: item.productId || "",
           productCode: item.productCode,
           unit: item.unit,
           description: item.description,
@@ -961,7 +966,12 @@ export default function DeliveryReleasePage() {
     value: string | number,
   ) =>
     setEditLineItems((prev) =>
-      prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)),
+      prev.map((item, i) => {
+        if (i !== idx) return item;
+        if (field !== "productCode") return { ...item, [field]: value };
+        const product = products.find((p) => p.code === value);
+        return { ...item, productCode: String(value), productId: product?.id || "", unit: product?.unit?.code || "PC", description: product?.name || "" };
+      }),
     );
 
   const handleEditSave = async () => {
@@ -978,6 +988,7 @@ export default function DeliveryReleasePage() {
         items: editLineItems
           .filter((li) => li.productCode || li.description.trim())
           .map((li) => ({
+            productId: li.productId,
             productCode: li.productCode,
             unit: li.unit,
             description: li.description,

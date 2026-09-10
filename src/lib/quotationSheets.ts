@@ -18,6 +18,8 @@ const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
 const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:K`;
 const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:E`;
+const QUOTATION_DETAILS_V2_SHEET = "QuotationDetailsV2";
+const RANGE_DETAILS_V2 = `${QUOTATION_DETAILS_V2_SHEET}!A2:H`;
 const RANGE_NOTATIONS = `${QUOTATION_NOTATIONS_SHEET}!A2:B`;
 
 const DETAILS_COL_COUNT = 5;
@@ -169,6 +171,27 @@ function buildQuotationRow(
   };
 }
 
+async function getV2DetailMap(spreadsheetId: string): Promise<Map<string, QuotationDetail[]>> {
+  const sheets = await getSheetsClient();
+  try {
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE_DETAILS_V2 });
+    const details = new Map<string, QuotationDetail[]>();
+    for (const row of response.data.values ?? []) {
+      const quotationNo = String(row[0] ?? "").trim(); if (!quotationNo) continue;
+      const item: QuotationDetail = { quotationNo, productId: String(row[1] ?? "") || undefined, productCodeSnapshot: String(row[2] ?? "") || undefined, description: String(row[3] ?? ""), quantity: Number(row[4]) || 0, unit: String(row[5] ?? ""), unitPrice: Number(row[6]) || 0 };
+      details.set(quotationNo, [...(details.get(quotationNo) ?? []), item]);
+    }
+    return details;
+  } catch { return new Map(); }
+}
+
+async function ensureQuotationDetailsV2(spreadsheetId: string): Promise<void> {
+  const sheets = await getSheetsClient(); const metadata = await sheets.spreadsheets.get({ spreadsheetId });
+  if ((metadata.data.sheets ?? []).some((sheet) => sheet.properties?.title === QUOTATION_DETAILS_V2_SHEET)) return;
+  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ addSheet: { properties: { title: QUOTATION_DETAILS_V2_SHEET } } }] } });
+  await sheets.spreadsheets.values.update({ spreadsheetId, range: `${QUOTATION_DETAILS_V2_SHEET}!A1:H1`, valueInputOption: "RAW", requestBody: { values: [["QuotationNo", "ProductId", "ProductCodeSnapshot", "DescriptionSnapshot", "Quantity", "UnitSnapshot", "UnitPriceSnapshot", "CustomerId"]] } });
+}
+
 // ──────────────── Public API ────────────────
 
 export async function getQuotations(): Promise<Quotation[]> {
@@ -183,9 +206,9 @@ export async function getQuotations(): Promise<Quotation[]> {
       notationRows,
     );
 
-    return quotRows.map((row, index) =>
-      parseQuotationRow(row, index, detailsMap, notationsMap),
-    );
+    const v2Details = await getV2DetailMap(spreadsheetId);
+    for (const [quotationNo, items] of v2Details) detailsMap.set(quotationNo, items);
+    return quotRows.map((row, index) => parseQuotationRow(row, index, detailsMap, notationsMap));
   } catch (error) {
     console.error("Failed to fetch quotations:", error);
     throw error;
@@ -216,7 +239,8 @@ export async function getQuotationByRefNo(
     if (idx === -1) return null;
 
     const row = quotRows[idx];
-    const items = aggregateDetailRows(detailRows, quotationNo);
+    const v2Details = await getV2DetailMap(spreadsheetId);
+    const items = v2Details.get(quotationNo) ?? aggregateDetailRows(detailRows, quotationNo);
     const notation = aggregateNotationRows(notationRows, quotationNo);
 
     return buildQuotationRow(row, quotationNo, idx, items, notation);
@@ -616,6 +640,8 @@ export async function saveQuotationData(params: {
   fileUrl?: string;
   status: "DRAFT" | "SENT";
   items: Array<{
+    productId?: string;
+    productCodeSnapshot?: string;
     description: string;
     qty: number;
     unit: string;
@@ -668,6 +694,8 @@ export async function saveQuotationData(params: {
       item.unit || "",
       item.priceUnit ?? 0,
     ]);
+    const detailValuesV2 = (params.items || []).map((item) => [refNumber, item.productId || "", item.productCodeSnapshot || "", item.description || "", item.qty ?? 0, item.unit || "", item.priceUnit ?? 0, ""]);
+    await ensureQuotationDetailsV2(spreadsheetId);
 
     if (detailValues.length > 0) {
       writes.push(
@@ -678,6 +706,7 @@ export async function saveQuotationData(params: {
           requestBody: { values: detailValues },
         }),
       );
+      writes.push(sheets.spreadsheets.values.append({ spreadsheetId, range: RANGE_DETAILS_V2, valueInputOption: "USER_ENTERED", requestBody: { values: detailValuesV2 } }));
     }
 
     const notationValues = (params.notations || []).map((note) => [
