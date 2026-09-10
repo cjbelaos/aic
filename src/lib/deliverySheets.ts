@@ -12,6 +12,7 @@ import {
   DRStatusEntry,
 } from "@/types/deliveryReceipt";
 import { getDeliveryItemsV2, replaceDeliveryItemsV2 } from "@/lib/transactionItemV2Sheets";
+import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 
 const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:A`;
@@ -535,22 +536,7 @@ export async function updateDeliveryReceipt(
         spreadsheetId,
         drNumber,
       );
-      if (existingItemRows.length > 0) {
-        const clearRanges = existingItemRows.map(
-          (r) =>
-            `${DELIVERY_RECEIPT_ITEMS_SHEET}!A${r.rowNumber}:E${r.rowNumber}`,
-        );
-        await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId,
-          requestBody: {
-            valueInputOption: "USER_ENTERED",
-            data: clearRanges.map((range) => ({
-              range,
-              values: [["", "", "", "", ""]],
-            })),
-          },
-        });
-      }
+      if (existingItemRows.length > 0) await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DELIVERY_RECEIPT_ITEMS_SHEET, columnCount: 5, existingRows: existingItemRows, values: [] });
 
       await replaceDeliveryItemsV2(effectiveDrNumber, payload.items);
     }

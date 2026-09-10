@@ -2,6 +2,7 @@ import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { isMissingSheetError, parseSheetNumber } from "@/lib/v2Sheets.utils";
 import type { PurchaseOrderItem } from "@/types/purchaseOrder";
 import type { DeliveryItem } from "@/types/deliveryReceipt";
+import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 
 const PO_SHEET = "PurchaseOrderItemsV2";
 const DR_SHEET = "DeliveryReceiptItemsV2";
@@ -28,8 +29,7 @@ export async function replacePurchaseOrderItemsV2(poNumber: string, items: Purch
   const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${PO_SHEET}!A2:I` }).catch(() => ({ data: { values: [] } }));
   const rows = existing.data.values ?? [];
   const updates = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] ?? "") === poNumber);
-  if (updates.length) await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges: updates.map(({ rowNumber }) => `${PO_SHEET}!A${rowNumber}:I${rowNumber}`) } });
-  if (items.length) await sheets.spreadsheets.values.append({ spreadsheetId, range: `${PO_SHEET}!A2:I`, valueInputOption: "USER_ENTERED", requestBody: { values: items.map((item) => [poNumber, item.itemNo, item.supplierProductId ?? "", item.productId ?? "", item.description, item.quantity, item.unit, item.pricePerUnit, item.totalAmount]) } });
+  await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: PO_SHEET, columnCount: 9, existingRows: updates, values: items.map((item, index) => [poNumber, index + 1, item.supplierProductId ?? "", item.productId ?? "", item.description, item.quantity, item.unit, item.pricePerUnit, item.totalAmount]) });
 }
 
 /** Repoints existing V2 item rows when a draft PO is finalized. */
@@ -56,6 +56,5 @@ export async function replaceDeliveryItemsV2(drNumber: number, items: DeliveryIt
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:H` }).catch(() => ({ data: { values: [] } })); const rows = existing.data.values ?? [];
   const matches = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => Number(row[0]) === drNumber);
-  if (matches.length) await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges: matches.map(({ rowNumber }) => `${DR_SHEET}!A${rowNumber}:H${rowNumber}`) } });
-  if (items.length) await sheets.spreadsheets.values.append({ spreadsheetId, range: `${DR_SHEET}!A2:H`, valueInputOption: "USER_ENTERED", requestBody: { values: items.map((item, index) => [drNumber, index + 1, item.productId ?? "", item.productCode, item.description, item.quantity, item.unit, "active"]) } });
+  await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DR_SHEET, columnCount: 8, existingRows: matches, values: items.map((item, index) => [drNumber, index + 1, item.productId ?? "", item.productCode, item.description, item.quantity, item.unit, "active"]) });
 }

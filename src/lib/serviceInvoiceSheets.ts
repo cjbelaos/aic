@@ -10,6 +10,7 @@ import {
   ServiceInvoiceSummary,
   ServiceInvoiceItem,
 } from "@/types/serviceInvoice";
+import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:L`;
@@ -565,18 +566,6 @@ export async function updateServiceInvoice(
         spreadsheetId,
         invoiceNo,
       );
-      if (existingItemRows.length > 0) {
-        await sheets.spreadsheets.values.batchClear({
-          spreadsheetId,
-          requestBody: {
-            ranges: existingItemRows.map(
-              (r) =>
-                `${SERVICE_INVOICE_ITEMS_SHEET}!A${r.rowNumber}:E${r.rowNumber}`,
-            ),
-          },
-        });
-      }
-
       const itemRows = payload.items.map((item) => [
         effectiveInvoiceNo,
         normalizeDescription(item.description),
@@ -584,14 +573,7 @@ export async function updateServiceInvoice(
         item.unitPrice,
         (item.quantity || 0) * (item.unitPrice || 0),
       ]);
-      if (itemRows.length > 0) {
-        await sheets.spreadsheets.values.append({
-          spreadsheetId,
-          range: SERVICE_INVOICE_ITEMS_RANGE,
-          valueInputOption: "USER_ENTERED",
-          requestBody: { values: itemRows },
-        });
-      }
+      await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: SERVICE_INVOICE_ITEMS_SHEET, columnCount: 5, existingRows: existingItemRows, values: itemRows });
     }
 
     const companies = await getCompanies().catch(() => []);

@@ -13,6 +13,7 @@ import {
 } from "@/types/purchaseOrder";
 import { getPurchaseOrderItemsV2, renamePurchaseOrderItemReferencesV2, replacePurchaseOrderItemsV2 } from "@/lib/transactionItemV2Sheets";
 import { getSupplierProductsV2 } from "@/lib/supplierProductV2Sheets";
+import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 
 async function validateCatalogItemsForSupplier(items: PurchaseOrderItem[], supplierId: string): Promise<void> {
   const catalogItems = items.filter((item) => item.supplierProductId);
@@ -506,22 +507,7 @@ export async function updatePurchaseOrder(
         spreadsheetId,
         poNumber,
       );
-      if (existingItemRows.length > 0) {
-        const clearRanges = existingItemRows.map(
-          (r) =>
-            `${PURCHASE_ORDER_ITEMS_SHEET}!A${r.rowNumber}:G${r.rowNumber}`,
-        );
-        await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId,
-          requestBody: {
-            valueInputOption: "USER_ENTERED",
-            data: clearRanges.map((range) => ({
-              range,
-              values: [["", "", "", "", "", "", ""]],
-            })),
-          },
-        });
-      }
+      if (existingItemRows.length > 0) await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: PURCHASE_ORDER_ITEMS_SHEET, columnCount: 7, existingRows: existingItemRows, values: [] });
 
       await replacePurchaseOrderItemsV2(String(effectivePONumber), payload.items);
     }

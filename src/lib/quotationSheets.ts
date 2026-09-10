@@ -11,6 +11,7 @@ import {
   QuotationNotation,
 } from "@/types/quotation";
 import { Readable } from "stream";
+import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 
 const QUOTATIONS_SHEET = "Quotations";
 const QUOTATION_DETAILS_SHEET = "QuotationDetails";
@@ -490,35 +491,7 @@ export async function updateQuotation(
       },
     });
 
-    // 2. Clear existing detail & notation rows (parallel)
-    const clearOps: Promise<any>[] = [];
-    detailRows.forEach((row, i) => {
-      if (String(row[0] || "").trim() === quotationNo.trim()) {
-        clearOps.push(
-          sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${QUOTATION_DETAILS_SHEET}!A${i + 2}`,
-            valueInputOption: "USER_ENTERED",
-            requestBody: { values: [new Array(DETAILS_COL_COUNT).fill("")] },
-          }),
-        );
-      }
-    });
-    notationRows.forEach((row, i) => {
-      if (String(row[0] || "").trim() === quotationNo.trim()) {
-        clearOps.push(
-          sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${QUOTATION_NOTATIONS_SHEET}!A${i + 2}`,
-            valueInputOption: "USER_ENTERED",
-            requestBody: { values: [new Array(NOTATIONS_COL_COUNT).fill("")] },
-          }),
-        );
-      }
-    });
-    await Promise.all(clearOps);
-
-    // 3. Append new detail rows
+    // 2. Update matched child rows in place, append extras, then delete only surplus rows.
     const newDetailValues = (payload.items || []).map((item) => [
       payload.quotationNo || quotationNo,
       item.description || "",
@@ -526,30 +499,22 @@ export async function updateQuotation(
       item.unit || "",
       item.unitPrice ?? 0,
     ]);
-    if (newDetailValues.length > 0) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: `${QUOTATION_DETAILS_SHEET}!A2:E`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: newDetailValues },
-      });
-    }
 
-    // 4. Append new notation rows
     const newNotationValues = (payload.notation || []).map(
       (note: QuotationNotation) => [
         payload.quotationNo || quotationNo,
         note.notation || "",
       ],
     );
-    if (newNotationValues.length > 0) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: `${QUOTATION_NOTATIONS_SHEET}!A2:B`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: newNotationValues },
-      });
-    }
+    const details = detailRows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] || "").trim() === quotationNo.trim());
+    const notations = notationRows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] || "").trim() === quotationNo.trim());
+    await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: QUOTATION_DETAILS_SHEET, columnCount: DETAILS_COL_COUNT, existingRows: details, values: newDetailValues });
+    await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: QUOTATION_NOTATIONS_SHEET, columnCount: NOTATIONS_COL_COUNT, existingRows: notations, values: newNotationValues });
+    await ensureQuotationDetailsV2(spreadsheetId);
+    const v2Rows = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE_DETAILS_V2 }).catch(() => ({ data: { values: [] } }));
+    const v2Matches = (v2Rows.data.values ?? []).map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] ?? "").trim() === quotationNo.trim());
+    const v2Values = (payload.items || []).map((item) => [payload.quotationNo || quotationNo, item.productId ?? "", item.productCodeSnapshot ?? "", item.description || "", item.quantity ?? 0, item.unit || "", item.unitPrice ?? 0, payload.customer || ""]);
+    await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: QUOTATION_DETAILS_V2_SHEET, columnCount: 8, existingRows: v2Matches, values: v2Values });
 
     const items = aggregateDetailRows(newDetailValues as any, quotationNo);
     const notation = aggregateNotationRows(
