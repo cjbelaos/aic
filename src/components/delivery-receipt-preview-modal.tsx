@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Printer, Save, Loader2, ExternalLink, FileText } from "lucide-react";
+import { Printer, Save, Loader2, ExternalLink, FileText, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -18,12 +18,14 @@ interface Props {
   dr: DeliveryReceiptResponse | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  onRegeneratePdf?: (dr: DeliveryReceiptResponse) => Promise<void>;
 }
 
-export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
+export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange, onRegeneratePdf }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [printSaving, setPrintSaving] = useState(false);
   const [driveSaving, setDriveSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const router = useRouter();
 
   if (!dr) return null;
@@ -132,6 +134,14 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
     }
   };
 
+  const handleRegenerate = async () => {
+    if (!onRegeneratePdf) return;
+    setRegenerating(true);
+    try { await onRegeneratePdf(dr); toast.success("Delivery Receipt PDF regenerated."); }
+    catch (err: unknown) { toast.error(err instanceof Error ? err.message : "Failed to regenerate Delivery Receipt PDF."); }
+    finally { setRegenerating(false); }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] sm:max-w-none h-[92vh] max-h-[92vh] p-6 flex flex-col">
@@ -165,6 +175,10 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange }: Props) {
 
         {/* Action Footer */}
         <div className="flex items-center justify-end gap-2 pt-1 shrink-0">
+          <Button variant="outline" size="sm" onClick={handleRegenerate} disabled={!onRegeneratePdf || printSaving || driveSaving || regenerating}>
+            {regenerating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
+            {regenerating ? "Regenerating…" : "Regenerate PDF"}
+          </Button>
           {dr.printUrl && (
             <Button
               variant="outline"

@@ -798,6 +798,7 @@ export async function populateAndExportDeliveryReceiptFormPdf(
 
   // 2. Fetch DR items (active only)
   const itemRowsData = await findDrItemRows(sheets, spreadsheetId, drNumber);
+  const v2Items = await getDeliveryItemsV2();
   const activeItems = itemRowsData.filter(
     ({ rowData }) => String(rowData[4] ?? "active").trim() !== "deleted",
   );
@@ -827,7 +828,7 @@ export async function populateAndExportDeliveryReceiptFormPdf(
     range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
   });
 
-  const templateRows = activeItems.map(({ rowData }) => {
+  const templateRows = v2Items.has(drNumber) ? (v2Items.get(drNumber) ?? []).map((item) => [item.quantity, item.unit, item.description || item.productCode]) : activeItems.map(({ rowData }) => {
     const code = String(rowData[1] ?? "").trim();
     const product = productMap.get(code);
     const description = product?.name || product?.description || code;

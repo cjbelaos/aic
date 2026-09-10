@@ -8,6 +8,7 @@ import {
 } from "@/lib/deliverySheets";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCompanies } from "@/lib/companySheets";
+import { getDeliveryItemsV2 } from "@/lib/transactionItemV2Sheets";
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
 const DELIVERY_RECEIPT_ITEMS_SHEET = "DeliveryReceiptItems";
@@ -67,7 +68,7 @@ export async function GET(
       range: `${DELIVERY_RECEIPT_ITEMS_SHEET}!A2:E`,
     });
     const allItemRows = itemsResponse.data.values || [];
-    const items = allItemRows
+    const legacyItems = allItemRows
       .filter((row) => {
         const drId = parseInt(String(row[0] ?? "").trim(), 10);
         const itemStatus = String(row[4] ?? "active").trim();
@@ -79,6 +80,8 @@ export async function GET(
         unit: String(row[3] ?? "").trim(),
         description: "",
       }));
+    const v2Items = await getDeliveryItemsV2();
+    const items = v2Items.get(drNumber) || legacyItems;
 
     // 3. Fetch company details
     const companies = await getCompanies();

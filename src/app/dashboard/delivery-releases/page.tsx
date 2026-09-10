@@ -1311,6 +1311,11 @@ export default function DeliveryReleasePage() {
         onOpenChange={(v) => {
           if (!v) setDrResult(null);
         }}
+        onRegeneratePdf={async (dr) => {
+          await deliveryService.savePdfToDrive(dr.drNumber, dr.companyName, dr.date);
+          setDrResult(await deliveryService.getPreview(dr.drNumber));
+          fetchList();
+        }}
       />
 
       <ConfirmDeleteDialog
@@ -1562,6 +1567,11 @@ export default function DeliveryReleasePage() {
         open={!!viewDr}
         onOpenChange={(v) => {
           if (!v) setViewDr(null);
+        }}
+        onRegeneratePdf={async (dr) => {
+          await deliveryService.savePdfToDrive(dr.drNumber, dr.companyName, dr.date);
+          setViewDr(await deliveryService.getPreview(dr.drNumber));
+          fetchList();
         }}
       />
 
