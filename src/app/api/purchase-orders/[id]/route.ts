@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { isAdminRole, requireAuthenticatedSession } from "@/lib/auth/session";
 import {
   updatePurchaseOrder,
   deletePurchaseOrder,
+  PurchaseOrderNumberConflictError,
 } from "@/lib/purchaseOrderSheets";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCompanies } from "@/lib/companySheets";
+import { getPurchaseOrderItemsV2 } from "@/lib/transactionItemV2Sheets";
 
 const PURCHASE_ORDERS_SHEET = "PurchaseOrders";
 const PURCHASE_ORDER_ITEMS_SHEET = "PurchaseOrderItems";
@@ -61,7 +63,7 @@ export async function GET(
     const comments = String(poRow[6] ?? "").trim();
     const preparedBy = String(poRow[7] ?? "").trim();
     const approvedBy = String(poRow[8] ?? "").trim();
-    const totalAmount = parseFloat(String(poRow[9] ?? "0")) || 0;
+    const totalAmount = parseFloat(String(poRow[10] ?? "0")) || 0;
     const status = String(poRow[11] ?? "created").trim();
     const driveFileLink = String(poRow[12] ?? "").trim();
 
@@ -71,7 +73,7 @@ export async function GET(
       range: `${PURCHASE_ORDER_ITEMS_SHEET}!A2:G`,
     });
     const allItemRows = itemsResponse.data.values || [];
-    const items = allItemRows
+    const legacyItems = allItemRows
       .filter((row) => {
         const poId = String(row[0] ?? "").trim();
         return poId === poNumber;
@@ -84,6 +86,8 @@ export async function GET(
         pricePerUnit: parseFloat(String(row[5] ?? "0")) || 0,
         totalAmount: parseFloat(String(row[6] ?? "0")) || 0,
       }));
+    const v2Items = await getPurchaseOrderItemsV2();
+    const items = v2Items.get(poNumber) || legacyItems;
 
     // 3. Fetch supplier details
     const suppliers = await getCompanies();
@@ -144,10 +148,12 @@ export async function PUT(
     }
 
     const body = await request.json();
+    if (body.poNumberMode === "manual" && !isAdminRole(session.userRoleId)) return NextResponse.json({ error: "Forbidden. Admin access is required to enter a PO number manually." }, { status: 403 });
     const result = await updatePurchaseOrder(
       poNumber,
       body,
       session.userId,
+      { allowManualNumber: isAdminRole(session.userRoleId) },
     );
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
@@ -155,7 +161,7 @@ export async function PUT(
       error instanceof Error
         ? error.message
         : "Failed to update purchase order.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof PurchaseOrderNumberConflictError ? 409 : 400 });
   }
 }
 

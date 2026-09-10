@@ -32,6 +32,15 @@ export async function replacePurchaseOrderItemsV2(poNumber: string, items: Purch
   if (items.length) await sheets.spreadsheets.values.append({ spreadsheetId, range: `${PO_SHEET}!A2:I`, valueInputOption: "USER_ENTERED", requestBody: { values: items.map((item) => [poNumber, item.itemNo, item.supplierProductId ?? "", item.productId ?? "", item.description, item.quantity, item.unit, item.pricePerUnit, item.totalAmount]) } });
 }
 
+/** Repoints existing V2 item rows when a draft PO is finalized. */
+export async function renamePurchaseOrderItemReferencesV2(fromPONumber: string, toPONumber: string): Promise<void> {
+  const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
+  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${PO_SHEET}!A2:A` }).catch(() => ({ data: { values: [] } }));
+  const rows = (existing.data.values ?? []).map((row, index) => ({ value: String(row[0] ?? "").trim(), rowNumber: index + 2 })).filter((row) => row.value === fromPONumber);
+  if (!rows.length) return;
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data: rows.map(({ rowNumber }) => ({ range: `${PO_SHEET}!A${rowNumber}`, values: [[toPONumber]] })) } });
+}
+
 export async function getDeliveryItemsV2(): Promise<Map<number, DeliveryItem[]>> {
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   try {

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { isAdminRole, requireAuthenticatedSession } from "@/lib/auth/session";
 import {
   processPurchaseOrder,
   getPurchaseOrders,
+  PurchaseOrderNumberConflictError,
 } from "@/lib/purchaseOrderSheets";
 import { CreatePurchaseOrderPayload } from "@/types/purchaseOrder";
 
@@ -53,7 +54,10 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await processPurchaseOrder(body, session.userId);
+    if (body.poNumberMode === "manual" && !isAdminRole(session.userRoleId)) {
+      return NextResponse.json({ error: "Forbidden. Admin access is required to enter a PO number manually." }, { status: 403 });
+    }
+    const result = await processPurchaseOrder(body, session.userId, { allowManualNumber: isAdminRole(session.userRoleId) });
 
     // NOTE: PDF generation is now client-side (HTML layout):
     // the caller generates the letter-PDF from the HTML form and calls
@@ -64,6 +68,6 @@ export async function POST(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to process purchase order.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof PurchaseOrderNumberConflictError ? 409 : 400 });
   }
 }

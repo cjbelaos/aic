@@ -11,7 +11,7 @@ import {
   PurchaseOrderItem,
   POStatusEntry,
 } from "@/types/purchaseOrder";
-import { getPurchaseOrderItemsV2, replacePurchaseOrderItemsV2 } from "@/lib/transactionItemV2Sheets";
+import { getPurchaseOrderItemsV2, renamePurchaseOrderItemReferencesV2, replacePurchaseOrderItemsV2 } from "@/lib/transactionItemV2Sheets";
 import { getSupplierProductsV2 } from "@/lib/supplierProductV2Sheets";
 
 async function validateCatalogItemsForSupplier(items: PurchaseOrderItem[], supplierId: string): Promise<void> {
@@ -40,7 +40,22 @@ const PO_STATUS_HISTORY_RANGE = `${PO_STATUS_HISTORY_SHEET}!A2:E`;
 // A:PONumber B:OldStatus C:NewStatus D:ChangedBy E:ChangedAt
 
 const PRINT_TEMPLATE_SHEET = "PurchaseOrderForm";
-const PO_SEQUENCE_BASE = 1001;
+const PO_NUMBER_PATTERN = /^AIC-PO-(\d{4})-(\d{4})$/;
+export class PurchaseOrderNumberConflictError extends Error {}
+
+function businessDateYear(date: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("A valid PO business date is required to finalize a purchase order.");
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) throw new Error("A valid PO business date is required to finalize a purchase order.");
+  return date.slice(0, 4);
+}
+
+function normalizeManualPONumber(value: string, date: string): string {
+  const normalized = value.trim().toUpperCase(); const match = normalized.match(PO_NUMBER_PATTERN);
+  if (!match || Number(match[2]) < 1) throw new Error("PO number must use the format AIC-PO-YYYY-NNNN (0001 through 9999).");
+  if (match[1] !== businessDateYear(date)) throw new Error("The PO number year must match the PO business-date year.");
+  return normalized;
+}
 
 function formatDateMMMMDDYYYY(dateStr: string): string {
   if (!dateStr) return "";
@@ -95,24 +110,26 @@ async function fetchExportPdfBase64(printUrl: string): Promise<string> {
 async function generateNextPONumber(
   sheets: Awaited<ReturnType<typeof getSheetsClient>>,
   spreadsheetId: string,
+  date: string,
 ): Promise<string> {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${PURCHASE_ORDERS_SHEET}!A2:A`,
   });
   const rows = response.data.values || [];
-  let max = 0;
+  const year = businessDateYear(date); let max = 0;
   rows.forEach((row) => {
     const raw = String(row[0] ?? "").trim();
-    // Extract numeric part from PO number (e.g., "AIC-VTALTE-797" -> 797)
-    const match = raw.match(/-(\d+)$/);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (!isNaN(num) && num > max) max = num;
-    }
+    const match = raw.match(PO_NUMBER_PATTERN);
+    if (match?.[1] === year) max = Math.max(max, Number(match[2]));
   });
-  const nextNum = Math.max(max, PO_SEQUENCE_BASE) + 1;
-  return `AIC-VTALTE-${nextNum}`;
+  if (max >= 9999) throw new Error(`PO number sequence for ${year} is exhausted.`);
+  return `AIC-PO-${year}-${String(max + 1).padStart(4, "0")}`;
+}
+
+async function assertPONumberAvailable(sheets: Awaited<ReturnType<typeof getSheetsClient>>, spreadsheetId: string, poNumber: string): Promise<void> {
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${PURCHASE_ORDERS_SHEET}!A2:A` });
+  if ((response.data.values || []).some((row) => String(row[0] ?? "").trim() === poNumber)) throw new PurchaseOrderNumberConflictError(`PO #${poNumber} already exists.`);
 }
 
 async function findPORow(
@@ -237,10 +254,7 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
         } as PurchaseOrderSummary;
       })
       .sort((a, b) => {
-        // Extract numeric parts for sorting
-        const numA = parseInt(a.poNumber.split("-").pop() || "0", 10);
-        const numB = parseInt(b.poNumber.split("-").pop() || "0", 10);
-        return numB - numA;
+        return b.poNumber.localeCompare(a.poNumber, undefined, { numeric: true });
       });
   } catch (error) {
     console.error("Failed to fetch purchase orders:", error);
@@ -251,6 +265,7 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
 export async function processPurchaseOrder(
   payload: CreatePurchaseOrderPayload,
   userId = "",
+  options: { allowManualNumber?: boolean } = {},
 ): Promise<PurchaseOrderResponse> {
   try {
     const sheets = await getSheetsClient();
@@ -259,25 +274,18 @@ export async function processPurchaseOrder(
     let poNumber: string;
     const isDraft = payload.status === "draft";
 
-    if (payload.poNumber) {
-      // Check for duplicates
-      const allRows = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${PURCHASE_ORDERS_SHEET}!A2:A`,
-      });
-      const existingNums = (allRows.data.values || [])
-        .map((row) => String(row[0] ?? "").trim())
-        .filter(Boolean);
-      if (existingNums.includes(payload.poNumber)) {
-        throw new Error(
-          `PO #${payload.poNumber} already exists. Please choose a different number.`,
-        );
-      }
-      poNumber = payload.poNumber;
-    } else if (isDraft) {
+    if (isDraft) {
       poNumber = `DRAFT-${Math.floor(Date.now() / 1000)}`;
     } else {
-      poNumber = await generateNextPONumber(sheets, spreadsheetId);
+      if (payload.poNumberMode === "manual") {
+        if (!options.allowManualNumber) throw new Error("Forbidden. Admin access is required to enter a PO number manually.");
+        if (!payload.poNumber?.trim()) throw new Error("A manual PO number is required.");
+        poNumber = normalizeManualPONumber(payload.poNumber, payload.date);
+      } else {
+        poNumber = await generateNextPONumber(sheets, spreadsheetId, payload.date);
+      }
+      // Sheets appends are not transactional; recheck immediately before writing.
+      await assertPONumberAvailable(sheets, spreadsheetId, poNumber);
     }
 
     const suppliers = await getCompanies();
@@ -352,6 +360,7 @@ export async function updatePurchaseOrder(
   poNumber: string,
   payload: Partial<CreatePurchaseOrderPayload> & { status?: string },
   userId = "",
+  options: { allowManualNumber?: boolean } = {},
 ): Promise<PurchaseOrderSummary> {
   try {
     const sheets = await getSheetsClient();
@@ -367,11 +376,21 @@ export async function updatePurchaseOrder(
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[11] ?? "created").trim();
     const newStatus = payload.status ?? oldStatus;
+    if (!poNumber.startsWith("DRAFT-") && (payload.poNumberMode === "manual" || payload.poNumber)) {
+      throw new Error("Finalized purchase orders cannot be renumbered.");
+    }
     const updatedAt = new Date().toISOString();
 
     let effectivePONumber = poNumber;
-    if (poNumber.startsWith("DRAFT-") && newStatus !== "draft") {
-      effectivePONumber = await generateNextPONumber(sheets, spreadsheetId);
+    const isFinalizingDraft = poNumber.startsWith("DRAFT-") && newStatus !== "draft";
+    if (isFinalizingDraft) {
+      const effectiveDate = payload.date ?? String(currentRow[1] ?? "").trim();
+      if (payload.poNumberMode === "manual") {
+        if (!options.allowManualNumber) throw new Error("Forbidden. Admin access is required to enter a PO number manually.");
+        if (!payload.poNumber?.trim()) throw new Error("A manual PO number is required.");
+        effectivePONumber = normalizeManualPONumber(payload.poNumber, effectiveDate);
+      } else effectivePONumber = await generateNextPONumber(sheets, spreadsheetId, effectiveDate);
+      await assertPONumberAvailable(sheets, spreadsheetId, effectivePONumber);
     }
 
     const totalAmount = payload.items
@@ -419,7 +438,24 @@ export async function updatePurchaseOrder(
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
-    await replacePurchaseOrderItemsV2(poNumber, []);
+
+    if (isFinalizingDraft) {
+      try {
+        const [legacyItems, history] = await Promise.all([
+          findPOItemRows(sheets, spreadsheetId, poNumber),
+          sheets.spreadsheets.values.get({ spreadsheetId, range: PO_STATUS_HISTORY_RANGE }).catch(() => ({ data: { values: [] } })),
+        ]);
+        const historyUpdates = (history.data.values || []).map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] ?? "").trim() === poNumber);
+        const data = [
+          ...legacyItems.map(({ rowNumber }) => ({ range: `${PURCHASE_ORDER_ITEMS_SHEET}!A${rowNumber}`, values: [[effectivePONumber]] })),
+          ...historyUpdates.map(({ rowNumber }) => ({ range: `${PO_STATUS_HISTORY_SHEET}!A${rowNumber}`, values: [[effectivePONumber]] })),
+        ];
+        if (data.length) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data } });
+        await renamePurchaseOrderItemReferencesV2(poNumber, effectivePONumber);
+      } catch (error) {
+        throw new Error(`PO was finalized as ${effectivePONumber}, but not all child references were updated: ${error instanceof Error ? error.message : "unknown error"}`);
+      }
+    }
 
     if (newStatus !== oldStatus) {
       try {
@@ -444,7 +480,7 @@ export async function updatePurchaseOrder(
       }
     }
 
-    if (effectivePONumber !== poNumber && !payload.items) {
+    if (effectivePONumber !== poNumber && !payload.items && !isFinalizingDraft) {
       const orphanItemRows = await findPOItemRows(
         sheets,
         spreadsheetId,

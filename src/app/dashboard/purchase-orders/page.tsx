@@ -104,6 +104,8 @@ export default function PurchaseOrderPage() {
   );
   const [prNumber, setPrNumber] = useState("");
   const [poNumber, setPoNumber] = useState("");
+  const [poNumberMode, setPoNumberMode] = useState<"automatic" | "manual">("automatic");
+  const [isAdmin, setIsAdmin] = useState(false);
   const [preparedBy, setPreparedBy] = useState("");
   const [approvedBy, setApprovedBy] = useState("");
   const [notedBy, setNotedBy] = useState("");
@@ -152,6 +154,8 @@ export default function PurchaseOrderPage() {
   const [editApprovedBy, setEditApprovedBy] = useState("");
   const [editNotedBy, setEditNotedBy] = useState("");
   const [editStatus, setEditStatus] = useState("");
+  const [editPONumberMode, setEditPONumberMode] = useState<"automatic" | "manual">("automatic");
+  const [editPONumber, setEditPONumber] = useState("");
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
@@ -206,6 +210,7 @@ export default function PurchaseOrderPage() {
         const raw = window.localStorage.getItem("auth:user");
         if (raw) {
           const parsed = JSON.parse(raw);
+          setIsAdmin(parsed.userRoleId === 1);
           const username = parsed.userName || "";
           if (username) {
             const fullName = await userService.getFullnameByUserName(username);
@@ -523,6 +528,7 @@ export default function PurchaseOrderPage() {
     setSelectedSupplier("");
     setOrderDate(new Date().toISOString().split("T")[0]);
     setPoNumber("");
+    setPoNumberMode("automatic");
     setPrNumber("");
     setApprovedBy("");
     setNotedBy("");
@@ -586,6 +592,13 @@ export default function PurchaseOrderPage() {
       toast.error("Please select a supplier.");
       return;
     }
+    if (poNumberMode === "manual") {
+      const match = poNumber.trim().toUpperCase().match(/^AIC-PO-(\d{4})-(\d{4})$/);
+      if (!match || Number(match[2]) < 1 || match[1] !== orderDate.slice(0, 4)) {
+        toast.error("Manual PO number must be AIC-PO-YYYY-NNNN and match the PO date year.");
+        return;
+      }
+    }
     if (
       lineItems.length === 0 ||
       !lineItems.some((li) => li.productCode || li.description.trim())
@@ -599,7 +612,8 @@ export default function PurchaseOrderPage() {
       const payload = {
         supplierId: selectedSupplier,
         date: orderDate,
-        poNumber: poNumber || undefined,
+        poNumberMode,
+        poNumber: poNumberMode === "manual" ? poNumber : undefined,
         prNumber,
         preparedBy,
         approvedBy,
@@ -659,7 +673,7 @@ export default function PurchaseOrderPage() {
       const payload = {
         supplierId: selectedSupplier,
         date: orderDate,
-        poNumber: poNumber || undefined,
+        poNumberMode: "automatic" as const,
         prNumber,
         preparedBy: preparedBy || "",
         approvedBy: approvedBy || "",
@@ -812,6 +826,8 @@ export default function PurchaseOrderPage() {
       setEditApprovedBy(editTarget.approvedBy || "");
       setEditNotedBy(editTarget.notedBy || "");
       setEditStatus(editTarget.status || "created");
+      setEditPONumberMode("automatic");
+      setEditPONumber("");
       setEditLineItems(
         editTarget.items.map((item) => ({
           itemNo: item.itemNo || 0,
@@ -875,6 +891,13 @@ export default function PurchaseOrderPage() {
 
   const handleEditSave = async () => {
     if (!editTarget) return;
+    if (editTarget.poNumber.startsWith("DRAFT-") && editStatus !== "draft" && editPONumberMode === "manual") {
+      const match = editPONumber.trim().toUpperCase().match(/^AIC-PO-(\d{4})-(\d{4})$/);
+      if (!match || Number(match[2]) < 1 || match[1] !== editDate.slice(0, 4)) {
+        toast.error("Manual PO number must be AIC-PO-YYYY-NNNN and match the PO date year.");
+        return;
+      }
+    }
     setEditSubmitting(true);
     try {
       const payload = {
@@ -886,6 +909,8 @@ export default function PurchaseOrderPage() {
         approvedBy: editApprovedBy,
         notedBy: editNotedBy,
         status: editStatus,
+        poNumberMode: editPONumberMode,
+        poNumber: editPONumberMode === "manual" ? editPONumber : undefined,
         items: editLineItems
           .filter((li) => li.productCode || li.description.trim())
           .map((li) => ({
@@ -971,12 +996,18 @@ export default function PurchaseOrderPage() {
                 />
               </div>
               <div className="space-y-2 md:col-span-3">
-                <Label>PO No. (optional)</Label>
-                <Input
-                  value={poNumber}
-                  onChange={(e) => setPoNumber(e.target.value)}
-                  placeholder="e.g. AIC-VTALTE-797"
-                />
+                <Label>PO Number</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={poNumber}
+                    disabled={poNumberMode === "automatic" || printing || drafting}
+                    onChange={(e) => setPoNumber(e.target.value.toUpperCase())}
+                    placeholder={poNumberMode === "automatic" ? "Automatically generated when finalized" : "AIC-PO-YYYY-NNNN"}
+                  />
+                  {isAdmin && <Button type="button" variant="outline" onClick={() => { if (poNumberMode === "manual") { setPoNumberMode("automatic"); setPoNumber(""); } else setPoNumberMode("manual"); }} disabled={printing || drafting}>
+                    {poNumberMode === "manual" ? "Use automatic number" : "Enter manually"}
+                  </Button>}
+                </div>
               </div>
               <div className="space-y-2 md:col-span-3">
                 <Label>
@@ -1263,6 +1294,16 @@ export default function PurchaseOrderPage() {
           </DialogHeader>
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>PO Number</Label>
+                {editTarget && !editTarget.poNumber.startsWith("DRAFT-") ? (
+                  <Input value={editTarget.poNumber} readOnly className="bg-muted" />
+                ) : (
+                  <div className="flex gap-2"><Input value={editPONumber} disabled={editPONumberMode === "automatic" || editSubmitting} onChange={(e) => setEditPONumber(e.target.value.toUpperCase())} placeholder={editPONumberMode === "automatic" ? "Automatically generated when finalized" : "AIC-PO-YYYY-NNNN"} />
+                    {isAdmin && <Button type="button" variant="outline" disabled={editSubmitting} onClick={() => { if (editPONumberMode === "manual") { setEditPONumberMode("automatic"); setEditPONumber(""); } else setEditPONumberMode("manual"); }}>{editPONumberMode === "manual" ? "Use automatic number" : "Enter manually"}</Button>}
+                  </div>
+                )}
+              </div>
               <div className="space-y-2">
                 <Label>Supplier</Label>
                 <Input

@@ -16,6 +16,8 @@ export interface PurchaseOrderItem {
 export interface CreatePurchaseOrderPayload {
   supplierId: string;
   date: string;
+  /** Used only when finalizing; the server assigns automatic numbers. */
+  poNumberMode?: "automatic" | "manual";
   poNumber?: string; // Optional — string format e.g. "AIC-VTALTE-797"
   prNumber?: string;
   preparedBy: string;
