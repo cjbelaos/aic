@@ -6,6 +6,7 @@ import {
   ReturnDocumentHandoverInput,
   DocumentType,
 } from "@/types/documentHandover";
+import { getUserById } from "@/lib/userSheets";
 
 const SHEET_NAME = "DocumentHandover";
 const RANGE = `${SHEET_NAME}!A2:N`;
@@ -136,6 +137,21 @@ export async function createDocumentHandovers(
     console.error("Failed to create document handovers:", error);
     throw error;
   }
+}
+
+export async function ensureAutomaticDocumentHandover(input: CreateDocumentHandoverInput & { assignedBy: string; assignedByName: string }): Promise<{ outcome: "created" | "updated" | "unchanged" | "already_returned" | "unassigned" }> {
+  if (!input.documentNumber.trim() || input.documentNumber.startsWith("DRAFT-")) return { outcome: "unassigned" };
+  const assignee = await getUserById(input.assignedToId);
+  if (!assignee || !assignee.fullName.trim()) return { outcome: "unassigned" };
+  const normalizedType = input.documentType.trim().toLowerCase(); const normalizedNumber = input.documentNumber.trim().toLowerCase();
+  const all = await getDocumentHandovers(); const existing = all.find((entry) => entry.documentType.toLowerCase() === normalizedType && entry.documentNumber.trim().toLowerCase() === normalizedNumber);
+  if (!existing) { await createDocumentHandovers([{ ...input, assignedToName: assignee.fullName, notes: input.notes || "Automatically assigned from Delivery Receipt" }], input.assignedBy, input.assignedByName); return { outcome: "created" }; }
+  if (existing.status === "returned") return { outcome: "already_returned" };
+  if (existing.assignedToId === assignee.userId && existing.assignedToName === assignee.fullName) return { outcome: "unchanged" };
+  const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId(); const rows = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE }); const index = (rows.data.values ?? []).findIndex((row) => String(row[0] ?? "").trim() === existing.id);
+  if (index < 0) throw new Error("Document Tracker assignment could not be located for update.");
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data: [{ range: `${SHEET_NAME}!E${index + 2}:H${index + 2}`, values: [[assignee.userId, assignee.fullName, input.assignedBy, input.assignedByName]] }] } });
+  return { outcome: "updated" };
 }
 
 export async function returnDocumentHandovers(

@@ -15,6 +15,7 @@ export interface CreateDeliveryPayload {
   srNo?: string;
   preparedBy: string;
   deliveredBy: string;
+  deliveredById?: string;
   comments?: string;
   items: DeliveryItem[];
   status?: string; // "draft" for save-without-print, "created" default
@@ -31,6 +32,7 @@ export interface DeliveryReceiptResponse {
   trNo?: string;
   preparedBy: string;
   deliveredBy: string;
+  deliveredById?: string;
   comments?: string;
   items: DeliveryItem[];
   status: string;
@@ -51,6 +53,7 @@ export interface DeliveryReceiptSummary {
   comments: string;
   preparedBy: string;
   deliveredBy: string;
+  deliveredById?: string;
   createdAt: string;
   status: string;
   driveFileLink?: string;

@@ -13,12 +13,14 @@ import {
 } from "@/types/deliveryReceipt";
 import { getDeliveryItemsV2, replaceDeliveryItemsV2 } from "@/lib/transactionItemV2Sheets";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
+import { getUserById, getUsers } from "@/lib/userSheets";
+import { ensureAutomaticDocumentHandover } from "@/lib/documentHandoverSheets";
 
 const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:A`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:O`;
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:P`;
 // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink M:CreatedBy N:UpdatedBy O:UpdatedDate
 
 const DELIVERY_RECEIPT_ITEMS_SHEET = "DeliveryReceiptItems";
@@ -150,6 +152,7 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           comments: String(row[6] ?? "").trim(),
           preparedBy: String(row[7] ?? "").trim(),
           deliveredBy: String(row[8] ?? "").trim(),
+          deliveredById: String(row[15] ?? "").trim() || undefined,
           createdAt: String(row[9] ?? "").trim(),
           status: String(row[10] ?? "created").trim() || "created",
           driveFileLink: String(row[11] ?? "").trim() || undefined,
@@ -218,6 +221,17 @@ export async function processDeliveryReceipt(
     // 1. DR Number — either manual override, auto-generate, or negative placeholder for drafts
     let drNumber: number;
     const isDraft = payload.status === "draft";
+    if (!isDraft) {
+      if (payload.deliveredById) {
+        const user = await getUserById(payload.deliveredById);
+        if (!user) throw new Error("Delivered By must be an active application user.");
+        payload.deliveredBy = user.fullName;
+      } else {
+        const matches = (await getUsers()).filter((user) => user.fullName.trim().toLowerCase() === payload.deliveredBy.trim().toLowerCase());
+        if (matches.length === 1) payload.deliveredById = matches[0].userId;
+        else throw new Error("Delivered By must be selected from an active application user.");
+      }
+    }
 
     if (payload.drNumber) {
       // Validate: must be a positive integer
@@ -274,6 +288,7 @@ export async function processDeliveryReceipt(
       userId, // M: CreatedBy
       userId, // N: UpdatedBy
       createdAt, // O: UpdatedDate
+      payload.deliveredById || "", // P: DeliveredById
     ];
 
     await sheets.spreadsheets.values.append({
@@ -353,6 +368,11 @@ export async function processDeliveryReceipt(
       } catch (e) {
         console.warn("PDF export failed (will use print URL fallback):", e);
       }
+    }
+
+    if (!isDraft && payload.deliveredById) {
+      const assignment = await ensureAutomaticDocumentHandover({ documentType: "delivery_receipt", documentNumber: String(drNumber), customerName: companyName, assignedToId: payload.deliveredById, assignedToName: payload.deliveredBy, assignedBy: userId, assignedByName: payload.preparedBy || userId });
+      if (assignment.outcome === "unassigned") throw new Error("Delivery Receipt was saved, but its Document Tracker assignment could not be created because no valid Delivered By user was found.");
     }
 
     return {
@@ -444,7 +464,7 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:P${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[10] ?? "created").trim();
@@ -481,6 +501,7 @@ export async function updateDeliveryReceipt(
       String(currentRow[12] ?? "").trim(), // M: CreatedBy (preserved)
       userId || String(currentRow[13] ?? "").trim(), // N: UpdatedBy
       updatedAt, // O: UpdatedDate
+      payload.deliveredById ?? String(currentRow[15] ?? "").trim(), // P
     ];
 
     await sheets.spreadsheets.values.update({
@@ -545,6 +566,11 @@ export async function updateDeliveryReceipt(
     const company = companies.find(
       (c) => c.companyId === updatedRow[2] || c.id === updatedRow[2],
     );
+    if (newStatus !== "draft") {
+      let deliveredById = String(updatedRow[15] ?? "").trim();
+      if (!deliveredById) { const matches = (await getUsers()).filter((user) => user.fullName.trim().toLowerCase() === String(updatedRow[8] ?? "").trim().toLowerCase()); if (matches.length === 1) deliveredById = matches[0].userId; }
+      if (deliveredById) await ensureAutomaticDocumentHandover({ documentType: "delivery_receipt", documentNumber: String(effectiveDrNumber), customerName: company?.companyName || updatedRow[2], assignedToId: deliveredById, assignedToName: String(updatedRow[8] ?? ""), assignedBy: userId, assignedByName: String(updatedRow[7] ?? userId) });
+    }
     return {
       drNumber: effectiveDrNumber,
       date: updatedRow[1],
@@ -556,6 +582,7 @@ export async function updateDeliveryReceipt(
       comments: updatedRow[6],
       preparedBy: updatedRow[7],
       deliveredBy: updatedRow[8],
+      deliveredById: updatedRow[15] || undefined,
       createdAt: updatedRow[9],
       status: updatedRow[10],
       driveFileLink: updatedRow[11] || undefined,
