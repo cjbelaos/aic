@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
 import {
   getDriveUploadClient,
-  resolveDriveFolderPath,
-  MONTH_NAMES,
   escapeDriveQueryValue,
   getSheetsClient,
   getDatabaseSpreadsheetId,
 } from "@/lib/googleSheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 
-const PO_PARENT_FOLDER_ID = "1AuGCBFxa-wp-SdfYXf_YTgY7wgtYHILo";
+const PO_PARENT_FOLDER_ID = "1-5k5r_any6YzR88q4rscLwY940-VdWDL";
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,47 +36,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Derive year, month name, and month-year from date.
-    let year = "";
-    let monthName = "";
-    let monthYear = "";
-    if (body.date) {
-      const d = new Date(
-        body.date + (body.date.length === 10 ? "T00:00:00" : ""),
-      );
-      if (!isNaN(d.getTime())) {
-        year = String(d.getFullYear());
-        monthName = MONTH_NAMES[d.getMonth()];
-        monthYear = `${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
-      }
-    }
-
-    // Sanitize supplier name for filename
-    const safeName = body.supplierName.replace(/[/\\?%*:'|"<> ]+/g, "_");
-    const fileName = `PO-${monthYear}-${body.poNumber}_${safeName}.pdf`;
+    // Use the complete normalized PO number.
+    // Example: "AIC-PO-2026-0001.pdf".
+    const normalizedPONumber = String(body.poNumber).trim().toUpperCase();
+    const fileName = `${normalizedPONumber}.pdf`;
 
     // PDF is generated client-side from the HTML form layout, then sent here as base64.
     const pdfBuffer = Buffer.from(body.pdfBase64, "base64");
     const pdfStream = Readable.from(pdfBuffer);
 
-    // Upload to Drive
+    // Upload directly to the PO parent folder (no year/month subfolders).
     const drive = await getDriveUploadClient();
-    let targetFolderId = PO_PARENT_FOLDER_ID;
-    if (year) {
-      try {
-        targetFolderId = await resolveDriveFolderPath(
-          drive,
-          PO_PARENT_FOLDER_ID,
-          year,
-          monthName,
-        );
-      } catch (folderErr) {
-        console.warn(
-          `Failed to resolve year/month folder (${year}/${monthName}); saving to parent folder.`,
-          folderErr,
-        );
-      }
-    }
+    const targetFolderId = PO_PARENT_FOLDER_ID;
 
     // Check if file with same name already exists in the target folder
     const existingRes = await drive.files.list({
@@ -125,7 +94,10 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch (linkErr) {
-      console.warn("Failed to persist PO Drive link column (non-fatal):", linkErr);
+      console.warn(
+        "Failed to persist PO Drive link column (non-fatal):",
+        linkErr,
+      );
     }
 
     return NextResponse.json({
