@@ -131,6 +131,26 @@ export function EntityTable<TData>({
   const from = filteredRowCount === 0 ? 0 : pageIndex * pageSize + 1;
   const to = Math.min((pageIndex + 1) * pageSize, filteredRowCount);
 
+  const goToPage = React.useCallback(
+    (requestedPage: number | ((currentPage: number) => number)) => {
+      setPagination((current) => {
+        const maxPageIndex = Math.max(
+          0,
+          Math.ceil(filteredRowCount / current.pageSize) - 1,
+        );
+        const nextPage =
+          typeof requestedPage === "function"
+            ? requestedPage(current.pageIndex)
+            : requestedPage;
+        const pageIndex = Math.min(Math.max(0, nextPage), maxPageIndex);
+        return pageIndex === current.pageIndex
+          ? current
+          : { ...current, pageIndex };
+      });
+    },
+    [filteredRowCount],
+  );
+
   // Clamp pageIndex when the result set shrinks (e.g., after a delete or filter)
   // so the table never points beyond the last available page.
   React.useEffect(() => {
@@ -229,6 +249,7 @@ export function EntityTable<TData>({
 
             {/* Export */}
             <Button
+              type="button"
               variant="outline"
               size="sm"
               className="gap-1.5"
@@ -336,11 +357,13 @@ export function EntityTable<TData>({
           </p>
           <div className="flex items-center gap-1 overflow-x-auto">
             <Button
+              type="button"
               variant="outline"
               size="icon"
               className="h-8 w-8 flex-shrink-0"
-              onClick={() => table.previousPage()}
+              onClick={() => goToPage((current) => current - 1)}
               disabled={!table.getCanPreviousPage()}
+              aria-label="Previous page"
             >
               ←
             </Button>
@@ -355,21 +378,26 @@ export function EntityTable<TData>({
               ) : (
                 <Button
                   key={p}
+                  type="button"
                   variant={pageIndex === p ? "default" : "outline"}
                   size="icon"
                   className={`h-8 w-8 flex-shrink-0 ${pageIndex === p ? "bg-blue-600 text-white hover:bg-blue-700" : ""}`}
-                  onClick={() => table.setPageIndex(p)}
+                  onClick={() => goToPage(p)}
+                  aria-label={`Go to page ${p + 1}`}
+                  aria-current={pageIndex === p ? "page" : undefined}
                 >
                   {p + 1}
                 </Button>
               ),
             )}
             <Button
+              type="button"
               variant="outline"
               size="icon"
               className="h-8 w-8 flex-shrink-0"
-              onClick={() => table.nextPage()}
+              onClick={() => goToPage((current) => current + 1)}
               disabled={!table.getCanNextPage()}
+              aria-label="Next page"
             >
               →
             </Button>

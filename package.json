@@ -16,6 +16,8 @@
     ,"migrate:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs --apply"
     ,"audit:delivery-drive-links": "node --env-file=.env.local scripts/repair-delivery-drive-links.mjs"
     ,"repair:delivery-drive-links": "node --env-file=.env.local scripts/repair-delivery-drive-links.mjs --apply"
+    ,"audit:document-tracker-backfill": "node --env-file=.env.local scripts/backfill-document-tracker-from-deliveries.mjs"
+    ,"backfill:document-tracker": "node --env-file=.env.local scripts/backfill-document-tracker-from-deliveries.mjs --apply"
     ,"test:contract-integrity": "node scripts/audit-contract-integrity.mjs --self-test"
     ,"test:purchase-order-numbering": "node scripts/test-purchase-order-numbering.mjs"
     ,"audit:child-row-gaps": "node --env-file=.env.local scripts/audit-child-row-gaps.mjs"
