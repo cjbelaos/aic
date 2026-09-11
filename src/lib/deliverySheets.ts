@@ -10,6 +10,7 @@ import {
   DeliveryReceiptSummary,
   DeliveryItem,
   DRStatusEntry,
+  DeliveryPersonOption,
 } from "@/types/deliveryReceipt";
 import { getDeliveryItemsV2, replaceDeliveryItemsV2 } from "@/lib/transactionItemV2Sheets";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
@@ -17,10 +18,10 @@ import { getUserById, getUsers } from "@/lib/userSheets";
 import { ensureAutomaticDocumentHandover } from "@/lib/documentHandoverSheets";
 
 const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
-const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:A`;
+const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:P`;
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:R`;
 // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink M:CreatedBy N:UpdatedBy O:UpdatedDate
 
 const DELIVERY_RECEIPT_ITEMS_SHEET = "DeliveryReceiptItems";
@@ -73,8 +74,8 @@ async function fetchExportPdfBase64(printUrl: string): Promise<string> {
   return Buffer.from(buf).toString("base64");
 }
 
-/** Fetches personnel names from the DeliveredByNames sheet. */
-export async function getDriversFromSheets(): Promise<string[]> {
+/** Combines application users with active external delivery options. */
+export async function getDriversFromSheets(): Promise<DeliveryPersonOption[]> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
@@ -82,9 +83,22 @@ export async function getDriversFromSheets(): Promise<string[]> {
       spreadsheetId,
       range: DELIVERED_BY_NAMES_RANGE,
     });
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) return [];
-    return rows.map((row) => row[0]).filter(Boolean);
+    const users = await getUsers();
+    const internal: DeliveryPersonOption[] = users
+      .filter((user) => user.userId && user.fullName)
+      .map((user) => ({ value: `user:${user.userId}`, label: user.fullName, type: "internal", userId: user.userId }));
+    const external: DeliveryPersonOption[] = (response.data.values ?? []).flatMap((row, index) => {
+      // Backward compatibility: a one-column row is treated as an active external option.
+      const legacy = !String(row[1] ?? "").trim();
+      const deliveryOptionId = legacy ? `EXT-${String(index + 1).padStart(4, "0")}` : String(row[0] ?? "").trim();
+      const label = legacy ? String(row[0] ?? "").trim() : String(row[1] ?? "").trim();
+      const type = legacy ? "external" : String(row[2] ?? "external").trim().toLowerCase();
+      const active = legacy || !["false", "no", "0", "inactive"].includes(String(row[3] ?? "true").trim().toLowerCase());
+      return deliveryOptionId && label && type === "external" && active
+        ? [{ value: `external:${deliveryOptionId}`, label, type: "external" as const, deliveryOptionId }]
+        : [];
+    });
+    return [...internal, ...external];
   } catch (error) {
     console.error("Failed to fetch drivers:", error);
     throw error;
@@ -153,6 +167,8 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           preparedBy: String(row[7] ?? "").trim(),
           deliveredBy: String(row[8] ?? "").trim(),
           deliveredById: String(row[15] ?? "").trim() || undefined,
+          deliveredByType: String(row[16] ?? "").trim() === "external" ? "external" : "internal",
+          deliveredByOptionId: String(row[17] ?? "").trim() || undefined,
           createdAt: String(row[9] ?? "").trim(),
           status: String(row[10] ?? "created").trim() || "created",
           driveFileLink: String(row[11] ?? "").trim() || undefined,
@@ -222,7 +238,12 @@ export async function processDeliveryReceipt(
     let drNumber: number;
     const isDraft = payload.status === "draft";
     if (!isDraft) {
-      if (payload.deliveredById) {
+      if (payload.deliveredByType === "external") {
+        const option = (await getDriversFromSheets()).find((entry) => entry.type === "external" && entry.deliveryOptionId === payload.deliveredByOptionId);
+        if (!option) throw new Error("Delivered By must be an active external delivery option.");
+        payload.deliveredBy = option.label;
+        payload.deliveredById = undefined;
+      } else if (payload.deliveredById) {
         const user = await getUserById(payload.deliveredById);
         if (!user) throw new Error("Delivered By must be an active application user.");
         payload.deliveredBy = user.fullName;
@@ -289,6 +310,8 @@ export async function processDeliveryReceipt(
       userId, // N: UpdatedBy
       createdAt, // O: UpdatedDate
       payload.deliveredById || "", // P: DeliveredById
+      payload.deliveredByType || "internal", // Q: DeliveredByType
+      payload.deliveredByOptionId || "", // R: DeliveredByOptionId
     ];
 
     await sheets.spreadsheets.values.append({
@@ -370,8 +393,8 @@ export async function processDeliveryReceipt(
       }
     }
 
-    if (!isDraft && payload.deliveredById) {
-      const assignment = await ensureAutomaticDocumentHandover({ documentType: "delivery_receipt", documentNumber: String(drNumber), customerName: companyName, assignedToId: payload.deliveredById, assignedToName: payload.deliveredBy, assignedBy: userId, assignedByName: payload.preparedBy || userId });
+    if (!isDraft) {
+      const assignment = await ensureAutomaticDocumentHandover({ documentType: "delivery_receipt", documentNumber: String(drNumber), customerName: companyName, assignedToId: payload.deliveredById, assignedToName: payload.deliveredBy, assigneeType: payload.deliveredByType || "internal", assignedBy: userId, assignedByName: payload.preparedBy || userId });
       if (assignment.outcome === "unassigned") throw new Error("Delivery Receipt was saved, but its Document Tracker assignment could not be created because no valid Delivered By user was found.");
     }
 
@@ -464,9 +487,21 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:P${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:R${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
+    if (payload.deliveredByType === "external") {
+      const option = (await getDriversFromSheets()).find((entry) => entry.type === "external" && entry.deliveryOptionId === payload.deliveredByOptionId);
+      if (!option) throw new Error("Delivered By must be an active external delivery option.");
+      payload.deliveredBy = option.label;
+      payload.deliveredById = "";
+    } else if (payload.deliveredById) {
+      const user = await getUserById(payload.deliveredById);
+      if (!user) throw new Error("Delivered By must be an active application user.");
+      payload.deliveredBy = user.fullName;
+      payload.deliveredByType = "internal";
+      payload.deliveredByOptionId = "";
+    }
     const oldStatus = String(currentRow[10] ?? "created").trim();
     const newStatus = payload.status ?? oldStatus;
     const updatedAt = new Date().toISOString();
@@ -502,11 +537,13 @@ export async function updateDeliveryReceipt(
       userId || String(currentRow[13] ?? "").trim(), // N: UpdatedBy
       updatedAt, // O: UpdatedDate
       payload.deliveredById ?? String(currentRow[15] ?? "").trim(), // P
+      payload.deliveredByType ?? String(currentRow[16] ?? "internal").trim(), // Q
+      payload.deliveredByOptionId ?? String(currentRow[17] ?? "").trim(), // R
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:R${drRowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -569,7 +606,8 @@ export async function updateDeliveryReceipt(
     if (newStatus !== "draft") {
       let deliveredById = String(updatedRow[15] ?? "").trim();
       if (!deliveredById) { const matches = (await getUsers()).filter((user) => user.fullName.trim().toLowerCase() === String(updatedRow[8] ?? "").trim().toLowerCase()); if (matches.length === 1) deliveredById = matches[0].userId; }
-      if (deliveredById) await ensureAutomaticDocumentHandover({ documentType: "delivery_receipt", documentNumber: String(effectiveDrNumber), customerName: company?.companyName || updatedRow[2], assignedToId: deliveredById, assignedToName: String(updatedRow[8] ?? ""), assignedBy: userId, assignedByName: String(updatedRow[7] ?? userId) });
+      const assigneeType = String(updatedRow[16] ?? "internal") === "external" ? "external" : "internal";
+      if (deliveredById || assigneeType === "external") await ensureAutomaticDocumentHandover({ documentType: "delivery_receipt", documentNumber: String(effectiveDrNumber), customerName: company?.companyName || updatedRow[2], assignedToId: deliveredById || undefined, assignedToName: String(updatedRow[8] ?? ""), assigneeType, assignedBy: userId, assignedByName: String(updatedRow[7] ?? userId) });
     }
     return {
       drNumber: effectiveDrNumber,
@@ -583,6 +621,8 @@ export async function updateDeliveryReceipt(
       preparedBy: updatedRow[7],
       deliveredBy: updatedRow[8],
       deliveredById: updatedRow[15] || undefined,
+      deliveredByType: updatedRow[16] === "external" ? "external" : "internal",
+      deliveredByOptionId: updatedRow[17] || undefined,
       createdAt: updatedRow[9],
       status: updatedRow[10],
       driveFileLink: updatedRow[11] || undefined,

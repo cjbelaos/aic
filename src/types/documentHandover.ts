@@ -17,9 +17,10 @@ export interface DocumentHandover {
   documentNumber: string;
   customerName?: string;
   /** The person who received the documents */
-  assignedToId: string;
+  assignedToId?: string;
   /** The person who received the documents (denormalized name) */
   assignedToName: string;
+  assigneeType?: "internal" | "external";
   assignedBy: string;
   assignedByName: string;
   assignedAt: string;
@@ -40,8 +41,9 @@ export interface CreateDocumentHandoverInput {
   documentType: DocumentType;
   documentNumber: string;
   customerName?: string;
-  assignedToId: string;
+  assignedToId?: string;
   assignedToName: string;
+  assigneeType?: "internal" | "external";
   notes?: string;
 }
 

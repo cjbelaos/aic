@@ -4,7 +4,7 @@ import { getDriversFromSheets } from "@/lib/deliverySheets";
 
 /**
  * GET /api/deliveries/drivers
- * Fetches personnel names from the DeliveriesName sheet.
+ * Combines application users with active external options from DeliveredByNames.
  */
 export async function GET() {
   const session = await requireAuthenticatedSession();

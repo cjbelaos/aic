@@ -201,17 +201,13 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
       throw new Error(`Sheet "${CONTRACTS_SHEET}" not found.`);
 
     const itemSheetId = resolveSheetId("ContractItems");
-    const itemV2SheetId = resolveSheetId("ContractItemsV2");
     const releaseSheetId = resolveSheetId("ContractReleases");
 
     // Read all raw rows so indices map 1:1 to the sheet.
-    const [contractRes, itemRes, itemV2Res, releaseRes] = await Promise.all([
+    const [contractRes, itemRes, releaseRes] = await Promise.all([
       sheets.spreadsheets.values.get({ spreadsheetId, range: CONTRACTS_RANGE }),
       itemSheetId !== undefined
         ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractItems!A2:F" })
-        : Promise.resolve(null),
-      itemV2SheetId !== undefined
-        ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractItemsV2!A2:G" })
         : Promise.resolve(null),
       releaseSheetId !== undefined
         ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractReleases!A2:M" })
@@ -220,7 +216,6 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
 
     const contractRows = contractRes.data.values || [];
     const itemRows = itemRes?.data?.values || [];
-    const itemV2Rows = itemV2Res?.data?.values || [];
     const releaseRows = releaseRes?.data?.values || [];
 
     // Find the contract row.
@@ -267,12 +262,6 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
             },
           });
         });
-    }
-
-    if (itemV2SheetId !== undefined) {
-      itemV2Rows.map((row, i) => ({ row, i })).filter(({ row }) => String(row[1] || "").trim() === id).sort((a, b) => b.i - a.i).forEach(({ i }) => {
-        requests.push({ deleteDimension: { range: { sheetId: itemV2SheetId, dimension: "ROWS", startIndex: i + 1, endIndex: i + 2 } } });
-      });
     }
 
     // 3) Cascade: delete all ContractReleases that reference this contract.

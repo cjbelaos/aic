@@ -3,6 +3,7 @@ import {
   CreateDeliveryPayload,
   DeliveryReceiptResponse,
   DeliveryReceiptSummary,
+  DeliveryPersonOption,
 } from "@/types/deliveryReceipt";
 import { UpdateDeliveryPayload } from "@/lib/deliverySheets";
 
@@ -22,9 +23,9 @@ const deliveryService = {
     }
   },
 
-  getDrivers: async (): Promise<string[]> => {
+  getDrivers: async (): Promise<DeliveryPersonOption[]> => {
     try {
-      const response = await axios.get<string[]>(`${API_BASE_URL}/drivers`);
+      const response = await axios.get<DeliveryPersonOption[]>(`${API_BASE_URL}/drivers`);
       return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.error("Failed to fetch drivers in service layer:", error);

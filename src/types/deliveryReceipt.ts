@@ -16,6 +16,8 @@ export interface CreateDeliveryPayload {
   preparedBy: string;
   deliveredBy: string;
   deliveredById?: string;
+  deliveredByType?: "internal" | "external";
+  deliveredByOptionId?: string;
   comments?: string;
   items: DeliveryItem[];
   status?: string; // "draft" for save-without-print, "created" default
@@ -33,6 +35,8 @@ export interface DeliveryReceiptResponse {
   preparedBy: string;
   deliveredBy: string;
   deliveredById?: string;
+  deliveredByType?: "internal" | "external";
+  deliveredByOptionId?: string;
   comments?: string;
   items: DeliveryItem[];
   status: string;
@@ -54,12 +58,22 @@ export interface DeliveryReceiptSummary {
   preparedBy: string;
   deliveredBy: string;
   deliveredById?: string;
+  deliveredByType?: "internal" | "external";
+  deliveredByOptionId?: string;
   createdAt: string;
   status: string;
   driveFileLink?: string;
   createdBy?: string;
   updatedBy?: string;
   updatedAt?: string;
+}
+
+export interface DeliveryPersonOption {
+  value: string;
+  label: string;
+  type: "internal" | "external";
+  userId?: string;
+  deliveryOptionId?: string;
 }
 
 export interface DRStatusEntry {

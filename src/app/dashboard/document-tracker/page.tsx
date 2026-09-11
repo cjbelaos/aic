@@ -335,6 +335,7 @@ export default function DocumentTrackerPage() {
           customerName: doc.customerName,
           assignedToId: assignee.userId,
           assignedToName: assignee.fullName,
+          assigneeType: "internal",
           notes: notes || undefined,
         })),
       );
@@ -468,10 +469,13 @@ export default function DocumentTrackerPage() {
       {
         accessorKey: "assignedToName",
         header: "Assigned To",
-        cell: ({ getValue }) => (
+        cell: ({ getValue, row }) => (
           <div className="flex items-center gap-1.5">
             <UserCheck className="h-3.5 w-3.5 text-muted-foreground" />
             <span>{String(getValue() ?? "—")}</span>
+            {row.original.assigneeType === "external" && (
+              <Badge variant="secondary" className="text-[10px]">External</Badge>
+            )}
           </div>
         ),
       },
@@ -1012,6 +1016,7 @@ export default function DocumentTrackerPage() {
                     </div>
                     <div className="col-span-3 text-sm truncate">
                       {doc.assignedToName}
+                      {doc.assigneeType === "external" ? " (External)" : ""}
                     </div>
                     <div className="col-span-3 text-sm truncate">
                       {doc.customerName || "—"}

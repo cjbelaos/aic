@@ -52,6 +52,7 @@ import {
 import {
   DeliveryReceiptResponse,
   DeliveryReceiptSummary,
+  DeliveryPersonOption,
 } from "@/types/deliveryReceipt";
 import { ProductCategory } from "@/types/product-category";
 import { ProductUnit } from "@/types/product-unit";
@@ -84,7 +85,7 @@ export default function DeliveryReleasePage() {
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
     [],
   );
-  const [drivers, setDrivers] = useState<string[]>([]);
+  const [drivers, setDrivers] = useState<DeliveryPersonOption[]>([]);
 
   /* SI lookup: drNumber → list of linked ServiceInvoice summaries */
   const [siLookup, setSiLookup] = useState<Map<number, any[]>>(new Map());
@@ -336,7 +337,7 @@ export default function DeliveryReleasePage() {
   }, [products]);
 
   const driverOptions = useMemo(
-    () => drivers.map((d) => ({ value: d, label: d })),
+    () => drivers.map((driver) => ({ value: driver.value, label: `${driver.label} (${driver.type === "internal" ? "Employee" : "External"})` })),
     [drivers],
   );
 
@@ -707,7 +708,8 @@ export default function DeliveryReleasePage() {
       toast.error("Prepared by is required.");
       return;
     }
-    if (!deliveredBy.trim()) {
+    const selectedDriver = drivers.find((driver) => driver.value === deliveredBy);
+    if (!selectedDriver) {
       toast.error("Delivered by is required.");
       return;
     }
@@ -729,7 +731,10 @@ export default function DeliveryReleasePage() {
         poNo,
         trNo,
         preparedBy,
-        deliveredBy,
+        deliveredBy: selectedDriver.label,
+        deliveredById: selectedDriver.userId,
+        deliveredByType: selectedDriver.type,
+        deliveredByOptionId: selectedDriver.deliveryOptionId,
         comments,
         items: lineItems,
         status: "printed",
@@ -792,6 +797,7 @@ export default function DeliveryReleasePage() {
     }
     setDrafting(true);
     try {
+      const selectedDriver = drivers.find((driver) => driver.value === deliveredBy);
       const payload = {
         companyId: selectedCompany,
         date: deliveryDate,
@@ -799,7 +805,10 @@ export default function DeliveryReleasePage() {
         poNo,
         trNo,
         preparedBy: preparedBy || "",
-        deliveredBy: deliveredBy || "",
+        deliveredBy: selectedDriver?.label || "",
+        deliveredById: selectedDriver?.userId,
+        deliveredByType: selectedDriver?.type,
+        deliveredByOptionId: selectedDriver?.deliveryOptionId,
         comments,
         items: lineItems,
         status: "draft",
@@ -931,7 +940,13 @@ export default function DeliveryReleasePage() {
       setEditPoNo(editTarget.poNo);
       setEditTrNo(editTarget.trNo);
       setEditComments(editTarget.comments);
-      setEditDeliveredBy(editTarget.deliveredBy);
+      setEditDeliveredBy(
+        editTarget.deliveredById
+          ? `user:${editTarget.deliveredById}`
+          : editTarget.deliveredByOptionId
+            ? `external:${editTarget.deliveredByOptionId}`
+            : drivers.find((driver) => driver.label === editTarget.deliveredBy)?.value || "",
+      );
       setEditStatus(editTarget.status || "created");
       setEditLineItems(
         editTarget.items.map((item) => ({
@@ -978,12 +993,17 @@ export default function DeliveryReleasePage() {
     if (!editTarget) return;
     setEditSubmitting(true);
     try {
+      const selectedDriver = drivers.find((driver) => driver.value === editDeliveredBy);
+      if (!selectedDriver) throw new Error("Please select a valid Delivered By option.");
       const payload = {
         date: editDate,
         poNo: editPoNo,
         trNo: editTrNo,
         comments: editComments,
-        deliveredBy: editDeliveredBy,
+        deliveredBy: selectedDriver.label,
+        deliveredById: selectedDriver.userId || "",
+        deliveredByType: selectedDriver.type,
+        deliveredByOptionId: selectedDriver.deliveryOptionId || "",
         status: editStatus,
         items: editLineItems
           .filter((li) => li.productCode || li.description.trim())
