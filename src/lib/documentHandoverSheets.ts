@@ -149,8 +149,7 @@ export async function ensureAutomaticDocumentHandover(input: CreateDocumentHando
   let assignedToId = input.assignedToId || "";
   let assignedToName = input.assignedToName.trim();
   if (!assignedToName) return { outcome: "unassigned" };
-  if (assigneeType === "internal") {
-    if (!assignedToId) return { outcome: "unassigned" };
+  if (assigneeType === "internal" && assignedToId) {
     const assignee = await getUserById(assignedToId);
     if (!assignee || !assignee.fullName.trim()) return { outcome: "unassigned" };
     assignedToId = assignee.userId;

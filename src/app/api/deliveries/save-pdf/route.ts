@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
-import { getDriveUploadClient, resolveDriveFolderPath, MONTH_NAMES, escapeDriveQueryValue } from "@/lib/googleSheets";
+import { getDatabaseSpreadsheetId, getDriveUploadClient, getSheetsClient, resolveDriveFolderPath, MONTH_NAMES, escapeDriveQueryValue } from "@/lib/googleSheets";
 import { populateAndExportDeliveryReceiptFormPdf } from "@/lib/deliverySheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 
@@ -88,6 +88,23 @@ export async function POST(req: NextRequest) {
     }
 
     const fileLink = `https://drive.google.com/file/d/${fileId}/view`;
+
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const receiptRows = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "DeliveryReceipts!A2:A",
+    });
+    const rowIndex = (receiptRows.data.values ?? []).findIndex(
+      (row) => Number.parseInt(String(row[0] ?? ""), 10) === body.drNumber,
+    );
+    if (rowIndex < 0) throw new Error(`DR #${body.drNumber} was not found after PDF upload.`);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `DeliveryReceipts!L${rowIndex + 2}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[fileLink]] },
+    });
 
     return NextResponse.json({
       success: true,

@@ -22,7 +22,7 @@ const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
 const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:R`;
-// A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink M:CreatedBy N:UpdatedBy O:UpdatedDate
+// A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType R:DeliveredByOptionId
 
 const DELIVERY_RECEIPT_ITEMS_SHEET = "DeliveryReceiptItems";
 const DELIVERY_RECEIPT_ITEMS_RANGE = `${DELIVERY_RECEIPT_ITEMS_SHEET}!A2:E`;
@@ -87,18 +87,20 @@ export async function getDriversFromSheets(): Promise<DeliveryPersonOption[]> {
     const internal: DeliveryPersonOption[] = users
       .filter((user) => user.userId && user.fullName)
       .map((user) => ({ value: `user:${user.userId}`, label: user.fullName, type: "internal", userId: user.userId }));
-    const external: DeliveryPersonOption[] = (response.data.values ?? []).flatMap((row, index) => {
+    const sheetOptions: DeliveryPersonOption[] = (response.data.values ?? []).flatMap((row, index) => {
       // Backward compatibility: a one-column row is treated as an active external option.
       const legacy = !String(row[1] ?? "").trim();
       const deliveryOptionId = legacy ? `EXT-${String(index + 1).padStart(4, "0")}` : String(row[0] ?? "").trim();
       const label = legacy ? String(row[0] ?? "").trim() : String(row[1] ?? "").trim();
       const type = legacy ? "external" : String(row[2] ?? "external").trim().toLowerCase();
       const active = legacy || !["false", "no", "0", "inactive"].includes(String(row[3] ?? "true").trim().toLowerCase());
-      return deliveryOptionId && label && type === "external" && active
-        ? [{ value: `external:${deliveryOptionId}`, label, type: "external" as const, deliveryOptionId }]
-        : [];
+      if (!deliveryOptionId || !label || !active || !["internal", "external"].includes(type)) return [];
+      // Once an account with the same name exists, the real user option wins.
+      if (type === "internal" && internal.some((entry) => entry.label.trim().toLowerCase() === label.toLowerCase())) return [];
+      const optionType = type as "internal" | "external";
+      return [{ value: `${optionType}:${deliveryOptionId}`, label, type: optionType, deliveryOptionId }];
     });
-    return [...internal, ...external];
+    return [...internal, ...sheetOptions];
   } catch (error) {
     console.error("Failed to fetch drivers:", error);
     throw error;
@@ -238,11 +240,12 @@ export async function processDeliveryReceipt(
     let drNumber: number;
     const isDraft = payload.status === "draft";
     if (!isDraft) {
-      if (payload.deliveredByType === "external") {
-        const option = (await getDriversFromSheets()).find((entry) => entry.type === "external" && entry.deliveryOptionId === payload.deliveredByOptionId);
-        if (!option) throw new Error("Delivered By must be an active external delivery option.");
+      if (payload.deliveredByOptionId) {
+        const option = (await getDriversFromSheets()).find((entry) => entry.deliveryOptionId === payload.deliveredByOptionId);
+        if (!option) throw new Error("Delivered By must be an active delivery option.");
         payload.deliveredBy = option.label;
-        payload.deliveredById = undefined;
+        payload.deliveredById = option.userId;
+        payload.deliveredByType = option.type;
       } else if (payload.deliveredById) {
         const user = await getUserById(payload.deliveredById);
         if (!user) throw new Error("Delivered By must be an active application user.");
@@ -490,11 +493,12 @@ export async function updateDeliveryReceipt(
       range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:R${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
-    if (payload.deliveredByType === "external") {
-      const option = (await getDriversFromSheets()).find((entry) => entry.type === "external" && entry.deliveryOptionId === payload.deliveredByOptionId);
-      if (!option) throw new Error("Delivered By must be an active external delivery option.");
+    if (payload.deliveredByOptionId) {
+      const option = (await getDriversFromSheets()).find((entry) => entry.deliveryOptionId === payload.deliveredByOptionId);
+      if (!option) throw new Error("Delivered By must be an active delivery option.");
       payload.deliveredBy = option.label;
-      payload.deliveredById = "";
+      payload.deliveredById = option.userId || "";
+      payload.deliveredByType = option.type;
     } else if (payload.deliveredById) {
       const user = await getUserById(payload.deliveredById);
       if (!user) throw new Error("Delivered By must be an active application user.");

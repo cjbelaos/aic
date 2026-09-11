@@ -117,7 +117,7 @@ export async function POST(request: Request) {
 
       driveFileLink = `https://drive.google.com/file/d/${uploadRes.data.id}/view`;
 
-      // Store the link in column K of the DR header row
+      // Store the link in column L (DriveFileLink) of the DR header row.
       const sheets = await getSheetsClient();
       const spreadsheetId = await getDatabaseSpreadsheetId();
       const allRows = await sheets.spreadsheets.values.get({
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
       if (drRowIdx >= 0) {
         await sheets.spreadsheets.values.update({
           spreadsheetId,
-          range: `DeliveryReceipts!K${drRowIdx + 2}`,
+          range: `DeliveryReceipts!L${drRowIdx + 2}`,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [[driveFileLink]] },
         });
