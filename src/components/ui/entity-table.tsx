@@ -77,6 +77,7 @@ export function EntityTable<TData>({
     pageSize: 10,
   });
   const importRef = React.useRef<HTMLInputElement>(null);
+  const pendingPointerNavigation = React.useRef(false);
 
   const actionColumn: ColumnDef<TData> = {
     id: "actions",
@@ -88,7 +89,10 @@ export function EntityTable<TData>({
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={(event) => { event.stopPropagation(); onEdit(row.original); }}
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit(row.original);
+            }}
           >
             <Pencil className="h-4 w-4" />
           </Button>
@@ -98,7 +102,10 @@ export function EntityTable<TData>({
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-destructive"
-            onClick={(event) => { event.stopPropagation(); onDelete(row.original); }}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete(row.original);
+            }}
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -122,7 +129,7 @@ export function EntityTable<TData>({
     getSortedRowModel: getSortedRowModel(),
     getRowId,
     manualPagination: false,
-    autoResetPageIndex: false, // Prevent data refreshes from yanking users back to page 1
+    autoResetPageIndex: true,
   });
 
   const { pageIndex, pageSize } = pagination;
@@ -131,36 +138,36 @@ export function EntityTable<TData>({
   const from = filteredRowCount === 0 ? 0 : pageIndex * pageSize + 1;
   const to = Math.min((pageIndex + 1) * pageSize, filteredRowCount);
 
-  const goToPage = React.useCallback(
-    (requestedPage: number | ((currentPage: number) => number)) => {
-      setPagination((current) => {
-        const maxPageIndex = Math.max(
-          0,
-          Math.ceil(filteredRowCount / current.pageSize) - 1,
-        );
-        const nextPage =
-          typeof requestedPage === "function"
-            ? requestedPage(current.pageIndex)
-            : requestedPage;
-        const pageIndex = Math.min(Math.max(0, nextPage), maxPageIndex);
-        return pageIndex === current.pageIndex
-          ? current
-          : { ...current, pageIndex };
-      });
+  const handlePageNavigation = React.useCallback((action: () => void) => {
+    action();
+  }, []);
+
+  const handlePagePointerDown = React.useCallback(
+    (
+      event: React.PointerEvent<HTMLButtonElement>,
+      action: () => void,
+    ) => {
+      if (event.button !== 0) return;
+
+      pendingPointerNavigation.current = true;
+      handlePageNavigation(action);
+      window.setTimeout(() => {
+        pendingPointerNavigation.current = false;
+      }, 0);
     },
-    [filteredRowCount],
+    [handlePageNavigation],
   );
 
-  // Clamp pageIndex when the result set shrinks (e.g., after a delete or filter)
-  // so the table never points beyond the last available page.
-  React.useEffect(() => {
-    if (pageCount > 0 && pageIndex > pageCount - 1) {
-      setPagination((p) => ({
-        ...p,
-        pageIndex: Math.max(0, pageCount - 1),
-      }));
-    }
-  }, [pageCount, pageIndex]);
+  const handlePageClick = React.useCallback(
+    (action: () => void) => {
+      if (pendingPointerNavigation.current) {
+        pendingPointerNavigation.current = false;
+        return;
+      }
+      handlePageNavigation(action);
+    },
+    [handlePageNavigation],
+  );
 
   // Render only a window of page numbers around the current page instead of
   // every page, keeping the footer fast and responsive for large datasets.
@@ -226,13 +233,13 @@ export function EntityTable<TData>({
             </span>
             <Select
               value={String(pageSize)}
-              onValueChange={(v) =>
-                setPagination((p) => ({
-                  ...p,
-                  pageSize: Number(v),
+              onValueChange={(v) => {
+                setPagination((current) => ({
+                  ...current,
                   pageIndex: 0,
-                }))
-              }
+                  pageSize: Number(v),
+                }));
+              }}
             >
               <SelectTrigger className="h-8 w-[70px]">
                 <SelectValue />
@@ -288,7 +295,9 @@ export function EntityTable<TData>({
             value={globalFilter}
             onChange={(e) => {
               setGlobalFilter(e.target.value);
-              setPagination((p) => ({ ...p, pageIndex: 0 }));
+              if (pagination.pageIndex !== 0) {
+                setPagination((p) => ({ ...p, pageIndex: 0 }));
+              }
             }}
             className="h-8 w-full sm:w-[220px]"
           />
@@ -325,7 +334,11 @@ export function EntityTable<TData>({
                 </TableRow>
               ) : table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} onClick={() => onRowClick?.(row.original)} className={onRowClick ? "cursor-pointer" : undefined}>
+                  <TableRow
+                    key={row.id}
+                    onClick={() => onRowClick?.(row.original)}
+                    className={onRowClick ? "cursor-pointer" : undefined}
+                  >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id}>
                         {flexRender(
@@ -361,7 +374,12 @@ export function EntityTable<TData>({
               variant="outline"
               size="icon"
               className="h-8 w-8 flex-shrink-0"
-              onClick={() => goToPage((current) => current - 1)}
+              onClick={() =>
+                handlePageClick(() => table.previousPage())
+              }
+              onPointerDown={(event) =>
+                handlePagePointerDown(event, () => table.previousPage())
+              }
               disabled={!table.getCanPreviousPage()}
               aria-label="Previous page"
             >
@@ -382,7 +400,12 @@ export function EntityTable<TData>({
                   variant={pageIndex === p ? "default" : "outline"}
                   size="icon"
                   className={`h-8 w-8 flex-shrink-0 ${pageIndex === p ? "bg-blue-600 text-white hover:bg-blue-700" : ""}`}
-                  onClick={() => goToPage(p)}
+                  onClick={() =>
+                    handlePageClick(() => table.setPageIndex(p))
+                  }
+                  onPointerDown={(event) =>
+                    handlePagePointerDown(event, () => table.setPageIndex(p))
+                  }
                   aria-label={`Go to page ${p + 1}`}
                   aria-current={pageIndex === p ? "page" : undefined}
                 >
@@ -395,7 +418,12 @@ export function EntityTable<TData>({
               variant="outline"
               size="icon"
               className="h-8 w-8 flex-shrink-0"
-              onClick={() => goToPage((current) => current + 1)}
+              onClick={() =>
+                handlePageClick(() => table.nextPage())
+              }
+              onPointerDown={(event) =>
+                handlePagePointerDown(event, () => table.nextPage())
+              }
               disabled={!table.getCanNextPage()}
               aria-label="Next page"
             >
