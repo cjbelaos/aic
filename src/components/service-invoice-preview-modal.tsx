@@ -54,11 +54,12 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
     // Auto-save PDF to Drive before printing. Cancel print if save fails.
     setPrintSaving(true);
     try {
-      await serviceInvoiceService.savePdfToDrive(
+      const result = await serviceInvoiceService.savePdfToDrive(
         si.invoiceNo,
         si.companyName,
         si.date,
       );
+      if (result.trackerAssignmentWarning) toast.warning(result.trackerAssignmentWarning);
     } catch (err: any) {
       toast.error(
         err?.response?.data?.error ||
@@ -190,6 +191,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
           onClick: () => window.open(result.fileLink, "_blank"),
         },
       });
+      if (result.trackerAssignmentWarning) toast.warning(result.trackerAssignmentWarning);
     } catch (err: any) {
       toast.error(
         err?.response?.data?.error ||

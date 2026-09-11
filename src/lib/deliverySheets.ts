@@ -124,7 +124,7 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           spreadsheetId,
           range: DELIVERY_RECEIPT_ITEMS_RANGE,
         })
-        .catch(() => ({ data: { values: [] as any[][] } })), // items sheet may not exist yet
+        .catch(() => ({ data: { values: [] as string[][] } })), // items sheet may not exist yet
     ]);
 
     const drRows = drResponse.data.values;
@@ -200,6 +200,63 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
     console.error("Failed to fetch delivery receipts:", error);
     throw error;
   }
+}
+
+/**
+ * Resolves the internal Delivered By identity stored on a Delivery Receipt.
+ * A linked Service Invoice must use this result rather than client-submitted
+ * assignee values. Older DR rows may only have a name, so resolve that name
+ * only when it identifies exactly one application user.
+ */
+export async function resolveDeliveryReceiptDeliveredBy(drNumber: number): Promise<{
+  deliveredById?: string;
+  deliveredByName?: string;
+  identityError?: string;
+}> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${DELIVERY_RECEIPTS_SHEET}!A2:R`,
+  });
+  const row = (response.data.values || []).find(
+    (entry) => parseInt(String(entry[0] ?? "").trim(), 10) === drNumber,
+  );
+  if (!row || String(row[10] ?? "").trim() === "deleted") {
+    throw new Error(`Linked Delivery Receipt #${drNumber} was not found.`);
+  }
+
+  const deliveredByName = String(row[8] ?? "").trim();
+  const deliveredById = String(row[15] ?? "").trim();
+  if (deliveredById) {
+    const user = await getUserById(deliveredById);
+    if (!user?.fullName.trim()) {
+      return {
+        deliveredByName,
+        identityError: `Delivery Receipt #${drNumber} has an invalid Delivered By user. Correct the Delivery Receipt's Delivered By user before finalizing this Service Invoice.`,
+      };
+    }
+    return { deliveredById: user.userId, deliveredByName: user.fullName };
+  }
+  if (!deliveredByName) {
+    return {
+      identityError: `Delivery Receipt #${drNumber} has no Delivered By user. Correct the Delivery Receipt's Delivered By user before finalizing this Service Invoice.`,
+    };
+  }
+
+  const normalizedName = deliveredByName.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const matches = (await getUsers()).filter(
+    (user) => user.fullName.replace(/\s+/g, " ").trim().toLocaleLowerCase() === normalizedName,
+  );
+  if (matches.length === 1) {
+    return { deliveredById: matches[0].userId, deliveredByName: matches[0].fullName };
+  }
+  return {
+    deliveredByName,
+    identityError: matches.length === 0
+      ? `Delivery Receipt #${drNumber}'s Delivered By person is not an active application user. Correct the Delivery Receipt's Delivered By user before finalizing this Service Invoice.`
+      : `Delivery Receipt #${drNumber}'s Delivered By name matches multiple active application users. Correct the Delivery Receipt's Delivered By user before finalizing this Service Invoice.`,
+  };
 }
 async function generateNextDrNumber(
   sheets: Awaited<ReturnType<typeof getSheetsClient>>,

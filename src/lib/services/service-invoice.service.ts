@@ -81,7 +81,7 @@ const serviceInvoiceService = {
     invoiceNo: string,
     companyName: string,
     date: string,
-  ): Promise<{ fileLink: string; fileName: string }> => {
+  ): Promise<{ fileLink: string; fileName: string; trackerAssignmentWarning?: string }> => {
     try {
       const response = await axios.post(`${API_BASE_URL}/save-pdf`, {
         invoiceNo,

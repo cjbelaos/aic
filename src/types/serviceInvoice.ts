@@ -17,7 +17,11 @@ export interface CreateServiceInvoicePayload {
   /** Contract ID that originated this SI (e.g., for PMS monthly fee). */
   contractId?: string;
   /** Linked Delivery Receipt number. */
-  drNumber?: number;
+  drNumber?: number | null;
+  /** Internal handover assignee. Server-resolved when a DR is linked. */
+  deliveredById?: string;
+  /** Historical display-name snapshot. Never trusted from the client. */
+  deliveredByName?: string;
 }
 
 export interface ServiceInvoiceResponse {
@@ -36,6 +40,10 @@ export interface ServiceInvoiceResponse {
   driveFileLink?: string;
   contractId?: string;
   drNumber?: number;
+  deliveredById?: string;
+  deliveredByName?: string;
+  trackerAssignmentOutcome?: "created" | "updated" | "unchanged" | "already_returned" | "unassigned";
+  trackerAssignmentWarning?: string;
 }
 
 export interface ServiceInvoiceSummary {
@@ -53,4 +61,8 @@ export interface ServiceInvoiceSummary {
   items: ServiceInvoiceItem[];
   contractId?: string;
   drNumber?: number;
+  deliveredById?: string;
+  deliveredByName?: string;
+  trackerAssignmentOutcome?: "created" | "updated" | "unchanged" | "already_returned" | "unassigned";
+  trackerAssignmentWarning?: string;
 }

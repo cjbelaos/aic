@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
 import { getDriveUploadClient } from "@/lib/googleSheets";
-import { populateAndExportServiceInvoiceFormPdf } from "@/lib/serviceInvoiceSheets";
+import {
+  ensureServiceInvoiceDocumentTrackerAssignment,
+  populateAndExportServiceInvoiceFormPdf,
+} from "@/lib/serviceInvoiceSheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 
 const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
@@ -75,12 +78,29 @@ export async function POST(req: NextRequest) {
 
     const fileLink = `https://drive.google.com/file/d/${fileId}/view`;
 
+    let trackerAssignmentWarning: string | undefined;
+    try {
+      const outcome = await ensureServiceInvoiceDocumentTrackerAssignment(
+        body.invoiceNo,
+        session.userId,
+        session.fullName || session.username,
+      );
+      if (outcome === "already_returned") {
+        trackerAssignmentWarning = "The existing Document Tracker assignment was returned and requires manual review.";
+      } else if (outcome === "unassigned") {
+        trackerAssignmentWarning = "The PDF was saved, but it has no valid Delivered By user for Document Tracker assignment.";
+      }
+    } catch (error) {
+      trackerAssignmentWarning = `The PDF was saved, but Document Tracker assignment failed: ${error instanceof Error ? error.message : "unknown error"}`;
+    }
+
     return NextResponse.json({
       success: true,
       fileId,
       fileLink,
       fileName,
       message: `Service Invoice saved to Google Drive as ${fileName}`,
+      trackerAssignmentWarning,
     });
   } catch (error) {
     console.error("Save Service Invoice PDF to Drive error:", error);

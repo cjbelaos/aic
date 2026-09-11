@@ -11,10 +11,13 @@ import {
   ServiceInvoiceItem,
 } from "@/types/serviceInvoice";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
+import { getUserById } from "@/lib/userSheets";
+import { resolveDeliveryReceiptDeliveredBy } from "@/lib/deliverySheets";
+import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/documentHandoverSheets";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
-const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:L`;
-// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo
+const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:N`;
+// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo M:DeliveredById N:DeliveredByName
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
@@ -102,6 +105,37 @@ async function fetchExportPdfBase64(printUrl: string): Promise<string> {
 /** Descriptions are stored and printed in ALL CAPS. */
 function normalizeDescription(desc: string): string {
   return (desc || "").trim().toUpperCase();
+}
+
+type DeliveredByResolution = {
+  deliveredById?: string;
+  deliveredByName?: string;
+};
+
+/** Applies the Service Invoice source-of-truth rules for its assignee. */
+async function resolveServiceInvoiceDeliveredBy(
+  payload: Pick<CreateServiceInvoicePayload, "drNumber" | "deliveredById">,
+  isFinal: boolean,
+): Promise<DeliveredByResolution> {
+  if (payload.drNumber !== undefined && payload.drNumber !== null) {
+    const inherited = await resolveDeliveryReceiptDeliveredBy(payload.drNumber);
+    if (isFinal && inherited.identityError) throw new Error(inherited.identityError);
+    return {
+      deliveredById: inherited.deliveredById,
+      deliveredByName: inherited.deliveredByName,
+    };
+  }
+
+  const requestedId = payload.deliveredById?.trim();
+  if (!requestedId) {
+    if (isFinal) throw new Error("Delivered By is required before finalizing a Service Invoice.");
+    return {};
+  }
+  const user = await getUserById(requestedId);
+  if (!user?.fullName.trim()) {
+    throw new Error("Delivered By must be an active application user.");
+  }
+  return { deliveredById: user.userId, deliveredByName: user.fullName };
 }
 
 /**
@@ -208,7 +242,7 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           spreadsheetId,
           range: SERVICE_INVOICE_ITEMS_RANGE,
         })
-        .catch(() => ({ data: { values: [] as any[][] } })),
+        .catch(() => ({ data: { values: [] as string[][] } })),
     ]);
 
     const invRows = invResponse.data.values;
@@ -252,6 +286,8 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           drNumber: row[11]
             ? parseInt(String(row[11]), 10) || undefined
             : undefined,
+          deliveredById: String(row[12] ?? "").trim() || undefined,
+          deliveredByName: String(row[13] ?? "").trim() || undefined,
           items: itemsByInvoice.get(invoiceNo) || [],
         };
       })
@@ -389,6 +425,7 @@ export async function processServiceInvoice(
     const tin = company.tin || "";
 
     const createdAt = new Date().toISOString();
+    const deliveredBy = await resolveServiceInvoiceDeliveredBy(payload, !isDraft);
     const headerRow = [
       invoiceNo,
       payload.date,
@@ -402,6 +439,8 @@ export async function processServiceInvoice(
       "",
       payload.contractId || "",
       payload.drNumber?.toString() || "",
+      deliveredBy.deliveredById || "",
+      deliveredBy.deliveredByName || "",
     ];
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -429,7 +468,7 @@ export async function processServiceInvoice(
     let pdfBase64: string | undefined;
     let printUrl: string | undefined;
 
-    if (payload.status !== "draft") {
+    if (!isDraft) {
       const preparedByDisplay = await resolvePreparedByTitle(
         userId,
         payload.preparedBy || "",
@@ -456,6 +495,31 @@ export async function processServiceInvoice(
       }
     }
 
+    let trackerAssignmentOutcome: ServiceInvoiceResponse["trackerAssignmentOutcome"];
+    let trackerAssignmentWarning: string | undefined;
+    if (!isDraft && pdfBase64 && deliveredBy.deliveredById && deliveredBy.deliveredByName) {
+      try {
+        const assignment = await ensureAutomaticDocumentHandover({
+          documentType: "service_invoice",
+          documentNumber: invoiceNo,
+          customerName: companyName,
+          assignedToId: deliveredBy.deliveredById,
+          assignedToName: deliveredBy.deliveredByName,
+          assignedBy: userId,
+          assignedByName: payload.preparedBy || userId,
+          notes: "Automatically assigned from Service Invoice",
+        });
+        trackerAssignmentOutcome = assignment.outcome;
+        if (assignment.outcome === "already_returned") {
+          trackerAssignmentWarning = "The existing Document Tracker assignment was returned and requires manual review.";
+        }
+      } catch (error) {
+        trackerAssignmentWarning = `Service Invoice was saved and its PDF generated, but Document Tracker assignment failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      }
+    } else if (!isDraft && !pdfBase64) {
+      trackerAssignmentWarning = "Service Invoice was saved, but its printable PDF could not be generated, so no Document Tracker assignment was created.";
+    }
+
     return {
       success: true,
       invoiceNo,
@@ -469,7 +533,11 @@ export async function processServiceInvoice(
       printUrl,
       pdfBase64,
       contractId: payload.contractId,
-      drNumber: payload.drNumber,
+      drNumber: payload.drNumber ?? undefined,
+      deliveredById: deliveredBy.deliveredById,
+      deliveredByName: deliveredBy.deliveredByName,
+      trackerAssignmentOutcome,
+      trackerAssignmentWarning,
     };
   } catch (error) {
     console.error("Failed to process service invoice:", error);
@@ -496,11 +564,12 @@ export async function updateServiceInvoice(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:N${rowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[8] ?? "created").trim();
     const newStatus = payload.status ?? oldStatus;
+    const isFinal = newStatus !== "draft";
     const updatedAt = new Date().toISOString();
 
     // A draft uses a DRAFT-* placeholder as its invoice number. When it is
@@ -509,6 +578,33 @@ export async function updateServiceInvoice(
     let effectiveInvoiceNo = invoiceNo;
     if (invoiceNo.startsWith("DRAFT-") && newStatus !== "draft") {
       effectiveInvoiceNo = await generateNextInvoiceNo(sheets, spreadsheetId);
+    }
+
+    const requestedDrNumber = payload.drNumber !== undefined
+      ? payload.drNumber
+      : (String(currentRow[11] ?? "").trim() ? parseInt(String(currentRow[11]), 10) : undefined);
+    const linkedDrNumber = typeof requestedDrNumber === "number" && !isNaN(requestedDrNumber)
+      ? requestedDrNumber
+      : undefined;
+    let deliveredBy: DeliveredByResolution;
+    if (linkedDrNumber !== undefined) {
+      // A linked DR always wins, even if a client submits another user ID.
+      deliveredBy = await resolveServiceInvoiceDeliveredBy({ drNumber: linkedDrNumber }, isFinal);
+    } else if (payload.drNumber === null) {
+      // Removing a DR must not silently retain its inherited assignee.
+      deliveredBy = payload.deliveredById
+        ? await resolveServiceInvoiceDeliveredBy({ deliveredById: payload.deliveredById }, isFinal)
+        : {};
+    } else if (payload.deliveredById !== undefined) {
+      deliveredBy = await resolveServiceInvoiceDeliveredBy({ deliveredById: payload.deliveredById }, isFinal);
+    } else {
+      deliveredBy = {
+        deliveredById: String(currentRow[12] ?? "").trim() || undefined,
+        deliveredByName: String(currentRow[13] ?? "").trim() || undefined,
+      };
+      if (isFinal && !deliveredBy.deliveredById) {
+        throw new Error("Delivered By is required before finalizing a Service Invoice.");
+      }
     }
 
     const updatedRow = [
@@ -526,13 +622,15 @@ export async function updateServiceInvoice(
         ? payload.contractId
         : String(currentRow[10] ?? "").trim(),
       payload.drNumber !== undefined
-        ? String(payload.drNumber)
+        ? linkedDrNumber?.toString() || ""
         : String(currentRow[11] ?? "").trim(),
+      deliveredBy.deliveredById || "",
+      deliveredBy.deliveredByName || "",
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:N${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -580,6 +678,32 @@ export async function updateServiceInvoice(
     const company = companies.find(
       (c) => c.companyId === updatedRow[2] || c.id === updatedRow[2],
     );
+    let trackerAssignmentOutcome: ServiceInvoiceSummary["trackerAssignmentOutcome"];
+    let trackerAssignmentWarning: string | undefined;
+    const existingTracker = isFinal
+      ? (await getDocumentHandovers()).some((handover) =>
+          handover.documentType.toLowerCase() === "service_invoice" &&
+          handover.documentNumber.trim().toLowerCase() === effectiveInvoiceNo.trim().toLowerCase(),
+        )
+      : false;
+    if (existingTracker && deliveredBy.deliveredById && deliveredBy.deliveredByName) {
+      try {
+        const assignment = await ensureAutomaticDocumentHandover({
+          documentType: "service_invoice",
+          documentNumber: effectiveInvoiceNo,
+          customerName: company?.companyName || updatedRow[2],
+          assignedToId: deliveredBy.deliveredById,
+          assignedToName: deliveredBy.deliveredByName,
+          assignedBy: userId,
+          assignedByName: updatedRow[3] || userId,
+          notes: "Automatically assigned from Service Invoice",
+        });
+        trackerAssignmentOutcome = assignment.outcome;
+      } catch (error) {
+        console.error("Service Invoice was updated but Document Tracker assignment failed:", error);
+        trackerAssignmentWarning = `Service Invoice was updated, but Document Tracker assignment failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      }
+    }
     return {
       invoiceNo: effectiveInvoiceNo,
       date: updatedRow[1],
@@ -596,12 +720,51 @@ export async function updateServiceInvoice(
       drNumber: updatedRow[11]
         ? parseInt(String(updatedRow[11]), 10) || undefined
         : undefined,
+      deliveredById: deliveredBy.deliveredById,
+      deliveredByName: deliveredBy.deliveredByName,
+      trackerAssignmentOutcome,
+      trackerAssignmentWarning,
       items: payload.items || [],
     };
   } catch (error) {
     console.error("Failed to update service invoice:", error);
     throw error;
   }
+}
+
+/** Ensures the tracker entry after a finalized Service Invoice PDF is saved. */
+export async function ensureServiceInvoiceDocumentTrackerAssignment(
+  invoiceNo: string,
+  assignedBy: string,
+  assignedByName: string,
+): Promise<NonNullable<ServiceInvoiceResponse["trackerAssignmentOutcome"]>> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+  if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:N${rowNumber}`,
+  });
+  const row = response.data.values?.[0] || [];
+  const status = String(row[8] ?? "").trim();
+  const deliveredById = String(row[12] ?? "").trim();
+  const deliveredByName = String(row[13] ?? "").trim();
+  if (status === "draft" || !deliveredById || !deliveredByName) return "unassigned";
+  const companyId = String(row[2] ?? "").trim();
+  const companies = await getCompanies().catch(() => []);
+  const companyName = companies.find((company) => company.companyId === companyId || company.id === companyId)?.companyName || companyId;
+  const outcome = await ensureAutomaticDocumentHandover({
+    documentType: "service_invoice",
+    documentNumber: String(row[0] ?? invoiceNo).trim(),
+    customerName: companyName,
+    assignedToId: deliveredById,
+    assignedToName: deliveredByName,
+    assignedBy,
+    assignedByName,
+    notes: "Automatically assigned from Service Invoice",
+  });
+  return outcome.outcome;
 }
 
 /** Soft-deletes a service invoice by setting its status to "deleted". */

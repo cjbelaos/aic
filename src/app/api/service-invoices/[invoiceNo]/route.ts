@@ -136,7 +136,8 @@ export async function PUT(
       error instanceof Error
         ? error.message
         : "Failed to update service invoice.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const isValidationError = /Delivered By|Delivery Receipt/i.test(message);
+    return NextResponse.json({ error: message }, { status: isValidationError ? 400 : 500 });
   }
 }
 
