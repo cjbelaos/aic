@@ -153,7 +153,7 @@ export function EntityTable<TData>({
       handlePageNavigation(action);
       window.setTimeout(() => {
         pendingPointerNavigation.current = false;
-      }, 0);
+      }, 1_000);
     },
     [handlePageNavigation],
   );

@@ -83,6 +83,8 @@ export default function DocumentTrackerPage() {
   /* Modal open states */
   const [modalOpen, setModalOpen] = useState(false);
   const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [singleReturnDocument, setSingleReturnDocument] =
+    useState<DocumentHandover | null>(null);
 
   /* Form & selection state */
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
@@ -97,6 +99,12 @@ export default function DocumentTrackerPage() {
   /* Return modal selection state */
   const [selectedHandoverIds, setSelectedHandoverIds] = useState<string[]>([]);
   const [returnNotes, setReturnNotes] = useState("");
+  const [singleReturnNotes, setSingleReturnNotes] = useState("");
+  const [returnSearchQuery, setReturnSearchQuery] = useState("");
+  const [returnDocType, setReturnDocType] = useState<
+    "all" | "delivery_receipt" | "service_invoice"
+  >("all");
+  const [returnAssignee, setReturnAssignee] = useState("all");
 
   /* ── Fetch Data ────────────────────────────────────────────────────────── */
 
@@ -256,6 +264,22 @@ export default function DocumentTrackerPage() {
     () => viewedHandovers.filter((h) => h.status === "handed_over"),
     [viewedHandovers],
   );
+
+  const filteredAssignedDocs = useMemo(() => {
+    const query = returnSearchQuery.trim().toLowerCase();
+    return assignedDocs.filter((doc) => {
+      const matchesType =
+        returnDocType === "all" || doc.documentType === returnDocType;
+      const matchesAssignee =
+        returnAssignee === "all" || doc.assignedToId === returnAssignee;
+      const matchesQuery =
+        !query ||
+        doc.documentNumber.toLowerCase().includes(query) ||
+        doc.customerName?.toLowerCase().includes(query) ||
+        doc.assignedToName.toLowerCase().includes(query);
+      return matchesType && matchesAssignee && matchesQuery;
+    });
+  }, [assignedDocs, returnAssignee, returnDocType, returnSearchQuery]);
 
   const stats = useMemo(() => {
     const total = handovers.length;
@@ -419,12 +443,64 @@ export default function DocumentTrackerPage() {
     }
   };
 
+  const handleSingleReturnConfirm = async () => {
+    if (!singleReturnDocument) return;
+
+    if (!currentUser.userId) {
+      toast.error(
+        "Unable to identify current user. Please refresh and try again.",
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await documentHandoverService.batchReturn(
+        [singleReturnDocument.id],
+        singleReturnNotes || undefined,
+      );
+
+      setHandovers((prev) =>
+        prev.map((handover) =>
+          handover.id === singleReturnDocument.id
+            ? {
+                ...handover,
+                status: "returned",
+                returnedBy: currentUser.userId,
+                returnedByName: currentUser.fullName,
+                returnedAt: new Date().toISOString(),
+                notes: singleReturnNotes || handover.notes,
+              }
+            : handover,
+        ),
+      );
+
+      toast.success(
+        `${singleReturnDocument.documentType === "delivery_receipt" ? "DR" : "SR"} #${singleReturnDocument.documentNumber} marked as returned`,
+      );
+      setSingleReturnDocument(null);
+      setSingleReturnNotes("");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to mark document as returned.";
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   /* ── Single Return Handler ────────────────────────────────────────────── */
 
-  const handleSingleReturn = (id: string) => {
-    setSelectedHandoverIds([id]);
-    setReturnModalOpen(true);
-  };
+  const handleSingleReturn = useCallback(
+    (id: string) => {
+      const document = handovers.find((handover) => handover.id === id) ?? null;
+      setSingleReturnDocument(document);
+      setSingleReturnNotes("");
+    },
+    [handovers],
+  );
 
   /* ── Table Columns ─────────────────────────────────────────────────────── */
 
@@ -551,7 +627,7 @@ export default function DocumentTrackerPage() {
         },
       },
     ],
-    [],
+    [handleSingleReturn],
   );
 
   /* ── Render ────────────────────────────────────────────────────────────── */
@@ -738,7 +814,11 @@ export default function DocumentTrackerPage() {
                 </Button>
               </div>
               <div className="flex-1">
+                <Label htmlFor="assign-document-search" className="sr-only">
+                  Search documents to assign
+                </Label>
                 <Input
+                  id="assign-document-search"
                   placeholder="Search documents..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -789,7 +869,7 @@ export default function DocumentTrackerPage() {
               ) : (
                 Array.from(groupedDocuments.entries()).map(
                   ([customer, docs]) => (
-                    <Collapsible key={customer} defaultOpen>
+                    <Collapsible key={customer} defaultOpen={false}>
                       <div className="flex items-center justify-between px-4 py-2 bg-muted/30 hover:bg-muted/50 border-t">
                         <div className="flex items-center gap-3">
                           <Checkbox
@@ -937,7 +1017,7 @@ export default function DocumentTrackerPage() {
       {/* ── Batch Return Dialog ──────────────────────────────────────────── */}
 
       <Dialog open={returnModalOpen} onOpenChange={setReturnModalOpen}>
-        <DialogContent className="sm:max-w-[650px]">
+        <DialogContent className="sm:max-w-[800px] max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <BadgeCheck className="h-5 w-5 text-green-600" />
@@ -945,19 +1025,57 @@ export default function DocumentTrackerPage() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto">
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+              <div>
+                <Label htmlFor="return-search" className="sr-only">
+                  Search documents to return
+                </Label>
+                <Input
+                  id="return-search"
+                  placeholder="Search DR/SR number, customer, or assignee..."
+                  value={returnSearchQuery}
+                  onChange={(event) => setReturnSearchQuery(event.target.value)}
+                />
+              </div>
+              <div className="flex gap-1">
+                <Button size="sm" variant={returnDocType === "all" ? "default" : "outline"} onClick={() => setReturnDocType("all")}>All</Button>
+                <Button size="sm" variant={returnDocType === "delivery_receipt" ? "default" : "outline"} onClick={() => setReturnDocType("delivery_receipt")}>DR</Button>
+                <Button size="sm" variant={returnDocType === "service_invoice" ? "default" : "outline"} onClick={() => setReturnDocType("service_invoice")}>SR</Button>
+              </div>
+              <div className="min-w-48">
+                <Label htmlFor="return-assignee" className="sr-only">Filter by assignee</Label>
+                <select
+                  id="return-assignee"
+                  value={returnAssignee}
+                  onChange={(event) => setReturnAssignee(event.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="all">All assignees</option>
+                  {Array.from(new Map(assignedDocs.map((doc) => [doc.assignedToId, doc.assignedToName])).entries()).map(([id, name]) => (
+                    <option key={id} value={id}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Select the documents physically returned to the office. {filteredAssignedDocs.length} of {assignedDocs.length} shown.
+            </p>
             {/* List of assigned documents for batch return */}
-            <div className="border rounded-lg overflow-hidden">
+            <div className="border rounded-lg overflow-hidden max-h-[48vh] overflow-y-auto">
               <div className="bg-muted/50 px-4 py-2 grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground items-center">
                 <div className="col-span-1">
                   <Checkbox
                     checked={
-                      selectedHandoverIds.length === assignedDocs.length &&
-                      assignedDocs.length > 0
+                      filteredAssignedDocs.length > 0 &&
+                      filteredAssignedDocs.every((doc) =>
+                        selectedHandoverIds.includes(doc.id),
+                      )
                     }
                     onCheckedChange={(checked) => {
                       if (checked) {
-                        setSelectedHandoverIds(assignedDocs.map((h) => h.id));
+                        setSelectedHandoverIds(filteredAssignedDocs.map((h) => h.id));
                       } else {
                         setSelectedHandoverIds([]);
                       }
@@ -970,12 +1088,12 @@ export default function DocumentTrackerPage() {
                 <div className="col-span-2">Assigned</div>
               </div>
 
-              {assignedDocs.length === 0 ? (
+              {filteredAssignedDocs.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
-                  No documents currently assigned.
+                  No assigned documents match the current filters.
                 </div>
               ) : (
-                assignedDocs.map((doc) => (
+                filteredAssignedDocs.map((doc) => (
                   <div
                     key={doc.id}
                     className={`grid grid-cols-12 gap-2 px-4 py-2 border-t hover:bg-muted/30 items-center ${
@@ -1034,6 +1152,11 @@ export default function DocumentTrackerPage() {
                 {selectedHandoverIds.length} document
                 {selectedHandoverIds.length !== 1 ? "s" : ""} selected
               </span>
+              {selectedHandoverIds.length > 0 && (
+                <Badge variant="outline" className="border-green-600 text-green-700">
+                  Ready to return
+                </Badge>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1064,7 +1187,63 @@ export default function DocumentTrackerPage() {
               ) : (
                 <CheckCircle className="h-4 w-4 mr-2" />
               )}
-              Mark {selectedHandoverIds.length} Returned
+              Mark {selectedHandoverIds.length} as Returned
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Focused Single Return Confirmation ───────────────────────────── */}
+      <Dialog
+        open={!!singleReturnDocument}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSingleReturnDocument(null);
+            setSingleReturnNotes("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-green-600" />
+              Return document
+            </DialogTitle>
+          </DialogHeader>
+          {singleReturnDocument && (
+            <div className="space-y-4 py-3">
+              <p className="text-sm text-muted-foreground">
+                Mark this document as physically returned to the office?
+              </p>
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
+                <div className="font-mono font-semibold">
+                  {singleReturnDocument.documentType === "delivery_receipt" ? "DR" : "SR"} #{singleReturnDocument.documentNumber}
+                </div>
+                <div><span className="text-muted-foreground">Customer: </span>{singleReturnDocument.customerName || "—"}</div>
+                <div><span className="text-muted-foreground">Assigned to: </span>{singleReturnDocument.assignedToName}</div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="single-return-notes">Return Notes (Optional)</Label>
+                <Input
+                  id="single-return-notes"
+                  value={singleReturnNotes}
+                  onChange={(event) => setSingleReturnNotes(event.target.value)}
+                  placeholder="e.g., Signed copy received"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSingleReturnDocument(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSingleReturnConfirm}
+              disabled={submitting || !currentUser.userId}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+              Mark as Returned
             </Button>
           </DialogFooter>
         </DialogContent>
