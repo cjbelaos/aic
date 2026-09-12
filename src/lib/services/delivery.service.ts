@@ -1,4 +1,5 @@
 import axios from "axios";
+import { toast } from "sonner";
 import {
   CreateDeliveryPayload,
   DeliveryReceiptResponse,
@@ -39,8 +40,18 @@ const deliveryService = {
     try {
       const response = await axios.post<DeliveryReceiptResponse>(
         API_BASE_URL,
-        payload,
+        { ...payload, pdfFormat: "html" },
       );
+      if (payload.status !== "draft") {
+        try {
+          const { generateDeliveryReceiptPdfBase64 } = await import("@/lib/deliveryReceiptPdf");
+          const pdfBase64 = await generateDeliveryReceiptPdfBase64(response.data);
+          const saved = await deliveryService.savePdfToDrive(response.data.drNumber, response.data.companyName, response.data.date, pdfBase64);
+          response.data.driveFileLink = saved.fileLink;
+        } catch {
+          toast.warning("Receipt created, but its PDF was not saved to Drive. Reopen the preview and use Save to Drive to retry.");
+        }
+      }
       return response.data;
     } catch (error) {
       console.error(
@@ -94,12 +105,19 @@ const deliveryService = {
     drNumber: number,
     companyName: string,
     deliveryDate: string,
+    pdfBase64?: string,
   ): Promise<{ fileLink: string; fileName: string }> => {
     try {
+      if (!pdfBase64) {
+        const dr = await deliveryService.getPreview(drNumber);
+        const { generateDeliveryReceiptPdfBase64 } = await import("@/lib/deliveryReceiptPdf");
+        pdfBase64 = await generateDeliveryReceiptPdfBase64(dr);
+      }
       const response = await axios.post(`${API_BASE_URL}/save-pdf`, {
         drNumber,
         companyName,
         deliveryDate,
+        pdfBase64,
       });
       return response.data;
     } catch (error) {

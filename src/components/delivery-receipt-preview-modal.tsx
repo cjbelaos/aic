@@ -1,7 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Printer, Save, Loader2, ExternalLink, FileText, RefreshCw } from "lucide-react";
+import { isAxiosError } from "axios";
+import { BusinessDocumentPrintFrame, type BusinessDocumentPrintHandle } from "./business-document-print-frame";
+import { DeliveryReceiptPrintDocument } from "./delivery-receipt-print-document";
+import { Printer, Save, Loader2, ExternalLink, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -18,128 +21,61 @@ interface Props {
   dr: DeliveryReceiptResponse | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onRegeneratePdf?: (dr: DeliveryReceiptResponse) => Promise<void>;
+  onSaved?: () => void;
 }
 
-export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange, onRegeneratePdf }: Props) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange, onSaved }: Props) {
+  const printFrame = useRef<BusinessDocumentPrintHandle>(null);
+  const [legacy, setLegacy] = useState(false);
   const [printSaving, setPrintSaving] = useState(false);
   const [driveSaving, setDriveSaving] = useState(false);
-  const [regenerating, setRegenerating] = useState(false);
+  const [saved, setSaved] = useState<{ source: DeliveryReceiptResponse; value: DeliveryReceiptResponse } | null>(null);
+  const dr = saved?.source === initialDr ? saved.value : initialDr;
   const router = useRouter();
 
   if (!dr) return null;
 
-  // Build blob URL from base64 PDF, or fall back to printUrl
-  const pdfSrc = dr.pdfBase64
-    ? `data:application/pdf;base64,${dr.pdfBase64}`
-    : dr.printUrl || "";
-
   const handlePrint = async () => {
-    // Auto-save PDF to Drive before printing. Block print if save fails.
     setPrintSaving(true);
     try {
-      await deliveryService.savePdfToDrive(
-        dr.drNumber,
-        dr.companyName,
-        dr.date,
-      );
-      // Mark DR as "printed" once the PDF is saved (non-fatal if update fails).
-      if (dr.drNumber > 0) {
-        await deliveryService
-          .update(dr.drNumber, { status: "printed" })
-          .catch(() => {
-            // status update is best-effort — don't block the print action
-          });
-      }
-    } catch (err: any) {
-      toast.error(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Failed to save DR PDF to Drive. Print aborted.",
-      );
+      await printFrame.current?.print();
+      // The browser cannot tell us whether the user printed or cancelled.
+    } catch {
+      toast.error("Unable to prepare the receipt. Please reopen the preview and try again.");
+    } finally {
       setPrintSaving(false);
-      return;
-    }
-    setPrintSaving(false);
-
-    // Base64 → Blob → object URL gives us a same-origin PDF we can reliably print.
-    if (dr.pdfBase64) {
-      try {
-        const byteCharacters = atob(dr.pdfBase64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: "application/pdf" });
-        const blobUrl = URL.createObjectURL(blob);
-
-        const printWindow = window.open(blobUrl, "_blank");
-        if (printWindow) {
-          printWindow.addEventListener("load", () => {
-            printWindow.focus();
-            printWindow.print();
-          });
-        } else {
-          toast.error(
-            'Popup blocked. Please allow popups or use "Open in Sheets" to print.',
-          );
-        }
-        return;
-      } catch (e) {
-        console.warn("Failed to print from base64, falling back:", e);
-      }
-    }
-
-    // Fallback: try iframe print, then open the Sheets print URL
-    if (iframeRef.current?.contentWindow) {
-      try {
-        iframeRef.current.contentWindow.print();
-        return;
-      } catch {
-        // cross-origin — fall through to open print URL
-      }
-    }
-
-    if (dr.printUrl) {
-      window.open(dr.printUrl, "_blank");
-    } else {
-      toast.error("Unable to print. No PDF source available.");
     }
   };
 
   const handleSaveToDrive = async () => {
     setDriveSaving(true);
     try {
+      const { generateDeliveryReceiptPdfBase64 } = await import("@/lib/deliveryReceiptPdf");
+      const latest = await deliveryService.getPreview(dr.drNumber);
+      const pdfBase64 = await generateDeliveryReceiptPdfBase64(latest);
       const result = await deliveryService.savePdfToDrive(
         dr.drNumber,
-        dr.companyName,
-        dr.date,
+        latest.companyName,
+        latest.date,
+        pdfBase64,
       );
-      toast.success("Delivery Receipt saved to Google Drive.", {
+      setSaved({ source: initialDr!, value: { ...latest, driveFileLink: result.fileLink } });
+      onSaved?.();
+      toast.success("Delivery Receipt PDF saved to Google Drive.", {
         action: {
           label: "Open",
           onClick: () => window.open(result.fileLink, "_blank"),
         },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(
-        err?.response?.data?.error ||
-          err?.message ||
+        (isAxiosError(err) ? err.response?.data?.error : undefined) ||
+          (err instanceof Error ? err.message : undefined) ||
           "Failed to save DR PDF to Drive.",
       );
     } finally {
       setDriveSaving(false);
     }
-  };
-
-  const handleRegenerate = async () => {
-    if (!onRegeneratePdf) return;
-    setRegenerating(true);
-    try { await onRegeneratePdf(dr); toast.success("Delivery Receipt PDF regenerated."); }
-    catch (err: unknown) { toast.error(err instanceof Error ? err.message : "Failed to regenerate Delivery Receipt PDF."); }
-    finally { setRegenerating(false); }
   };
 
   return (
@@ -159,48 +95,39 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange, onRegenera
 
         {/* PDF Preview Container */}
         <div className="flex-1 min-h-0 w-full my-2 border rounded-md overflow-hidden bg-muted/20">
-          {pdfSrc ? (
-            <iframe
-              ref={iframeRef}
-              src={pdfSrc}
-              className="w-full h-full border-none"
-              title="Delivery Receipt PDF"
-            />
+          {legacy ? (
+            <iframe src={dr.pdfBase64 ? `data:application/pdf;base64,${dr.pdfBase64}` : dr.printUrl} className="w-full h-full border-none" title="Previous Delivery Receipt format" />
           ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              Unable to load PDF preview.
-            </div>
+            <BusinessDocumentPrintFrame ref={printFrame} title={`Delivery Receipt ${dr.drNumber}`}><DeliveryReceiptPrintDocument dr={dr} /></BusinessDocumentPrintFrame>
           )}
         </div>
 
+        <Button className="self-start" variant="outline" size="sm" disabled={printSaving || driveSaving || (!legacy && !dr.pdfBase64 && !dr.printUrl)} onClick={() => setLegacy(!legacy)}>{legacy ? "Use new A4 format" : "View previous format"}</Button>
+        <p className="text-xs text-muted-foreground">Print opens the print dialog. Drive saving uses the latest saved document. Switch to the new format to save.</p>
         {/* Action Footer */}
-        <div className="flex items-center justify-end gap-2 pt-1 shrink-0">
-          <Button variant="outline" size="sm" onClick={handleRegenerate} disabled={!onRegeneratePdf || printSaving || driveSaving || regenerating}>
-            {regenerating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
-            {regenerating ? "Regenerating…" : "Regenerate PDF"}
-          </Button>
-          {dr.printUrl && (
+        <div className="flex flex-wrap items-center justify-end gap-2 pt-1 shrink-0">
+          {legacy && dr.printUrl && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.open(dr.printUrl, "_blank")}
             >
               <ExternalLink className="mr-1.5 h-4 w-4" />
-              Open in Sheets
+              Open previous template
             </Button>
           )}
+          {dr.driveFileLink && <Button variant="outline" size="sm" onClick={() => window.open(dr.driveFileLink, "_blank", "noopener,noreferrer")}><ExternalLink className="mr-1.5 h-4 w-4" />Open in Drive</Button>}
           <Button
-            variant="outline"
             size="sm"
             onClick={handlePrint}
-            disabled={!pdfSrc || printSaving || driveSaving}
+            disabled={legacy || printSaving || driveSaving}
           >
             {printSaving ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
             ) : (
               <Printer className="mr-1.5 h-4 w-4" />
             )}
-            {printSaving ? "Saving…" : "Print"}
+            {printSaving ? "Preparing..." : "Print"}
           </Button>
           <Button
             variant="outline"
@@ -223,15 +150,15 @@ export function DeliveryReceiptPreviewModal({ dr, open, onOpenChange, onRegenera
           <Button
             size="sm"
             onClick={handleSaveToDrive}
-            disabled={printSaving || driveSaving}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            disabled={legacy || printSaving || driveSaving}
+            variant="outline"
           >
             {driveSaving ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
             ) : (
               <Save className="mr-1.5 h-4 w-4" />
             )}
-            Save to Drive
+            {dr.driveFileLink ? "Update Drive PDF" : "Save to Drive"}
           </Button>
         </div>
       </DialogContent>

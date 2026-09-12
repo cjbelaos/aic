@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
       drNumber: number;
       companyName: string;
       deliveryDate: string;
+      pdfBase64?: string;
     };
 
     if (!body.drNumber || !body.companyName) {
@@ -23,6 +24,15 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    // Resolve the stored file link before uploading, so renamed documents keep their file ID.
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const receiptRows = await sheets.spreadsheets.values.get({ spreadsheetId, range: "DeliveryReceipts!A2:L" });
+    const rowIndex = (receiptRows.data.values ?? []).findIndex(row => Number(row[0]) === Number(body.drNumber));
+    if (rowIndex < 0) return NextResponse.json({ error: "Document not found." }, { status: 404 });
+    const storedLink = String(receiptRows.data.values![rowIndex][11] ?? "");
+    const storedFileId = storedLink.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? storedLink.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
 
     // Derive year, month name, and month-year from delivery date.
     let year = "";
@@ -42,7 +52,10 @@ export async function POST(req: NextRequest) {
     const fileName = `DR-${monthYear}-${body.drNumber}_${safeName}.pdf`;
 
     // Re-populate the DeliveryReceiptForm template from DB data, then export PDF
-    const { pdfBase64 } = await populateAndExportDeliveryReceiptFormPdf(body.drNumber);
+    const pdfBase64 = body.pdfBase64 ?? (await populateAndExportDeliveryReceiptFormPdf(body.drNumber)).pdfBase64;
+    if (typeof pdfBase64 !== "string" || !pdfBase64.startsWith("JVBERi0") || pdfBase64.length > 28_000_000) {
+      return NextResponse.json({ error: "A valid PDF under 20 MB is required." }, { status: 400 });
+    }
     const pdfBuffer = Buffer.from(pdfBase64, "base64");
     const pdfStream = Readable.from(pdfBuffer);
 
@@ -67,7 +80,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Check if file with same name already exists in the target folder
-    const existingRes = await drive.files.list({
+    const existingRes = storedFileId ? { data: { files: [{ id: storedFileId }] } } : await drive.files.list({
       q: `'${targetFolderId}' in parents and name = '${escapeDriveQueryValue(fileName)}' and trashed = false`,
       fields: "files(id, name)",
     });
@@ -77,6 +90,7 @@ export async function POST(req: NextRequest) {
       fileId = existingRes.data.files[0].id!;
       await drive.files.update({
         fileId,
+        requestBody: { name: fileName },
         media: { mimeType: "application/pdf", body: pdfStream },
       });
     } else {
@@ -89,16 +103,6 @@ export async function POST(req: NextRequest) {
 
     const fileLink = `https://drive.google.com/file/d/${fileId}/view`;
 
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-    const receiptRows = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "DeliveryReceipts!A2:A",
-    });
-    const rowIndex = (receiptRows.data.values ?? []).findIndex(
-      (row) => Number.parseInt(String(row[0] ?? ""), 10) === body.drNumber,
-    );
-    if (rowIndex < 0) throw new Error(`DR #${body.drNumber} was not found after PDF upload.`);
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `DeliveryReceipts!L${rowIndex + 2}`,

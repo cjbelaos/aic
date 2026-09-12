@@ -14,7 +14,7 @@ import { PurchaseOrderResponse } from "@/types/purchaseOrder";
  * Returns a raw base64 string (no data: prefix) ready for Drive upload or blob printing.
  */
 
-export async function generatePurchaseOrderPdfBase64(
+export async function generateLegacyPurchaseOrderPdfBase64(
   po: PurchaseOrderResponse,
 ): Promise<string> {
   const container = document.createElement("div");
@@ -115,4 +115,8 @@ export async function generatePurchaseOrderPdfBase64(
     root.unmount();
     container.remove();
   }
+}
+export async function generatePurchaseOrderPdfBase64(po: PurchaseOrderResponse): Promise<string> {
+  const [{ generateBusinessDocumentPdf }, { PurchaseOrderPrintDocument }] = await Promise.all([import("./businessDocumentPdf"), import("@/components/purchase-order-print-document")]);
+  return generateBusinessDocumentPdf(<PurchaseOrderPrintDocument po={po} />);
 }

@@ -36,6 +36,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Resolve the stored file link before uploading, so renamed documents keep their file ID.
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const receiptRows = await sheets.spreadsheets.values.get({ spreadsheetId, range: "PurchaseOrders!A2:M" });
+    const rowIndex = (receiptRows.data.values ?? []).findIndex(row => String(row[0]).trim() === String(body.poNumber).trim());
+    if (rowIndex < 0) return NextResponse.json({ error: "Document not found." }, { status: 404 });
+    const storedLink = String(receiptRows.data.values![rowIndex][12] ?? "");
+    const storedFileId = storedLink.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? storedLink.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
+
     // Use the complete normalized PO number.
     // Example: "AIC-PO-2026-0001.pdf".
     const normalizedPONumber = String(body.poNumber).trim().toUpperCase();
@@ -50,7 +59,7 @@ export async function POST(req: NextRequest) {
     const targetFolderId = PO_PARENT_FOLDER_ID;
 
     // Check if file with same name already exists in the target folder
-    const existingRes = await drive.files.list({
+    const existingRes = storedFileId ? { data: { files: [{ id: storedFileId }] } } : await drive.files.list({
       q: `'${targetFolderId}' in parents and name = '${escapeDriveQueryValue(fileName)}' and trashed = false`,
       fields: "files(id, name)",
     });
@@ -60,6 +69,7 @@ export async function POST(req: NextRequest) {
       fileId = existingRes.data.files[0].id!;
       await drive.files.update({
         fileId,
+        requestBody: { name: fileName },
         media: { mimeType: "application/pdf", body: pdfStream },
       });
     } else {
@@ -72,33 +82,12 @@ export async function POST(req: NextRequest) {
 
     const fileLink = `https://drive.google.com/file/d/${fileId}/view`;
 
-    // Persist the Drive link in column M of the PO header row
-    try {
-      const sheetsClient = await getSheetsClient();
-      const spreadsheetId = await getDatabaseSpreadsheetId();
-      const allRows = await sheetsClient.spreadsheets.values.get({
-        spreadsheetId,
-        range: "PurchaseOrders!A2:A",
-      });
-      const rows = allRows.data.values || [];
-      const poRowIdx = rows.findIndex((row) => {
-        const val = String(row[0] ?? "").trim();
-        return val === String(body.poNumber).trim();
-      });
-      if (poRowIdx >= 0) {
-        await sheetsClient.spreadsheets.values.update({
-          spreadsheetId,
-          range: `PurchaseOrders!M${poRowIdx + 2}`,
-          valueInputOption: "USER_ENTERED",
-          requestBody: { values: [[fileLink]] },
-        });
-      }
-    } catch (linkErr) {
-      console.warn(
-        "Failed to persist PO Drive link column (non-fatal):",
-        linkErr,
-      );
-    }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `PurchaseOrders!M${rowIndex + 2}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[fileLink]] },
+    });
 
     return NextResponse.json({
       success: true,

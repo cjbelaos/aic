@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { isAxiosError } from "axios";
+import { BusinessDocumentPrintFrame, type BusinessDocumentPrintHandle } from "./business-document-print-frame";
+import { PurchaseOrderPrintDocument } from "./purchase-order-print-document";
 import { Printer, Save, Loader2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PurchaseOrderForm } from "@/components/purchase-order-form";
-import { generatePurchaseOrderPdfBase64 } from "@/lib/purchaseOrderPdf";
+import { generatePurchaseOrderPdfBase64, generateLegacyPurchaseOrderPdfBase64 } from "@/lib/purchaseOrderPdf";
 import purchaseOrderService from "@/lib/services/purchase-order.service";
 import { PurchaseOrderResponse } from "@/types/purchaseOrder";
 
@@ -43,68 +46,67 @@ function openPrintablePdf(base64: string) {
         'Popup blocked. Please allow popups or use the on-screen preview to review the form.',
       );
     }
-  } catch (e) {
+  } catch {
     toast.error("Failed to prepare the PDF for printing.");
   }
 }
 
-export function PurchaseOrderPreviewModal({ po, open, onOpenChange }: Props) {
+export function PurchaseOrderPreviewModal({ po: initialPo, open, onOpenChange }: Props) {
+  const printFrame = useRef<BusinessDocumentPrintHandle>(null);
+  const [legacy, setLegacy] = useState(false);
   const [printSaving, setPrintSaving] = useState(false);
   const [driveSaving, setDriveSaving] = useState(false);
 
+  const [saved, setSaved] = useState<{ source: PurchaseOrderResponse; value: PurchaseOrderResponse } | null>(null);
+  const po = saved?.source === initialPo ? saved.value : initialPo;
   if (!po) return null;
 
-  const handlePrint = async () => {
-    // Persist the PDF to Drive first (same behaviour as the previous Sheets-based modal).
-    setPrintSaving(true );
+  const handleLegacyPrint = async () => {
+    setPrintSaving(true);
     try {
-      const pdfBase64 = await generatePurchaseOrderPdfBase64(po );
-      await purchaseOrderService.savePdfToDrive({
-        poNumber: po.poNumber,
-        supplierName: po.supplierName,
-        date: po.date,
-        pdfBase64,
-      });
-      // Mark PO as "printed" once the PDF is saved (non-fatal if update fails).
-      if (!po.poNumber.startsWith("DRAFT-")) {
-        await purchaseOrderService
-          .update(po.poNumber, { status: "printed" })
-          .catch(() => {
-            // status update is best-effort — don't block the print action
-          });
-      }
+      const pdfBase64 = await generateLegacyPurchaseOrderPdfBase64(po);
       openPrintablePdf(pdfBase64 );
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Failed to save PO PDF to Drive. Print aborted."
+        (isAxiosError(err) ? err.response?.data?.error : undefined) ||
+          (err instanceof Error ? err.message : undefined) ||
+          "Failed to prepare the previous PO format."
       );
     } finally {
       setPrintSaving(false );
     }
   };
 
+  const handlePrint = async () => {
+    if (legacy) return handleLegacyPrint();
+    setPrintSaving(true);
+    try { await printFrame.current?.print(); }
+    catch (err) { toast.error(err instanceof Error ? err.message : "Unable to print purchase order."); }
+    finally { setPrintSaving(false); }
+  };
+
   const handleSaveToDrive = async () => {
     setDriveSaving(true );
     try {
-      const pdfBase64 = await generatePurchaseOrderPdfBase64(po );
+      const latest = await purchaseOrderService.getPreview(po.poNumber);
+      const pdfBase64 = await generatePurchaseOrderPdfBase64(latest);
       const result = await purchaseOrderService.savePdfToDrive({
         poNumber: po.poNumber,
-        supplierName: po.supplierName,
-        date: po.date,
+        supplierName: latest.supplierName,
+        date: latest.date,
         pdfBase64,
       });
-      toast.success("Purchase Order saved to Google Drive.", {
+      setSaved({ source: initialPo!, value: { ...latest, driveFileLink: result.fileLink } });
+      toast.success("Purchase Order PDF saved to Google Drive.", {
         action: {
           label: "Open",
           onClick: () => window.open(result.fileLink, "_blank"),
         },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(
-        err?.response?.data?.error ||
-          err?.message ||
+        (isAxiosError(err) ? err.response?.data?.error : undefined) ||
+          (err instanceof Error ? err.message : undefined) ||
           "Failed to save PO PDF to Drive."
       );
     } finally {
@@ -131,11 +133,15 @@ export function PurchaseOrderPreviewModal({ po, open, onOpenChange }: Props) {
 
         {/* HTML form preview — same layout as the generated PDF */}
         <div className="flex-1 min-h-0 w-full my-2 overflow-auto border rounded-md bg-muted/20 p-4">
-          <PurchaseOrderForm po={po} minRows={6} />
+          {legacy ? <PurchaseOrderForm po={po} minRows={6} /> : <BusinessDocumentPrintFrame ref={printFrame} title={`Purchase Order ${po.poNumber}`}><PurchaseOrderPrintDocument po={po} /></BusinessDocumentPrintFrame>}
         </div>
 
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" size="sm" disabled={printSaving || driveSaving} onClick={() => setLegacy(!legacy)}>{legacy ? "Use new A4 format" : "View previous format"}</Button>
+          <p className="text-xs text-muted-foreground">Print opens the print dialog. Drive saving uses the latest saved document. Switch to the new format to save.</p>
+        </div>
         {/* Action Footer */}
-        <div className="flex items-center justify-end gap-2 pt-1 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 pt-1 shrink-0">
           {po.driveFileLink && (
             <Button
               variant="outline"
@@ -143,11 +149,10 @@ export function PurchaseOrderPreviewModal({ po, open, onOpenChange }: Props) {
               onClick={() => window.open(po.driveFileLink!, "_blank")}
             >
               <ExternalLink className="mr-1.5 h-4 w-4" />
-              Open PDF
+              Open in Drive
             </Button>
           )}
           <Button
-            variant="outline"
             size="sm"
             onClick={handlePrint}
             disabled={printSaving || driveSaving}
@@ -157,20 +162,20 @@ export function PurchaseOrderPreviewModal({ po, open, onOpenChange }: Props) {
             ) : (
               <Printer className="mr-1.5 h-4 w-4" />
             )}
-            {printSaving ? "Saving…" : "Print"}
+            {printSaving ? "Preparing..." : legacy ? "Print previous format" : "Print"}
           </Button>
           <Button
             size="sm"
             onClick={handleSaveToDrive}
-            disabled={printSaving || driveSaving}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            disabled={legacy || printSaving || driveSaving}
+            variant="outline"
           >
             {driveSaving ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
             ) : (
               <Save className="mr-1.5 h-4 w-4" />
             )}
-            Save to Drive
+            {po.driveFileLink ? "Update Drive PDF" : "Save to Drive"}
           </Button>
         </div>
       </DialogContent>

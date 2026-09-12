@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (session instanceof Response) return session;
 
   try {
-    const body: CreateDeliveryPayload = await request.json();
+    const body: CreateDeliveryPayload & { pdfFormat?: "html" } = await request.json();
 
     if (!body.companyId?.trim()) {
       return NextResponse.json(
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
     // ── Auto-save PDF to Google Drive and store link (skip for drafts) ──
     let driveFileLink: string | undefined;
-    if (!isDraft) {
+    if (!isDraft && body.pdfFormat !== "html") {
       try {
       const { year, monthName, monthYear } = (() => {
         if (body.date) {
