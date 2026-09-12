@@ -49,6 +49,17 @@ import deliveryService from "@/lib/services/delivery.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import userService from "@/lib/services/user.service";
 
+function getHandoverAssigneeKey(handover: DocumentHandover) {
+  if (handover.assignedToId) return `user:${handover.assignedToId}`;
+  const name = handover.assignedToName.trim().toLocaleLowerCase();
+  return name ? `external:${name}` : "unassigned";
+}
+
+function getAssignedTime(handover: DocumentHandover) {
+  const time = handover.assignedAt ? new Date(handover.assignedAt).getTime() : 0;
+  return Number.isNaN(time) ? 0 : time;
+}
+
 export default function DocumentTrackerPage() {
   /* Data state */
   const [handovers, setHandovers] = useState<DocumentHandover[]>([]);
@@ -79,6 +90,10 @@ export default function DocumentTrackerPage() {
   const [myDocsOnly, setMyDocsOnly] = useState<boolean>(
     () => currentUserRoleId !== 1,
   );
+  const [handoverAssigneeFilter, setHandoverAssigneeFilter] = useState("all");
+  const [handoverDocumentTypeFilter, setHandoverDocumentTypeFilter] = useState<
+    "all" | "delivery_receipt" | "service_invoice"
+  >("all");
 
   /* Modal open states */
   const [modalOpen, setModalOpen] = useState(false);
@@ -264,6 +279,47 @@ export default function DocumentTrackerPage() {
     () => viewedHandovers.filter((h) => h.status === "handed_over"),
     [viewedHandovers],
   );
+
+  const handoverAssigneeOptions = useMemo(() => {
+    const assigneesByKey = new Map<string, string>();
+
+    viewedHandovers.forEach((handover) => {
+      const key = getHandoverAssigneeKey(handover);
+      if (assigneesByKey.has(key)) return;
+
+      const name = handover.assignedToName.trim();
+      assigneesByKey.set(
+        key,
+        name
+          ? `${name}${handover.assigneeType === "external" ? " (External)" : ""}`
+          : "Unassigned",
+      );
+    });
+
+    return Array.from(assigneesByKey, ([value, label]) => ({ value, label })).sort(
+      (a, b) => a.label.localeCompare(b.label),
+    );
+  }, [viewedHandovers]);
+
+  const filteredHandoverRecords = useMemo(() => {
+    const filtered = viewedHandovers.filter((handover) => {
+      const matchesAssignee =
+        handoverAssigneeFilter === "all" ||
+        getHandoverAssigneeKey(handover) === handoverAssigneeFilter;
+      const matchesDocumentType =
+        handoverDocumentTypeFilter === "all" ||
+        handover.documentType === handoverDocumentTypeFilter;
+      return matchesAssignee && matchesDocumentType;
+    });
+
+    return filtered.sort(
+      (a, b) => getAssignedTime(b) - getAssignedTime(a),
+    );
+  }, [
+    handoverAssigneeFilter,
+    handoverDocumentTypeFilter,
+    viewedHandovers,
+  ]);
 
   const filteredAssignedDocs = useMemo(() => {
     const query = returnSearchQuery.trim().toLowerCase();
@@ -743,8 +799,60 @@ export default function DocumentTrackerPage() {
       <EntityTable
         title="Handover Records"
         columns={columns}
-        data={viewedHandovers}
+        data={filteredHandoverRecords}
         loading={loading}
+        toolbarFilters={
+          <>
+            {isAdmin && (
+              <div className="flex items-center gap-2">
+                <Label
+                  htmlFor="handover-assignee-filter"
+                  className="text-sm font-normal text-muted-foreground whitespace-nowrap"
+                >
+                  Assigned to
+                </Label>
+                <select
+                  id="handover-assignee-filter"
+                  value={handoverAssigneeFilter}
+                  onChange={(event) => setHandoverAssigneeFilter(event.target.value)}
+                  className="h-8 w-[200px] rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  <option value="all">All assignees</option>
+                  {handoverAssigneeOptions.map((assignee) => (
+                    <option key={assignee.value} value={assignee.value}>
+                      {assignee.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor="handover-document-type-filter"
+                className="text-sm font-normal text-muted-foreground whitespace-nowrap"
+              >
+                Document type
+              </Label>
+              <select
+                id="handover-document-type-filter"
+                value={handoverDocumentTypeFilter}
+                onChange={(event) =>
+                  setHandoverDocumentTypeFilter(
+                    event.target.value as
+                      | "all"
+                      | "delivery_receipt"
+                      | "service_invoice",
+                  )
+                }
+                className="h-8 w-[180px] rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="all">All document types</option>
+                <option value="delivery_receipt">Delivery Receipts (DR)</option>
+                <option value="service_invoice">Service Reports (SR)</option>
+              </select>
+            </div>
+          </>
+        }
       />
 
       {/* ── Assign Document Dialog (admin only) ────────────────────────────── */}

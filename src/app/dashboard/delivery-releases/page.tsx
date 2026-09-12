@@ -82,11 +82,18 @@ function getDeliveryAssigneeKey(receipt: DeliveryReceiptSummary) {
   return name ? `name:${name}` : "unassigned";
 }
 
+function getReceiptActivityTime(receipt: DeliveryReceiptSummary) {
+  const timestamp = receipt.updatedAt || receipt.createdAt;
+  const time = timestamp ? new Date(timestamp).getTime() : 0;
+  return Number.isNaN(time) ? 0 : time;
+}
+
 export default function DeliveryReleasePage() {
   /* List state */
   const [receipts, setReceipts] = useState<DeliveryReceiptSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [assignedToFilter, setAssignedToFilter] = useState("all");
+  const [linkedDocumentFilter, setLinkedDocumentFilter] = useState("all");
 
   /* Reference data (shared) */
   const [companies, setCompanies] = useState<any[]>([]);
@@ -373,13 +380,26 @@ export default function DeliveryReleasePage() {
   }, [receipts]);
 
   const filteredReceipts = useMemo(
-    () =>
-      assignedToFilter === "all"
-        ? receipts
-        : receipts.filter(
-            (receipt) => getDeliveryAssigneeKey(receipt) === assignedToFilter,
-          ),
-    [assignedToFilter, receipts],
+    () => {
+      const filtered = receipts.filter((receipt) => {
+        const matchesAssignee =
+          assignedToFilter === "all" ||
+          getDeliveryAssigneeKey(receipt) === assignedToFilter;
+        if (!matchesAssignee) return false;
+
+        const hasLinkedSr = (siLookup.get(receipt.drNumber) || []).length > 0;
+        if (linkedDocumentFilter === "with-linked-sr") return hasLinkedSr;
+        if (linkedDocumentFilter === "without-linked-sr") return !hasLinkedSr;
+        return true;
+      });
+
+      return filtered.sort((a, b) => {
+        const activityDifference =
+          getReceiptActivityTime(b) - getReceiptActivityTime(a);
+        return activityDifference || b.drNumber - a.drNumber;
+      });
+    },
+    [assignedToFilter, linkedDocumentFilter, receipts, siLookup],
   );
 
   /* Table columns */
@@ -1089,27 +1109,52 @@ export default function DeliveryReleasePage() {
           loading={loading}
           onCreateNew={openCreateModal}
           toolbarFilters={
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground whitespace-nowrap">
-                Assigned to
-              </span>
-              <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
-                <SelectTrigger
-                  className="h-8 w-[200px]"
-                  aria-label="Filter delivery receipts by assignee"
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  Assigned to
+                </span>
+                <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
+                  <SelectTrigger
+                    className="h-8 w-[200px]"
+                    aria-label="Filter delivery receipts by assignee"
+                  >
+                    <SelectValue placeholder="All assignees" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All assignees</SelectItem>
+                    {assignedToOptions.map((assignee) => (
+                      <SelectItem key={assignee.value} value={assignee.value}>
+                        {assignee.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  Linked document
+                </span>
+                <Select
+                  value={linkedDocumentFilter}
+                  onValueChange={setLinkedDocumentFilter}
                 >
-                  <SelectValue placeholder="All assignees" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All assignees</SelectItem>
-                  {assignedToOptions.map((assignee) => (
-                    <SelectItem key={assignee.value} value={assignee.value}>
-                      {assignee.label}
+                  <SelectTrigger
+                    className="h-8 w-[200px]"
+                    aria-label="Filter delivery receipts by linked document type"
+                  >
+                    <SelectValue placeholder="All delivery receipts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All delivery receipts</SelectItem>
+                    <SelectItem value="with-linked-sr">With linked SR</SelectItem>
+                    <SelectItem value="without-linked-sr">
+                      Without linked SR
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
           }
         />
       </div>
