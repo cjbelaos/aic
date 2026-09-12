@@ -48,6 +48,8 @@ interface EntityTableProps<TData> {
   onCreateNew?: () => void;
   /** Optional custom element rendered in place of the "Create New" button. */
   headerActions?: React.ReactNode;
+  /** Optional controls rendered beside the table toolbar. */
+  toolbarFilters?: React.ReactNode;
   onEdit?: (row: TData) => void;
   onDelete?: (row: TData) => void;
   onExport?: (data: TData[]) => void;
@@ -63,6 +65,7 @@ export function EntityTable<TData>({
   loading = false,
   onCreateNew,
   headerActions,
+  toolbarFilters,
   onEdit,
   onDelete,
   onExport,
@@ -253,6 +256,8 @@ export function EntityTable<TData>({
               </SelectContent>
             </Select>
             <span className="text-sm text-muted-foreground">entries</span>
+
+            {toolbarFilters}
 
             {/* Export */}
             <Button

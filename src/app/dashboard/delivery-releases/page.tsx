@@ -73,10 +73,20 @@ const EMPTY_LINE_ITEM: LineItem = {
   quantity: 1,
 };
 
+function getDeliveryAssigneeKey(receipt: DeliveryReceiptSummary) {
+  if (receipt.deliveredById) return `user:${receipt.deliveredById}`;
+  if (receipt.deliveredByOptionId) {
+    return `external:${receipt.deliveredByOptionId}`;
+  }
+  const name = receipt.deliveredBy.trim().toLocaleLowerCase();
+  return name ? `name:${name}` : "unassigned";
+}
+
 export default function DeliveryReleasePage() {
   /* List state */
   const [receipts, setReceipts] = useState<DeliveryReceiptSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [assignedToFilter, setAssignedToFilter] = useState("all");
 
   /* Reference data (shared) */
   const [companies, setCompanies] = useState<any[]>([]);
@@ -339,6 +349,37 @@ export default function DeliveryReleasePage() {
   const driverOptions = useMemo(
     () => drivers.map((driver) => ({ value: driver.value, label: `${driver.label} (${driver.type === "internal" ? "Employee" : "External"})` })),
     [drivers],
+  );
+
+  const assignedToOptions = useMemo(() => {
+    const assignees = new Map<string, string>();
+
+    receipts.forEach((receipt) => {
+      const key = getDeliveryAssigneeKey(receipt);
+      if (assignees.has(key)) return;
+
+      const name = receipt.deliveredBy.trim();
+      assignees.set(
+        key,
+        name
+          ? `${name}${receipt.deliveredByType === "external" ? " (External)" : ""}`
+          : "Unassigned",
+      );
+    });
+
+    return Array.from(assignees, ([value, label]) => ({ value, label })).sort(
+      (a, b) => a.label.localeCompare(b.label),
+    );
+  }, [receipts]);
+
+  const filteredReceipts = useMemo(
+    () =>
+      assignedToFilter === "all"
+        ? receipts
+        : receipts.filter(
+            (receipt) => getDeliveryAssigneeKey(receipt) === assignedToFilter,
+          ),
+    [assignedToFilter, receipts],
   );
 
   /* Table columns */
@@ -1044,9 +1085,32 @@ export default function DeliveryReleasePage() {
         <EntityTable
           title="Delivery Receipts"
           columns={columns}
-          data={receipts}
+          data={filteredReceipts}
           loading={loading}
           onCreateNew={openCreateModal}
+          toolbarFilters={
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                Assigned to
+              </span>
+              <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
+                <SelectTrigger
+                  className="h-8 w-[200px]"
+                  aria-label="Filter delivery receipts by assignee"
+                >
+                  <SelectValue placeholder="All assignees" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All assignees</SelectItem>
+                  {assignedToOptions.map((assignee) => (
+                    <SelectItem key={assignee.value} value={assignee.value}>
+                      {assignee.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          }
         />
       </div>
 
