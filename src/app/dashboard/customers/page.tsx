@@ -385,6 +385,7 @@ export default function CustomersPage() {
         onDelete={(row) => setDeleteTarget(row)}
         onExport={exportToExcel}
         onImport={handleImport}
+        mobileLayout={{ primary: ["companyName", "tin", "status"], labels: { companyName: "Customer", tin: "TIN", address: "Address", status: "Status", actions: "Actions" } }}
       />
 
       <Dialog

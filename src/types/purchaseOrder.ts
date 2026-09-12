@@ -28,6 +28,11 @@ export interface CreatePurchaseOrderPayload {
   status?: string;
   deliveryDate?: string;
   paymentTerms?: string;
+  shipToType?: "company" | "warehouse";
+  shipToId?: string;
+  shipToName?: string;
+  shipToAddress?: string;
+  shipToContact?: string;
 }
 
 export interface PurchaseOrderResponse {
@@ -48,6 +53,11 @@ export interface PurchaseOrderResponse {
   pdfBase64?: string;
   driveFileLink?: string;
   totalAmount: number;
+  shipToType?: "company" | "warehouse";
+  shipToId?: string;
+  shipToName?: string;
+  shipToAddress?: string;
+  shipToContact?: string;
 }
 
 export interface PurchaseOrderSummary {
@@ -70,6 +80,11 @@ export interface PurchaseOrderSummary {
   createdBy?: string;
   updatedBy?: string;
   updatedDate?: string;
+  shipToType?: "company" | "warehouse";
+  shipToId?: string;
+  shipToName?: string;
+  shipToAddress?: string;
+  shipToContact?: string;
 }
 
 export interface POStatusEntry {

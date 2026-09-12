@@ -311,6 +311,7 @@ export default function UserApproversPage() {
         loading={loading}
         onCreateNew={isAdmin ? openCreate : undefined}
         onDelete={isAdmin ? (row) => setDeleteTarget(row) : undefined}
+        mobileLayout={{ primary: ["requester", "approver", "approvalLevel"], labels: { requester: "Requester", department: "Department", approver: "Approver", approvalLevel: "Level", approvalType: "Type", actions: "Actions" } }}
       />
 
       {!isAdmin && !loading && (

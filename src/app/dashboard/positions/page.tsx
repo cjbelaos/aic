@@ -146,6 +146,7 @@ export default function PositionsPage() {
           onCreateNew={openCreate}
           onEdit={openEdit}
           onDelete={(row) => setDeleteTarget(row)}
+          mobileLayout={{ primary: ["positionId", "positionTitle"], labels: { positionId: "Position ID", positionTitle: "Position", actions: "Actions" } }}
         />
       </div>
 

@@ -410,6 +410,7 @@ export default function SuppliersPage() {
         onDelete={(row) => setDeleteTarget(row)}
         onExport={() => exportToExcel(data)}
         onImport={handleImport}
+        mobileLayout={{ primary: ["companyName", "tin", "status"], labels: { companyName: "Supplier", tin: "TIN", address: "Address", status: "Status", actions: "Actions" } }}
       />
 
       <Dialog

@@ -1033,6 +1033,7 @@ export default function QuotationsPage() {
       onCreateNew={() => setViewMode("create")}
       onExport={exportToExcel}
       onImport={handleImport}
+      mobileLayout={{ primary: ["quotationNo", "customer", "status"], labels: { quotationNo: "Quotation", customer: "Customer", description: "Description", amount: "Amount", discount: "Discount", status: "Status", date: "Date", preparedBy: "Prepared by", actions: "Actions" } }}
     />
   );
 }

@@ -116,9 +116,9 @@ export function PurchaseOrderPreviewModal({ po: initialPo, open, onOpenChange }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:max-w-none h-[92vh] max-h-[92vh] p-6 flex flex-col">
+      <DialogContent className="w-[95vw] sm:max-w-none h-[92dvh] max-h-[92dvh] p-4 sm:p-6 flex flex-col overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center justify-between pr-6">
+          <DialogTitle className="flex flex-col gap-1 text-left sm:flex-row sm:items-center sm:justify-between pr-6">
             <span className="text-lg font-bold">
               Purchase Order —{" "}
               {po.poNumber && !po.poNumber.startsWith("DRAFT-")
@@ -136,15 +136,16 @@ export function PurchaseOrderPreviewModal({ po: initialPo, open, onOpenChange }:
           {legacy ? <PurchaseOrderForm po={po} minRows={6} /> : <BusinessDocumentPrintFrame ref={printFrame} title={`Purchase Order ${po.poNumber}`}><PurchaseOrderPrintDocument po={po} /></BusinessDocumentPrintFrame>}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
           <Button variant="outline" size="sm" disabled={printSaving || driveSaving} onClick={() => setLegacy(!legacy)}>{legacy ? "Use new A4 format" : "View previous format"}</Button>
-          <p className="text-xs text-muted-foreground">Print opens the print dialog. Drive saving uses the latest saved document. Switch to the new format to save.</p>
+          <p className="text-xs text-muted-foreground">{legacy ? "Switch to the new A4 format to save to Drive." : "Drive saving uses the latest saved document."}</p>
         </div>
         {/* Action Footer */}
-        <div className="flex flex-wrap items-center justify-end gap-2 pt-1 shrink-0">
+        <div className="grid grid-cols-1 gap-2 border-t pt-3 shrink-0 sm:flex sm:flex-wrap sm:justify-end">
           {po.driveFileLink && (
             <Button
               variant="outline"
+              className="order-3 sm:order-none"
               size="sm"
               onClick={() => window.open(po.driveFileLink!, "_blank")}
             >
@@ -155,6 +156,7 @@ export function PurchaseOrderPreviewModal({ po: initialPo, open, onOpenChange }:
           <Button
             size="sm"
             onClick={handlePrint}
+            className="order-1 sm:order-none"
             disabled={printSaving || driveSaving}
           >
             {printSaving ? (
@@ -167,6 +169,7 @@ export function PurchaseOrderPreviewModal({ po: initialPo, open, onOpenChange }:
           <Button
             size="sm"
             onClick={handleSaveToDrive}
+            className="order-2 sm:order-none"
             disabled={legacy || printSaving || driveSaving}
             variant="outline"
           >

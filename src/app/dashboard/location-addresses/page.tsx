@@ -371,6 +371,7 @@ export default function LocationAddressesPage() {
         onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
+        mobileLayout={{ primary: ["locationName", "address", "companyId"], labels: { locationName: "Location", address: "Address", companyId: "Company", latitude: "Latitude", longitude: "Longitude", actions: "Actions" } }}
       />
 
       <Dialog

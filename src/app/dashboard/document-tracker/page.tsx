@@ -801,6 +801,7 @@ export default function DocumentTrackerPage() {
         columns={columns}
         data={filteredHandoverRecords}
         loading={loading}
+        mobileLayout={{ primary: ["documentNumber", "customerName", "status"], labels: { documentNumber: "Document", customerName: "Customer", assignedToName: "Assigned to", assignedAt: "Assigned at", status: "Status", notes: "Notes", actions: "Actions" } }}
         toolbarFilters={
           <>
             {isAdmin && (

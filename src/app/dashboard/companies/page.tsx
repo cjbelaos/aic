@@ -637,6 +637,7 @@ function CompaniesPageInner() {
 
       <EntityTable
         title="Companies"
+        hideMobileTitle
         columns={columns}
         data={filteredData}
         loading={loading}
@@ -645,6 +646,7 @@ function CompaniesPageInner() {
         onDelete={(row) => setDeleteTarget(row)}
         onExport={() => exportToExcel(data)}
         onImport={handleImport}
+        mobileLayout={{ primary: ["companyName", "companyType", "status"], labels: { companyName: "Company", companyType: "Type", tin: "TIN", address: "Address", status: "Status", actions: "Actions" } }}
       />
 
       <Dialog

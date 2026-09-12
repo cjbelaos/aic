@@ -87,14 +87,14 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
               Delivery Receipt —{" "}
               {dr.drNumber > 0 ? `DR #${dr.drNumber}` : "Draft DR"}
             </span>
-            <span className="text-sm font-medium text-muted-foreground">
+            <span className="max-w-full break-words text-sm font-medium text-muted-foreground">
               {dr.companyName}
             </span>
           </DialogTitle>
         </DialogHeader>
 
         {/* PDF Preview Container */}
-        <div className="flex-1 min-h-48 w-full my-2 border rounded-md overflow-hidden bg-muted/20">
+        <div className="dr-preview-document order-2 flex-1 min-h-48 w-full my-2 border rounded-md overflow-hidden bg-muted/20">
           {legacy ? (
             <iframe src={dr.pdfBase64 ? `data:application/pdf;base64,${dr.pdfBase64}` : dr.printUrl} className="w-full h-full border-none" title="Previous Delivery Receipt format" />
           ) : (
@@ -102,10 +102,10 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
           )}
         </div>
 
-        <Button className="self-start" variant="outline" size="sm" disabled={printSaving || driveSaving || (!legacy && !dr.pdfBase64 && !dr.printUrl)} onClick={() => setLegacy(!legacy)}>{legacy ? "Use new A4 format" : "View previous format"}</Button>
-        <p className="text-xs text-muted-foreground">Print opens the print dialog. Drive saving uses the latest saved document. Switch to the new format to save.</p>
+        <div className="order-0 rounded-md border bg-muted/30 p-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold">Receipt details</p><p className="text-xs text-muted-foreground">Review the latest saved items before printing or updating Drive.</p></div><Button className="self-start" variant="outline" size="sm" disabled={printSaving || driveSaving || (!legacy && !dr.pdfBase64 && !dr.printUrl)} onClick={() => setLegacy(!legacy)}>{legacy ? "Use new A4 format" : "View previous format"}</Button></div></div>
+        <p className="order-1 text-xs text-muted-foreground">Print opens the print dialog. Drive saving uses the latest saved document. Switch to the new format to save.</p>
         {/* Action Footer */}
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center sm:justify-end gap-2 pt-1 shrink-0 [&>button]:whitespace-normal [&>button]:h-auto">
+        <div className="dr-preview-actions order-1 grid grid-cols-2 sm:flex sm:flex-wrap items-center sm:justify-end gap-2 pt-1 shrink-0 [&>button]:whitespace-normal [&>button]:h-auto">
           {legacy && dr.printUrl && (
             <Button
               variant="outline"

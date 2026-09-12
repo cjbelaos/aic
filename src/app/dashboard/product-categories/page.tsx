@@ -189,6 +189,7 @@ export default function ProductCategoriesPage() {
         onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
+        mobileLayout={{ primary: ["code", "name"], labels: { code: "Code", name: "Category", actions: "Actions" } }}
       />
 
       <Dialog

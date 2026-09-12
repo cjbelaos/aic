@@ -237,10 +237,15 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
           totalAmount,
           status: String(row[11] ?? "created").trim() || "created",
           driveFileLink: String(row[12] ?? "").trim() || undefined,
-          createdAt: String(row[13] ?? "").trim(),
-          createdBy: String(row[14] ?? "").trim() || undefined,
-          updatedBy: String(row[15] ?? "").trim() || undefined,
-          updatedDate: String(row[16] ?? "").trim() || undefined,
+          shipToType: String(row[13] ?? "").trim() as "company" | "warehouse" || undefined,
+          shipToId: String(row[14] ?? "").trim() || undefined,
+          shipToName: String(row[15] ?? "").trim() || undefined,
+          shipToAddress: String(row[16] ?? "").trim() || undefined,
+          shipToContact: String(row[17] ?? "").trim() || undefined,
+          createdAt: String(row[18] ?? "").trim(),
+          createdBy: String(row[19] ?? "").trim() || undefined,
+          updatedBy: String(row[20] ?? "").trim() || undefined,
+          updatedDate: String(row[21] ?? "").trim() || undefined,
           items: itemsByPO.get(poNumber) || [],
         };
       })
@@ -319,10 +324,8 @@ export async function processPurchaseOrder(
       String(totalAmount), // K: TotalAmount
       payload.status || "created", // L: Status
       "", // M: DriveFileLink
-      createdAt, // N: CreatedAt
-      userId, // O: CreatedBy
-      userId, // P: UpdatedBy
-      createdAt, // Q: UpdatedAt
+      payload.shipToType || "", payload.shipToId || "", payload.shipToName || "", payload.shipToAddress || "", payload.shipToContact || "",
+      createdAt, userId, userId, createdAt,
     ];
 
     await sheets.spreadsheets.values.append({
@@ -372,7 +375,7 @@ export async function updatePurchaseOrder(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:Q${poRowNumber}`,
+      range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:V${poRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[11] ?? "created").trim();
@@ -427,10 +430,13 @@ export async function updatePurchaseOrder(
       String(totalAmount), // K
       newStatus, // L
       String(currentRow[12] ?? "").trim(), // M: DriveFileLink
-      String(currentRow[13] ?? "").trim(), // N: CreatedAt
-      String(currentRow[14] ?? "").trim(), // O: CreatedBy
-      userId || String(currentRow[15] ?? "").trim(), // P: UpdatedBy
-      updatedAt, // Q: UpdatedAt
+      payload.shipToType ?? String(currentRow[13] ?? "").trim(),
+      payload.shipToId ?? String(currentRow[14] ?? "").trim(),
+      payload.shipToName ?? String(currentRow[15] ?? "").trim(),
+      payload.shipToAddress ?? String(currentRow[16] ?? "").trim(),
+      payload.shipToContact ?? String(currentRow[17] ?? "").trim(),
+      String(currentRow[18] ?? "").trim(), String(currentRow[19] ?? "").trim(),
+      userId || String(currentRow[20] ?? "").trim(), updatedAt,
     ];
 
     await sheets.spreadsheets.values.update({
@@ -532,10 +538,11 @@ export async function updatePurchaseOrder(
       totalAmount: parseFloat(updatedRow[10]) || 0,
       status: updatedRow[11],
       driveFileLink: updatedRow[12] || undefined,
-      createdAt: updatedRow[13],
-      createdBy: updatedRow[14] || undefined,
-      updatedBy: updatedRow[15] || undefined,
-      updatedDate: updatedRow[16] || undefined,
+      shipToType: updatedRow[13] as "company" | "warehouse" || undefined,
+      shipToId: updatedRow[14] || undefined, shipToName: updatedRow[15] || undefined,
+      shipToAddress: updatedRow[16] || undefined, shipToContact: updatedRow[17] || undefined,
+      createdAt: updatedRow[18], createdBy: updatedRow[19] || undefined,
+      updatedBy: updatedRow[20] || undefined, updatedDate: updatedRow[21] || undefined,
       items: payload.items || [],
     };
   } catch (error) {

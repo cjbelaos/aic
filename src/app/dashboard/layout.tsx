@@ -25,7 +25,7 @@ export default function DashboardLayout({
               <div className="flex h-14 items-center gap-3 px-4">
                 {/* Left: sidebar trigger + page title */}
                 <SidebarTrigger className="-ml-1" />
-                <Separator orientation="vertical" className="h-4" />
+                <Separator orientation="vertical" className="h-5 data-vertical:self-center" />
                 <div>
                   <DashboardPageTitle />
                 </div>

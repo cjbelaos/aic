@@ -1,0 +1,5 @@
+import { NextResponse } from "next/server";
+import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { deleteWarehouse, updateWarehouse } from "@/lib/warehouseSheets";
+export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) { const session = await requireAuthenticatedSession(); if (session instanceof Response) return session; try { const { id } = await context.params; const payload = await request.json(); return NextResponse.json(await updateWarehouse(id, payload)); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update warehouse." }, { status: 500 }); } }
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) { const session = await requireAuthenticatedSession(); if (session instanceof Response) return session; try { await deleteWarehouse((await context.params).id); return NextResponse.json({ success: true }); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to delete warehouse." }, { status: 500 }); } }

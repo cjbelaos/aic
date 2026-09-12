@@ -995,6 +995,7 @@ export default function ServiceInvoicesPage() {
           data={displayInvoices}
           loading={loading}
           onCreateNew={openCreateModal}
+          mobileLayout={{ primary: ["invoiceNo", "companyName", "status"], labels: { invoiceNo: "Invoice", date: "Date", companyName: "Customer", preparedBy: "Prepared by", total: "Total", status: "Status", lastUpdated: "Updated", actions: "Actions" } }}
         />
       </div>
 

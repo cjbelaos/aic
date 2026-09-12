@@ -115,6 +115,10 @@ export default function PurchaseOrderPage() {
   const [comments, setComments] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("");
+  const [shipToName, setShipToName] = useState("Aerich Innovation Corp.");
+  const [shipToAddress, setShipToAddress] = useState("BLK 4 LOT 2 BAMBOO ORCHARD BANAY - BANAY\nCABUYAO CITY, LAGUNA");
+  const [shipToContact, setShipToContact] = useState("0968-267-7913 / 0939-910-0597");
+  const [shipToOptions, setShipToOptions] = useState<Array<{ id: string; kind: "company" | "warehouse"; label: string; address: string; contact?: string }>>([]);
   const [paymentTermOptions, setPaymentTermOptions] = useState<PaymentTerm[]>([]);
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -185,6 +189,22 @@ export default function PurchaseOrderPage() {
   useEffect(() => {
     fetchList();
   }, [fetchList]);
+
+  useEffect(() => {
+    fetch("/api/warehouses/options")
+      .then((response) => { if (!response.ok) throw new Error("Unable to load delivery locations"); return response.json(); })
+      .then((data) => {
+        if (!Array.isArray(data)) throw new Error("Invalid delivery locations response");
+        setShipToOptions(data);
+        const company = data.find((option) => option.kind === "company");
+        if (company) {
+          setShipToName(company.label);
+          setShipToAddress(company.address);
+          setShipToContact(company.contact || "");
+        }
+      })
+      .catch(() => toast.error("Unable to load delivery locations. Please reload and try again."));
+  }, []);
 
   /* Load reference data */
   useEffect(() => {
@@ -563,6 +583,7 @@ export default function PurchaseOrderPage() {
   };
 
   const addLineItem = () => {
+    if (!selectedSupplier) return;
     setLineItems([
       ...lineItems,
       { ...EMPTY_LINE_ITEM, itemNo: lineItems.length + 1 },
@@ -570,6 +591,7 @@ export default function PurchaseOrderPage() {
   };
 
   const updateLineItem = (index: number, field: keyof LineItem, value: any) => {
+    if (!selectedSupplier) return;
     const updated = [...lineItems];
     if (field === "supplierProductId") {
       const offering = supplierProducts.find((p) => p.supplierProductId === value);
@@ -643,6 +665,11 @@ export default function PurchaseOrderPage() {
         comments,
         deliveryDate,
         paymentTerms,
+        shipToType: (shipToOptions.find((item) => item.label === shipToName)?.kind || "company") as "company" | "warehouse",
+        shipToId: shipToOptions.find((item) => item.label === shipToName)?.id || "COMP-7",
+        shipToName,
+        shipToAddress,
+        shipToContact,
         items: lineItems.map((item) => ({
           itemNo: item.itemNo,
           productCode: item.productCode,
@@ -983,8 +1010,9 @@ export default function PurchaseOrderPage() {
 
   return (
     <>
-      <div className="p-6 space-y-6">
+      <div className="p-3 sm:p-6 space-y-6 min-w-0">
         <EntityTable
+          mobileLayout={{ primary: ["poNumber", "supplierName", "status", "date", "itemCount", "totalAmount"], labels: { poNumber: "PO number", supplierName: "Supplier", status: "Status", date: "Order date", itemCount: "Items", totalAmount: "Total amount", preparedBy: "Prepared by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Purchase Orders"
           columns={columns}
           data={orders}
@@ -996,7 +1024,7 @@ export default function PurchaseOrderPage() {
       {/* Create PO Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+          className="po-form sm:max-w-[80vw] max-h-[90dvh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -1019,7 +1047,7 @@ export default function PurchaseOrderPage() {
               </div>
               <div className="space-y-2 md:col-span-3">
                 <Label>PO Number</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     value={poNumber}
                     disabled={poNumberMode === "automatic" || printing || drafting}
@@ -1062,25 +1090,32 @@ export default function PurchaseOrderPage() {
               </div>
               <div className="space-y-2">
                 <Label>Payment Terms</Label>
-                <Select value={paymentTerms} onValueChange={setPaymentTerms}><SelectTrigger><SelectValue placeholder="Select payment terms" /></SelectTrigger><SelectContent>{paymentTermOptions.map((term) => <SelectItem key={term.paymentTermId} value={term.name}>{term.name}</SelectItem>)}</SelectContent></Select>
+                <Select value={paymentTerms} onValueChange={setPaymentTerms}><SelectTrigger className="w-full"><SelectValue placeholder="Select payment terms" /></SelectTrigger><SelectContent>{paymentTermOptions.map((term) => <SelectItem key={term.paymentTermId} value={term.name}>{term.name}</SelectItem>)}</SelectContent></Select>
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2"><Label>Ship To</Label><Select value={shipToOptions.some((option) => option.label === shipToName) ? shipToName : ""} onValueChange={(value) => { const option = shipToOptions.find((item) => item.label === value); setShipToName(value); if (option) { setShipToAddress(option.address); setShipToContact(option.contact || ""); } }}><SelectTrigger className="w-full"><SelectValue placeholder="Select delivery location" /></SelectTrigger><SelectContent>{shipToOptions.map((option) => <SelectItem key={option.id} value={option.label}>{option.label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>Ship To Address</Label><Textarea value={shipToAddress} onChange={(e) => setShipToAddress(e.target.value)} rows={2} /></div>
+              <div className="space-y-2"><Label>Ship To Contact</Label><Input value={shipToContact} onChange={(e) => setShipToContact(e.target.value)} /></div>
             </div>
 
             {/* Products Section */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap gap-2 justify-between items-center">
                 <Label className="text-base font-semibold">
                   Products / Items
                 </Label>
-                <Button size="sm" variant="outline" onClick={addLineItem}>
+                <Button size="sm" variant="outline" onClick={addLineItem} disabled={!selectedSupplier}>
                   <Plus className="h-4 w-4 mr-1" /> Add Item
                 </Button>
               </div>
 
+              {!selectedSupplier && <p className="text-sm text-muted-foreground">Select a supplier first.</p>}
               {lineItems.length > 0 && (
-                <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
+                <div className="hidden md:flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
                   <div className="w-10 shrink-0">#</div>
-                  <div className="flex-1 min-w-[200px]">Item / Description</div>
+                  <div className="po-description flex-1 min-w-0 md:min-w-[200px]">Item / Description</div>
                   <div className="w-10 shrink-0" />
                   <div className="w-28 shrink-0">Unit</div>
                   <div className="w-20 shrink-0">Qty</div>
@@ -1091,18 +1126,19 @@ export default function PurchaseOrderPage() {
               )}
 
               {lineItems.map((item, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
+                <div key={idx} className="po-item-row flex min-w-0 flex-col gap-2 items-stretch md:flex-row md:items-center">
                   <div className="w-10 shrink-0 text-center text-sm text-muted-foreground">
                     {item.itemNo}
                   </div>
                   {manualRows.has(idx) ? (
                     <>
                       <Input
-                        className="flex-1 min-w-[200px]"
+                        className="po-description flex-1 min-w-0 md:min-w-[200px]"
                         value={item.description}
                         onChange={(e) =>
                           updateLineItem(idx, "description", e.target.value)
                         }
+                        aria-label={`Description for item ${idx + 1}`}
                         placeholder="Type item name / description"
                       />
                       <Button
@@ -1123,9 +1159,10 @@ export default function PurchaseOrderPage() {
                     </>
                   ) : (
                     <>
-                      <div className="flex-1 min-w-[200px]">
+                      <div className="po-description flex-1 min-w-0 md:min-w-[200px]">
                         <SearchableSelect
                           value={item.supplierProductId}
+                          disabled={!selectedSupplier}
                           onValueChange={(v) =>
                             updateLineItem(idx, "supplierProductId", v)
                           }
@@ -1150,52 +1187,26 @@ export default function PurchaseOrderPage() {
                       </Button>
                     </>
                   )}
-                  <div className="w-28 shrink-0">
-                    <SearchableSelect
-                      value={item.unit}
-                      onValueChange={(v) => updateLineItem(idx, "unit", v)}
-                      options={unitOptionsFor(item.unit)}
-                      placeholder="Unit"
-                      searchPlaceholder="Search units..."
-                    />
+                  <div className="po-fields grid min-w-0 grid-cols-2 gap-3 md:flex md:items-center">
+                    <div className="min-w-0 md:w-28">
+                      <span className="mb-1 block text-sm font-medium md:hidden">Unit</span>
+                      <SearchableSelect value={item.unit} onValueChange={(v) => updateLineItem(idx, "unit", v)} options={unitOptionsFor(item.unit)} placeholder="Unit" searchPlaceholder="Search units..." disabled={!selectedSupplier} />
+                    </div>
+                    <label className="min-w-0 md:w-20">
+                      <span className="mb-1 block text-sm font-medium md:hidden">Quantity</span>
+                      <Input className="w-full" type="number" min="1" value={item.quantity} onChange={(e) => updateLineItem(idx, "quantity", parseInt(e.target.value) || 1)} />
+                    </label>
+                    <label className="min-w-0 md:w-28">
+                      <span className="mb-1 block text-sm font-medium md:hidden">Unit price</span>
+                      <Input className="w-full" type="number" min="0" step="0.01" value={item.pricePerUnit} onChange={(e) => updateLineItem(idx, "pricePerUnit", parseFloat(e.target.value) || 0)} />
+                    </label>
+                    <div className="min-w-0 text-right font-semibold tabular-nums md:w-28">
+                      <span className="mb-1 block text-sm font-medium md:hidden">Total</span>
+                      <span className="break-all">{item.totalAmount.toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span>
+                    </div>
                   </div>
-                  <Input
-                    className="w-20 shrink-0"
-                    type="number"
-                    min="1"
-                    value={item.quantity}
-                    onChange={(e) =>
-                      updateLineItem(
-                        idx,
-                        "quantity",
-                        parseInt(e.target.value) || 1,
-                      )
-                    }
-                  />
-                  <Input
-                    className="w-28 shrink-0"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={item.pricePerUnit}
-                    onChange={(e) =>
-                      updateLineItem(
-                        idx,
-                        "pricePerUnit",
-                        parseFloat(e.target.value) || 0,
-                      )
-                    }
-                  />
-                  <div className="w-28 shrink-0 text-right font-medium tabular-nums">
-                    ₱{item.totalAmount.toFixed(2)}
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="w-10 text-destructive shrink-0"
-                    onClick={() => removeLineItem(idx)}
-                  >
-                    <Trash2 className="h-4 w-4" />
+                  <Button variant="ghost" className="po-remove text-destructive md:w-10 md:shrink-0" aria-label={`Remove item ${idx + 1}`} onClick={() => removeLineItem(idx)}>
+                    <Trash2 className="h-4 w-4" /><span className="md:hidden">Remove item</span>
                   </Button>
                 </div>
               ))}
@@ -1303,7 +1314,7 @@ export default function PurchaseOrderPage() {
         }}
       >
         <DialogContent
-          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+          className="po-form sm:max-w-[80vw] max-h-[90dvh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -1321,7 +1332,7 @@ export default function PurchaseOrderPage() {
                 {editTarget && !editTarget.poNumber.startsWith("DRAFT-") ? (
                   <Input value={editTarget.poNumber} readOnly className="bg-muted" />
                 ) : (
-                  <div className="flex gap-2"><Input value={editPONumber} disabled={editPONumberMode === "automatic" || editSubmitting} onChange={(e) => setEditPONumber(e.target.value.toUpperCase())} placeholder={editPONumberMode === "automatic" ? "Automatically generated when finalized" : "AIC-PO-YYYY-NNNN"} />
+                  <div className="flex flex-col gap-2 sm:flex-row"><Input value={editPONumber} disabled={editPONumberMode === "automatic" || editSubmitting} onChange={(e) => setEditPONumber(e.target.value.toUpperCase())} placeholder={editPONumberMode === "automatic" ? "Automatically generated when finalized" : "AIC-PO-YYYY-NNNN"} />
                     {isAdmin && <Button type="button" variant="outline" disabled={editSubmitting} onClick={() => { if (editPONumberMode === "manual") { setEditPONumberMode("automatic"); setEditPONumber(""); } else setEditPONumberMode("manual"); }}>{editPONumberMode === "manual" ? "Use automatic number" : "Enter manually"}</Button>}
                   </div>
                 )}
@@ -1364,13 +1375,13 @@ export default function PurchaseOrderPage() {
               </div>
               <div className="space-y-2">
                 <Label>Payment Terms</Label>
-                <Select value={editPaymentTerms} onValueChange={setEditPaymentTerms}><SelectTrigger><SelectValue placeholder="Select payment terms" /></SelectTrigger><SelectContent>{[...new Set([editPaymentTerms, ...paymentTermOptions.map((term) => term.name)])].filter(Boolean).map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select>
+                <Select value={editPaymentTerms} onValueChange={setEditPaymentTerms}><SelectTrigger className="w-full"><SelectValue placeholder="Select payment terms" /></SelectTrigger><SelectContent>{[...new Set([editPaymentTerms, ...paymentTermOptions.map((term) => term.name)])].filter(Boolean).map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select>
               </div>
             </div>
 
             {/* Products Section - Edit PO */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap gap-2 justify-between items-center">
                 <Label className="text-base font-semibold">
                   Products / Items
                 </Label>
@@ -1380,9 +1391,9 @@ export default function PurchaseOrderPage() {
               </div>
 
               {editLineItems.length > 0 && (
-                <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
+                <div className="hidden md:flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
                   <div className="w-10 shrink-0">#</div>
-                  <div className="flex-1 min-w-[200px]">Item / Description</div>
+                  <div className="po-description flex-1 min-w-0 md:min-w-[200px]">Item / Description</div>
                   <div className="w-10 shrink-0" />
                   <div className="w-28 shrink-0">Unit</div>
                   <div className="w-20 shrink-0">Qty</div>
@@ -1393,18 +1404,19 @@ export default function PurchaseOrderPage() {
               )}
 
               {editLineItems.map((item, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
+                <div key={idx} className="po-item-row flex min-w-0 flex-col gap-2 items-stretch md:flex-row md:items-center">
                   <div className="w-10 shrink-0 text-center text-sm text-muted-foreground">
                     {item.itemNo}
                   </div>
                   {editManualRows.has(idx) ? (
                     <>
                       <Input
-                        className="flex-1 min-w-[200px]"
+                        className="po-description flex-1 min-w-0 md:min-w-[200px]"
                         value={item.description}
                         onChange={(e) =>
                           updateEditLineItem(idx, "description", e.target.value)
                         }
+                        aria-label={`Description for item ${idx + 1}`}
                         placeholder="Type item name / description"
                       />
                       <Button
@@ -1425,9 +1437,10 @@ export default function PurchaseOrderPage() {
                     </>
                   ) : (
                     <>
-                      <div className="flex-1 min-w-[200px]">
+                      <div className="po-description flex-1 min-w-0 md:min-w-[200px]">
                         <SearchableSelect
                           value={item.supplierProductId}
+                          disabled={!selectedSupplier}
                           onValueChange={(v) =>
                             updateEditLineItem(idx, "supplierProductId", v)
                           }
@@ -1452,52 +1465,26 @@ export default function PurchaseOrderPage() {
                       </Button>
                     </>
                   )}
-                  <div className="w-28 shrink-0">
-                    <SearchableSelect
-                      value={item.unit}
-                      onValueChange={(v) => updateEditLineItem(idx, "unit", v)}
-                      options={unitOptionsFor(item.unit)}
-                      placeholder="Unit"
-                      searchPlaceholder="Search units..."
-                    />
+                  <div className="po-fields grid min-w-0 grid-cols-2 gap-3 md:flex md:items-center">
+                    <div className="min-w-0 md:w-28">
+                      <span className="mb-1 block text-sm font-medium md:hidden">Unit</span>
+                      <SearchableSelect value={item.unit} onValueChange={(v) => updateEditLineItem(idx, "unit", v)} options={unitOptionsFor(item.unit)} placeholder="Unit" searchPlaceholder="Search units..." disabled={!selectedSupplier} />
+                    </div>
+                    <label className="min-w-0 md:w-20">
+                      <span className="mb-1 block text-sm font-medium md:hidden">Quantity</span>
+                      <Input className="w-full" type="number" min="1" value={item.quantity} onChange={(e) => updateEditLineItem(idx, "quantity", parseInt(e.target.value) || 1)} />
+                    </label>
+                    <label className="min-w-0 md:w-28">
+                      <span className="mb-1 block text-sm font-medium md:hidden">Unit price</span>
+                      <Input className="w-full" type="number" min="0" step="0.01" value={item.pricePerUnit} onChange={(e) => updateEditLineItem(idx, "pricePerUnit", parseFloat(e.target.value) || 0)} />
+                    </label>
+                    <div className="min-w-0 text-right font-semibold tabular-nums md:w-28">
+                      <span className="mb-1 block text-sm font-medium md:hidden">Total</span>
+                      <span className="break-all">{item.totalAmount.toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</span>
+                    </div>
                   </div>
-                  <Input
-                    className="w-20 shrink-0"
-                    type="number"
-                    min={1}
-                    value={item.quantity}
-                    onChange={(e) =>
-                      updateEditLineItem(
-                        idx,
-                        "quantity",
-                        parseInt(e.target.value) || 1,
-                      )
-                    }
-                  />
-                  <Input
-                    className="w-28 shrink-0"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={item.pricePerUnit}
-                    onChange={(e) =>
-                      updateEditLineItem(
-                        idx,
-                        "pricePerUnit",
-                        parseFloat(e.target.value) || 0,
-                      )
-                    }
-                  />
-                  <div className="w-28 shrink-0 text-right font-medium tabular-nums">
-                    ₱{item.totalAmount.toFixed(2)}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="w-10 text-destructive shrink-0"
-                    onClick={() => removeEditLineItem(idx)}
-                  >
-                    <Trash2 className="h-4 w-4" />
+                  <Button variant="ghost" className="po-remove text-destructive md:w-10 md:shrink-0" aria-label={`Remove item ${idx + 1}`} onClick={() => removeEditLineItem(idx)}>
+                    <Trash2 className="h-4 w-4" /><span className="md:hidden">Remove item</span>
                   </Button>
                 </div>
               ))}
@@ -1732,7 +1719,7 @@ export default function PurchaseOrderPage() {
 
       <Dialog open={quickAddProductOpen} onOpenChange={setQuickAddProductOpen}>
         <DialogContent
-          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+          className="po-form sm:max-w-[80vw] max-h-[90dvh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >

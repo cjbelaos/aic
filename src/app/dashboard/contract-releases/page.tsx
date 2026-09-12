@@ -938,7 +938,7 @@ export default function ContractReleasesPage() {
               </div>
 
               <div className="space-y-2">
-                <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-muted-foreground px-1">
+                <div className="hidden sm:grid sm:grid-cols-12 gap-2 text-xs font-semibold text-muted-foreground px-1">
                   <div className="col-span-6">Product / Entitlement</div>
                   <div className="col-span-3">Unit</div>
                   <div className="col-span-2">Release Qty</div>
@@ -948,7 +948,7 @@ export default function ContractReleasesPage() {
                 {releaseRows.map((row, index) => (
                   <div
                     key={index}
-                    className="grid grid-cols-12 gap-2 items-center p-2 border rounded-md bg-card/60"
+                    className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center p-2 border rounded-md bg-card/60"
                   >
                     <div className="col-span-6">
                       {row.contractItemId ? (

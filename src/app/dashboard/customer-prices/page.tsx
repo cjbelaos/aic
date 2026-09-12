@@ -264,6 +264,7 @@ export default function CustomerPricesPage() {
         onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
+        mobileLayout={{ primary: ["companyName", "productCode", "pricePerUnit"], labels: { companyName: "Customer", productCode: "Product", pricePerUnit: "Price per unit", actions: "Actions" } }}
       />
 
       <Dialog

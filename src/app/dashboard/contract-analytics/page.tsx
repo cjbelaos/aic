@@ -291,7 +291,7 @@ export default function ContractAnalyticsPage() {
       </Card>
 
       {/* ── Summary Cards ──────────────────────────────── */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard title="Total Entitled" value={metrics.totalEntitled} icon={PackageCheck} />
         <SummaryCard
           title="Total Released" value={metrics.totalReleased}

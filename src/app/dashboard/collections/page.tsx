@@ -426,6 +426,7 @@ export default function CollectionsPage() {
               setError("");
               setScheduleModalOpen(true);
             }}
+            mobileLayout={{ primary: ["companyId", "scheduledDate", "status"], labels: { companyId: "Company", scheduledDate: "Scheduled date", notes: "Notes", status: "Status", actions: "Actions" } }}
           />
         </TabsContent>
 
@@ -435,6 +436,7 @@ export default function CollectionsPage() {
             columns={historyColumns}
             data={historyList}
             loading={loading}
+            mobileLayout={{ primary: ["collectionId", "companyId", "amountCollected"], labels: { collectionId: "Collection", companyId: "Company", description: "Description", amountCollected: "Amount", collectedDate: "Collected date", actions: "Actions" } }}
           />
         </TabsContent>
       </Tabs>

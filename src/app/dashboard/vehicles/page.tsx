@@ -270,6 +270,7 @@ return (
           onCreateNew={openCreate}
           onEdit={openEdit}
           onDelete={(row) => setDeleteTarget(row)}
+          mobileLayout={{ primary: ["vehicleId", "makeAndModel", "status"], labels: { vehicleId: "Vehicle ID", makeAndModel: "Vehicle", licensePlate: "Plate", year: "Year", currentMileage: "Mileage", lastPmsDate: "Last PMS", nextPmsDate: "Next PMS", registrationExpiry: "Registration", insuranceExpiry: "Insurance", status: "Status", actions: "Actions" } }}
         />
       </div>
 

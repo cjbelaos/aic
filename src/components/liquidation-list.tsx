@@ -727,6 +727,7 @@ export function LiquidationList() {
         data={sortedLiquidations}
         loading={false}
         headerActions={createNewElement}
+        mobileLayout={{ primary: ["controlNo", "requesterName", "status"], labels: { controlNo: "Control no.", requesterName: "Requester", totalAmount: "Total", status: "Status", updatedAt: "Updated", actions: "Actions" } }}
       />
 
       {/* Items Modal - Table View */}

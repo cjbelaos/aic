@@ -149,7 +149,7 @@ export default function GoogleTokenPage() {
 // ═══════════════ PASSWORD GATE ═══════════════
   if (step === "password-gate") {
     return (
-      <div className="flex items-center justify-center min-h-[80vh]">
+      <div className="flex min-h-[80vh] items-center justify-center p-3 sm:p-6">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -199,7 +199,7 @@ export default function GoogleTokenPage() {
 
   // ═══════════════ TOKEN GENERATOR ═══════════════
   return (
-    <div className="flex items-center justify-center min-h-[80vh]">
+    <div className="flex min-h-[80vh] items-center justify-center p-3 sm:p-6">
       <Card className="w-full max-w-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

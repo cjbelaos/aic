@@ -188,3 +188,13 @@
   [data-slot="calendar"] { --cell-size: min(44px, calc((100vw - 64px) / 7)); }
   [data-slot="calendar"] [data-slot="button"] { min-width: var(--cell-size); min-height: var(--cell-size); }
 }
+@media screen and (max-width: 767px) {
+  .po-item-row { display: flex; flex-direction: column; align-items: stretch; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 12px; gap: 12px; }
+  .po-item-row > .po-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .po-item-row > .po-remove { width: 100%; }
+  .po-form > div { min-width: 0; max-width: 100%; }
+  .po-item-row > .po-description { grid-column: 1 / -1; width: 100%; }
+  .po-item-row > div:not(.po-description), .po-item-row > input, .po-item-row > label { width: 100%; min-width: 0; }
+  .po-item-row [role="combobox"] { width: 100%; }
+  .po-form [data-slot="dialog-footer"] { position: static; background: var(--background); padding-top: 12px; }
+}

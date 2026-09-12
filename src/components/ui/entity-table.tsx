@@ -42,6 +42,7 @@ export { ArrowUpDown };
 
 interface EntityTableProps<TData> {
   title: string;
+  hideMobileTitle?: boolean;
   columns: ColumnDef<TData>[];
   data: TData[];
   loading?: boolean;
@@ -61,6 +62,7 @@ interface EntityTableProps<TData> {
 
 export function EntityTable<TData>({
   title,
+  hideMobileTitle = false,
   columns,
   data,
   loading = false,
@@ -213,7 +215,7 @@ export function EntityTable<TData>({
     <div className="space-y-4 min-w-0" data-mobile-list={!!mobileLayout}>
       {/* Header row */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-lg font-semibold">{title}</h1>
+        <h1 className={hideMobileTitle ? "sr-only md:not-sr-only md:text-lg md:font-semibold" : "text-lg font-semibold"}>{title}</h1>
         {headerActions ? (
           headerActions
         ) : onCreateNew ? (
@@ -322,9 +324,11 @@ export function EntityTable<TData>({
           {loading ? <p role="status" className="py-8 text-center">Loading...</p> : !table.getRowModel().rows.length ? <p role="status" className="py-8 text-center">No results found.</p> : table.getRowModel().rows.map(row => {
             const cells = row.getVisibleCells();
             const field = (cell: typeof cells[number]) => <div key={cell.id} className="min-w-0 space-y-1"><dt className="text-xs text-muted-foreground">{mobileLayout.labels[cell.column.id] ?? cell.column.id}</dt><dd className="break-words text-sm [overflow-wrap:anywhere]">{flexRender(cell.column.columnDef.cell, cell.getContext())}</dd></div>;
+            const statusCell = cells.find(cell => cell.column.id === "status");
             const extra = cells.filter(cell => !mobileLayout.primary.includes(cell.column.id) && cell.column.id !== "actions");
             return <article key={row.id} className="rounded-lg border bg-background p-4 space-y-3">
-              <dl className="grid grid-cols-1 gap-3">{mobileLayout.primary.map(id => cells.find(cell => cell.column.id === id)).filter(cell => !!cell).map(field)}</dl>
+              {statusCell && <div className="flex items-start justify-between gap-3"><span className="text-base font-semibold">{mobileLayout.labels[mobileLayout.primary[0]] ? String(row.getValue(mobileLayout.primary[0]) ?? "") : "Record"}</span><span className="shrink-0">{flexRender(statusCell.column.columnDef.cell, statusCell.getContext())}</span></div>}
+              <dl className="grid grid-cols-1 gap-3">{mobileLayout.primary.filter(id => id !== "status" && !(statusCell && id === mobileLayout.primary[0])).map(id => cells.find(cell => cell.column.id === id)).filter(cell => !!cell).map(field)}</dl>
               {extra.length > 0 && <details><summary className="cursor-pointer py-3 text-sm font-medium">More details</summary><dl className="grid gap-3">{extra.map(field)}</dl></details>}
               <div className="flex flex-wrap gap-2 border-t pt-3">{onRowClick && <Button variant="outline" onClick={() => onRowClick(row.original)}>View details</Button>}{cells.filter(cell => cell.column.id === "actions").map(cell => <div key={cell.id} className="mobile-record-actions">{flexRender(cell.column.columnDef.cell, cell.getContext())}</div>)}</div>
             </article>;

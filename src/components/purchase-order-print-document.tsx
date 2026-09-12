@@ -5,6 +5,9 @@ const money = (value: number) => value.toLocaleString("en-PH", { minimumFraction
 
 export function PurchaseOrderPrintDocument({ po }: { po: PurchaseOrderResponse }) {
   const subtotal = po.totalAmount ?? po.items.reduce((sum, item) => sum + (item.totalAmount ?? item.quantity * item.pricePerUnit), 0);
+  const shipName = po.shipToName || "Aerich Innovation Corp.";
+  const shipAddress = po.shipToAddress || "BLK 4 LOT 2 BAMBOO ORCHARD BANAY - BANAY\\nCABUYAO CITY, LAGUNA";
+  const shipContact = po.shipToContact || "0968-267-7913 / 0939-910-0597";
   return (
     <main className="receipt">
       <table aria-label="Purchase order items">
@@ -16,7 +19,6 @@ export function PurchaseOrderPrintDocument({ po }: { po: PurchaseOrderResponse }
               <div><div className="label">Supplier</div><div className="customer">{po.supplierName}</div><div className="multiline">{po.address}</div><div>TIN: {po.tin || "—"}</div></div>
               <div><div><b>Date:</b> {po.date}</div><div><b>PR No.:</b> {po.prNumber || "—"}</div><div className="label">Ship to</div><b>Aerich Innovation Corp.</b><div>Banay - Banay Cabuyao City, Laguna</div><div>0968-267-7913 / 0939-910-0597</div></div>
             </div>
-            <div className="notes">Aerich Innovation Corp. · BLK 4 LOT 2 BAMBOO ORCHARD BANAY - BANAY, CABUYAO CITY, LAGUNA<br />aerichinnovationcorp@gmail.com · 0939-910-0597</div>
           </th></tr>
           <tr className="columns"><th scope="col">#</th><th scope="col">Description</th><th scope="col" className="qty">Qty</th><th scope="col">Unit</th><th scope="col" className="qty">Unit price</th><th scope="col" className="qty">Amount</th></tr>
         </thead>

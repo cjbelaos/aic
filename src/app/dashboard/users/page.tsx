@@ -344,6 +344,7 @@ export default function UsersPage() {
         onCreateNew={isAdmin ? openCreate : undefined}
         onEdit={isAdmin ? openEdit : undefined}
         onDelete={isAdmin ? (row) => setDeleteTarget(row) : undefined}
+        mobileLayout={{ primary: ["fullName", "username", "email"], labels: { fullName: "Name", username: "Username", email: "Email", userRoleId: "Role", createdAt: "Created", lastLogin: "Last login", actions: "Actions" } }}
       />
 
       {!isAdmin && !loading && (

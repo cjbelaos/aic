@@ -653,6 +653,7 @@ export default function ProductsPage() {
         onExport={() => exportToExcel(data)}
         onImport={handleImport}
         onRowClick={setDetailTarget}
+        mobileLayout={{ primary: ["code", "name", "categoryName"], labels: { code: "Product code", name: "Product", categoryName: "Category", unitName: "Unit", supplierCount: "Suppliers", pricePerUnit: "Selling price", actions: "Actions" } }}
       />
 
       <Dialog

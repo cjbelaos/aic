@@ -2119,6 +2119,7 @@ export default function FieldTravelItineraryPage() {
           data={filteredRequests}
           loading={false}
           onCreateNew={handleCreateNew}
+          mobileLayout={{ primary: ["controlNo", "userName", "status"], labels: { controlNo: "Control no.", userName: "Technician", dateCreated: "Created", status: "Status", totalAmount: "Total", actions: "Actions" } }}
         />
 
         <ConfirmDeleteDialog

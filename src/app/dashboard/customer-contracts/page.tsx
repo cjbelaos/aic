@@ -661,6 +661,7 @@ export default function CustomerContractsPage() {
         onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
+        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Monthly fee", totalProducts: "Products", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
       />
 

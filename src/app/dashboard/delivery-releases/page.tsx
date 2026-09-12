@@ -1101,14 +1101,24 @@ export default function DeliveryReleasePage() {
 
   return (
     <>
-      <div className="p-6 space-y-6">
+      <div className="p-3 sm:p-6 space-y-6 min-w-0">
+        <div className="rounded-lg border bg-card p-4 sm:p-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Delivery management</p>
+          <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+            <div><h1 className="text-2xl font-semibold tracking-tight">Delivery receipts</h1><p className="text-sm text-muted-foreground">Review deliveries and manage documents.</p></div>
+            <Button onClick={openCreateModal} className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"><Plus className="mr-2 h-4 w-4" />New delivery receipt</Button>
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:max-w-xl sm:gap-3">
+            {[{ label: "Receipts", value: filteredReceipts.length }, { label: "Created", value: filteredReceipts.filter(r => r.status !== "draft").length }, { label: "Drafts", value: filteredReceipts.filter(r => r.status === "draft").length }].map(metric => <div key={metric.label} className="rounded-md bg-muted/60 px-3 py-2"><span className="block text-xs text-muted-foreground">{metric.label}</span><strong className="text-xl tabular-nums">{metric.value}</strong></div>)}
+          </div>
+        </div>
         <EntityTable
           mobileLayout={{ primary: ["drNumber", "companyName", "status", "date", "itemCount"], labels: { drNumber: "DR number", companyName: "Customer", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Delivery Receipts"
           columns={columns}
           data={filteredReceipts}
           loading={loading}
-          onCreateNew={openCreateModal}
+          onCreateNew={undefined}
           toolbarFilters={
             <>
               <div className="flex flex-wrap items-center gap-2">

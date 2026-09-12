@@ -199,7 +199,7 @@ export default function SupplierProductsPage() {
   };
 
   return <>
-    <EntityTable title={requestedProductId ? "Supplier Products for Product" : "Supplier Products"} columns={columns} data={visibleRows} loading={loading} onCreateNew={openCreate} onEdit={openEdit} onDelete={setDeleteTarget} />
+    <EntityTable title={requestedProductId ? "Supplier Products for Product" : "Supplier Products"} columns={columns} data={visibleRows} loading={loading} onCreateNew={openCreate} onEdit={openEdit} onDelete={setDeleteTarget} mobileLayout={{ primary: ["supplierProductName", "product", "supplier"], labels: { supplierProductName: "Supplier product", product: "Product", supplier: "Supplier", costPerUnit: "Cost / unit", isPreferredSupplier: "Preferred", status: "Status", actions: "Actions" } }} />
 
     <Dialog open={modalOpen} onOpenChange={(open) => { if (!saving) setModalOpen(open); }}>
       <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
