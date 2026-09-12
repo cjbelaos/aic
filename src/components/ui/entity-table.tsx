@@ -56,6 +56,7 @@ interface EntityTableProps<TData> {
   onImport?: (file: File) => void;
   onRowClick?: (row: TData) => void;
   getRowId?: (row: TData) => string;
+  mobileLayout?: { primary: string[]; labels: Record<string, string> };
 }
 
 export function EntityTable<TData>({
@@ -72,6 +73,7 @@ export function EntityTable<TData>({
   onImport,
   onRowClick,
   getRowId,
+  mobileLayout,
 }: EntityTableProps<TData>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
@@ -91,7 +93,7 @@ export function EntityTable<TData>({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            aria-label="Edit record" className="h-8 w-8 text-muted-foreground hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
               onEdit(row.original);
@@ -104,7 +106,7 @@ export function EntityTable<TData>({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+            aria-label="Delete record" className="h-8 w-8 text-muted-foreground hover:text-destructive"
             onClick={(event) => {
               event.stopPropagation();
               onDelete(row.original);
@@ -208,7 +210,7 @@ export function EntityTable<TData>({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0" data-mobile-list={!!mobileLayout}>
       {/* Header row */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-lg font-semibold">{title}</h1>
@@ -296,6 +298,7 @@ export function EntityTable<TData>({
 
           {/* Right: search */}
           <Input
+            aria-label={`Search ${title}`}
             placeholder="Search..."
             value={globalFilter}
             onChange={(e) => {
@@ -308,8 +311,27 @@ export function EntityTable<TData>({
           />
         </div>
 
+        {mobileLayout && <div className="space-y-3 md:hidden">
+          <label className="flex flex-wrap items-center gap-2 text-sm">Sort by
+            <select aria-label="Sort records" className="min-h-11 max-w-full rounded-md border bg-background px-2 text-base" value={sorting[0]?.id ?? ""} onChange={event => setSorting(event.target.value ? [{ id: event.target.value, desc: false }] : [])}>
+              <option value="">Default order</option>
+              {table.getAllLeafColumns().filter(column => column.getCanSort()).map(column => <option key={column.id} value={column.id}>{mobileLayout.labels[column.id] ?? column.id}</option>)}
+            </select>
+            {sorting.length > 0 && <Button variant="outline" onClick={() => setSorting([{ ...sorting[0], desc: !sorting[0].desc }])}>{sorting[0].desc ? "Descending" : "Ascending"}</Button>}
+          </label>
+          {loading ? <p role="status" className="py-8 text-center">Loading...</p> : !table.getRowModel().rows.length ? <p role="status" className="py-8 text-center">No results found.</p> : table.getRowModel().rows.map(row => {
+            const cells = row.getVisibleCells();
+            const field = (cell: typeof cells[number]) => <div key={cell.id} className="min-w-0 space-y-1"><dt className="text-xs text-muted-foreground">{mobileLayout.labels[cell.column.id] ?? cell.column.id}</dt><dd className="break-words text-sm [overflow-wrap:anywhere]">{flexRender(cell.column.columnDef.cell, cell.getContext())}</dd></div>;
+            const extra = cells.filter(cell => !mobileLayout.primary.includes(cell.column.id) && cell.column.id !== "actions");
+            return <article key={row.id} className="rounded-lg border bg-background p-4 space-y-3">
+              <dl className="grid grid-cols-1 gap-3">{mobileLayout.primary.map(id => cells.find(cell => cell.column.id === id)).filter(cell => !!cell).map(field)}</dl>
+              {extra.length > 0 && <details><summary className="cursor-pointer py-3 text-sm font-medium">More details</summary><dl className="grid gap-3">{extra.map(field)}</dl></details>}
+              <div className="flex flex-wrap gap-2 border-t pt-3">{onRowClick && <Button variant="outline" onClick={() => onRowClick(row.original)}>View details</Button>}{cells.filter(cell => cell.column.id === "actions").map(cell => <div key={cell.id} className="mobile-record-actions">{flexRender(cell.column.columnDef.cell, cell.getContext())}</div>)}</div>
+            </article>;
+          })}
+        </div>}
         {/* Table wrapper with horizontal scroll */}
-        <div className="overflow-x-auto -mx-4 -mb-4 px-4 pb-4">
+        <div className={`${mobileLayout ? "hidden md:block " : ""}overflow-x-auto -mx-4 -mb-4 px-4 pb-4`}>
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map((hg) => (
@@ -373,7 +395,7 @@ export function EntityTable<TData>({
           <p className="text-sm text-muted-foreground">
             Showing {from} to {to} of {filteredRowCount} entries
           </p>
-          <div className="flex items-center gap-1 overflow-x-auto">
+          <div className="flex flex-wrap items-center gap-1">
             <Button
               type="button"
               variant="outline"
@@ -390,11 +412,12 @@ export function EntityTable<TData>({
             >
               ←
             </Button>
+            {mobileLayout && <span className="px-2 text-sm md:hidden">Page {pageCount ? pageIndex + 1 : 0} of {pageCount}</span>}
             {getPageNumbers().map((p, idx) =>
               p === "ellipsis" ? (
                 <span
                   key={`ellipsis-${idx}`}
-                  className="px-1 text-sm text-muted-foreground select-none"
+                  className={`${mobileLayout ? "hidden md:inline " : ""}px-1 text-sm text-muted-foreground select-none`}
                 >
                   …
                 </span>
@@ -404,7 +427,7 @@ export function EntityTable<TData>({
                   type="button"
                   variant={pageIndex === p ? "default" : "outline"}
                   size="icon"
-                  className={`h-8 w-8 flex-shrink-0 ${pageIndex === p ? "bg-blue-600 text-white hover:bg-blue-700" : ""}`}
+                  className={`${mobileLayout ? "hidden md:inline-flex " : ""}h-8 w-8 flex-shrink-0 ${pageIndex === p ? "bg-blue-600 text-white hover:bg-blue-700" : ""}`}
                   onClick={() =>
                     handlePageClick(() => table.setPageIndex(p))
                   }

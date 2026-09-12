@@ -1,0 +1,18 @@
+﻿const fs = require('fs');
+const base = 'C:/Users/chris/KOS/02 - Projects/Active/AIC/';
+const target = base + 'MOBILE-RESPONSIVENESS-PLAN.md';
+if (fs.existsSync(target)) throw Error('KOS plan exists; inspect before updating.');
+let plan = fs.readFileSync('C:/Users/chris/aic/docs/MOBILE-RESPONSIVENESS-PLAN.md', 'utf8');
+plan = plan.replace('Last completed work: repository inventory and this plan only.', 'Last completed work: inventory, plan, and standalone mobile DR mockup. Layout approval and browser verification remain pending.');
+plan = plan.replace('Read docs/MOBILE-RESPONSIVENESS-PLAN.md, inspect', 'Read this KOS checklist and the AIC project handoff, inspect');
+plan += '\n\n## DR mobile mockup\n\n- Local preview: `C:/Users/chris/aic/tmp/mobile-preview/delivery-receipts-mobile.html`.\n- Sample records, sidebar drawer, search/status filters, expandable details, and item view. JavaScript syntax checked; browser verification pending.\n- No application pages changed for the mockup. Chris has not yet approved its layout.\n- Resume M01 with mockup review and baseline verification; do not mark it complete based on the mockup alone.\n\n## Checklist maintenance\n\nThis KOS file is the authoritative checklist. The repository plan file is a pointer only. Update task/route checkboxes here and refresh the project handoff after each session. Keep code and preview assets in the repository.\n';
+fs.writeFileSync(target, '---\ntitle: "AIC Mobile Usability Checklist"\ntype: project-plan\nstatus: planned\nowner: "Chris"\nai_access: internal\nai_generated: true\nreview_status: draft\ncanonical: true\n---\n\n' + plan);
+const contextPath = base + 'PROJECT-CONTEXT.md';
+fs.appendFileSync(contextPath, '\n\n## Mobile usability workstream\n\n- Canonical tasks and route coverage: [[MOBILE-RESPONSIVENESS-PLAN]]\n- Current state and resume instructions: [[handoff]]\n- Small batches: shared navigation and list patterns, then individual pages. Preserve desktop workflows and A4 print layouts.\n- Mobile DR mockup awaits review; no implementation batch is complete.\n');
+const handoffPath = base + 'handoff.md';
+let handoff = fs.readFileSync(handoffPath, 'utf8');
+handoff = handoff.replace('First KOS registration pass: capture AIC as an active project and extract reusable knowledge.', 'Current workstream: improve mobile usability in small sessions using [[MOBILE-RESPONSIVENESS-PLAN]]. Registration details below remain prior context.');
+handoff = handoff.replace('Chris reviews the drafted files and corrects/clarifies any inferred details.', 'Resume M01: review the proposed mobile DR mockup with Chris and verify the mobile baseline. Read the checklist and inspect the repository diff before editing.');
+handoff += '\n\n# Mobile Workstream Handoff\n\n- Repository: `C:/Users/chris/aic`.\n- Checklist: [[MOBILE-RESPONSIVENESS-PLAN]]; 20 ordered batches, 34 routes. No implementation batch complete.\n- Mockup: `C:/Users/chris/aic/tmp/mobile-preview/delivery-receipts-mobile.html`; sample data only, approval pending.\n- Proposed phone pattern: stacked records with expandable details and a sidebar drawer; retain desktop tables.\n- A connected browser was unavailable during prior work; recheck availability for baseline and real-phone verification.\n- Preserve uncommitted DR/PO print, PDF, Drive-update, and toolbar changes. Their live print/Drive verification remains pending.\n- Next: M01 baseline and mockup review, then M02 navigation. Update this handoff and checklist after each session.\n';
+fs.writeFileSync(handoffPath, handoff);
+console.log('Created canonical KOS checklist; updated AIC context and handoff.');

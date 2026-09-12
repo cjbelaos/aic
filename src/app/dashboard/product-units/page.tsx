@@ -289,6 +289,7 @@ export default function ProductUnitsPage() {
   return (
     <>
       <EntityTable
+        mobileLayout={{ primary: ["code", "name"], labels: { code: "Unit code", name: "Unit name", actions: "Actions" } }}
         title="Product Unit List"
         columns={columns}
         data={data}

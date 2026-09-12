@@ -1103,6 +1103,7 @@ export default function DeliveryReleasePage() {
     <>
       <div className="p-6 space-y-6">
         <EntityTable
+          mobileLayout={{ primary: ["drNumber", "companyName", "status", "date", "itemCount"], labels: { drNumber: "DR number", companyName: "Customer", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Delivery Receipts"
           columns={columns}
           data={filteredReceipts}
@@ -1110,13 +1111,13 @@ export default function DeliveryReleasePage() {
           onCreateNew={openCreateModal}
           toolbarFilters={
             <>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-muted-foreground whitespace-nowrap">
                   Assigned to
                 </span>
                 <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
                   <SelectTrigger
-                    className="h-8 w-[200px]"
+                    className="h-8 w-full sm:w-[200px]"
                     aria-label="Filter delivery receipts by assignee"
                   >
                     <SelectValue placeholder="All assignees" />
@@ -1131,7 +1132,7 @@ export default function DeliveryReleasePage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-muted-foreground whitespace-nowrap">
                   Linked document
                 </span>
@@ -1140,7 +1141,7 @@ export default function DeliveryReleasePage() {
                   onValueChange={setLinkedDocumentFilter}
                 >
                   <SelectTrigger
-                    className="h-8 w-[200px]"
+                    className="h-8 w-full sm:w-[200px]"
                     aria-label="Filter delivery receipts by linked document type"
                   >
                     <SelectValue placeholder="All delivery receipts" />
@@ -1162,7 +1163,7 @@ export default function DeliveryReleasePage() {
       {/* Create DR Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+          className="dr-form sm:max-w-[80vw] max-h-[90dvh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -1237,7 +1238,7 @@ export default function DeliveryReleasePage() {
 
             {/* Products Section - Create DR */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap gap-2 justify-between items-center">
                 <Label className="text-base font-semibold">
                   Products / Consumables
                 </Label>
@@ -1247,8 +1248,8 @@ export default function DeliveryReleasePage() {
               </div>
 
               {lineItems.length > 0 && (
-                <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
-                  <div className="flex-1 min-w-[200px]">Item / Description</div>
+                <div className="hidden md:flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
+                  <div className="dr-description flex-1 min-w-0 md:min-w-[200px]">Item / Description</div>
                   <div className="w-10 shrink-0" />
                   <div className="w-28 shrink-0">Unit</div>
                   <div className="w-24 shrink-0">Qty</div>
@@ -1257,15 +1258,17 @@ export default function DeliveryReleasePage() {
               )}
 
               {lineItems.map((item, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
+                <div key={idx} className="dr-item-row flex gap-2 items-center">
+                  <span className="dr-item-label md:hidden">Item {idx + 1}</span>
                   {manualRows.has(idx) ? (
                     <>
                       <Input
-                        className="flex-1 min-w-[200px]"
+                        className="dr-description flex-1 min-w-0 md:min-w-[200px]"
                         value={item.description}
                         onChange={(e) =>
                           updateLineItem(idx, "description", e.target.value)
                         }
+                        aria-label={`Description for item ${idx + 1}`}
                         placeholder="Type item name / description"
                       />
                       <Button
@@ -1286,7 +1289,7 @@ export default function DeliveryReleasePage() {
                     </>
                   ) : (
                     <>
-                      <div className="flex-1 min-w-[200px]">
+                      <div className="dr-description flex-1 min-w-0 md:min-w-[200px]">
                         <SearchableSelect
                           value={item.productCode}
                           onValueChange={(v) =>
@@ -1314,6 +1317,7 @@ export default function DeliveryReleasePage() {
                     </>
                   )}
                   <div className="w-28 shrink-0">
+                    <span className="block text-xs text-muted-foreground md:hidden">Unit</span>
                     <SearchableSelect
                       value={item.unit}
                       onValueChange={(v) => updateLineItem(idx, "unit", v)}
@@ -1322,7 +1326,8 @@ export default function DeliveryReleasePage() {
                       searchPlaceholder="Search units..."
                     />
                   </div>
-                  <Input
+                  <label className="w-24 shrink-0"><span className="block text-xs text-muted-foreground md:hidden">Quantity</span><Input
+                    aria-label={`Quantity for item ${idx + 1}`}
                     className="w-24 shrink-0"
                     type="number"
                     min="1"
@@ -1334,10 +1339,11 @@ export default function DeliveryReleasePage() {
                         parseInt(e.target.value) || 1,
                       )
                     }
-                  />
+                  /></label>
                   <Button
                     size="icon"
                     variant="ghost"
+                    aria-label={`Remove item ${idx + 1}`}
                     className="w-10 text-destructive shrink-0"
                     onClick={() => removeLineItem(idx)}
                   >
@@ -1459,7 +1465,7 @@ export default function DeliveryReleasePage() {
         }}
       >
         <DialogContent
-          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+          className="dr-form sm:max-w-[80vw] max-h-[90dvh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
@@ -1511,7 +1517,7 @@ export default function DeliveryReleasePage() {
 
             {/* Products Section - Edit DR */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap gap-2 justify-between items-center">
                 <Label className="text-base font-semibold">
                   Products / Consumables
                 </Label>
@@ -1521,8 +1527,8 @@ export default function DeliveryReleasePage() {
               </div>
 
               {editLineItems.length > 0 && (
-                <div className="flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
-                  <div className="flex-1 min-w-[200px]">Item / Description</div>
+                <div className="hidden md:flex gap-2 items-center text-xs font-semibold text-muted-foreground px-1">
+                  <div className="dr-description flex-1 min-w-0 md:min-w-[200px]">Item / Description</div>
                   <div className="w-10 shrink-0" />
                   <div className="w-28 shrink-0">Unit</div>
                   <div className="w-24 shrink-0">Qty</div>
@@ -1531,15 +1537,17 @@ export default function DeliveryReleasePage() {
               )}
 
               {editLineItems.map((item, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
+                <div key={idx} className="dr-item-row flex gap-2 items-center">
+                  <span className="dr-item-label md:hidden">Item {idx + 1}</span>
                   {editManualRows.has(idx) ? (
                     <>
                       <Input
-                        className="flex-1 min-w-[200px]"
+                        className="dr-description flex-1 min-w-0 md:min-w-[200px]"
                         value={item.description}
                         onChange={(e) =>
                           updateEditLineItem(idx, "description", e.target.value)
                         }
+                        aria-label={`Description for item ${idx + 1}`}
                         placeholder="Type item name / description"
                       />
                       <Button
@@ -1560,7 +1568,7 @@ export default function DeliveryReleasePage() {
                     </>
                   ) : (
                     <>
-                      <div className="flex-1 min-w-[200px]">
+                      <div className="dr-description flex-1 min-w-0 md:min-w-[200px]">
                         <SearchableSelect
                           value={item.productCode}
                           onValueChange={(v) =>
@@ -1588,6 +1596,7 @@ export default function DeliveryReleasePage() {
                     </>
                   )}
                   <div className="w-28 shrink-0">
+                    <span className="block text-xs text-muted-foreground md:hidden">Unit</span>
                     <SearchableSelect
                       value={item.unit}
                       onValueChange={(v) => updateEditLineItem(idx, "unit", v)}
@@ -1596,7 +1605,8 @@ export default function DeliveryReleasePage() {
                       searchPlaceholder="Search units..."
                     />
                   </div>
-                  <Input
+                  <label className="w-24 shrink-0"><span className="block text-xs text-muted-foreground md:hidden">Quantity</span><Input
+                    aria-label={`Quantity for item ${idx + 1}`}
                     className="w-24 shrink-0"
                     type="number"
                     min={1}
@@ -1608,10 +1618,11 @@ export default function DeliveryReleasePage() {
                         parseInt(e.target.value) || 0,
                       )
                     }
-                  />
+                  /></label>
                   <Button
                     variant="ghost"
                     size="icon"
+                    aria-label={`Remove item ${idx + 1}`}
                     className="w-10 text-destructive shrink-0"
                     onClick={() => removeEditLineItem(idx)}
                   >
@@ -1739,7 +1750,7 @@ export default function DeliveryReleasePage() {
               </div>
 
               <div className="border rounded-md overflow-hidden">
-                <table className="w-full text-sm">
+                <table className="w-full table-fixed text-sm [overflow-wrap:anywhere]">
                   <thead className="bg-muted/50 text-muted-foreground">
                     <tr className="text-left">
                       <th className="px-3 py-2 font-medium w-16 text-right">
@@ -1816,7 +1827,7 @@ export default function DeliveryReleasePage() {
 
       <Dialog open={quickAddProductOpen} onOpenChange={setQuickAddProductOpen}>
         <DialogContent
-          className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
+          className="dr-form sm:max-w-[80vw] max-h-[90dvh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >

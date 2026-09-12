@@ -71,10 +71,12 @@ export function SearchableSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={placeholder}
+          title={selected?.label}
           disabled={disabled}
-          className={cn("w-full justify-between font-normal truncate text-left min-w-0", className)}
+          className={cn("w-full justify-between font-normal text-left min-w-0 whitespace-normal h-auto py-2", className)}
         >
-          {selected ? selected.label : placeholder}
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">{selected ? selected.label : placeholder}</span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>

@@ -147,3 +147,44 @@
     print-color-adjust: exact;
   }
 }
+
+/* Phone controls and the opt-in mobile list pilot. Printed documents have their own CSS. */
+@media screen and (max-width: 767px) {
+  [data-slot="button"], [data-slot="select-trigger"], [data-slot="tabs-trigger"],
+  [data-slot="sidebar-menu-button"], [data-slot="sidebar-menu-sub-button"] {
+    min-height: 44px;
+  }
+  [data-slot="button"][data-size^="icon"] { min-width: 44px; }
+  [data-slot="input"], [data-slot="textarea"], [data-slot="command-input"],
+  [data-slot="select-trigger"] { font-size: 16px; min-height: 44px; }
+  [data-slot="dialog-content"] { max-height: 92dvh; padding: 16px; max-width: calc(100vw - 24px); overflow-wrap: anywhere; }
+  [data-slot="dialog-header"] { padding-right: 32px; text-align: left; }
+  [data-slot="dialog-close"], [data-slot="sheet-content"] > button:last-child { min-width: 44px; min-height: 44px; display: grid; place-items: center; top: 4px; right: 4px; }
+  [data-slot="dialog-footer"] { flex-wrap: wrap; }
+  [data-slot="dialog-footer"] > button { white-space: normal; height: auto; }
+  [data-slot="popover-content"], [data-slot="select-content"], [data-slot="dropdown-menu-content"] { max-width: calc(100vw - 24px); }
+  [data-slot="select-item"], [data-slot="command-item"], [data-slot="dropdown-menu-item"] { min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
+  [data-slot="sidebar-menu-button"], [data-slot="sidebar-menu-sub-button"] { height: auto; padding-block: 10px; }
+  [data-slot="sidebar-menu-button"] > span:last-child, [data-slot="sidebar-menu-sub-button"] > span:last-child { white-space: normal; overflow: visible; }
+  [data-mobile-list="true"] > div, [data-mobile-list="true"] article { min-width: 0; }
+  [data-mobile-list="true"] .mobile-record-actions > div { flex-wrap: wrap; }
+  .mobile-record-actions button[title] { width: auto; height: auto; gap: 6px; padding: 8px; }
+  .mobile-record-actions button[title]::after { content: attr(title); font-size: 12px; }
+  .dr-item-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) 44px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; gap: 10px; }
+  .dr-item-row .dr-item-label { grid-column: 1 / -1; font-size: 13px; font-weight: 600; }
+  .dr-item-row .dr-description { grid-column: span 2; width: 100%; }
+  .dr-item-row > div:not(.dr-description), .dr-item-row > input { width: 100%; min-width: 0; }
+  .dr-form { min-width: 0; }
+  .dr-form [role="combobox"] { max-width: 100%; }
+}
+@media screen and (max-width: 767px) {
+  .dr-item-row > label { width: 100%; min-width: 0; }
+  .dr-item-row > label > input { width: 100%; }
+  [data-slot="select-trigger"] { min-width: 0; }
+  [data-slot="tabs-list"] { max-width: 100%; height: auto; flex-wrap: wrap; }
+}
+@media screen and (max-width: 767px) {
+  /* Seven calendar columns must fit even on 320px screens. */
+  [data-slot="calendar"] { --cell-size: min(44px, calc((100vw - 64px) / 7)); }
+  [data-slot="calendar"] [data-slot="button"] { min-width: var(--cell-size); min-height: var(--cell-size); }
+}

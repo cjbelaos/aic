@@ -1,3 +1,4 @@
+import { DashboardPageTitle } from "@/components/dashboard-page-title";
 import { AuthGuard } from "@/components/auth/auth-guard";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -26,7 +27,7 @@ export default function DashboardLayout({
                 <SidebarTrigger className="-ml-1" />
                 <Separator orientation="vertical" className="h-4" />
                 <div>
-                  <p className="text-sm font-semibold">Dashboard</p>
+                  <DashboardPageTitle />
                 </div>
 
                 {/* Right: theme toggle + user menu */}
@@ -38,7 +39,7 @@ export default function DashboardLayout({
             </header>
 
             {/* Changed overflow-auto to overflow-y-auto so page-level horizontal overflow is forbidden */}
-            <main className="flex-1 overflow-y-auto p-6">{children}</main>
+            <main className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-6">{children}</main>
           </div>
         </div>
       </AuthGuard>

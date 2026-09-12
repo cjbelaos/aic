@@ -80,9 +80,9 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:max-w-none h-[92vh] max-h-[92vh] p-6 flex flex-col">
+      <DialogContent className="w-[95vw] sm:max-w-none h-[92dvh] max-h-[92dvh] p-3 sm:p-6 flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center justify-between pr-6">
+          <DialogTitle className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between pr-6">
             <span className="text-lg font-bold">
               Delivery Receipt —{" "}
               {dr.drNumber > 0 ? `DR #${dr.drNumber}` : "Draft DR"}
@@ -94,7 +94,7 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
         </DialogHeader>
 
         {/* PDF Preview Container */}
-        <div className="flex-1 min-h-0 w-full my-2 border rounded-md overflow-hidden bg-muted/20">
+        <div className="flex-1 min-h-48 w-full my-2 border rounded-md overflow-hidden bg-muted/20">
           {legacy ? (
             <iframe src={dr.pdfBase64 ? `data:application/pdf;base64,${dr.pdfBase64}` : dr.printUrl} className="w-full h-full border-none" title="Previous Delivery Receipt format" />
           ) : (
@@ -105,7 +105,7 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
         <Button className="self-start" variant="outline" size="sm" disabled={printSaving || driveSaving || (!legacy && !dr.pdfBase64 && !dr.printUrl)} onClick={() => setLegacy(!legacy)}>{legacy ? "Use new A4 format" : "View previous format"}</Button>
         <p className="text-xs text-muted-foreground">Print opens the print dialog. Drive saving uses the latest saved document. Switch to the new format to save.</p>
         {/* Action Footer */}
-        <div className="flex flex-wrap items-center justify-end gap-2 pt-1 shrink-0">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center sm:justify-end gap-2 pt-1 shrink-0 [&>button]:whitespace-normal [&>button]:h-auto">
           {legacy && dr.printUrl && (
             <Button
               variant="outline"

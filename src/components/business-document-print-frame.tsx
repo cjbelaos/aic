@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useImperativeHandle, type Ref, type ReactNode } from "react";
+import { useEffect, useRef, useState, useImperativeHandle, type Ref, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { businessDocumentPrintShell } from "./business-document-print-layout";
 
@@ -15,6 +15,18 @@ export function BusinessDocumentPrintFrame({ children, title, ref }: {
 }) {
   const iframe = useRef<HTMLIFrameElement>(null);
   const [body, setBody] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const frame = iframe.current;
+    if (!frame || !body) return;
+    const style = body.ownerDocument.createElement("style");
+    style.textContent = "@media screen and (max-width: 793px) { .receipt { width: 210mm; max-width: none; margin: 0; zoom: var(--preview-scale, 1); } }";
+    body.ownerDocument.head.appendChild(style);
+    const resize = () => body.ownerDocument.documentElement.style.setProperty("--preview-scale", String(Math.min(1, frame.clientWidth / (210 * 96 / 25.4))));
+    const observer = new ResizeObserver(resize);
+    observer.observe(frame);
+    resize();
+    return () => { observer.disconnect(); style.remove(); };
+  }, [body]);
   useImperativeHandle(ref, () => ({
     async print() {
       const frame = iframe.current;
