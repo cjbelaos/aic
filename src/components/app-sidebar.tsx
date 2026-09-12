@@ -537,9 +537,9 @@ export function AppSidebar() {
         {canSeeTravel && (
           <>
             <SidebarSeparator />
-            {/* ── Travel (DepartmentId = 1 only) ────────────────── */}
+            {/* ── Technician (DepartmentId = 1 only) ─────────────── */}
             <SidebarGroup>
-              <SidebarGroupLabel>Travel</SidebarGroupLabel>
+              <SidebarGroupLabel>Technician</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
@@ -567,6 +567,18 @@ export function AppSidebar() {
                       <Link href="/dashboard/fti-summary-report">
                         <BarChart3 />
                         <span>FTI Summary Report</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isItemActive("/dashboard/technician-earnings")}
+                      tooltip="Technician Earnings vs Expenses"
+                    >
+                      <Link href="/dashboard/technician-earnings">
+                        <BarChart3 />
+                        <span>Technician Earnings</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
