@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
 import { EntityTable } from "@/components/ui/entity-table";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import {
   QuotationForm,
   QuotationFormPayload,
@@ -102,6 +103,7 @@ export default function QuotationsPage() {
   const [viewQuotationData, setViewQuotationData] =
     useState<QuotationFormPayload | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const loadQuotations = async () => {
     try {
@@ -245,17 +247,21 @@ export default function QuotationsPage() {
   };
 
   /** Handle "Delete" action */
-  const handleDelete = async (quotationNo: string) => {
-    if (!window.confirm("Are you sure you want to delete this quotation?"))
-      return;
+  const handleDelete = (quotationNo: string) => {
+    setDeleteTarget(quotationNo);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
       setSaving(true);
-      await quotationService.deleteByRefNo(quotationNo);
+      await quotationService.deleteByRefNo(deleteTarget);
       toast.success("Quotation deleted successfully.");
       setViewMode("list");
       setSelectedQuotation(null);
       setViewQuotationData(null);
       await loadQuotations();
+      setDeleteTarget(null);
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "Failed to delete quotation.";
@@ -994,6 +1000,13 @@ export default function QuotationsPage() {
           readOnly={true}
           isViewMode={true}
         />
+        <ConfirmDeleteDialog
+          open={!!deleteTarget}
+          title="Delete quotation"
+          description={`Delete quotation ${deleteTarget ?? ""}? This action cannot be undone.`}
+          onConfirm={confirmDelete}
+          onClose={() => setDeleteTarget(null)}
+        />
       </div>
     );
   }
@@ -1025,15 +1038,24 @@ export default function QuotationsPage() {
 
   // Default: List Mode
   return (
-    <EntityTable
-      title="Quotation List"
-      columns={columns}
-      data={data}
-      loading={loading}
-      onCreateNew={() => setViewMode("create")}
-      onExport={exportToExcel}
-      onImport={handleImport}
-      mobileLayout={{ primary: ["quotationNo", "customer", "status"], labels: { quotationNo: "Quotation", customer: "Customer", description: "Description", amount: "Amount", discount: "Discount", status: "Status", date: "Date", preparedBy: "Prepared by", actions: "Actions" } }}
-    />
+    <>
+      <EntityTable
+        title="Quotation List"
+        columns={columns}
+        data={data}
+        loading={loading}
+        onCreateNew={() => setViewMode("create")}
+        onExport={exportToExcel}
+        onImport={handleImport}
+        mobileLayout={{ primary: ["quotationNo", "customer", "status"], labels: { quotationNo: "Quotation", customer: "Customer", description: "Description", amount: "Amount", discount: "Discount", status: "Status", date: "Date", preparedBy: "Prepared by", actions: "Actions" } }}
+      />
+      <ConfirmDeleteDialog
+        open={!!deleteTarget}
+        title="Delete quotation"
+        description={`Delete quotation ${deleteTarget ?? ""}? This action cannot be undone.`}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTarget(null)}
+      />
+    </>
   );
 }

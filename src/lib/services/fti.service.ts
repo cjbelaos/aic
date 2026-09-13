@@ -79,6 +79,14 @@ export const ftiService = {
     return res.data;
   },
 
+  async withdrawRequest(controlNo: string, force: boolean = false): Promise<FTIRequestFull> {
+    const res = await api.patch<FTIRequestFull>(
+      `/fti/requests/${encodeURIComponent(controlNo)}`,
+      { action: "withdraw", force },
+    );
+    return res.data;
+  },
+
   async deleteRequest(controlNo: string): Promise<void> {
     await api.delete(`/fti/requests/${encodeURIComponent(controlNo)}`);
   },

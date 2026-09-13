@@ -1167,6 +1167,40 @@ export async function getFTIRequestFull(
   };
 }
 
+
+export async function withdrawFTIRequest(
+  controlNo: string,
+  userId: string,
+  force: boolean = false,
+): Promise<void> {
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const all = await getAllFTIRequests();
+  const idx = all.findIndex((r) => r.controlNo === controlNo);
+  if (idx === -1) throw new Error(`FTI request ${controlNo} not found`);
+  const req = all[idx];
+  const st = (req.status || "").toUpperCase();
+  if (st !== "SENT") {
+    throw new Error(`Cannot withdraw request ${controlNo}: status is "${req.status}". Only SENT requests can be withdrawn.`);
+  }
+  if (!force && req.approvedByUserId) {
+    throw new Error(`Cannot withdraw request ${controlNo}: an approver has already been assigned. Contact an administrator.`);
+  }
+  if (!force && req.userId !== userId) {
+    throw new Error("You can only withdraw your own requests.");
+  }
+  const row = idx + 2;
+  const sheets = await getSheetsClient();
+  for (const col of ["C", "G", "H", "I", "J", "K"]) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${FTI_REQUEST_SHEET}!${col}${row}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[col === "C" ? "DRAFT" : ""]] },
+    });
+  }
+  invalidateFTICache();
+}
+
 export async function deleteFTIRequest(controlNo: string): Promise<void> {
   await guardEditableStatus(controlNo);
   await deleteDetailsAndExpensesForRequest(controlNo);

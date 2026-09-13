@@ -14,6 +14,7 @@ import {
   updateLiquidationControlNo,
   updateLiquidationRequestedAmount,
   updateLiquidationStatus,
+  withdrawLiquidation,
 } from "@/lib/liquidationSheets";
 import { getAllFTIRequests } from "@/lib/ftiSheets";
 import { getUsers } from "@/lib/userSheets";
@@ -27,6 +28,7 @@ interface LiquidationActionBody {
   liquidationId?: string;
   items?: ReceiptItemInput[];
   totalAmountRequested?: number;
+  force?: boolean;
   approval?: {
     action: "approve" | "request_change" | "reject";
     comment?: string;
@@ -174,6 +176,40 @@ export async function POST(req: NextRequest) {
         );
       await deleteLiquidation(liquidationId, session.userId);
       return NextResponse.json({ success: true, liquidationId });
+    }
+
+    // withdraw → pull back to SAVED (self-service or admin force)
+    if (action === "withdraw") {
+      const liquidationId = (body.liquidationId || "").toString().trim();
+      if (!liquidationId)
+        return NextResponse.json(
+          { error: "Missing required field: liquidationId." },
+          { status: 400 },
+        );
+      const isAdmin = session.userRoleId === 1;
+      await withdrawLiquidation(liquidationId, session.userId, body.force === true || isAdmin);
+      return NextResponse.json({
+        success: true,
+        liquidationId,
+        status: "SAVED",
+      });
+    }
+
+    // withdraw → pull back to SAVED (self-service or admin force)
+    if (action === "withdraw") {
+      const liquidationId = (body.liquidationId || "").toString().trim();
+      if (!liquidationId)
+        return NextResponse.json(
+          { error: "Missing required field: liquidationId." },
+          { status: 400 },
+        );
+      const isAdmin = session.userRoleId === 1;
+      await withdrawLiquidation(liquidationId, session.userId, body.force === true || isAdmin);
+      return NextResponse.json({
+        success: true,
+        liquidationId,
+        status: "SAVED",
+      });
     }
 
     // approve / request_change / reject

@@ -60,6 +60,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { liquidationService } from "@/lib/services/liquidation.service";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import { userService } from "@/lib/services/user.service";
@@ -268,6 +269,7 @@ export function LiquidationForm({
       : [],
   );
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [deleteItemIndex, setDeleteItemIndex] = useState<number | null>(null);
 
   const [supplierName, setSupplierName] = useState(
     editingLiquidation?.items[0]?.supplierName || "",
@@ -1692,7 +1694,7 @@ export function LiquidationForm({
                                 size="icon"
                                 className="h-9 w-9 text-destructive"
                                 aria-label="Delete item"
-                                onClick={() => handleDeleteItem(originalIndex)}
+                                onClick={() => setDeleteItemIndex(originalIndex)}
                                 disabled={isLocked || uploading}
                               >
                                 {uploading ? (
@@ -1837,6 +1839,16 @@ export function LiquidationForm({
           </Button>
         </div>
       </div>
+      <ConfirmDeleteDialog
+        open={deleteItemIndex !== null}
+        title="Delete receipt item"
+        description="Delete this receipt item? This action cannot be undone."
+        onConfirm={async () => {
+          if (deleteItemIndex !== null) await handleDeleteItem(deleteItemIndex);
+          setDeleteItemIndex(null);
+        }}
+        onClose={() => setDeleteItemIndex(null)}
+      />
     </div>
   );
 }

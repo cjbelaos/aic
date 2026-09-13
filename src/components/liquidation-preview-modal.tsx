@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConfirmRejectDialog } from "@/components/ui/confirm-reject-dialog";
 import LiquidationPrintDocument, {
   type LiquidationFtiComparison,
 } from "@/components/liquidation-print-document";
@@ -76,6 +77,7 @@ export default function LiquidationPreviewModal({
   approvedBySignatureUrl,
 }: LiquidationPreviewModalProps) {
   const [comment, setComment] = useState("");
+  const [rejectConfirmationOpen, setRejectConfirmationOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-6xl w-[95vw] max-h-[92vh] flex flex-col p-6 overflow-hidden">
@@ -183,7 +185,7 @@ export default function LiquidationPreviewModal({
                     </Button>
                     <Button
                       variant="destructive"
-                      onClick={() => approvalActions?.onReject(comment)}
+                      onClick={() => setRejectConfirmationOpen(true)}
                       disabled={approvalActions?.actionInProgress}
                     >
                       {approvalActions?.actionInProgress ? (
@@ -215,6 +217,11 @@ export default function LiquidationPreviewModal({
           </div>
         )}
       </DialogContent>
+      <ConfirmRejectDialog
+        open={rejectConfirmationOpen}
+        onClose={() => setRejectConfirmationOpen(false)}
+        onConfirm={() => approvalActions?.onReject(comment)}
+      />
     </Dialog>
   );
 }

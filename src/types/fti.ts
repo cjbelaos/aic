@@ -128,3 +128,14 @@ export function isEditableStatus(status: string): boolean {
   const upper = status.toUpperCase();
   return upper === "DRAFT" || upper === "REQUESTED_FOR_CHANGE";
 }
+
+/**
+ * Returns true when the submitter can withdraw (unsubmit) the request
+ * themselves - i.e. it has been sent but no approver has acted yet.
+ * Admins can force-withdraw even after an approver has acted.
+ */
+export function canWithdrawStatus(status: string): boolean {
+  const upper = status.toUpperCase();
+  return upper === 'SENT' || upper === 'SUBMITTED';
+}
+

@@ -149,6 +149,13 @@ export const liquidationService = {
       await api.post("/liquidations", { action: "submit", liquidationId })
     ).data;
   },
+  async withdraw(liquidationId: string, force: boolean = false) {
+    return (
+      await api.post('/liquidations', { action: 'withdraw', liquidationId, force })
+    ).data;
+  },
+
+
   async approve(
     liquidationId: string,
     action: "approve" | "request_change" | "reject",

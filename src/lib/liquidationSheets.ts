@@ -1087,6 +1087,41 @@ export async function updateLiquidationControlNo(
  * Google Sheet. Only the original owner can delete their own liquidation
  * when it's in SAVED or REQUESTED_FOR_CHANGE status.
  */
+
+export async function withdrawLiquidation(
+  liquidationId: string,
+  userId: string,
+  force: boolean = false,
+): Promise<void> {
+  const all = await getAllLiquidations();
+  const idx = all.findIndex((e) => e.liquidationId === liquidationId);
+  if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found.`);
+  const liq = all[idx];
+  const st = (liq.status || "").toUpperCase();
+  if (st !== "SUBMITTED") {
+    throw new Error(`Cannot withdraw liquidation ${liquidationId}: status is "${liq.status}". Only SUBMITTED liquidations can be withdrawn.`);
+  }
+  if (!force && liq.approvedByUserId) {
+    throw new Error(`Cannot withdraw liquidation ${liquidationId}: an approver has already been assigned. Contact an administrator.`);
+  }
+  if (!force && liq.userId !== userId) {
+    throw new Error("You can only withdraw your own liquidations.");
+  }
+  const row = idx + 2;
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const sheets = await getSheetsClient();
+  for (const col of ["E", "F", "G", "H", "I", "J"]) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${LIQUIDATIONS_SHEET}!${col}${row}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[col === "E" ? "SAVED" : ""]] },
+    });
+  }
+  await touchLiquidationAuditColumns(row, userId);
+  invalidateLiquidationCache();
+}
+
 export async function deleteLiquidation(
   liquidationId: string,
   requestingUserId: string,

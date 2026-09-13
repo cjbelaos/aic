@@ -32,6 +32,17 @@ export type LiquidationStatus =
   | "REQUESTED_FOR_CHANGE"
   | "REJECTED";
 
+/**
+ * Returns true when the submitter can withdraw (unsubmit) the request
+ * themselves - i.e. it has been sent but no approver has acted yet.
+ * Admins can force-withdraw even after an approver has acted.
+ */
+export function canWithdrawStatus(status: string): boolean {
+  const upper = status.toUpperCase();
+  return upper === 'SUBMITTED';
+}
+
+
 /** Parent row in the `Liquidations` sheet. */
 export interface Liquidation {
   liquidationId: string;

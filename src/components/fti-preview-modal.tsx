@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConfirmRejectDialog } from "@/components/ui/confirm-reject-dialog";
 import FTIPrintDocument from "@/components/fti-print-document";
 
 // Re-export shared types so existing imports keep working.
@@ -93,6 +94,7 @@ export default function FTIPreviewModal({
 }: FTIPreviewModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const [comment, setComment] = useState("");
+  const [rejectConfirmationOpen, setRejectConfirmationOpen] = useState(false);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -180,7 +182,7 @@ export default function FTIPreviewModal({
                       variant="destructive"
                       size="sm"
                       className="h-9"
-                      onClick={() => approvalActions?.onReject(comment)}
+                      onClick={() => setRejectConfirmationOpen(true)}
                       disabled={approvalActions?.actionInProgress}
                     >
                       {approvalActions?.actionInProgress ? (
@@ -315,6 +317,11 @@ export default function FTIPreviewModal({
           </div>
         )}
       </DialogContent>
+      <ConfirmRejectDialog
+        open={rejectConfirmationOpen}
+        onClose={() => setRejectConfirmationOpen(false)}
+        onConfirm={() => approvalActions?.onReject(comment)}
+      />
     </Dialog>
   );
 }
