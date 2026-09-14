@@ -215,7 +215,7 @@ export function EntityTable<TData>({
     <div className="space-y-4 min-w-0" data-mobile-list={!!mobileLayout}>
       {/* Header row */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className={hideMobileTitle ? "sr-only md:not-sr-only md:text-lg md:font-semibold" : "text-lg font-semibold"}>{title}</h1>
+        <h1 className={hideMobileTitle ? "sr-only" : "text-lg font-semibold"}>{title}</h1>
         {headerActions ? (
           headerActions
         ) : onCreateNew ? (
