@@ -8,6 +8,7 @@ import {
 } from "@/lib/deliverySheets";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCompanies } from "@/lib/companySheets";
+import { getProducts } from "@/lib/productSheets";
 import { getDeliveryItemsV2 } from "@/lib/transactionItemV2Sheets";
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
@@ -81,7 +82,17 @@ export async function GET(
         description: "",
       }));
     const v2Items = await getDeliveryItemsV2();
-    const items = v2Items.get(drNumber) || legacyItems;
+    const currentItems = v2Items.get(drNumber);
+    const products = await getProducts();
+    const productMap = new Map(products.map((product) => [product.code, product]));
+    const items = (currentItems || legacyItems).map((item) => ({
+      ...item,
+      description:
+        item.description ||
+        productMap.get(item.productCode)?.name ||
+        productMap.get(item.productCode)?.description ||
+        item.productCode,
+    }));
 
     // 3. Fetch company details
     const companies = await getCompanies();
@@ -111,6 +122,8 @@ export async function GET(
         comments,
         items,
         status,
+        driveFileLink: String(drRow[11] ?? "").trim() || undefined,
+        previewFormat: currentItems ? "current" : "legacy",
         printUrl,
         pdfBase64,
       },

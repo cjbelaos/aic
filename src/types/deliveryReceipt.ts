@@ -43,6 +43,8 @@ export interface DeliveryReceiptResponse {
   printUrl?: string;
   pdfBase64?: string;
   driveFileLink?: string;
+  /** Legacy receipts use the prior Google Sheets template by default. */
+  previewFormat?: "legacy" | "current";
 }
 
 export interface DeliveryReceiptSummary {

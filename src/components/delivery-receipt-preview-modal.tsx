@@ -26,7 +26,9 @@ interface Props {
 
 export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange, onSaved }: Props) {
   const printFrame = useRef<BusinessDocumentPrintHandle>(null);
-  const [legacy, setLegacy] = useState(false);
+  const [legacy, setLegacy] = useState(
+    () => initialDr?.previewFormat === "legacy",
+  );
   const [printSaving, setPrintSaving] = useState(false);
   const [driveSaving, setDriveSaving] = useState(false);
   const [saved, setSaved] = useState<{ source: DeliveryReceiptResponse; value: DeliveryReceiptResponse } | null>(null);

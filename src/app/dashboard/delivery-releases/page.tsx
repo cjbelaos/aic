@@ -1451,6 +1451,7 @@ export default function DeliveryReleasePage() {
       </Dialog>
 
       <DeliveryReceiptPreviewModal
+        key={drResult?.drNumber ?? "new-dr"}
         dr={drResult}
         open={!!drResult}
         onOpenChange={(v) => {
@@ -1709,6 +1710,7 @@ export default function DeliveryReleasePage() {
       </Dialog>
 
       <DeliveryReceiptPreviewModal
+        key={viewDr?.drNumber ?? "view-dr"}
         dr={viewDr}
         open={!!viewDr}
         onOpenChange={(v) => {
