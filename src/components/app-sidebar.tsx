@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -54,6 +54,10 @@ interface StoredUser {
   userRoleId?: number;
 }
 
+interface TechnicianEarningsAccessResponse {
+  canAccess?: boolean;
+}
+
 function getStoredDepartmentId(): number | null {
   if (typeof window === "undefined") return null;
   try {
@@ -75,8 +79,29 @@ export function AppSidebar() {
   const pathname = usePathname();
   const [departmentId] = useState<number | null>(getStoredDepartmentId);
   const [roleId] = useState<number | null>(getStoredRoleId);
+  const [canSeeTechnicianEarnings, setCanSeeTechnicianEarnings] =
+    useState(false);
   const canSeeTravel = departmentId === 1;
   const isAdmin = roleId === 1;
+
+  useEffect(() => {
+    let mounted = true;
+    void fetch("/api/reports/technician-earnings/access")
+      .then(async (response) => {
+        if (!response.ok) return false;
+        const body = (await response.json()) as TechnicianEarningsAccessResponse;
+        return body.canAccess === true;
+      })
+      .then((canAccess) => {
+        if (mounted) setCanSeeTechnicianEarnings(canAccess);
+      })
+      .catch(() => {
+        if (mounted) setCanSeeTechnicianEarnings(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const isItemActive = (href: string): boolean => {
     if (href.includes("?")) {
@@ -570,18 +595,20 @@ export function AppSidebar() {
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isItemActive("/dashboard/technician-earnings")}
-                      tooltip="Technician Earnings vs Expenses"
-                    >
-                      <Link href="/dashboard/technician-earnings">
-                        <BarChart3 />
-                        <span>Technician Earnings</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  {canSeeTechnicianEarnings && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isItemActive("/dashboard/technician-earnings")}
+                        tooltip="Technician Earnings vs Expenses"
+                      >
+                        <Link href="/dashboard/technician-earnings">
+                          <BarChart3 />
+                          <span>Technician Earnings</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
@@ -605,6 +632,30 @@ export function AppSidebar() {
                       <Link href="/dashboard/warehouses">
                         <Building2 />
                         <span>Warehouses</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
+        {canSeeTechnicianEarnings && !canSeeTravel && (
+          <>
+            <SidebarSeparator />
+            <SidebarGroup>
+              <SidebarGroupLabel>Reports</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isItemActive("/dashboard/technician-earnings")}
+                      tooltip="Technician Earnings vs Expenses"
+                    >
+                      <Link href="/dashboard/technician-earnings">
+                        <BarChart3 />
+                        <span>Technician Earnings</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

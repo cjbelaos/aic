@@ -16,7 +16,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -113,7 +112,7 @@ function SummaryCard({
 }
 
 export default function TechnicianEarningsPage() {
-  const now = new Date();
+  const now = useMemo(() => new Date(), []);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState<number | null>(now.getMonth() + 1);
   const [userId, setUserId] = useState<string>("all");
@@ -122,6 +121,7 @@ export default function TechnicianEarningsPage() {
   >([]);
   const [data, setData] = useState<TechnicianEarningsResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [access, setAccess] = useState<"loading" | "allowed" | "denied">("loading");
 
   const years = useMemo(() => {
     const cy = now.getFullYear();
@@ -134,6 +134,7 @@ export default function TechnicianEarningsPage() {
     v.toLocaleString("en-PH", { style: "currency", currency: "PHP" });
 
   const load = async () => {
+    if (access !== "allowed") return;
     setLoading(true);
     try {
       const res = await fetch(
@@ -155,16 +156,41 @@ export default function TechnicianEarningsPage() {
           })),
         );
       }
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to load report.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
-  }, [userId]);
+    let mounted = true;
+    void fetch("/api/reports/technician-earnings/access")
+      .then(async (response) => {
+        if (!response.ok) return false;
+        const body = (await response.json()) as { canAccess?: boolean };
+        return body.canAccess === true;
+      })
+      .then((canAccess) => {
+        if (mounted) setAccess(canAccess ? "allowed" : "denied");
+      })
+      .catch(() => {
+        if (mounted) setAccess("denied");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (access !== "allowed") return;
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // Loading is intentionally driven only by access and technician selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access, userId]);
 
   /* ── Analytics series ─────────────────────────────── */
   const monthlyData = useMemo(
@@ -191,16 +217,27 @@ export default function TechnicianEarningsPage() {
     [data],
   );
 
-  const cumulativeData = useMemo(() => {
-    let earnings = 0;
-    let expenses = 0;
-    return monthlyData.map((m) => {
-      earnings +=
-        (m["SR with DR"] as number) + (m["SR without DR"] as number);
-      expenses += m.Liquidation as number;
-      return { name: m.name, Earnings: earnings, Expenses: expenses };
-    });
-  }, [monthlyData]);
+  const cumulativeData = useMemo(
+    () =>
+      monthlyData.reduce<{ name: string; Earnings: number; Expenses: number }[]>(
+        (series, monthData) => {
+          const previous = series.at(-1) ?? { Earnings: 0, Expenses: 0 };
+          return [
+            ...series,
+            {
+              name: monthData.name,
+              Earnings:
+                previous.Earnings +
+                (monthData["SR with DR"] as number) +
+                (monthData["SR without DR"] as number),
+              Expenses: previous.Expenses + (monthData.Liquidation as number),
+            },
+          ];
+        },
+        [],
+      ),
+    [monthlyData],
+  );
 
   const periodLabel = data
     ? data.period.month
@@ -211,6 +248,23 @@ export default function TechnicianEarningsPage() {
     data?.technicians.filter(
       (t) => t.srTotal > 0 || t.liquidationTotal > 0 || t.ftiTotal > 0,
     ).length ?? 0;
+
+  if (access === "loading") {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (access === "denied") {
+    return (
+      <div className="py-12 text-center text-muted-foreground">
+        You do not have access to technician earnings.
+      </div>
+    );
+  }
+
   return (
     <div className="p-3 sm:p-6 space-y-6">
       {/* Header */}

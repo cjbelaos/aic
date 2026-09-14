@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminSession } from "@/lib/auth/session";
+import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { canAccessTechnicianEarnings } from "@/lib/technicianEarningsAccess";
 import { getUsers } from "@/lib/userSheets";
 import { getDepartments } from "@/lib/departmentSheets";
 import { getServiceInvoices } from "@/lib/serviceInvoiceSheets";
@@ -36,8 +37,15 @@ function monthIndexFromDate(d: string): number {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await requireAdminSession();
+  const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
+
+  if (!(await canAccessTechnicianEarnings(session))) {
+    return NextResponse.json(
+      { error: "Forbidden. You do not have access to technician earnings." },
+      { status: 403 },
+    );
+  }
 
   try {
     const { searchParams } = new URL(req.url);
