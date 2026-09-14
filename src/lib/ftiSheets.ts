@@ -18,6 +18,7 @@ import type {
   FTILegsInput,
   FTIRequestFull,
 } from "@/types/fti";
+import { getGlobalFuelPrice } from "@/lib/ftiFuelPrice";
 import {
   computeDetailTotal,
   computeFuelCost,
@@ -43,6 +44,14 @@ const RANGE_USER_FUEL = `${USER_FUEL_PER_KM_SHEET}!A2:B`; // A=userId, B=KmPerLi
 const TOLL_MATRIX_SHEET = "Toll Matrix Table";
 
 const DEFAULT_KM_PER_LITER = 12;
+
+async function getRequiredGlobalFuelPrice(): Promise<number> {
+  const fuelPrice = await getGlobalFuelPrice();
+  if (fuelPrice === null) {
+    throw new Error("Fuel price has not been configured by the After Sales Manager.");
+  }
+  return fuelPrice;
+}
 
 // UserId → legacy FTIList technician name (matches the previous tech admin's records).
 const FTI_LIST_TECHNICIAN_NAMES: Record<string, string> = {
@@ -682,6 +691,7 @@ export async function saveFTIDetails(
   const allRequests = await getAllFTIRequests();
   const req = allRequests.find((r) => r.controlNo === controlNo);
   const kmPerLiter = await getKmPerLiter(req?.userId || "");
+  const fuelPrice = await getRequiredGlobalFuelPrice();
 
   const details: FTIDetails[] = items.map((item) => ({
     detailId: generateUUID(),
@@ -690,8 +700,8 @@ export async function saveFTIDetails(
     itinerary: item.itinerary,
     description: item.description,
     km: item.km,
-    fuelPrice: item.fuelPrice,
-    fuelSubTotal: computeFuelSubTotal(item.km, item.fuelPrice, kmPerLiter),
+    fuelPrice,
+    fuelSubTotal: computeFuelSubTotal(item.km, fuelPrice, kmPerLiter),
     tollFee: item.tollFee,
   }));
 
@@ -1024,11 +1034,9 @@ export async function appendFTIDetail(
 
   const effectiveUserIdForFuel = existing?.userId || userId || "";
   const kmPerLiter = await getKmPerLiter(effectiveUserIdForFuel);
+  const fuelPrice = await getRequiredGlobalFuelPrice();
   const detailId = detail.detailId || generateUUID();
-  const fuelSubTotal =
-    detail.fuelSubTotal !== undefined
-      ? parseFloat(detail.fuelSubTotal.toFixed(2))
-      : computeFuelSubTotal(detail.km, detail.fuelPrice, kmPerLiter);
+  const fuelSubTotal = computeFuelSubTotal(detail.km, fuelPrice, kmPerLiter);
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -1043,7 +1051,7 @@ export async function appendFTIDetail(
           (detail.itinerary || "").toUpperCase(),
           (detail.description || "").toUpperCase(),
           String(detail.km || 0),
-          String(detail.fuelPrice || 0),
+          String(fuelPrice),
           String(fuelSubTotal),
           String(detail.tollFee || 0),
         ],
@@ -1223,6 +1231,7 @@ export async function saveFullFTIRequest(
   // Resolve the owner of this request to compute fuel subtotals correctly.
   const effectiveUserId = existing?.userId || userId || "";
   const kmPerLiter = await getKmPerLiter(effectiveUserId);
+  const fuelPrice = await getRequiredGlobalFuelPrice();
 
   if (existing) {
     const currentStatus = existing.status.toUpperCase();
@@ -1262,11 +1271,8 @@ export async function saveFullFTIRequest(
     itinerary: item.itinerary.toUpperCase(),
     description: (item.description || "").toUpperCase(),
     km: item.km,
-    fuelPrice: item.fuelPrice,
-    fuelSubTotal:
-      item.fuelSubTotal !== undefined
-        ? parseFloat(item.fuelSubTotal.toFixed(2))
-        : computeFuelSubTotal(item.km, item.fuelPrice, kmPerLiter),
+    fuelPrice,
+    fuelSubTotal: computeFuelSubTotal(item.km, fuelPrice, kmPerLiter),
     tollFee: item.tollFee,
   }));
 

@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { submitFTIEntry, submitFTIEntries } from "@/lib/ftiSheets";
+import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { getGlobalFuelPrice } from "@/lib/ftiFuelPrice";
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await requireAuthenticatedSession();
+    if (session instanceof Response) return session;
+    const globalFuelPrice = await getGlobalFuelPrice();
+    if (globalFuelPrice === null) {
+      return NextResponse.json(
+        { error: "Fuel price has not been configured by the After Sales Manager." },
+        { status: 400 },
+      );
+    }
     const body = await req.json();
 
     // Support both batch and single (array) submissions
@@ -16,13 +27,13 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const rows = items.map((item: any) => ({
+      const rows = items.map((item: Record<string, unknown>) => ({
         technician: item.technician || "",
         date: item.date || "",
-        itinerary: (item.itinerary || "").toUpperCase(),
-        description: (item.description || "").toUpperCase(),
+        itinerary: String(item.itinerary || "").toUpperCase(),
+        description: String(item.description || "").toUpperCase(),
         kilometer: (item.kilometer ?? "0").toString(),
-        fuelPrice: (item.fuelPrice ?? "0").toString(),
+        fuelPrice: String(globalFuelPrice),
         tollFee: (item.tollFee ?? "0").toString(),
         miscellaneous: item.miscellaneous || "",
         miscAmount: (item.miscAmount ?? "0").toString(),
@@ -41,7 +52,6 @@ export async function POST(req: NextRequest) {
       itinerary,
       description,
       kilometer,
-      fuelPrice,
       tollFee,
       miscellaneous,
       miscAmount,
@@ -63,7 +73,7 @@ export async function POST(req: NextRequest) {
       itinerary: itinerary.toUpperCase(),
       description: (description || "").toUpperCase(),
       kilometer: kilometer || "0",
-      fuelPrice: fuelPrice || "0",
+      fuelPrice: String(globalFuelPrice),
       tollFee: tollFee || "0",
       miscellaneous: miscellaneous || "",
       miscAmount: miscAmount || "0",

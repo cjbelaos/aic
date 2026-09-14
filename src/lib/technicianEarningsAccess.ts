@@ -13,7 +13,7 @@ function normalizeTitle(value: string): string {
  * Position and department titles are resolved from their master sheets so this
  * rule does not depend on mutable numeric IDs.
  */
-export async function canAccessTechnicianEarnings(
+export async function isAfterSalesManager(
   session: SessionUser,
 ): Promise<boolean> {
   const [departments, positions] = await Promise.all([
@@ -29,8 +29,14 @@ export async function canAccessTechnicianEarnings(
   const departmentName = normalizeTitle(department?.departmentName ?? "");
   const positionTitle = normalizeTitle(position?.positionTitle ?? "");
 
-  return (
-    (departmentName === "after sales" && positionTitle === "manager") ||
-    EXECUTIVE_POSITIONS.has(positionTitle)
-  );
+  return departmentName === "after sales" && positionTitle === "manager";
+}
+
+export async function canAccessTechnicianEarnings(
+  session: SessionUser,
+): Promise<boolean> {
+  if (await isAfterSalesManager(session)) return true;
+  const positions = await getPositions();
+  const position = positions.find((item) => item.positionId === session.positionId);
+  return EXECUTIVE_POSITIONS.has(normalizeTitle(position?.positionTitle ?? ""));
 }

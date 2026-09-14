@@ -10,6 +10,8 @@ import {
 import { getLocationAddresses } from "@/lib/locationAddressSheets";
 import { getSession } from "@/lib/auth/session";
 import { getUsers } from "@/lib/userSheets";
+import { getGlobalFuelPrice } from "@/lib/ftiFuelPrice";
+import { isAfterSalesManager } from "@/lib/technicianEarningsAccess";
 
 export async function GET() {
   try {
@@ -22,6 +24,8 @@ export async function GET() {
       locationAddresses,
       expresswayGroups,
       kmPerLiter,
+      fuelPrice,
+      canManageFuelPrice,
     ] = await Promise.all([
       getTechnicians(),
       getMiscellaneous(),
@@ -29,6 +33,8 @@ export async function GET() {
       getLocationAddresses().catch(() => []),
       getExpresswayGroups(),
       getKmPerLiter(session?.userId || ""),
+      getGlobalFuelPrice(),
+      session ? isAfterSalesManager(session) : false,
     ]);
 
     // Map to backward-compatible formats
@@ -80,6 +86,8 @@ export async function GET() {
       users: users.map((u) => ({ userId: u.userId, fullName: u.fullName })),
       ftiRef: generateFTIRef(),
       kmPerLiter,
+      fuelPrice,
+      canManageFuelPrice,
     });
   } catch (error) {
     console.error("FTI info fetch error:", error);

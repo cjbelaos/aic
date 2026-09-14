@@ -134,6 +134,11 @@ interface FormInfo {
   users: { userId: string; fullName: string }[];
   ftiRef: string;
   kmPerLiter: number;
+  fuelPrice: number | null;
+}
+
+function locationKey(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 const STATUS_OPTIONS = [
@@ -306,16 +311,21 @@ export default function FieldTravelItineraryPage() {
         users: data.users || [],
         ftiRef: data.ftiRef,
         kmPerLiter: data.kmPerLiter || 12,
+        fuelPrice: typeof data.fuelPrice === "number" ? data.fuelPrice : null,
       });
+      setFormData((current) => ({
+        ...current,
+        fuelPrice: typeof data.fuelPrice === "number" ? String(data.fuelPrice) : "",
+      }));
       const map: Record<string, string> = {};
       const coordsMap: Record<string, { lat: number; lng: number }> = {};
       (data.locations || []).forEach((loc: LocationItem) => {
-        map[loc.companyName] = loc.address || loc.companyName;
+        map[locationKey(loc.companyName)] = loc.address || loc.companyName;
         if (
           typeof loc.latitude === "number" &&
           typeof loc.longitude === "number"
         ) {
-          coordsMap[loc.companyName] = {
+          coordsMap[locationKey(loc.companyName)] = {
             lat: loc.latitude,
             lng: loc.longitude,
           };
@@ -389,18 +399,18 @@ export default function FieldTravelItineraryPage() {
 
       debounceRef.current = setTimeout(async () => {
         setIsCalculating(true);
-        const originAddress = addressMapRef.current[origin] || origin;
-        const originCoords = coordsMapRef.current[origin];
+        const originAddress = addressMapRef.current[locationKey(origin)] || origin;
+        const originCoords = coordsMapRef.current[locationKey(origin)];
         const payload = {
           origin: originCoords
             ? { lat: originCoords.lat, lng: originCoords.lng }
             : originAddress,
           legs: legs.map((l) => {
-            const destCoords = coordsMapRef.current[l.name];
+            const destCoords = coordsMapRef.current[locationKey(l.name)];
             return {
               destination: destCoords
                 ? { lat: destCoords.lat, lng: destCoords.lng }
-                : addressMapRef.current[l.name] || l.name,
+                : addressMapRef.current[locationKey(l.name)] || l.name,
             };
           }),
         };
@@ -621,12 +631,12 @@ export default function FieldTravelItineraryPage() {
               : l,
           )
         : [...prev.locations, newLocation];
-      addressMapRef.current[loc.locationName] = loc.address;
+      addressMapRef.current[locationKey(loc.locationName)] = loc.address;
       if (
         typeof loc.latitude === "number" &&
         typeof loc.longitude === "number"
       ) {
-        coordsMapRef.current[loc.locationName] = {
+        coordsMapRef.current[locationKey(loc.locationName)] = {
           lat: loc.latitude,
           lng: loc.longitude,
         };
@@ -759,11 +769,11 @@ export default function FieldTravelItineraryPage() {
         fuelAmount,
         totalAmount,
         origin: formData.origin,
-        originAddress: addressMapRef.current[formData.origin] || "",
+        originAddress: addressMapRef.current[locationKey(formData.origin)] || "",
         destinations: destinations.map((d) => ({
           id: d.id,
           name: d.name,
-          address: addressMapRef.current[d.name] || "",
+          address: addressMapRef.current[locationKey(d.name)] || "",
           distanceKm: d.distanceKm,
           segments: d.segments.map((s) => ({
             id: s.id,
@@ -2023,9 +2033,10 @@ export default function FieldTravelItineraryPage() {
       label: loc.companyName,
     }));
 
-  const getAddress = (companyName: string) => {
-    const loc = locations.find((l) => l.companyName === companyName);
-    return loc?.address || "";
+  const getAddress = (locationName: string) => {
+    const key = locationKey(locationName);
+    const loc = locations.find((item) => locationKey(item.companyName) === key);
+    return loc?.address || addressMapRef.current[key] || "";
   };
 
   const expresswayOptions = expresswayGroups.map((eg) => ({
@@ -2375,11 +2386,13 @@ export default function FieldTravelItineraryPage() {
                     step="0.01"
                     min="0"
                     value={formData.fuelPrice}
+                    readOnly
                     onChange={(e) =>
                       handleFieldChange("fuelPrice", e.target.value)
                     }
                     placeholder="0.00"
                   />
+                  <p className="text-xs text-muted-foreground">Set by the After Sales Manager for all technicians.</p>
                 </div>
               )}
             </div>

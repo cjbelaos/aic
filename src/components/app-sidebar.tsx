@@ -58,6 +58,10 @@ interface TechnicianEarningsAccessResponse {
   canAccess?: boolean;
 }
 
+interface FuelPriceAccessResponse {
+  canManage?: boolean;
+}
+
 function getStoredDepartmentId(): number | null {
   if (typeof window === "undefined") return null;
   try {
@@ -81,6 +85,7 @@ export function AppSidebar() {
   const [roleId] = useState<number | null>(getStoredRoleId);
   const [canSeeTechnicianEarnings, setCanSeeTechnicianEarnings] =
     useState(false);
+  const [canManageFuelPrice, setCanManageFuelPrice] = useState(false);
   const canSeeTravel = departmentId === 1;
   const isAdmin = roleId === 1;
 
@@ -97,6 +102,25 @@ export function AppSidebar() {
       })
       .catch(() => {
         if (mounted) setCanSeeTechnicianEarnings(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void fetch("/api/fti/fuel-price")
+      .then(async (response) => {
+        if (!response.ok) return false;
+        const body = (await response.json()) as FuelPriceAccessResponse;
+        return body.canManage === true;
+      })
+      .then((canManage) => {
+        if (mounted) setCanManageFuelPrice(canManage);
+      })
+      .catch(() => {
+        if (mounted) setCanManageFuelPrice(false);
       });
     return () => {
       mounted = false;
@@ -595,6 +619,20 @@ export function AppSidebar() {
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
+                  {canManageFuelPrice && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isItemActive("/dashboard/fti-fuel-price")}
+                        tooltip="FTI Fuel Price Settings"
+                      >
+                        <Link href="/dashboard/fti-fuel-price">
+                          <Settings />
+                          <span>Fuel Price Settings</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                   {canSeeTechnicianEarnings && (
                     <SidebarMenuItem>
                       <SidebarMenuButton
