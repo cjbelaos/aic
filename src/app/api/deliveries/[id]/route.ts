@@ -103,9 +103,14 @@ export async function GET(
     const address = company?.address || "";
     const tin = company?.tin || "";
 
-    // 4. Generate PDF from DB data
-    const { pdfBase64, printUrl } =
-      await populateAndExportDeliveryReceiptFormPdf(drNumber);
+    // Current receipts use the in-app A4 document. Do not make their preview
+    // depend on regenerating the retired Google Sheets PDF template.
+    let pdfBase64: string | undefined;
+    let printUrl: string | undefined;
+    if (!currentItems) {
+      ({ pdfBase64, printUrl } =
+        await populateAndExportDeliveryReceiptFormPdf(drNumber));
+    }
 
     return NextResponse.json(
       {

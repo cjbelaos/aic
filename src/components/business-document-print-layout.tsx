@@ -26,9 +26,9 @@ export const businessDocumentPrintShell = `<!doctype html><html><head><meta char
   .summary { text-align: right; font-size: 11px; margin-top: 10px; }
   .notes { margin-top: 20px; }
   .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 26px; break-inside: avoid; page-break-inside: avoid; }
-  .signature { padding-top: 0; display: flex; flex-direction: column; justify-content: end; }
+  .signature { padding-top: 0; display: flex; flex-direction: column; align-items: center; justify-content: end; text-align: center; }
   .e-signature-image { display: block; width: auto; max-width: 100%; height: 32px; object-fit: contain; object-position: center bottom; margin: 0 auto -2px; }
-  .signature strong { display: block; min-height: 23px; border-bottom: 1px solid #17232d; overflow-wrap: anywhere; }
+  .signature strong { display: block; width: 100%; min-height: 23px; border-bottom: 1px solid #17232d; overflow-wrap: anywhere; text-align: center; }
   .acknowledgment { margin-top: 20px; font-size: 11px; }
   @media print { body { background: white; color: black; } .receipt { max-width: none; margin: 0; padding: 0; } }
 </style></head><body></body></html>`;
