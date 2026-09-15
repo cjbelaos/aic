@@ -1,7 +1,6 @@
 import axios from "axios";
 import {
   DocumentHandover,
-  DocumentOption,
   CreateDocumentHandoverInput,
 } from "@/types/documentHandover";
 
@@ -40,6 +39,18 @@ const documentHandoverService = {
       console.error("Failed to batch return handovers:", error);
       throw error;
     }
+  },
+
+  batchReceive: async (ids: string[], notes?: string): Promise<void> => {
+    await axios.put(`${API_BASE_URL}/batch/receive`, { ids, notes });
+  },
+
+  batchVerify: async (ids: string[], notes?: string): Promise<void> => {
+    await axios.put(`${API_BASE_URL}/batch/verify`, { ids, notes });
+  },
+
+  batchUnassign: async (ids: string[], notes?: string): Promise<void> => {
+    await axios.put(`${API_BASE_URL}/batch/unassign`, { ids, notes });
   },
 
   getStats: async (): Promise<{

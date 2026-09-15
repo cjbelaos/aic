@@ -5,7 +5,7 @@ import {
 } from "@/lib/auth/session";
 import {
   getDocumentHandovers,
-  returnDocumentHandovers,
+  verifyDocumentHandovers,
 } from "@/lib/documentHandoverSheets";
 
 /**
@@ -65,7 +65,7 @@ export async function PUT(
     const body = await request.json();
     const { notes } = body;
 
-    // Ownership check: non-admins may only return their own documents.
+    // Only admins can complete the final verification step.
     const handovers = await getDocumentHandovers();
     const handover = handovers.find((h) => h.id === id);
 
@@ -77,19 +77,18 @@ export async function PUT(
     }
 
     if (
-      !isAdminRole(session.userRoleId) &&
-      handover.assignedToId !== session.userId
+      !isAdminRole(session.userRoleId)
     ) {
       return NextResponse.json(
-        { error: "Forbidden. You can only return documents assigned to you." },
+        { error: "Forbidden. Only admins can verify returned documents." },
         { status: 403 },
       );
     }
 
-    await returnDocumentHandovers({
+    await verifyDocumentHandovers({
       ids: [id],
-      returnedBy: session.userId,
-      returnedByName: session.fullName,
+      actorId: session.userId,
+      actorName: session.fullName,
       notes,
     });
 

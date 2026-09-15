@@ -1,5 +1,9 @@
 export type DocumentType = "delivery_receipt" | "service_invoice";
-export type HandoverStatus = "handed_over" | "returned";
+export type HandoverStatus =
+  | "handed_over"
+  | "received_by_after_sales"
+  | "returned"
+  | "unassigned";
 
 export interface DocumentOption {
   /** Unique key e.g. "dr_3690" or "si_1587" */
@@ -28,6 +32,18 @@ export interface DocumentHandover {
   returnedBy?: string;
   returnedByName?: string;
   returnedAt?: string;
+  /** Custody confirmation by the designated After Sales receiver. */
+  receivedByAfterSales?: string;
+  receivedByAfterSalesName?: string;
+  receivedByAfterSalesAt?: string;
+  /** Final physical-document verification by an admin. */
+  verifiedBy?: string;
+  verifiedByName?: string;
+  verifiedAt?: string;
+  /** Recorded when the designated receiver confirms it was not received. */
+  unassignedBy?: string;
+  unassignedByName?: string;
+  unassignedAt?: string;
   notes?: string;
 }
 
@@ -51,6 +67,13 @@ export interface ReturnDocumentHandoverInput {
   ids: string[];
   returnedBy: string;
   returnedByName: string;
+  notes?: string;
+}
+
+export interface WorkflowDocumentHandoverInput {
+  ids: string[];
+  actorId: string;
+  actorName: string;
   notes?: string;
 }
 

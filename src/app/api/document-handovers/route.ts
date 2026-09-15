@@ -4,6 +4,7 @@ import {
   isAdminRole,
 } from "@/lib/auth/session";
 import { getDocumentHandovers } from "@/lib/documentHandoverSheets";
+import { isAfterSalesDocumentReceiver } from "@/lib/documentHandoverWorkflow";
 
 /**
  * GET /api/document-handovers
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     let handovers = await getDocumentHandovers();
 
-    if (isAdminRole(session.userRoleId)) {
+    if (isAdminRole(session.userRoleId) || isAfterSalesDocumentReceiver(session)) {
       if (requestedAssignee) {
         handovers = handovers.filter(
           (h) => h.assignedToId === requestedAssignee,

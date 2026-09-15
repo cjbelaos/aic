@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminSession } from "@/lib/auth/session";
 import {
-  requireAuthenticatedSession,
-  isAdminRole,
-} from "@/lib/auth/session";
-import {
-  getDocumentHandovers,
-  returnDocumentHandovers,
+  verifyDocumentHandovers,
 } from "@/lib/documentHandoverSheets";
 
 /**
@@ -14,7 +10,7 @@ import {
  * Non-admins may only return documents assigned to themselves.
  */
 export async function PUT(request: NextRequest) {
-  const session = await requireAuthenticatedSession();
+  const session = await requireAdminSession();
   if (session instanceof Response) return session;
 
   try {
@@ -28,34 +24,15 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Ownership check: drop any IDs that don't belong to a non-admin.
-    let allowedIds = ids;
-    if (!isAdminRole(session.userRoleId)) {
-      const handovers = await getDocumentHandovers();
-      const ownIds = new Set(
-        handovers
-          .filter((h) => h.assignedToId === session.userId)
-          .map((h) => h.id),
-      );
-      allowedIds = ids.filter((id: string) => ownIds.has(id));
-    }
-
-    if (allowedIds.length === 0) {
-      return NextResponse.json(
-        { error: "Forbidden. You can only return documents assigned to you." },
-        { status: 403 },
-      );
-    }
-
-    await returnDocumentHandovers({
+    await verifyDocumentHandovers({
       ids,
-      returnedBy: session.userId,
-      returnedByName: session.fullName,
+      actorId: session.userId,
+      actorName: session.fullName,
       notes,
     });
 
     return NextResponse.json(
-      { message: "Documents marked as returned successfully." },
+      { message: "Documents verified by Admin successfully." },
       { status: 200 },
     );
   } catch (error) {

@@ -1,15 +1,15 @@
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import {
   DocumentHandover,
-  DocumentOption,
   CreateDocumentHandoverInput,
   ReturnDocumentHandoverInput,
+  WorkflowDocumentHandoverInput,
   DocumentType,
 } from "@/types/documentHandover";
 import { getUserById } from "@/lib/userSheets";
 
 const SHEET_NAME = "DocumentHandover";
-const RANGE = `${SHEET_NAME}!A2:O`;
+const RANGE = `${SHEET_NAME}!A2:X`;
 // Columns:
 // A: id
 // B: documentType
@@ -26,6 +26,9 @@ const RANGE = `${SHEET_NAME}!A2:O`;
 // M: returnedAt
 // N: notes
 // O: assigneeType
+// P:R: received by After Sales (id, name, timestamp)
+// S:U: verified by Admin (id, name, timestamp)
+// V:X: unassigned by After Sales (id, name, timestamp)
 
 export async function getDocumentHandovers(): Promise<DocumentHandover[]> {
   try {
@@ -50,11 +53,20 @@ export async function getDocumentHandovers(): Promise<DocumentHandover[]> {
         assignedBy: String(row[6] ?? "").trim(),
         assignedByName: String(row[7] ?? "").trim(),
         assignedAt: String(row[8] ?? "").trim(),
-        status: row[9] as "handed_over" | "returned",
+        status: row[9] as DocumentHandover["status"],
         returnedBy: String(row[10] ?? "").trim() || undefined,
         returnedByName: String(row[11] ?? "").trim() || undefined,
         returnedAt: String(row[12] ?? "").trim() || undefined,
         notes: String(row[13] ?? "").trim() || undefined,
+        receivedByAfterSales: String(row[15] ?? "").trim() || undefined,
+        receivedByAfterSalesName: String(row[16] ?? "").trim() || undefined,
+        receivedByAfterSalesAt: String(row[17] ?? "").trim() || undefined,
+        verifiedBy: String(row[18] ?? "").trim() || undefined,
+        verifiedByName: String(row[19] ?? "").trim() || undefined,
+        verifiedAt: String(row[20] ?? "").trim() || undefined,
+        unassignedBy: String(row[21] ?? "").trim() || undefined,
+        unassignedByName: String(row[22] ?? "").trim() || undefined,
+        unassignedAt: String(row[23] ?? "").trim() || undefined,
       }))
       .filter((h) => h.id);
   } catch (error) {
@@ -220,4 +232,50 @@ export async function returnDocumentHandovers(
     console.error("Failed to return document handovers:", error);
     throw error;
   }
+}
+
+async function updateWorkflowDocumentHandovers(
+  input: WorkflowDocumentHandoverInput,
+  fromStatus: DocumentHandover["status"],
+  toStatus: DocumentHandover["status"],
+  auditStartColumn: "P" | "S" | "V",
+): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE });
+  const ids = new Set(input.ids);
+  const now = new Date().toISOString();
+  const requests = (response.data.values || []).flatMap((row, index) => {
+    if (!ids.has(String(row[0] ?? "").trim()) || row[9] !== fromStatus) return [];
+    const rowNumber = index + 2;
+    return [
+      {
+        range: `${SHEET_NAME}!J${rowNumber}`,
+        values: [[toStatus]],
+      },
+      {
+        range: `${SHEET_NAME}!${auditStartColumn}${rowNumber}:${String.fromCharCode(auditStartColumn.charCodeAt(0) + 2)}${rowNumber}`,
+        values: [[input.actorId, input.actorName, now]],
+      },
+      ...(input.notes ? [{ range: `${SHEET_NAME}!N${rowNumber}`, values: [[input.notes]] }] : []),
+    ];
+  });
+  if (requests.length) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: { valueInputOption: "USER_ENTERED", data: requests },
+    });
+  }
+}
+
+export function receiveDocumentHandovers(input: WorkflowDocumentHandoverInput): Promise<void> {
+  return updateWorkflowDocumentHandovers(input, "handed_over", "received_by_after_sales", "P");
+}
+
+export function verifyDocumentHandovers(input: WorkflowDocumentHandoverInput): Promise<void> {
+  return updateWorkflowDocumentHandovers(input, "received_by_after_sales", "returned", "S");
+}
+
+export function unassignDocumentHandovers(input: WorkflowDocumentHandoverInput): Promise<void> {
+  return updateWorkflowDocumentHandovers(input, "handed_over", "unassigned", "V");
 }

@@ -48,6 +48,7 @@ import documentHandoverService from "@/lib/services/document-handover.service";
 import deliveryService from "@/lib/services/delivery.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import userService from "@/lib/services/user.service";
+import { AFTER_SALES_DOCUMENT_RECEIVER_ID } from "@/lib/documentHandoverWorkflow";
 
 function getHandoverAssigneeKey(handover: DocumentHandover) {
   if (handover.assignedToId) return `user:${handover.assignedToId}`;
@@ -87,6 +88,8 @@ export default function DocumentTrackerPage() {
     }
   });
   const isAdmin = currentUserRoleId === 1;
+  const isAfterSalesReceiver = currentUser.userId === AFTER_SALES_DOCUMENT_RECEIVER_ID;
+  const workflowAction = isAfterSalesReceiver ? "receive" : isAdmin ? "verify" : null;
   const [myDocsOnly, setMyDocsOnly] = useState<boolean>(
     () => currentUserRoleId !== 1,
   );
@@ -170,7 +173,9 @@ export default function DocumentTrackerPage() {
       let srs: any[] = [];
       if (isAdmin) {
         handedOverNumbers = new Set(
-          handoversData.map((h) => h.documentNumber),
+          handoversData
+            .filter((h) => h.status !== "unassigned")
+            .map((h) => h.documentNumber),
         );
         try {
           [drs, srs] = await Promise.all([
@@ -269,16 +274,16 @@ export default function DocumentTrackerPage() {
      scoped to their own assignments by both the server and this filter. */
   const viewedHandovers = useMemo(
     () =>
-      myDocsOnly && currentUser.userId
+      myDocsOnly && currentUser.userId && !workflowAction
         ? handovers.filter((h) => h.assignedToId === currentUser.userId)
         : handovers,
-    [handovers, myDocsOnly, currentUser.userId],
+    [handovers, myDocsOnly, currentUser.userId, workflowAction],
   );
 
-  const assignedDocs = useMemo(
-    () => viewedHandovers.filter((h) => h.status === "handed_over"),
-    [viewedHandovers],
-  );
+  const assignedDocs = useMemo(() => viewedHandovers.filter((h) =>
+    workflowAction === "receive" ? h.status === "handed_over" :
+    workflowAction === "verify" ? h.status === "received_by_after_sales" : false,
+  ), [viewedHandovers, workflowAction]);
 
   const handoverAssigneeOptions = useMemo(() => {
     const assigneesByKey = new Map<string, string>();
@@ -299,7 +304,7 @@ export default function DocumentTrackerPage() {
     return Array.from(assigneesByKey, ([value, label]) => ({ value, label })).sort(
       (a, b) => a.label.localeCompare(b.label),
     );
-  }, [viewedHandovers]);
+  }, [viewedHandovers, workflowAction]);
 
   const filteredHandoverRecords = useMemo(() => {
     const filtered = viewedHandovers.filter((handover) => {
@@ -340,8 +345,9 @@ export default function DocumentTrackerPage() {
   const stats = useMemo(() => {
     const total = handovers.length;
     const pending = handovers.filter((h) => h.status === "handed_over").length;
+    const awaitingAdmin = handovers.filter((h) => h.status === "received_by_after_sales").length;
     const returned = handovers.filter((h) => h.status === "returned").length;
-    return { total, pending, returned };
+    return { total, pending, awaitingAdmin, returned };
   }, [handovers]);
 
   /* ── Selection Helpers ──────────────────────────────────────────────────── */
@@ -462,10 +468,13 @@ export default function DocumentTrackerPage() {
 
     setSubmitting(true);
     try {
-      await documentHandoverService.batchReturn(
-        selectedHandoverIds,
-        returnNotes || undefined,
-      );
+      if (workflowAction === "receive") {
+        await documentHandoverService.batchReceive(selectedHandoverIds, returnNotes || undefined);
+      } else if (workflowAction === "verify") {
+        await documentHandoverService.batchVerify(selectedHandoverIds, returnNotes || undefined);
+      } else {
+        throw new Error("You are not authorized to process these documents.");
+      }
 
       setHandovers((prev) =>
         prev.map((h) =>
@@ -483,7 +492,7 @@ export default function DocumentTrackerPage() {
       );
 
       toast.success(
-        `${selectedHandoverIds.length} document(s) marked as returned`,
+        `${selectedHandoverIds.length} document(s) ${workflowAction === "receive" ? "received by After Sales" : "verified by Admin"}`,
       );
       setReturnModalOpen(false);
       setSelectedHandoverIds([]);
@@ -511,20 +520,20 @@ export default function DocumentTrackerPage() {
 
     setSubmitting(true);
     try {
-      await documentHandoverService.batchReturn(
-        [singleReturnDocument.id],
-        singleReturnNotes || undefined,
-      );
+      if (workflowAction === "receive") {
+        await documentHandoverService.batchReceive([singleReturnDocument.id], singleReturnNotes || undefined);
+      } else if (workflowAction === "verify") {
+        await documentHandoverService.batchVerify([singleReturnDocument.id], singleReturnNotes || undefined);
+      } else {
+        throw new Error("You are not authorized to process this document.");
+      }
 
       setHandovers((prev) =>
         prev.map((handover) =>
           handover.id === singleReturnDocument.id
             ? {
                 ...handover,
-                status: "returned",
-                returnedBy: currentUser.userId,
-                returnedByName: currentUser.fullName,
-                returnedAt: new Date().toISOString(),
+                status: workflowAction === "receive" ? "received_by_after_sales" : "returned",
                 notes: singleReturnNotes || handover.notes,
               }
             : handover,
@@ -532,7 +541,7 @@ export default function DocumentTrackerPage() {
       );
 
       toast.success(
-        `${singleReturnDocument.documentType === "delivery_receipt" ? "DR" : "SR"} #${singleReturnDocument.documentNumber} marked as returned`,
+        `${singleReturnDocument.documentType === "delivery_receipt" ? "DR" : "SR"} #${singleReturnDocument.documentNumber} ${workflowAction === "receive" ? "received by After Sales" : "verified by Admin"}`,
       );
       setSingleReturnDocument(null);
       setSingleReturnNotes("");
@@ -557,6 +566,25 @@ export default function DocumentTrackerPage() {
     },
     [handovers],
   );
+
+  const handleUnassign = useCallback(async (handover: DocumentHandover) => {
+    setSubmitting(true);
+    try {
+      await documentHandoverService.batchUnassign([handover.id]);
+      setHandovers((prev) => prev.map((entry) => entry.id === handover.id ? {
+        ...entry,
+        status: "unassigned",
+        unassignedBy: currentUser.userId,
+        unassignedByName: currentUser.fullName,
+        unassignedAt: new Date().toISOString(),
+      } : entry));
+      toast.success(`Document #${handover.documentNumber} unassigned.`);
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Failed to unassign document.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [currentUser.fullName, currentUser.userId]);
 
   /* ── Table Columns ─────────────────────────────────────────────────────── */
 
@@ -637,6 +665,10 @@ export default function DocumentTrackerPage() {
           const s = String(getValue());
           return s === "returned" ? (
             <Badge className="bg-green-600 hover:bg-green-700">Returned</Badge>
+          ) : s === "received_by_after_sales" ? (
+            <Badge className="bg-blue-600 hover:bg-blue-700">Received by After Sales</Badge>
+          ) : s === "unassigned" ? (
+            <Badge variant="secondary">Unassigned</Badge>
           ) : (
             <Badge
               variant="outline"
@@ -665,16 +697,19 @@ export default function DocumentTrackerPage() {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => {
-          const isPending = row.original.status === "handed_over";
-          return isPending ? (
+          const canProcess = (isAfterSalesReceiver && row.original.status === "handed_over") || (isAdmin && !isAfterSalesReceiver && row.original.status === "received_by_after_sales");
+          return canProcess ? (
+            <div className="flex gap-1">
             <Button
               variant="outline"
               size="sm"
               className="h-7 text-xs border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950"
               onClick={() => handleSingleReturn(row.original.id)}
             >
-              <RotateCcw className="h-3 w-3 mr-1" /> Return
+              <RotateCcw className="h-3 w-3 mr-1" /> {isAfterSalesReceiver ? "Receive" : "Verify"}
             </Button>
+            {isAfterSalesReceiver && <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleUnassign(row.original)}>Unassign</Button>}
+            </div>
           ) : (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <CheckCircle className="h-3.5 w-3.5 text-green-600" /> Completed
@@ -683,7 +718,7 @@ export default function DocumentTrackerPage() {
         },
       },
     ],
-    [handleSingleReturn],
+    [handleSingleReturn, handleUnassign, isAdmin, isAfterSalesReceiver],
   );
 
   /* ── Render ────────────────────────────────────────────────────────────── */
@@ -701,7 +736,7 @@ export default function DocumentTrackerPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 pr-2">
+          {!workflowAction && <div className="flex items-center gap-2 pr-2">
             <Checkbox
               id="my-docs-only"
               checked={myDocsOnly}
@@ -713,7 +748,7 @@ export default function DocumentTrackerPage() {
             >
               My Docs Only
             </Label>
-          </div>
+          </div>}
           <Button
             variant="outline"
             size="sm"
@@ -728,7 +763,7 @@ export default function DocumentTrackerPage() {
             />
             Refresh
           </Button>
-          <Button
+          {workflowAction && <Button
             variant="outline"
             onClick={() => {
               setSelectedHandoverIds([]);
@@ -738,8 +773,8 @@ export default function DocumentTrackerPage() {
             className="gap-2 border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950"
           >
             <BadgeCheck className="h-4 w-4" />
-            Batch Return
-          </Button>
+            {workflowAction === "receive" ? "Receive Documents" : "Verify Received Documents"}
+          </Button>}
           {isAdmin && (
             <Button onClick={() => setModalOpen(true)} className="gap-2">
               <Hand className="h-4 w-4" />
@@ -766,7 +801,7 @@ export default function DocumentTrackerPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium">
-              Pending Returns
+              Awaiting After Sales
             </CardTitle>
             <Clock className="h-4 w-4 text-amber-500" />
           </CardHeader>
@@ -775,7 +810,7 @@ export default function DocumentTrackerPage() {
               {stats.pending}
             </div>
             <p className="text-xs text-muted-foreground">
-              Currently assigned to staff
+              Awaiting physical receipt from staff
             </p>
           </CardContent>
         </Card>
@@ -1130,7 +1165,7 @@ export default function DocumentTrackerPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <BadgeCheck className="h-5 w-5 text-green-600" />
-              Batch Return Documents
+              {workflowAction === "receive" ? "Receive Documents from Staff" : "Verify Documents Received by After Sales"}
             </DialogTitle>
           </DialogHeader>
 
@@ -1169,7 +1204,7 @@ export default function DocumentTrackerPage() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Select the documents physically returned to the office. {filteredAssignedDocs.length} of {assignedDocs.length} shown.
+              {workflowAction === "receive" ? "Select documents physically received from staff." : "Select documents received by After Sales for final admin verification."} {filteredAssignedDocs.length} of {assignedDocs.length} shown.
             </p>
             {/* List of assigned documents for batch return */}
             <div className="border rounded-lg overflow-hidden max-h-[48vh] overflow-y-auto">
@@ -1263,13 +1298,13 @@ export default function DocumentTrackerPage() {
               </span>
               {selectedHandoverIds.length > 0 && (
                 <Badge variant="outline" className="border-green-600 text-green-700">
-                  Ready to return
+                  {workflowAction === "receive" ? "Ready to receive" : "Ready to verify"}
                 </Badge>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label>Return Notes (Optional)</Label>
+              <Label>{workflowAction === "receive" ? "Receipt Notes (Optional)" : "Verification Notes (Optional)"}</Label>
               <Input
                 value={returnNotes}
                 onChange={(e) => setReturnNotes(e.target.value)}
@@ -1296,7 +1331,7 @@ export default function DocumentTrackerPage() {
               ) : (
                 <CheckCircle className="h-4 w-4 mr-2" />
               )}
-              Mark {selectedHandoverIds.length} as Returned
+              {workflowAction === "receive" ? "Receive" : "Verify"} {selectedHandoverIds.length} Document{selectedHandoverIds.length !== 1 ? "s" : ""}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1316,13 +1351,13 @@ export default function DocumentTrackerPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RotateCcw className="h-5 w-5 text-green-600" />
-              Return document
+              {workflowAction === "receive" ? "Receive document" : "Verify document"}
             </DialogTitle>
           </DialogHeader>
           {singleReturnDocument && (
             <div className="space-y-4 py-3">
               <p className="text-sm text-muted-foreground">
-                Mark this document as physically returned to the office?
+                {workflowAction === "receive" ? "Confirm this document was physically received from staff?" : "Confirm this document was physically received by Admin?"}
               </p>
               <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
                 <div className="font-mono font-semibold">
@@ -1352,7 +1387,7 @@ export default function DocumentTrackerPage() {
               className="bg-green-600 hover:bg-green-700 text-white"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-              Mark as Returned
+              {workflowAction === "receive" ? "Mark as Received" : "Verify Document"}
             </Button>
           </DialogFooter>
         </DialogContent>
