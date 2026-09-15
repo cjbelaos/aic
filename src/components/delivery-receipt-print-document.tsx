@@ -5,7 +5,13 @@ export { businessDocumentPrintShell as deliveryReceiptPrintShell } from "./busin
 
 export function DeliveryReceiptPrintDocument({ dr }: { dr: DeliveryReceiptResponse }) {
   return (
-    <main className="receipt">
+    <>
+      <style>{`
+        /* Removes browser-added print metadata while keeping the document inset. */
+        @page { margin: 0; }
+        @media print { .receipt { padding: 12mm; } }
+      `}</style>
+      <main className="receipt">
       <table aria-label="Delivery receipt items">
         <colgroup><col style={{ width: "6%" }} /><col style={{ width: "72%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} /></colgroup>
         <thead>
@@ -28,6 +34,7 @@ export function DeliveryReceiptPrintDocument({ dr }: { dr: DeliveryReceiptRespon
         <div className="signature"><strong>&nbsp;</strong><span>Received by / Date</span></div>
       </div>
       <p className="acknowledgment">Received the items listed above. Please print name and sign to acknowledge delivery.</p>
-    </main>
+      </main>
+    </>
   );
 }
