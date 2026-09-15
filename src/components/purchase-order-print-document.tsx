@@ -1,9 +1,11 @@
 import type { PurchaseOrderResponse } from "@/types/purchaseOrder";
 import { BusinessDocumentHeader } from "./business-document-print-layout";
+import { UserSignatureImage } from "./user-signature-image";
+import { signerNameKey, type UserSignatureUrls } from "@/lib/userSignatures";
 
 const money = (value: number) => value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function PurchaseOrderPrintDocument({ po }: { po: PurchaseOrderResponse }) {
+export function PurchaseOrderPrintDocument({ po, signatureUrls = {} }: { po: PurchaseOrderResponse; signatureUrls?: UserSignatureUrls }) {
   const subtotal = po.totalAmount ?? po.items.reduce((sum, item) => sum + (item.totalAmount ?? item.quantity * item.pricePerUnit), 0);
   const shipName = po.shipToName || "Aerich Innovation Corp.";
   const shipAddress = po.shipToAddress || "BLK 4 LOT 2 BAMBOO ORCHARD BANAY - BANAY\\nCABUYAO CITY, LAGUNA";
@@ -27,9 +29,9 @@ export function PurchaseOrderPrintDocument({ po }: { po: PurchaseOrderResponse }
       <div className="summary">End of items · {po.items.length} line items<br /><strong>Subtotal (PHP): {money(subtotal)}</strong></div>
       {po.comments && <div className="notes multiline"><div className="label">Comments or special instructions</div>{po.comments}</div>}
       <div className="signatures">
-        <div className="signature"><strong>{po.preparedBy || "\u00a0"}</strong><span>Prepared by</span></div>
-        <div className="signature"><strong>{po.approvedBy || "\u00a0"}</strong><span>Approved by</span></div>
-        <div className="signature"><strong>{po.notedBy || "\u00a0"}</strong><span>Noted by</span></div>
+        <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(po.preparedBy)]} alt="Prepared by signature" /><strong>{po.preparedBy || "\u00a0"}</strong><span>Prepared by</span></div>
+        <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(po.approvedBy)]} alt="Approved by signature" /><strong>{po.approvedBy || "\u00a0"}</strong><span>Approved by</span></div>
+        <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(po.notedBy)]} alt="Noted by signature" /><strong>{po.notedBy || "\u00a0"}</strong><span>Noted by</span></div>
       </div>
       <p className="acknowledgment">Signature over printed name</p>
     </main>

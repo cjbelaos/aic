@@ -13,6 +13,7 @@ import {
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import { ServiceInvoiceResponse } from "@/types/serviceInvoice";
 import ServiceInvoicePrintDocument from "@/components/service-invoice-print-document";
+import { resolveUserSignatureUrls, signerNameKey } from "@/lib/userSignatures";
 
 interface Props {
   si: ServiceInvoiceResponse | null;
@@ -26,13 +27,16 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
   const [driveSaving, setDriveSaving] = useState(false);
   const [htmlPrinting, setHtmlPrinting] = useState(false);
   const [layoutMode, setLayoutMode] = useState<"sheets" | "html">("html");
+  const [preparedBySignatureUrl, setPreparedBySignatureUrl] = useState("");
 
   // Printing always uses the HTML print document (ServiceInvoicePrintDocument).
   // The Sheets PDF view stays available for reference, but is never the default.
   useEffect(() => {
     if (si) {
       setLayoutMode("html");
-
+      resolveUserSignatureUrls([si.preparedBy])
+        .then((urls) => setPreparedBySignatureUrl(urls[signerNameKey(si.preparedBy)] || ""))
+        .catch(() => setPreparedBySignatureUrl(""));
     }
   }, [si]);
 
@@ -234,7 +238,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
             )
           ) : (
             <div className="w-full h-full overflow-auto bg-slate-200 p-4">
-              <ServiceInvoicePrintDocument si={si} id="si-html-content" />
+              <ServiceInvoicePrintDocument si={si} id="si-html-content" preparedBySignatureUrl={preparedBySignatureUrl} />
             </div>
           )}
         </div>

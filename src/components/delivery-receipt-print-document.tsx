@@ -1,9 +1,11 @@
 import type { DeliveryReceiptResponse } from "@/types/deliveryReceipt";
 
 import { BusinessDocumentHeader } from "./business-document-print-layout";
+import { UserSignatureImage } from "./user-signature-image";
+import { signerNameKey, type UserSignatureUrls } from "@/lib/userSignatures";
 export { businessDocumentPrintShell as deliveryReceiptPrintShell } from "./business-document-print-layout";
 
-export function DeliveryReceiptPrintDocument({ dr }: { dr: DeliveryReceiptResponse }) {
+export function DeliveryReceiptPrintDocument({ dr, signatureUrls = {} }: { dr: DeliveryReceiptResponse; signatureUrls?: UserSignatureUrls }) {
   return (
     <>
       <style>{`
@@ -29,8 +31,8 @@ export function DeliveryReceiptPrintDocument({ dr }: { dr: DeliveryReceiptRespon
       <div className="summary">End of items · {dr.items.length} line item{dr.items.length === 1 ? "" : "s"}</div>
       {dr.comments && <div className="notes multiline"><div className="label">Remarks</div>{dr.comments}</div>}
       <div className="signatures">
-        <div className="signature"><strong>{dr.preparedBy}</strong><span>Prepared by</span></div>
-        <div className="signature"><strong>{dr.deliveredBy}</strong><span>Delivered by</span></div>
+        <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(dr.preparedBy)]} alt="Prepared by signature" /><strong>{dr.preparedBy}</strong><span>Prepared by</span></div>
+        <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(dr.deliveredBy)]} alt="Delivered by signature" /><strong>{dr.deliveredBy}</strong><span>Delivered by</span></div>
         <div className="signature"><strong>&nbsp;</strong><span>Received by / Date</span></div>
       </div>
       <p className="acknowledgment">Received the items listed above. Please print name and sign to acknowledge delivery.</p>

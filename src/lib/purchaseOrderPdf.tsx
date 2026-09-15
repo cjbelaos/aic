@@ -3,6 +3,7 @@
 import { createRoot } from "react-dom/client";
 import { PurchaseOrderForm } from "@/components/purchase-order-form";
 import { PurchaseOrderResponse } from "@/types/purchaseOrder";
+import { resolveUserSignatureUrls } from "./userSignatures";
 
 /**
  * Client-side PO → A4 PDF generation.
@@ -117,6 +118,6 @@ export async function generateLegacyPurchaseOrderPdfBase64(
   }
 }
 export async function generatePurchaseOrderPdfBase64(po: PurchaseOrderResponse): Promise<string> {
-  const [{ generateBusinessDocumentPdf }, { PurchaseOrderPrintDocument }] = await Promise.all([import("./businessDocumentPdf"), import("@/components/purchase-order-print-document")]);
-  return generateBusinessDocumentPdf(<PurchaseOrderPrintDocument po={po} />);
+  const [{ generateBusinessDocumentPdf }, { PurchaseOrderPrintDocument }, signatureUrls] = await Promise.all([import("./businessDocumentPdf"), import("@/components/purchase-order-print-document"), resolveUserSignatureUrls([po.preparedBy, po.approvedBy, po.notedBy])]);
+  return generateBusinessDocumentPdf(<PurchaseOrderPrintDocument po={po} signatureUrls={signatureUrls} />);
 }

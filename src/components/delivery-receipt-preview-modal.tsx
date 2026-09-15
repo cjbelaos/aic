@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { BusinessDocumentPrintFrame, type BusinessDocumentPrintHandle } from "./business-document-print-frame";
 import { DeliveryReceiptPrintDocument } from "./delivery-receipt-print-document";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import deliveryService from "@/lib/services/delivery.service";
 import { DeliveryReceiptResponse } from "@/types/deliveryReceipt";
+import { resolveUserSignatureUrls, type UserSignatureUrls } from "@/lib/userSignatures";
 
 interface Props {
   dr: DeliveryReceiptResponse | null;
@@ -31,9 +32,15 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
   );
   const [printSaving, setPrintSaving] = useState(false);
   const [driveSaving, setDriveSaving] = useState(false);
+  const [signatureUrls, setSignatureUrls] = useState<UserSignatureUrls>({});
   const [saved, setSaved] = useState<{ source: DeliveryReceiptResponse; value: DeliveryReceiptResponse } | null>(null);
   const dr = saved?.source === initialDr ? saved.value : initialDr;
   const router = useRouter();
+
+  useEffect(() => {
+    if (!dr) return;
+    resolveUserSignatureUrls([dr.preparedBy, dr.deliveredBy]).then(setSignatureUrls).catch(() => setSignatureUrls({}));
+  }, [dr]);
 
   if (!dr) return null;
 
@@ -100,7 +107,7 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
           {legacy ? (
             <iframe src={dr.pdfBase64 ? `data:application/pdf;base64,${dr.pdfBase64}` : dr.printUrl} className="w-full h-full border-none" title="Previous Delivery Receipt format" />
           ) : (
-            <BusinessDocumentPrintFrame ref={printFrame} title={`Delivery Receipt ${dr.drNumber}`}><DeliveryReceiptPrintDocument dr={dr} /></BusinessDocumentPrintFrame>
+            <BusinessDocumentPrintFrame ref={printFrame} title={`Delivery Receipt ${dr.drNumber}`}><DeliveryReceiptPrintDocument dr={dr} signatureUrls={signatureUrls} /></BusinessDocumentPrintFrame>
           )}
         </div>
 

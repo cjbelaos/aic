@@ -236,11 +236,13 @@ function normalizeDescription(desc: string): string {
 interface ServiceInvoicePrintDocumentProps {
   si: ServiceInvoiceResponse;
   id?: string;
+  preparedBySignatureUrl?: string;
 }
 
 export default function ServiceInvoicePrintDocument({
   si,
   id = "si-html-content",
+  preparedBySignatureUrl,
 }: ServiceInvoicePrintDocumentProps) {
   const sourceItems: ServiceInvoiceItem[] = (si.items || []).slice(
     0,
@@ -749,6 +751,16 @@ export default function ServiceInvoicePrintDocument({
           textAlign: "center",
         }}
       >
+        {preparedBySignatureUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={preparedBySignatureUrl}
+            alt="Prepared by signature"
+            referrerPolicy="no-referrer"
+            style={{ height: 38, maxWidth: PREPARED_BY_WIDTH, objectFit: "contain", marginBottom: -4 }}
+            onError={(event) => { event.currentTarget.style.display = "none"; }}
+          />
+        )}
         {/* Full Name */}
         <div
           style={{

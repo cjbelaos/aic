@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { BusinessDocumentPrintFrame, type BusinessDocumentPrintHandle } from "./business-document-print-frame";
 import { PurchaseOrderPrintDocument } from "./purchase-order-print-document";
@@ -17,6 +17,7 @@ import { PurchaseOrderForm } from "@/components/purchase-order-form";
 import { generatePurchaseOrderPdfBase64, generateLegacyPurchaseOrderPdfBase64 } from "@/lib/purchaseOrderPdf";
 import purchaseOrderService from "@/lib/services/purchase-order.service";
 import { PurchaseOrderResponse } from "@/types/purchaseOrder";
+import { resolveUserSignatureUrls, type UserSignatureUrls } from "@/lib/userSignatures";
 
 interface Props {
   po: PurchaseOrderResponse | null;
@@ -56,9 +57,14 @@ export function PurchaseOrderPreviewModal({ po: initialPo, open, onOpenChange }:
   const [legacy, setLegacy] = useState(false);
   const [printSaving, setPrintSaving] = useState(false);
   const [driveSaving, setDriveSaving] = useState(false);
+  const [signatureUrls, setSignatureUrls] = useState<UserSignatureUrls>({});
 
   const [saved, setSaved] = useState<{ source: PurchaseOrderResponse; value: PurchaseOrderResponse } | null>(null);
   const po = saved?.source === initialPo ? saved.value : initialPo;
+  useEffect(() => {
+    if (!po) return;
+    resolveUserSignatureUrls([po.preparedBy, po.approvedBy, po.notedBy]).then(setSignatureUrls).catch(() => setSignatureUrls({}));
+  }, [po]);
   if (!po) return null;
 
   const handleLegacyPrint = async () => {
@@ -133,7 +139,7 @@ export function PurchaseOrderPreviewModal({ po: initialPo, open, onOpenChange }:
 
         {/* HTML form preview — same layout as the generated PDF */}
         <div className="flex-1 min-h-0 w-full my-2 overflow-auto border rounded-md bg-muted/20 p-4">
-          {legacy ? <PurchaseOrderForm po={po} minRows={6} /> : <BusinessDocumentPrintFrame ref={printFrame} title={`Purchase Order ${po.poNumber}`}><PurchaseOrderPrintDocument po={po} /></BusinessDocumentPrintFrame>}
+          {legacy ? <PurchaseOrderForm po={po} minRows={6} /> : <BusinessDocumentPrintFrame ref={printFrame} title={`Purchase Order ${po.poNumber}`}><PurchaseOrderPrintDocument po={po} signatureUrls={signatureUrls} /></BusinessDocumentPrintFrame>}
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
