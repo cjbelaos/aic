@@ -92,7 +92,7 @@ export async function addContract(
       payload.endDate || "",
       payload.status || "Active",
       payload.monthlyServiceFee ?? "",
-      "", // J: Notes
+      payload.notes ?? "", // J: Notes
       "", // K: SoftCopyDriveLink
       "", // L: ScannedSignedCopyDriveLink
     ];
@@ -114,6 +114,7 @@ export async function addContract(
       endDate: payload.endDate,
       status: payload.status,
       monthlyServiceFee: payload.monthlyServiceFee,
+      notes: payload.notes,
     };
   } catch (error) {
     console.error("Failed to create contract in Google Sheets:", error);
@@ -164,6 +165,15 @@ export async function updateContractInSheets(
       requestBody: { values: [updatedValues] },
     });
 
+    if (payload.notes !== undefined) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${CONTRACTS_SHEET}!J${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[payload.notes]] },
+      });
+    }
+
     return {
       id: existing.id,
       companyId: String(updatedValues[1]),
@@ -177,6 +187,7 @@ export async function updateContractInSheets(
         updatedValues[8] !== undefined && updatedValues[8] !== ""
           ? Number(updatedValues[8]) || undefined
           : undefined,
+      notes: payload.notes !== undefined ? payload.notes || undefined : existing.notes,
     };
   } catch (error) {
     console.error(`Failed to update contract ${payload.id}:`, error);

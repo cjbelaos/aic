@@ -29,6 +29,12 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DatePicker } from "@/components/ui/date-picker"; // Import the DatePicker component
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { CompanyContactsDrawer } from "@/components/company-contacts-drawer";
 import {
   Table,
@@ -154,6 +160,7 @@ interface CustomerContractFormState {
   endDate: Date | undefined; // Changed from string to Date
   status: ContractStatus;
   monthlyServiceFee: string;
+  notes: string;
   items: ContractFormItem[];
 }
 
@@ -173,6 +180,7 @@ const EMPTY_FORM: CustomerContractFormState = {
   endDate: undefined,
   status: "Active",
   monthlyServiceFee: "",
+  notes: "",
   items: [],
 };
 
@@ -199,6 +207,9 @@ export default function CustomerContractsPage() {
     useState<GroupedCustomerContract | null>(null);
   const [contactCompany, setContactCompany] = useState<Company | null>(null);
   const [uploadingDocument, setUploadingDocument] = useState<"soft" | "signed" | null>(null);
+  const [notesTarget, setNotesTarget] = useState<GroupedCustomerContract | null>(null);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
 
   // Reference data
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -310,6 +321,41 @@ export default function CustomerContractsPage() {
             {formatCurrency(row.original.monthlyServiceFee)}
           </span>
         ),
+      },
+      {
+        id: "notes",
+        header: "Notes",
+        cell: ({ row }) => {
+          const hasNotes = Boolean(row.original.notes?.trim());
+          const openNotes = (event: React.MouseEvent) => {
+            event.stopPropagation();
+            setNotesTarget(row.original);
+            setNotesDraft(row.original.notes || "");
+          };
+          if (hasNotes) {
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" onClick={openNotes}>
+                    Notes
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-sm whitespace-pre-wrap break-words text-left">
+                  {row.original.notes}
+                </TooltipContent>
+              </Tooltip>
+            );
+          }
+          return (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openNotes}
+            >
+              Add Notes
+            </Button>
+          );
+        },
       },
       {
         id: "totalProducts",
@@ -425,6 +471,7 @@ export default function CustomerContractsPage() {
       status: row.status,
       monthlyServiceFee:
         row.monthlyServiceFee != null ? String(row.monthlyServiceFee) : "",
+      notes: row.notes || "",
       items: row.items.map((item) => ({
         id: item.id,
         productId: item.productId || item.productCode,
@@ -531,6 +578,7 @@ export default function CustomerContractsPage() {
           monthlyServiceFee: form.monthlyServiceFee
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
+          notes: form.notes.trim(),
         });
 
         // Handle items: compare and sync
@@ -613,6 +661,7 @@ export default function CustomerContractsPage() {
           monthlyServiceFee: form.monthlyServiceFee
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
+          notes: form.notes.trim(),
         });
 
         if (!newContract) throw new Error("Failed to create contract.");
@@ -708,6 +757,26 @@ export default function CustomerContractsPage() {
     }
   };
 
+  const handleSaveNotes = async () => {
+    if (!notesTarget) return;
+    setNotesSaving(true);
+    try {
+      await contractService.update({
+        id: notesTarget.id,
+        notes: notesDraft.trim(),
+      });
+      await loadContracts();
+      toast.success(notesDraft.trim() ? "Contract notes saved." : "Contract notes cleared.");
+      setNotesTarget(null);
+      setNotesDraft("");
+    } catch (error) {
+      console.error("Failed to save contract notes:", error);
+      toast.error("Failed to save contract notes.");
+    } finally {
+      setNotesSaving(false);
+    }
+  };
+
   return (
     <>
       <EntityTable
@@ -720,9 +789,42 @@ export default function CustomerContractsPage() {
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
         onExport={(rows) => exportToExcel(rows, productMap)}
-        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Monthly fee", totalProducts: "Entitlements", status: "Status", actions: "Actions" } }}
+        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Monthly fee", notes: "Notes", totalProducts: "Entitlements", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
       />
+
+      <Dialog
+        open={!!notesTarget}
+        onOpenChange={(open) => {
+          if (!open && !notesSaving) {
+            setNotesTarget(null);
+            setNotesDraft("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Contract Notes</DialogTitle>
+            <DialogDescription>
+              {notesTarget ? `${notesTarget.companyName} · ${notesTarget.id}` : "Internal contract notes"}
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={notesDraft}
+            onChange={(event) => setNotesDraft(event.target.value)}
+            placeholder="Add follow-up reminders, renewal discussions, or other internal notes"
+            rows={7}
+            disabled={notesSaving}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNotesTarget(null)} disabled={notesSaving}>Cancel</Button>
+            <Button onClick={handleSaveNotes} disabled={notesSaving}>
+              {notesSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save Notes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!viewTarget} onOpenChange={(open) => !open && setViewTarget(null)}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -745,6 +847,7 @@ export default function CustomerContractsPage() {
                 <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={viewTarget.status === "Active" ? "default" : "destructive"}>{viewTarget.status}</Badge></div></div>
                 <div><p className="text-xs text-muted-foreground">Monthly Service Fee</p><p className="mt-1 font-medium">{formatCurrency(viewTarget.monthlyServiceFee)}</p></div>
                 {viewTarget.description && <div className="col-span-2"><p className="text-xs text-muted-foreground">Description</p><p className="mt-1 font-medium">{viewTarget.description}</p></div>}
+                {viewTarget.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p className="mt-1 whitespace-pre-wrap font-medium">{viewTarget.notes}</p></div>}
               </div>
 
               <div className="space-y-2">
@@ -907,6 +1010,20 @@ export default function CustomerContractsPage() {
                   }
                   disabled={saving}
                   placeholder="Contract description"
+                />
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="cc-notes">Notes (Internal)</Label>
+                <Textarea
+                  id="cc-notes"
+                  value={form.notes}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, notes: e.target.value }))
+                  }
+                  disabled={saving}
+                  placeholder="Follow-up reminders, renewal discussions, or other internal notes"
+                  rows={3}
                 />
               </div>
 

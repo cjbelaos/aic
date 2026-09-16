@@ -34,6 +34,7 @@ export interface CreateContractPayload {
   endDate: string;
   status: ContractStatus;
   monthlyServiceFee?: number;
+  notes?: string;
 }
 
 export interface UpdateContractPayload extends Partial<CreateContractPayload> {
