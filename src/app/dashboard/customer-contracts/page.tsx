@@ -3,8 +3,9 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowUpDown, ExternalLink, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
+import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,15 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DatePicker } from "@/components/ui/date-picker"; // Import the DatePicker component
+import { CompanyContactsDrawer } from "@/components/company-contacts-drawer";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 // Services
 import companyService from "@/lib/services/company.service";
@@ -70,6 +80,61 @@ const formatCurrency = (value?: number) =>
         currency: "PHP",
       }).format(value)
     : "None";
+
+function exportToExcel(
+  rows: GroupedCustomerContract[],
+  productMap: Map<string, string>,
+) {
+  if (rows.length === 0) {
+    toast.error("No contract records found to export.");
+    return;
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Contract Entitlements");
+  worksheet.columns = [
+    { header: "Contract ID", key: "contractId", width: 16 },
+    { header: "Customer", key: "customer", width: 30 },
+    { header: "Agreement Type", key: "agreementType", width: 16 },
+    { header: "PO Number", key: "poNumber", width: 18 },
+    { header: "Start Date", key: "startDate", width: 15 },
+    { header: "End Date", key: "endDate", width: 15 },
+    { header: "Status", key: "status", width: 12 },
+    { header: "Monthly Service Fee", key: "monthlyServiceFee", width: 20 },
+    { header: "Entitlement Items", key: "items", width: 60 },
+  ];
+
+  rows.forEach((contract) => {
+    worksheet.addRow({
+      contractId: contract.id,
+      customer: contract.companyName,
+      agreementType: contract.agreementType,
+      poNumber: contract.poNumber || "",
+      startDate: contract.startDate,
+      endDate: contract.endDate,
+      status: contract.status,
+      monthlyServiceFee: contract.monthlyServiceFee ?? "",
+      items: contract.items
+        .map((item) => `${productMap.get(item.productId || item.productCode) || item.productCode} (${item.productCode}) — ${item.entitledQty} / ${item.frequency}`)
+        .join("; "),
+    });
+  });
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.getColumn("monthlyServiceFee").numFmt = '₱#,##0.00';
+
+  workbook.xlsx.writeBuffer().then((buffer) => {
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "contract-entitlements.xlsx";
+    link.click();
+    window.URL.revokeObjectURL(url);
+  }).catch((err) => {
+    console.error("Excel generation failed:", err);
+    toast.error("Failed to generate Excel download file.");
+  });
+}
 
 /* ── Item State inside Form ─────────────────────────────── */
 interface ContractFormItem {
@@ -120,6 +185,7 @@ interface GroupedCustomerContract extends ContractWithItems {
 export default function CustomerContractsPage() {
   const [data, setData] = useState<ContractWithItems[]>([]);
   const [loading, setLoading] = useState(true);
+  const [referencesLoaded, setReferencesLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -129,6 +195,10 @@ export default function CustomerContractsPage() {
   const [form, setForm] = useState<CustomerContractFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] =
     useState<GroupedCustomerContract | null>(null);
+  const [viewTarget, setViewTarget] =
+    useState<GroupedCustomerContract | null>(null);
+  const [contactCompany, setContactCompany] = useState<Company | null>(null);
+  const [uploadingDocument, setUploadingDocument] = useState<"soft" | "signed" | null>(null);
 
   // Reference data
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -242,60 +312,8 @@ export default function CustomerContractsPage() {
         ),
       },
       {
-        id: "products",
-        header: "Contracted Products",
-        cell: ({ row }) => {
-          if (row.original.items.length === 0) {
-            return (
-              <span className="text-xs italic text-muted-foreground">
-                No items — service-only
-              </span>
-            );
-          }
-          return (
-            <div className="flex flex-col gap-2 py-1">
-              {row.original.items.map((item) => {
-                const productName =
-                  productMap.get(item.productId || item.productCode) || item.productCode;
-
-                return (
-                  <div
-                    key={item.id || item.productCode}
-                    className="flex items-center gap-2 text-xs"
-                  >
-                    <div className="flex flex-col">
-                      <span className="font-medium text-foreground">
-                        {productName}
-                      </span>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {item.productCode}
-                      </span>
-                    </div>
-                    <Badge variant="outline" className="ml-2 font-mono">
-                      Qty: {item.entitledQty}
-                    </Badge>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {item.frequency || "Monthly"}
-                    </Badge>
-                    {item.status === "Inactive" ? (
-                      <Badge variant="destructive" className="text-[10px]">
-                        Inactive
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-emerald-600 hover:bg-emerald-700 text-[10px]">
-                        Active
-                      </Badge>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        },
-      },
-      {
         id: "totalProducts",
-        header: "Total Products",
+        header: "Entitlements",
         cell: ({ row }) => (
           <Badge variant="outline" className="font-semibold">
             {row.original.items.length === 0
@@ -311,6 +329,7 @@ export default function CustomerContractsPage() {
   );
 
   const loadContracts = useCallback(async () => {
+    setLoading(true);
     try {
       const contracts = await contractService.getAll();
       const items = await contractItemService.getAll();
@@ -344,7 +363,7 @@ export default function CustomerContractsPage() {
         console.error(err);
         toast.error("Failed to load reference data.");
       } finally {
-        setLoading(false);
+        setReferencesLoaded(true);
       }
     }
 
@@ -352,10 +371,10 @@ export default function CustomerContractsPage() {
   }, []);
 
   useEffect(() => {
-    if (companies.length === 0) return;
+    if (!referencesLoaded) return;
     const timer = window.setTimeout(() => void loadContracts(), 0);
     return () => window.clearTimeout(timer);
-  }, [companies, loadContracts]);
+  }, [referencesLoaded, loadContracts]);
 
   const customerOptions = useMemo(
     () =>
@@ -651,18 +670,167 @@ export default function CustomerContractsPage() {
     }
   };
 
+  const handleDocumentUpload = async (
+    documentType: "soft" | "signed",
+    file?: File,
+  ) => {
+    if (!file || !viewTarget) return;
+
+    setUploadingDocument(documentType);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("contractId", viewTarget.id);
+      formData.append("documentType", documentType);
+      const response = await fetch("/api/contracts/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const result = (await response.json()) as { fileLink?: string; error?: string };
+      if (!response.ok || !result.fileLink) {
+        throw new Error(result.error || "Failed to upload contract document.");
+      }
+      await loadContracts();
+      setViewTarget((current) => current
+        ? {
+            ...current,
+            ...(documentType === "soft"
+              ? { softCopyDriveLink: result.fileLink }
+              : { scannedSignedCopyDriveLink: result.fileLink }),
+          }
+        : current);
+      toast.success(`${documentType === "soft" ? "Soft copy" : "Scanned signed copy"} uploaded.`);
+    } catch (error) {
+      console.error("Contract document upload failed:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to upload contract document.");
+    } finally {
+      setUploadingDocument(null);
+    }
+  };
+
   return (
     <>
       <EntityTable
-        title="Customer Contract Entitlements"
+        title="Customer Contracts"
         columns={columns}
         data={groupedContracts}
         loading={loading}
         onCreateNew={openCreate}
+        onView={setViewTarget}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
-        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Monthly fee", totalProducts: "Products", status: "Status", actions: "Actions" } }}
+        onExport={(rows) => exportToExcel(rows, productMap)}
+        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Monthly fee", totalProducts: "Entitlements", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
+      />
+
+      <Dialog open={!!viewTarget} onOpenChange={(open) => !open && setViewTarget(null)}>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Customer Contract</DialogTitle>
+            <DialogDescription>
+              {viewTarget
+                ? `${viewTarget.companyName} · ${viewTarget.id}`
+                : "Selected contract details"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {viewTarget && (
+            <div className="space-y-5 py-2">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                <div><p className="text-xs text-muted-foreground">Agreement</p><p className="mt-1 font-medium">{viewTarget.agreementType}</p></div>
+                <div><p className="text-xs text-muted-foreground">PO Number</p><p className="mt-1 font-medium">{viewTarget.poNumber || "—"}</p></div>
+                <div><p className="text-xs text-muted-foreground">Start Date</p><p className="mt-1 font-medium">{viewTarget.startDate || "—"}</p></div>
+                <div><p className="text-xs text-muted-foreground">End Date</p><p className="mt-1 font-medium">{viewTarget.endDate || "—"}</p></div>
+                <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={viewTarget.status === "Active" ? "default" : "destructive"}>{viewTarget.status}</Badge></div></div>
+                <div><p className="text-xs text-muted-foreground">Monthly Service Fee</p><p className="mt-1 font-medium">{formatCurrency(viewTarget.monthlyServiceFee)}</p></div>
+                {viewTarget.description && <div className="col-span-2"><p className="text-xs text-muted-foreground">Description</p><p className="mt-1 font-medium">{viewTarget.description}</p></div>}
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold">Entitlement Items ({viewTarget.items.length})</h3>
+                {viewTarget.items.length === 0 ? (
+                  <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">This is a service-only contract with no product entitlements.</p>
+                ) : (
+                  <div className="overflow-hidden rounded-md border">
+                    <Table>
+                      <TableHeader className="bg-muted/50"><TableRow><TableHead>Product</TableHead><TableHead>Code</TableHead><TableHead className="text-right">Quantity</TableHead><TableHead>Frequency</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                      <TableBody>{viewTarget.items.map((item) => <TableRow key={item.id || item.productCode}><TableCell className="font-medium">{productMap.get(item.productId || item.productCode) || item.productCode}</TableCell><TableCell className="font-mono text-xs text-muted-foreground">{item.productCode}</TableCell><TableCell className="text-right tabular-nums">{item.entitledQty}</TableCell><TableCell>{item.frequency}</TableCell><TableCell><Badge variant={item.status === "Active" ? "secondary" : "destructive"}>{item.status}</Badge></TableCell></TableRow>)}</TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold">Contract Documents</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {([
+                    ["soft", "Soft Copy", viewTarget.softCopyDriveLink],
+                    ["signed", "Scanned Signed Copy", viewTarget.scannedSignedCopyDriveLink],
+                  ] as const).map(([documentType, label, link]) => (
+                    <div key={documentType} className="rounded-lg border p-3 space-y-3">
+                      <div>
+                        <p className="text-sm font-medium">{label}</p>
+                        <p className="text-xs text-muted-foreground">{link ? "A copy has been uploaded." : "No copy uploaded yet."}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {link && (
+                          <Button variant="outline" size="sm" onClick={() => window.open(link, "_blank", "noopener,noreferrer")}>
+                            <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open
+                          </Button>
+                        )}
+                        <Button asChild variant="outline" size="sm" disabled={uploadingDocument !== null}>
+                          <label className="cursor-pointer">
+                            {uploadingDocument === documentType ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
+                            {link ? "Replace" : "Upload"}
+                            <input
+                              type="file"
+                              className="sr-only"
+                              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                              disabled={uploadingDocument !== null}
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                event.target.value = "";
+                                void handleDocumentUpload(documentType, file);
+                              }}
+                            />
+                          </label>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!viewTarget) return;
+                const company = companies.find(
+                  (item) => item.companyId === viewTarget.companyId,
+                );
+                if (!company) {
+                  toast.error("Customer details could not be found.");
+                  return;
+                }
+                setViewTarget(null);
+                setContactCompany(company);
+              }}
+              disabled={!viewTarget || !companies.some((item) => item.companyId === viewTarget.companyId)}
+            >
+              View Customer Contacts
+            </Button>
+            <Button variant="outline" onClick={() => setViewTarget(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <CompanyContactsDrawer
+        company={contactCompany}
+        open={!!contactCompany}
+        onOpenChange={(open) => !open && setContactCompany(null)}
       />
 
       <Dialog

@@ -27,7 +27,6 @@ import {
   Car,
   BriefcaseBusiness,
   FileSignature,
-  ShieldAlert,
   ClipboardCheck,
   CalendarDays,
 } from "lucide-react";
@@ -289,6 +288,20 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith("/dashboard/warehouses")}
+                    tooltip="Warehouses"
+                  >
+                    <Link href="/dashboard/warehouses">
+                      <Building2 />
+                      <span>Warehouses</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -435,18 +448,6 @@ export function AppSidebar() {
                   <Link href="/dashboard/monthly-summary">
                     <BarChart3 />
                     <span>Monthly Summary</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive("/dashboard/customer-contracts")}
-                  tooltip="Contract Entitlements"
-                >
-                  <Link href="/dashboard/customer-contracts">
-                    <ShieldAlert />
-                    <span>Contract Entitlements</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -658,18 +659,6 @@ export function AppSidebar() {
                       <Link href="/dashboard/location-addresses">
                         <MapPin />
                         <span>Location Addresses</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname.startsWith("/dashboard/warehouses")}
-                      tooltip="Warehouses"
-                    >
-                      <Link href="/dashboard/warehouses">
-                        <Building2 />
-                        <span>Warehouses</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

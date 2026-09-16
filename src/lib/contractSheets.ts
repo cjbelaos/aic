@@ -10,8 +10,8 @@ import { ContractConflictError, duplicateContractIds, nextContractId } from "@/l
 import type { sheets_v4 } from "googleapis";
 
 const CONTRACTS_SHEET = "Contracts";
-const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:I`;
-// Columns: A: ContractId, B: CompanyId, C: Description, D: AgreementType, E: PONumber, F: StartDate, G: EndDate, H: Status, I: MonthlyServiceFee
+const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:L`;
+// Columns: A:I contract header, J: Notes, K: SoftCopyDriveLink, L: ScannedSignedCopyDriveLink
 
 /**
  * GET: Fetches all contract header rows from Google Sheets.
@@ -43,6 +43,9 @@ export async function getContracts(): Promise<Contract[]> {
           row[8] !== undefined && row[8] !== ""
             ? parseFloat(String(row[8]).replace(/[₱$,]/g, "")) || undefined
             : undefined,
+        notes: String(row[9] ?? "").trim() || undefined,
+        softCopyDriveLink: String(row[10] ?? "").trim() || undefined,
+        scannedSignedCopyDriveLink: String(row[11] ?? "").trim() || undefined,
       };
     });
   } catch (error) {
@@ -89,6 +92,9 @@ export async function addContract(
       payload.endDate || "",
       payload.status || "Active",
       payload.monthlyServiceFee ?? "",
+      "", // J: Notes
+      "", // K: SoftCopyDriveLink
+      "", // L: ScannedSignedCopyDriveLink
     ];
 
     await sheets.spreadsheets.values.append({
@@ -176,6 +182,27 @@ export async function updateContractInSheets(
     console.error(`Failed to update contract ${payload.id}:`, error);
     throw error;
   }
+}
+
+/** Stores a Drive link for one of the two contract document copies. */
+export async function updateContractDocumentLink(
+  id: string,
+  documentType: "soft" | "signed",
+  fileLink: string,
+): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const contracts = await getContracts();
+  const rowIndex = contracts.findIndex((contract) => contract.id === id);
+  if (rowIndex < 0) throw new Error(`Contract with ID ${id} not found.`);
+
+  // Preserve existing headers and Notes in column J; only update the selected link cell.
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${CONTRACTS_SHEET}!${documentType === "soft" ? "K" : "L"}${rowIndex + 2}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[fileLink]] },
+  });
 }
 
 /**

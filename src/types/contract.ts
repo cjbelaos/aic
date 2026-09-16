@@ -20,6 +20,9 @@ export interface Contract {
   endDate: string; // Sheet: EndDate (ISO Date string: "YYYY-MM-DD")
   status: ContractStatus; // Sheet: Status
   monthlyServiceFee?: number; // Sheet: MonthlyServiceFee (numeric, e.g., 20000)
+  notes?: string; // Sheet: Notes (internal reference)
+  softCopyDriveLink?: string; // Sheet: SoftCopyDriveLink
+  scannedSignedCopyDriveLink?: string; // Sheet: ScannedSignedCopyDriveLink
 }
 
 export interface CreateContractPayload {

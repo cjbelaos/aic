@@ -15,10 +15,12 @@ import {
 import {
   ArrowUpDown,
   Pencil,
+  Eye,
   Trash2,
   Plus,
   Download,
   Upload,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +54,7 @@ interface EntityTableProps<TData> {
   /** Optional controls rendered beside the table toolbar. */
   toolbarFilters?: React.ReactNode;
   onEdit?: (row: TData) => void;
+  onView?: (row: TData) => void;
   onDelete?: (row: TData) => void;
   onExport?: (data: TData[]) => void;
   onImport?: (file: File) => void;
@@ -70,6 +73,7 @@ export function EntityTable<TData>({
   headerActions,
   toolbarFilters,
   onEdit,
+  onView,
   onDelete,
   onExport,
   onImport,
@@ -91,6 +95,21 @@ export function EntityTable<TData>({
     header: "Action",
     cell: ({ row }) => (
       <div className="flex items-center gap-1">
+        {onView && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="View record"
+            title="View"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              onView(row.original);
+            }}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+        )}
         {onEdit && (
           <Button
             variant="ghost"
@@ -121,7 +140,7 @@ export function EntityTable<TData>({
     ),
   };
 
-  const allColumns = onEdit || onDelete ? [...columns, actionColumn] : columns;
+  const allColumns = onView || onEdit || onDelete ? [...columns, actionColumn] : columns;
 
   const table = useReactTable({
     data,
@@ -321,7 +340,7 @@ export function EntityTable<TData>({
             </select>
             {sorting.length > 0 && <Button variant="outline" onClick={() => setSorting([{ ...sorting[0], desc: !sorting[0].desc }])}>{sorting[0].desc ? "Descending" : "Ascending"}</Button>}
           </label>
-          {loading ? <p role="status" className="py-8 text-center">Loading...</p> : !table.getRowModel().rows.length ? <p role="status" className="py-8 text-center">No results found.</p> : table.getRowModel().rows.map(row => {
+          {loading ? <div role="status" className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" /><span>Loading records…</span></div> : !table.getRowModel().rows.length ? <p role="status" className="py-8 text-center">No results found.</p> : table.getRowModel().rows.map(row => {
             const cells = row.getVisibleCells();
             const field = (cell: typeof cells[number]) => <div key={cell.id} className="min-w-0 space-y-1"><dt className="text-xs text-muted-foreground">{mobileLayout.labels[cell.column.id] ?? cell.column.id}</dt><dd className="break-words text-sm [overflow-wrap:anywhere]">{flexRender(cell.column.columnDef.cell, cell.getContext())}</dd></div>;
             const statusCell = cells.find(cell => cell.column.id === "status");
@@ -358,9 +377,12 @@ export function EntityTable<TData>({
                 <TableRow>
                   <TableCell
                     colSpan={allColumns.length}
-                    className="h-24 text-center text-muted-foreground"
+                    className="h-32 text-center text-muted-foreground"
                   >
-                    Loading…
+                    <div role="status" className="flex flex-col items-center justify-center gap-2">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
+                      <span>Loading records…</span>
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : table.getRowModel().rows.length ? (

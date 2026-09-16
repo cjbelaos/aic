@@ -264,14 +264,22 @@ export function CompanyContactsDrawer({
                     </div>
                     <div className="flex flex-col gap-0.5 mt-1 text-xs text-muted-foreground">
                       {c.email && (
-                        <span className="flex items-center gap-1 truncate">
-                          <Mail className="h-3 w-3" /> {c.email}
-                        </span>
+                        <a
+                          href={`mailto:${c.email}`}
+                          className="flex items-center gap-1 truncate hover:text-foreground hover:underline"
+                          title={`Email ${c.fullName}`}
+                        >
+                          <Mail className="h-3 w-3 shrink-0" /> {c.email}
+                        </a>
                       )}
                       {c.phone && (
-                        <span className="flex items-center gap-1 truncate">
-                          <Phone className="h-3 w-3" /> {c.phone}
-                        </span>
+                        <a
+                          href={`tel:${c.phone}`}
+                          className="flex items-center gap-1 truncate hover:text-foreground hover:underline"
+                          title={`Call ${c.fullName}`}
+                        >
+                          <Phone className="h-3 w-3 shrink-0" /> {c.phone}
+                        </a>
                       )}
                     </div>
                   </div>
