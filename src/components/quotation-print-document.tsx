@@ -19,7 +19,7 @@ export function QuotationPrintDocument({ quotation: q, signatureUrls = {} }: { q
       </thead>
       <tbody>{q.items.map((item, index) => <tr className="item" key={index}><td>{index + 1}</td><td>{item.description}</td><td className="qty">{item.quantity.toLocaleString("en-PH", { maximumFractionDigits: 6 })}</td><td>{item.unit}</td><td className="qty">{money(item.unitPrice)}</td><td className="qty">{money(item.quantity * item.unitPrice)}</td></tr>)}</tbody>
     </table>
-    <div className="summary">End of items · {q.items.length} line items<br />Subtotal (PHP): {money(subtotal)}{q.discount > 0 && <><br />Discount (PHP): {money(q.discount)}</>}<br /><strong>Grand total (PHP): {money(q.amount)}</strong></div>
+    <div className="summary">End of items · {q.items.length} line items<br />Subtotal (PHP): {money(subtotal)}{(q.shippingFee || 0) > 0 && <><br />Shipping fee (PHP): {money(q.shippingFee || 0)}</>}{q.discount > 0 && <><br />Discount (PHP): {money(q.discount)}</>}<br /><strong>Grand total (PHP): {money(q.amount)}</strong></div>
     {(q.terms || q.delivery || q.warranty) && <div className="notes multiline">{q.terms && <div><b>Payment terms:</b> {q.terms}</div>}{q.delivery && <div><b>Delivery:</b> {q.delivery}</div>}{q.warranty && <div><b>Warranty:</b> {q.warranty}</div>}</div>}
     {q.notation.length > 0 && <div className="notes"><div className="label">Notes &amp; notations</div><ol>{q.notation.map((note, index) => <li className="multiline" key={index}>{note.notation}</li>)}</ol></div>}
     <div className="signatures">

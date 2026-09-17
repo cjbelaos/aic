@@ -62,6 +62,9 @@ export async function PUT(
   try {
     const { refNo } = await params;
     const body: CreateQuotationPayload = await request.json();
+    if (body.shippingFee !== undefined && (typeof body.shippingFee !== "number" || !Number.isFinite(body.shippingFee) || body.shippingFee < 0)) {
+      return NextResponse.json({ error: "Shipping fee must be a non-negative number." }, { status: 400 });
+    }
     const updated = await updateQuotation(refNo, body);
     return NextResponse.json(updated, { status: 200 });
   } catch (error) {

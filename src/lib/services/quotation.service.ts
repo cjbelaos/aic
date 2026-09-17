@@ -26,6 +26,7 @@ export interface SaveAndEmailPayload {
   warranty: string;
   preparedBy: string;
   discount: number;
+  shippingFee?: number;
   quotationNo: string;
   dateIssued: string;
   validUntil: string;
@@ -54,6 +55,7 @@ export interface SaveQuotationPayload {
   preparedBy: string;
   approvedBy?: string;
   discount: number;
+  shippingFee?: number;
   quotationNo: string;
   dateIssued: string;
   validUntil: string;

@@ -22,6 +22,7 @@ interface QuotationProps {
   notations?: string[];
   subTotal: number;
   discount: number;
+  shippingFee?: number;
   vatableAmount: number;
   vat: number;
   grandTotal: number;
@@ -49,6 +50,7 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
       notations = [],
       subTotal = 0,
       discount = 0,
+      shippingFee = 0,
       vatableAmount = 0,
       vat = 0,
       grandTotal = 0,
@@ -169,6 +171,7 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
         warranty: warrantyTerms,
         preparedBy,
         discount,
+        shippingFee,
         quotationNo,
         date,
         validity,
@@ -391,6 +394,7 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
                   <span>Subtotal</span>
                   <span>{formatCurrency(subTotal)}</span>
                 </div>
+                {shippingFee > 0 && <div className="flex justify-between text-slate-600"><span>Shipping Fee</span><span>{formatCurrency(shippingFee)}</span></div>}
                 {discount > 0 && (
                   <div className="flex justify-between text-rose-600">
                     <span>Discount</span>

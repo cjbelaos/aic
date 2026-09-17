@@ -140,6 +140,7 @@ export type QuotationFormPayload = {
   notations?: QuotationNotation[];
   subTotal: number;
   discount: number;
+  shippingFee?: number;
   terms: string;
   delivery: string;
   warranty: string;
@@ -206,6 +207,7 @@ export function QuotationForm({
       : [""],
   );
 
+  const [shippingFee, setShippingFee] = useState(initialData?.shippingFee || 0);
   const [discount, setDiscount] = useState(initialData?.discount || 0);
 
   const [paymentTerms, setPaymentTerms] = useState(
@@ -320,7 +322,7 @@ export function QuotationForm({
     (sum, row) => sum + row.quantity * row.unitPrice,
     0,
   );
-  const grandTotal = Math.max(subTotal - (discount || 0), 0);
+  const grandTotal = Math.max(subTotal - (discount || 0), 0) + shippingFee;
   const vat = grandTotal * (12 / 112);
   const vatableAmount = grandTotal - vat;
 
@@ -656,6 +658,7 @@ export function QuotationForm({
       items: itemsPayload,
       subTotal,
       discount,
+      shippingFee,
       terms: paymentTerms,
       delivery: deliveryTerms,
       warranty: warrantyTerms,
@@ -694,6 +697,7 @@ export function QuotationForm({
       notations: payload.notations || [],
       subTotal: payload.subTotal,
       discount: payload.discount,
+      shippingFee: payload.shippingFee || 0,
       terms: payload.terms,
       delivery: payload.delivery,
       warranty: payload.warranty,
@@ -753,6 +757,7 @@ export function QuotationForm({
         notations={notations.filter((n) => n.trim() !== "")}
         subTotal={subTotal}
         discount={discount}
+        shippingFee={shippingFee}
         vatableAmount={vatableAmount}
         vat={vat}
         grandTotal={grandTotal}
@@ -964,6 +969,7 @@ export function QuotationForm({
               <h2 className="text-xl font-semibold mb-4">Summary</h2>
               <div className="space-y-3 text-sm">
                 <TotalRow label="Sub Total" value={formatCurrency(subTotal)} />
+                {shippingFee > 0 && <TotalRow label="Shipping Fee" value={formatCurrency(shippingFee)} />}
                 {discount > 0 && (
                   <TotalRow
                     label="Discount"
@@ -1257,6 +1263,13 @@ export function QuotationForm({
         </Button>
       </div>
 
+      <div className="rounded-lg border bg-card p-6 shadow-sm">
+        <Label htmlFor="quotation-shipping-fee">Shipping Fee (PHP, optional)</Label>
+        <Input id="quotation-shipping-fee" type="number" min="0" step="0.01" value={shippingFee || ""} placeholder="0.00" className="mt-2 sm:max-w-xs" disabled={isSaving || readOnly} onChange={e => setShippingFee(Math.max(0, Number(e.target.value) || 0))} />
+      </div>
+
+
+
       {/* Notations Block */}
       <div className="rounded-lg border bg-card p-6 shadow-sm">
         <h2 className="text-xl font-semibold mb-4">Notations</h2>
@@ -1369,6 +1382,7 @@ export function QuotationForm({
             <h2 className="text-xl font-semibold mb-4">Summary</h2>
             <div className="space-y-3 text-sm">
               <TotalRow label="Sub Total" value={formatCurrency(subTotal)} />
+              {shippingFee > 0 && <TotalRow label="Shipping Fee" value={formatCurrency(shippingFee)} />}
               <div className="flex items-center justify-between gap-4">
                 <span>Discount</span>
                 <Input

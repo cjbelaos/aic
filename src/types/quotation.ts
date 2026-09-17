@@ -14,6 +14,7 @@ export interface Quotation {
   delivery: string;
   warranty: string;
   discount: number;
+  shippingFee?: number;
   preparedBy: string;
   approvedBy: string;
   sentBy: string;

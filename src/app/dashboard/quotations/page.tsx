@@ -37,6 +37,7 @@ function exportToExcel(rows: Quotation[]) {
     { header: "Description", key: "description", width: 25 },
     { header: "Amount", key: "amount", width: 20 },
     { header: "Discount", key: "discount", width: 15 },
+    { header: "Shipping Fee", key: "shippingFee", width: 15 },
     { header: "Reference Number", key: "quotationNo", width: 25 },
     { header: "File", key: "file", width: 25 },
     { header: "Date", key: "date", width: 15 },
@@ -52,6 +53,7 @@ function exportToExcel(rows: Quotation[]) {
       description: r.description,
       amount: r.amount,
       discount: r.discount || 0,
+      shippingFee: r.shippingFee || 0,
       quotationNo: r.quotationNo,
       file: r.file,
       date: r.date,
@@ -86,6 +88,7 @@ interface ImportQuotationRow {
   description: string;
   amount: number;
   discount: number;
+  shippingFee?: number;
   quotationNo: string;
   file: string;
   date: string;
@@ -193,6 +196,7 @@ export default function QuotationsPage() {
           )
         : quot.amount || 0,
       discount: quot.discount || 0,
+      shippingFee: quot.shippingFee || 0,
       terms: quot.terms || "",
       delivery: quot.delivery || "",
       warranty: quot.warranty || "",
@@ -208,7 +212,7 @@ export default function QuotationsPage() {
           0,
         ) - (quot.discount || 0),
         0,
-      ),
+      ) + (quot.shippingFee || 0),
     };
   }, []);
 
@@ -372,6 +376,7 @@ export default function QuotationsPage() {
           description: formPayload.quotationDescription || "",
           amount: formPayload.grandTotal || 0,
           discount: formPayload.discount || 0,
+          shippingFee: formPayload.shippingFee || 0,
           quotationNo: quotationNo,
           file: selectedQuotation.file || "",
           date: formPayload.date?.toISOString().split("T")[0] || "",
@@ -425,6 +430,7 @@ export default function QuotationsPage() {
         preparedBy: formPayload.preparedBy || "",
         approvedBy: formPayload.approvedBy || "",
         discount: formPayload.discount || 0,
+        shippingFee: formPayload.shippingFee || 0,
         quotationNo: formPayload.quotationNo || "",
         dateIssued:
           formPayload.date?.toLocaleDateString("en-US", {
@@ -551,6 +557,7 @@ export default function QuotationsPage() {
           description: String(rowData["Description"] || "").trim(),
           amount: parseFloat(rowData["Amount"]) || 0,
           discount: parseFloat(rowData["Discount"]) || 0,
+          shippingFee: parseFloat(rowData["Shipping Fee"]) || 0,
           quotationNo: String(
             rowData["Reference Number"] || rowData["RefNo"] || "",
           ).trim(),
@@ -596,6 +603,7 @@ export default function QuotationsPage() {
             items: [],
             subTotal: quotation.amount || 0,
             discount: quotation.discount || 0,
+            shippingFee: quotation.shippingFee || 0,
             terms: "",
             delivery: "",
             warranty: "",
@@ -616,6 +624,7 @@ export default function QuotationsPage() {
             warranty: importPayload.warranty || "",
             preparedBy: importPayload.preparedBy || "",
             discount: importPayload.discount || 0,
+            shippingFee: importPayload.shippingFee || 0,
             quotationNo: importPayload.quotationNo || "",
             dateIssued:
               importPayload.date?.toLocaleDateString("en-US", {
@@ -960,6 +969,7 @@ export default function QuotationsPage() {
         }
         subTotal={viewQuotationData.subTotal}
         discount={viewQuotationData.discount}
+        shippingFee={viewQuotationData.shippingFee}
         vatableAmount={viewQuotationData.vatableAmount}
         vat={viewQuotationData.vat}
         grandTotal={viewQuotationData.grandTotal}

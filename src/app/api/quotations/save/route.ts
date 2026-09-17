@@ -22,6 +22,11 @@ export async function POST(request: Request) {
       payload = await request.json();
     }
 
+    const shippingFee = payload.shippingFee ?? 0;
+    if (typeof shippingFee !== "number" || !Number.isFinite(shippingFee) || shippingFee < 0) {
+      return NextResponse.json({ success: false, message: "Shipping fee must be a non-negative number." }, { status: 400 });
+    }
+
     // Extract client name from customer object or direct clientName field
     const customerName =
       payload.clientName ||
@@ -116,6 +121,7 @@ export async function POST(request: Request) {
       quotationDescription: payload.quotationDescription,
       grandTotal: payload.grandTotal || 0,
       discount: payload.discount || 0,
+      shippingFee,
       quotationNo: payload.quotationNo,
       preparedByName:
         payload.preparedBy || session?.fullName || session?.username || "",

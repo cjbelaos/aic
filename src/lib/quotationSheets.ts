@@ -17,7 +17,7 @@ const QUOTATIONS_SHEET = "Quotations";
 const QUOTATION_DETAILS_SHEET = "QuotationDetails";
 const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
-const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:K`;
+const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:L`;
 const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:E`;
 const QUOTATION_DETAILS_V2_SHEET = "QuotationDetailsV2";
 const RANGE_DETAILS_V2 = `${QUOTATION_DETAILS_V2_SHEET}!A2:H`;
@@ -100,6 +100,7 @@ function parseQuotationRow(
     description: String(row[2] || ""),
     amount: parseFloat(String(row[3])) || 0,
     discount: parseFloat(String(row[4])) || 0,
+    shippingFee: parseFloat(String(row[11])) || 0,
     file: String(row[5] || ""),
     date: String(row[6] || ""),
     preparedBy: String(row[7] || ""),
@@ -158,6 +159,7 @@ function buildQuotationRow(
     description: String(row[2] || ""),
     amount: parseFloat(String(row[3])) || 0,
     discount: parseFloat(String(row[4])) || 0,
+    shippingFee: parseFloat(String(row[11])) || 0,
     file: String(row[5] || ""),
     date: String(row[6] || ""),
     preparedBy: String(row[7] || ""),
@@ -273,6 +275,7 @@ export async function addQuotation(
       payload.approvedBy || "",
       payload.sentBy || "",
       payload.status || "DRAFT",
+      payload.shippingFee || 0,
     ];
 
     const detailValues = (payload.items || []).map((item) => [
@@ -327,6 +330,7 @@ export async function addQuotation(
       description: payload.description,
       amount: payload.amount,
       discount: payload.discount,
+      shippingFee: payload.shippingFee || 0,
       file: payload.file,
       date: payload.date,
       preparedBy: payload.preparedBy,
@@ -486,6 +490,7 @@ export async function updateQuotation(
             payload.approvedBy || "",
             payload.sentBy || "",
             payload.status || "DRAFT",
+            payload.shippingFee || 0,
           ],
         ],
       },
@@ -529,6 +534,7 @@ export async function updateQuotation(
       description: payload.description,
       amount: payload.amount,
       discount: payload.discount,
+      shippingFee: payload.shippingFee || 0,
       file: payload.file,
       date: payload.date,
       preparedBy: payload.preparedBy,
@@ -598,6 +604,7 @@ export async function saveQuotationData(params: {
   quotationDescription: string;
   grandTotal: number;
   discount: number;
+  shippingFee?: number;
   quotationNo: string;
   preparedByName: string;
   approvedBy?: string;
@@ -641,12 +648,13 @@ export async function saveQuotationData(params: {
       params.sentByName ||
         (params.status === "SENT" ? params.preparedByName : ""),
       params.status,
+      params.shippingFee || 0,
     ];
 
     const writes = [
       sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `${QUOTATIONS_SHEET}!A2:K`,
+        range: `${QUOTATIONS_SHEET}!A2:L`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [logRow] },
       }),
