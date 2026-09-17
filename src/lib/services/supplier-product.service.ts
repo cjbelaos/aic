@@ -1,14 +1,14 @@
 import axios from "axios";
-import type { CreateSupplierProductV2Payload, SupplierProductV2, UpdateSupplierProductV2Payload } from "@/types/supplier-product";
+import type { CreateSupplierProductPayload, SupplierProduct, UpdateSupplierProductPayload } from "@/types/supplier-product";
 
-const BASE = "/api/v2/supplier-products";
-const supplierProductV2Service = {
-  getAll: async (filters?: { productId?: string; supplierId?: string; status?: string }): Promise<SupplierProductV2[]> => {
-    const response = await axios.get<SupplierProductV2[]>(BASE, { params: filters });
+const BASE = "/api/supplier-products";
+const supplierProductService = {
+  getAll: async (filters?: { productId?: string; supplierId?: string; status?: string }): Promise<SupplierProduct[]> => {
+    const response = await axios.get<SupplierProduct[]>(BASE, { params: filters });
     return Array.isArray(response.data) ? response.data : [];
   },
-  create: async (payload: CreateSupplierProductV2Payload): Promise<SupplierProductV2> => (await axios.post<SupplierProductV2>(BASE, payload)).data,
-  update: async (payload: UpdateSupplierProductV2Payload): Promise<SupplierProductV2> => (await axios.put<SupplierProductV2>(`${BASE}/${payload.supplierProductId}`, payload)).data,
+  create: async (payload: CreateSupplierProductPayload): Promise<SupplierProduct> => (await axios.post<SupplierProduct>(BASE, payload)).data,
+  update: async (payload: UpdateSupplierProductPayload): Promise<SupplierProduct> => (await axios.put<SupplierProduct>(`${BASE}/${payload.supplierProductId}`, payload)).data,
   deactivate: async (id: string): Promise<void> => { await axios.delete(`${BASE}/${id}`); },
 };
-export default supplierProductV2Service;
+export default supplierProductService;

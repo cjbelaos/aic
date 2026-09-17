@@ -1,13 +1,21 @@
-import type { RecordStatus } from "@/types/product-v2";
+import type { RecordStatus } from "@/types/product-record";
 
-export interface ProductCategoryV2 {
+/**
+ * Canonical product category record (rows in the `ProductCategories` tab).
+ * Schema: ProductCategoryId | CategoryCode | CategoryName | Status.
+ */
+export interface ProductCategoryRecord {
   productCategoryId: string;
   categoryCode: string;
   categoryName: string;
   status: RecordStatus;
 }
 
-export interface ProductUnitV2 {
+/**
+ * Canonical product unit record (rows in the `ProductUnits` tab).
+ * Schema: UnitId | UnitCode | UnitName | Status.
+ */
+export interface ProductUnitRecord {
   unitId: string;
   unitCode: string;
   unitName: string;

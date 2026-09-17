@@ -18,7 +18,10 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import productUnitService from "@/lib/services/product-unit.service";
-import { ProductUnit, CreateProductUnitPayload } from "@/types/product-unit";
+import {
+  ProductUnit,
+  CreateProductUnitPayload,
+} from "@/types/product-unit";
 
 /* ── Excel export ─────────────────────────────────────────── */
 function exportToExcel(rows: ProductUnit[]) {

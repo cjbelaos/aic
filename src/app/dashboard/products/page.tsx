@@ -653,7 +653,7 @@ export default function ProductsPage() {
         onExport={() => exportToExcel(data)}
         onImport={handleImport}
         onRowClick={setDetailTarget}
-        mobileLayout={{ primary: ["code", "name", "categoryName"], labels: { code: "Product code", name: "Product", categoryName: "Category", unitName: "Unit", supplierCount: "Suppliers", pricePerUnit: "Selling price", actions: "Actions" } }}
+        mobileLayout={{ primary: ["productName", "productCode", "categoryName"], labels: { productCode: "Product code", productName: "Product name", categoryName: "Category", unitName: "Unit", supplierCount: "Suppliers", pricePerUnit: "Selling price", actions: "Actions" } }}
       />
 
       <Dialog
@@ -713,7 +713,7 @@ export default function ProductsPage() {
 
             {false && (
               <>
-                {/* Legacy supplier-specific fields are managed in SupplierProductsV2. */}
+                {/* Legacy supplier-specific fields are managed in SupplierProducts. */}
                 <div className="space-y-1.5">
                   <Label htmlFor="p-desc">Description</Label>
                   <Input
@@ -787,7 +787,7 @@ export default function ProductsPage() {
 
             {false && (
               <>
-                {/* Suppliers are edited as separate SupplierProductsV2 records. */}
+                {/* Suppliers are edited as separate SupplierProducts records. */}
                 <div className="space-y-1.5">
                   <Label htmlFor="p-supplier">Supplier *</Label>
                   <SearchableSelect

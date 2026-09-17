@@ -54,8 +54,8 @@ export async function GET(request: Request) {
 
       // Get product name
       let productName = item.productCode;
-      const product = allProducts.find((p) => p.code === item.productCode);
-      if (product) productName = product.name;
+      const product = allProducts.find((p) => p.productCode === item.productCode);
+      if (product) productName = product.productName;
 
       reports.push({
         contractItemId: item.id,

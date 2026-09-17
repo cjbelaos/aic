@@ -2,9 +2,14 @@ import { Company } from "@/types/company";
 import { ProductCategory } from "@/types/product-category";
 import { ProductUnit } from "@/types/product-unit";
 
+/**
+ * Dashboard product view: the flattened, joined product record the UI and the
+ * delivery / contract-compliance flows consume. The canonical sheet-row record
+ * (ProductId | ProductCode | ProductName | ...) lives in `@/types/product-record`.
+ */
 export interface Product {
   id: string; // prod_<rowNumber> (row-based ID for row targeting)
-  /** Stable V2 identity. Equals id for normalized products. */
+  /** Stable identity. Equals id for normalized products. */
   productId?: string;
   code: string;
   name: string;
@@ -14,7 +19,6 @@ export interface Product {
   costPerUnit: number;
   pricePerUnit: number;
   defaultSellingPrice?: number;
-  sourceVersion?: "v1" | "v2";
   supplierCount?: number;
   supplier: Company;
 }

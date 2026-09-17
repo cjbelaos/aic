@@ -1,221 +1,89 @@
-import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
-import {
-  CustomerPrice,
-  CreateCustomerPricePayload,
-  UpdateCustomerPricePayload,
-} from "@/types/customer-price";
+import { getCompanies } from "@/lib/companySheets";
+import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
+import { getProducts } from "@/lib/productSheets";
+import { isMissingSheetError, nextStableId, parseSheetNumber, rowNumberFromStableId } from "@/lib/sheets.utils";
+import type { CreateCustomerPricePayload, CustomerPrice, UpdateCustomerPricePayload } from "@/types/customer-price";
 
-const CUSTOMER_PRICES_SHEET = "CustomerPrices"; // Assumes a sheet tab named "CustomerPrices" exists
-const CUSTOMER_PRICES_RANGE = `${CUSTOMER_PRICES_SHEET}!A2:Z`; // Covers columns A (customerName), B (productCode), C (pricePerUnit)
+export const CUSTOMER_PRICES_SHEET = "CustomerPrices";
+const RANGE = `${CUSTOMER_PRICES_SHEET}!A2:L`;
 
-/**
- * Utility helper to extract the raw Excel/Google Sheets row number from our custom string ID.
- * Example: "cp_5" -> 5
- */
-function getRowFromId(id: string): number {
-  const rowStr = id.replace("cp_", "");
-  const rowNum = parseInt(rowStr, 10);
-  if (isNaN(rowNum)) {
-    throw new Error(`Invalid CustomerPrice ID format: ${id}`);
-  }
-  return rowNum;
+function fromRow(row: unknown[]): CustomerPrice {
+  return {
+    customerProductPriceId: String(row[0] ?? "").trim(), customerId: String(row[1] ?? "").trim(),
+    productId: String(row[2] ?? "").trim(), customerProductName: String(row[3] ?? "").trim() || undefined,
+    pricePerUnit: parseSheetNumber(row[4]), effectiveFrom: String(row[5] ?? "").trim() || undefined,
+    effectiveTo: String(row[6] ?? "").trim() || undefined,
+    status: String(row[7] ?? "active").toLowerCase() === "inactive" ? "inactive" : "active",
+    createdAt: String(row[8] ?? ""), createdBy: String(row[9] ?? ""), updatedAt: String(row[10] ?? "") || undefined,
+    updatedBy: String(row[11] ?? "") || undefined,
+  };
 }
 
-/**
- * GET: Fetches all rows mapped to CustomerPrice items from the Google Sheet.
- */
+function toRow(p: CustomerPrice): Array<string | number> {
+  return [p.customerProductPriceId, p.customerId, p.productId, p.customerProductName ?? "", p.pricePerUnit,
+    p.effectiveFrom ?? "", p.effectiveTo ?? "", p.status, p.createdAt, p.createdBy, p.updatedAt ?? "", p.updatedBy ?? ""];
+}
+
+/** Canonical customer-price read. */
+export async function getCustomerPricesOnly(): Promise<CustomerPrice[]> {
+  const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
+  try {
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE });
+    return (response.data.values ?? []).map(fromRow).filter((p) => p.customerProductPriceId);
+  } catch (error) {
+    if (isMissingSheetError(error)) return [];
+    throw error;
+  }
+}
+
+/** Canonical customer-price read. */
 export async function getCustomerPrices(): Promise<CustomerPrice[]> {
-  try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
+  return getCustomerPricesOnly();
+}
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: CUSTOMER_PRICES_RANGE,
-    });
+function overlaps(aFrom?: string, aTo?: string, bFrom?: string, bTo?: string): boolean {
+  const startA = aFrom || "0000-01-01", endA = aTo || "9999-12-31";
+  const startB = bFrom || "0000-01-01", endB = bTo || "9999-12-31";
+  return startA <= endB && startB <= endA;
+}
 
-    const rows = response.data.values;
-
-    if (!rows || rows.length === 0) {
-      return [];
-    }
-
-    return rows.map((row, index): CustomerPrice => {
-      return {
-        id: `cp_${index + 2}`, // Matches row index position + offset (row 1 = header)
-        companyName: row[0] || "",
-        productCode: row[1] || "",
-        pricePerUnit:
-          parseFloat(String(row[2] || "0").replace(/[₱$,]/g, "")) || 0,
-      };
-    });
-  } catch (error) {
-    console.error("Failed to fetch customer prices from Google Sheets:", error);
-    throw error;
+async function validate(payload: CreateCustomerPricePayload, excludeId?: string): Promise<void> {
+  if (!(payload.pricePerUnit > 0)) throw new Error("Price per unit must be greater than zero.");
+  if (payload.effectiveFrom && payload.effectiveTo && payload.effectiveFrom > payload.effectiveTo) throw new Error("EffectiveFrom cannot be after EffectiveTo.");
+  const [companies, products, existing] = await Promise.all([getCompanies(), getProducts(), getCustomerPricesOnly()]);
+  const customer = companies.find((c) => c.companyId === payload.customerId);
+  if (!customer || !["Customer", "Both"].includes(customer.companyType)) throw new Error(`Customer "${payload.customerId}" was not found.`);
+  if (!products.some((p) => p.productId === payload.productId)) throw new Error(`Product "${payload.productId}" was not found.`);
+  if (payload.status === "active" && existing.some((p) => p.customerProductPriceId !== excludeId && p.customerId === payload.customerId && p.productId === payload.productId && p.status === "active" && overlaps(p.effectiveFrom, p.effectiveTo, payload.effectiveFrom, payload.effectiveTo))) {
+    throw new Error("An active customer price already overlaps this effective period.");
   }
 }
 
-/**
- * POST: Appends a new customer price row in the Google Sheet.
- * Before appending, validates that the composite key (customerName, productCode)
- * is unique and that the referenced customer/product exist.
- */
-export async function addCustomerPrice(
-  payload: CreateCustomerPricePayload,
-): Promise<CustomerPrice> {
-  try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    // 1. Fetch existing rows to check for duplicate composite key
-    const existingResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: CUSTOMER_PRICES_RANGE,
-    });
-    const existingRows = existingResponse.data.values || [];
-
-    // Validate composite unique constraint
-    const duplicate = existingRows.find(
-      (row) =>
-        row[0]?.trim().toLowerCase() ===
-          payload.companyName.trim().toLowerCase() &&
-        row[1]?.trim().toLowerCase() ===
-          payload.productCode.trim().toLowerCase(),
-    );
-    if (duplicate) {
-      throw new Error(
-        `A custom price already exists for customer "${payload.companyName}" and product "${payload.productCode}".`,
-      );
-    }
-
-    // 2. Validate pricePerUnit > 0
-    if (payload.pricePerUnit <= 0) {
-      throw new Error(
-        "Custom Price/Unit must be a positive number greater than 0.",
-      );
-    }
-
-    // 3. Calculate new row number
-    const rowCount = existingRows.length;
-    const newRowNumber = rowCount + 2; // +2 because row 1 is header, data starts at row 2
-
-    // Serialize into column array matching sheet layout: [customerName, productCode, pricePerUnit]
-    const newRowValues = [
-      payload.companyName || "",
-      payload.productCode || "",
-      payload.pricePerUnit || 0,
-    ];
-
-    // Append the new row to the sheet
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: CUSTOMER_PRICES_RANGE,
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [newRowValues],
-      },
-    });
-
-    return {
-      id: `cp_${newRowNumber}`,
-      companyName: payload.companyName,
-      productCode: payload.productCode,
-      pricePerUnit: payload.pricePerUnit,
-    };
-  } catch (error) {
-    console.error("Failed to create customer price in Google Sheets:", error);
-    throw error;
-  }
+export async function addCustomerPrice(payload: CreateCustomerPricePayload, actor: string): Promise<CustomerPrice> {
+  await validate(payload);
+  const customerId = payload.customerId;
+  const productId = payload.productId;
+  if (!customerId || !productId) throw new Error("Customer and product are required.");
+  const existing = await getCustomerPricesOnly();
+  const record: CustomerPrice = { ...payload, customerId, productId, customerProductPriceId: nextStableId("CPP", existing.map((p) => p.customerProductPriceId)), status: payload.status ?? "active", createdAt: new Date().toISOString(), createdBy: actor };
+  const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
+  await sheets.spreadsheets.values.append({ spreadsheetId, range: RANGE, valueInputOption: "USER_ENTERED", requestBody: { values: [toRow(record)] } });
+  return record;
 }
 
-/**
- * PUT / UPDATE: Updates an existing customer price row in the Google Sheet.
- */
-export async function updateCustomerPriceInSheets(
-  payload: UpdateCustomerPricePayload,
-): Promise<CustomerPrice> {
-  try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    const rowNumber = getRowFromId(payload.id);
-    const updateRange = `${CUSTOMER_PRICES_SHEET}!A${rowNumber}:C${rowNumber}`;
-
-    // Fetch the current row so we don't accidentally overwrite skipped partial fields
-    const currentDataResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: updateRange,
-    });
-    const existingRow = currentDataResponse.data.values?.[0] || [];
-
-    // Validate pricePerUnit if being updated
-    const newPrice =
-      payload.pricePerUnit !== undefined
-        ? payload.pricePerUnit
-        : parseFloat(String(existingRow[2] || "0").replace(/[₱$,]/g, "")) || 0;
-    if (newPrice <= 0) {
-      throw new Error(
-        "Custom Price/Unit must be a positive number greater than 0.",
-      );
-    }
-
-    // Map payload updates over old values
-    const updatedValues = [
-      payload.companyName !== undefined
-        ? payload.companyName
-        : existingRow[0] || "",
-      payload.productCode !== undefined
-        ? payload.productCode
-        : existingRow[1] || "",
-      newPrice,
-    ];
-
-    // Write the updated array back into the targeted row range
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: updateRange,
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [updatedValues],
-      },
-    });
-
-    return {
-      id: payload.id,
-      companyName: String(updatedValues[0]),
-      productCode: String(updatedValues[1]),
-      pricePerUnit: Number(updatedValues[2]),
-    };
-  } catch (error) {
-    console.error(
-      `Failed to update customer price row ${payload.id} in Google Sheets:`,
-      error,
-    );
-    throw error;
-  }
+export async function updateCustomerPrice(payload: UpdateCustomerPricePayload, actor: string): Promise<CustomerPrice> {
+  const existing = await getCustomerPricesOnly();
+  const id = "customerProductPriceId" in payload ? payload.customerProductPriceId : (payload.id ?? "");
+  const current = existing.find((p) => p.customerProductPriceId === id);
+  if (!current) throw new Error(`Customer price "${id}" was not found.`);
+  const updated: CustomerPrice = { ...current, ...payload, updatedAt: new Date().toISOString(), updatedBy: actor };
+  await validate(updated, updated.customerProductPriceId);
+  const row = rowNumberFromStableId(updated.customerProductPriceId, existing.map((p) => p.customerProductPriceId));
+  const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
+  await sheets.spreadsheets.values.update({ spreadsheetId, range: `${CUSTOMER_PRICES_SHEET}!A${row}:L${row}`, valueInputOption: "USER_ENTERED", requestBody: { values: [toRow(updated)] } });
+  return updated;
 }
 
-/**
- * DELETE: Clears the contents of a customer price row from the Google Sheet.
- */
-export async function deleteCustomerPriceFromSheets(id: string): Promise<void> {
-  try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    const rowNumber = getRowFromId(id);
-    const deleteRange = `${CUSTOMER_PRICES_SHEET}!A${rowNumber}:C${rowNumber}`;
-
-    // Clears the text values inside the targeted line range cells
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: deleteRange,
-    });
-  } catch (error) {
-    console.error(
-      `Failed to clear customer price row ${id} from Google Sheets:`,
-      error,
-    );
-    throw error;
-  }
+export async function deactivateCustomerPrice(id: string, actor: string): Promise<CustomerPrice> {
+  return updateCustomerPrice({ customerProductPriceId: id, status: "inactive" }, actor);
 }

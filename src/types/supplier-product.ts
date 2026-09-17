@@ -1,6 +1,12 @@
-import type { RecordStatus } from "@/types/product-v2";
+import type { RecordStatus } from "@/types/product-record";
 
-export interface SupplierProductV2 {
+/**
+ * Canonical supplier product record (rows in the `SupplierProducts` tab).
+ * Schema: SupplierProductId | ProductId | SupplierId | SupplierProductCode |
+ * SupplierProductName | SupplierDescription | CostPerUnit | IsPreferredSupplier |
+ * Status | CreatedAt | CreatedBy | UpdatedAt | UpdatedBy.
+ */
+export interface SupplierProduct {
   supplierProductId: string;
   productId: string;
   supplierId: string;
@@ -16,12 +22,12 @@ export interface SupplierProductV2 {
   updatedBy?: string;
 }
 
-export type CreateSupplierProductV2Payload = Omit<
-  SupplierProductV2,
+export type CreateSupplierProductPayload = Omit<
+  SupplierProduct,
   "supplierProductId" | "createdAt" | "createdBy" | "updatedAt" | "updatedBy"
 >;
 
-export type UpdateSupplierProductV2Payload = Pick<
-  SupplierProductV2,
+export type UpdateSupplierProductPayload = Pick<
+  SupplierProduct,
   "supplierProductId"
-> & Partial<CreateSupplierProductV2Payload>;
+> & Partial<CreateSupplierProductPayload>;

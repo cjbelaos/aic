@@ -4,10 +4,10 @@ import {
   CreateProductCategoryPayload,
   UpdateProductCategoryPayload,
 } from "@/types/product-category";
-import type { ProductCategoryV2 } from "@/types/product-reference-v2";
+import type { ProductCategoryRecord } from "@/types/product-reference";
 
-const API_BASE_URL = "/api/v2/product-categories";
-const fromV2 = (item: ProductCategoryV2): ProductCategory => ({ id: item.productCategoryId, code: item.categoryCode, name: item.categoryName });
+const API_BASE_URL = "/api/product-categories";
+const toView = (item: ProductCategoryRecord): ProductCategory => ({ id: item.productCategoryId, code: item.categoryCode, name: item.categoryName });
 
 const productCategoryService = {
   /**
@@ -15,8 +15,8 @@ const productCategoryService = {
    */
   getAll: async (): Promise<ProductCategory[]> => {
     try {
-      const response = await axios.get<ProductCategoryV2[]>(API_BASE_URL);
-      return Array.isArray(response.data) ? response.data.map(fromV2) : [];
+      const response = await axios.get<ProductCategoryRecord[]>(API_BASE_URL);
+      return Array.isArray(response.data) ? response.data.map(toView) : [];
     } catch (error) {
       console.error(
         "Failed to fetch product categories in service layer:",
@@ -33,8 +33,8 @@ const productCategoryService = {
     payload: CreateProductCategoryPayload,
   ): Promise<ProductCategory | null> => {
     try {
-      const response = await axios.post<ProductCategoryV2>(API_BASE_URL, { categoryCode: payload.code, categoryName: payload.name, status: "active" });
-      return fromV2(response.data);
+      const response = await axios.post<ProductCategoryRecord>(API_BASE_URL, { categoryCode: payload.code, categoryName: payload.name, status: "active" });
+      return toView(response.data);
     } catch (error) {
       console.error(
         "Failed to create product category in service layer:",
@@ -51,11 +51,11 @@ const productCategoryService = {
     payload: UpdateProductCategoryPayload,
   ): Promise<ProductCategory | null> => {
     try {
-      const response = await axios.put<ProductCategoryV2>(
+      const response = await axios.put<ProductCategoryRecord>(
         `${API_BASE_URL}/${payload.id}`,
         { categoryCode: payload.code, categoryName: payload.name },
       );
-      return fromV2(response.data);
+      return toView(response.data);
     } catch (error) {
       console.error(
         `Failed to update product category with ID ${payload.id} in service layer:`,
@@ -84,7 +84,7 @@ const productCategoryService = {
    * Clears all product category rows from the Google Sheet.
    */
   clearAll: async (): Promise<void> => {
-    throw new Error("Bulk clearing is disabled for ProductCategoriesV2.");
+    throw new Error("Bulk clearing is disabled for ProductCategories.");
   },
 };
 

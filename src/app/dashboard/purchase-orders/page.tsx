@@ -31,8 +31,8 @@ import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
-import supplierProductV2Service from "@/lib/services/supplier-product-v2.service";
-import type { SupplierProductV2 } from "@/types/supplier-product";
+import supplierProductService from "@/lib/services/supplier-product.service";
+import type { SupplierProduct } from "@/types/supplier-product";
 import productUnitService from "@/lib/services/product-unit.service";
 import productCategoryService from "@/lib/services/product-category.service";
 import userService from "@/lib/services/user.service";
@@ -93,7 +93,7 @@ export default function PurchaseOrderPage() {
     new Set(),
   );
   const [products, setProducts] = useState<any[]>([]);
-  const [supplierProducts, setSupplierProducts] = useState<SupplierProductV2[]>([]);
+  const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
     [],
@@ -214,7 +214,7 @@ export default function PurchaseOrderPage() {
       productUnitService.getAll(),
       productCategoryService.getAll(),
       paymentTermService.getAll(),
-      supplierProductV2Service.getAll({ status: "active" }),
+      supplierProductService.getAll({ status: "active" }),
     ]).then(([cData, pData, uData, catData, termsData, offerings]) => {
       // Filter only suppliers
       const suppliers = Array.isArray(cData)
@@ -283,8 +283,8 @@ export default function PurchaseOrderPage() {
 
   useEffect(() => {
     const request = selectedSupplier
-      ? supplierProductV2Service.getAll({ supplierId: selectedSupplier, status: "active" })
-      : Promise.resolve([] as SupplierProductV2[]);
+      ? supplierProductService.getAll({ supplierId: selectedSupplier, status: "active" })
+      : Promise.resolve([] as SupplierProduct[]);
     request
       .then(setSupplierProducts).catch(() => setSupplierProducts([]));
   }, [selectedSupplier]);

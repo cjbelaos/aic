@@ -5,11 +5,11 @@ import {
   UpdateCustomerPricePayload,
 } from "@/types/customer-price";
 
-const API_BASE_URL = "/api/v2/customer-prices";
+const API_BASE_URL = "/api/customer-prices";
 
 const customerPriceService = {
   /**
-   * Fetches all customer price rows from the Google Sheet.
+   * Fetches all customer price rows from the Google Sheet (enriched view).
    */
   getAll: async (): Promise<CustomerPrice[]> => {
     try {
@@ -46,14 +46,15 @@ const customerPriceService = {
     payload: UpdateCustomerPricePayload,
   ): Promise<CustomerPrice | null> => {
     try {
+      const id = "customerProductPriceId" in payload ? payload.customerProductPriceId : (payload.id ?? "");
       const response = await axios.put<CustomerPrice>(
-        `${API_BASE_URL}/${payload.id}`,
+        `${API_BASE_URL}/${id}`,
         payload,
       );
       return response.data;
     } catch (error) {
       console.error(
-        `Failed to update customer price with ID ${payload.id} in service layer:`,
+        `Failed to update customer price in service layer:`,
         error,
       );
       throw error;

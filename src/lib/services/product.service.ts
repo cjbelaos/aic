@@ -4,18 +4,18 @@ import {
   CreateProductPayload,
   UpdateProductPayload,
 } from "@/types/product";
-import type { ProductV2 } from "@/types/product-v2";
-import type { SupplierProductV2 } from "@/types/supplier-product";
-import type { ProductCategoryV2, ProductUnitV2 } from "@/types/product-reference-v2";
+import type { ProductRecord } from "@/types/product-record";
+import type { SupplierProduct } from "@/types/supplier-product";
+import type { ProductCategoryRecord, ProductUnitRecord } from "@/types/product-reference";
 
-const API_BASE_URL = "/api/v2/products";
+const API_BASE_URL = "/api/products";
 
 const emptySupplier: Product["supplier"] = {
   id: "", row: 0, companyId: "", companyType: "Supplier", companyName: "",
   tin: "", address: "", latitude: undefined, longitude: undefined, status: "active",
 };
 
-function fromV2(product: ProductV2, supplierCount = 0, categories: ProductCategoryV2[] = [], units: ProductUnitV2[] = []): Product {
+function toView(product: ProductRecord, supplierCount = 0, categories: ProductCategoryRecord[] = [], units: ProductUnitRecord[] = []): Product {
   const category = categories.find((item) => item.productCategoryId === product.productCategoryId);
   const unit = units.find((item) => item.unitId === product.unitId);
   return {
@@ -30,7 +30,6 @@ function fromV2(product: ProductV2, supplierCount = 0, categories: ProductCatego
     pricePerUnit: product.defaultSellingPrice ?? 0,
     defaultSellingPrice: product.defaultSellingPrice,
     supplier: emptySupplier,
-    sourceVersion: product.sourceVersion,
     supplierCount,
   };
 }
@@ -42,16 +41,16 @@ const productService = {
   getAll: async (): Promise<Product[]> => {
     try {
       const [response, offerings, references] = await Promise.all([
-        axios.get<ProductV2[]>(API_BASE_URL),
-        axios.get<SupplierProductV2[]>("/api/v2/supplier-products", { params: { status: "active" } })
-          .catch(() => ({ data: [] as SupplierProductV2[] })),
-        axios.get<{ categories: ProductCategoryV2[]; units: ProductUnitV2[] }>("/api/v2/product-references")
+        axios.get<ProductRecord[]>(API_BASE_URL),
+        axios.get<SupplierProduct[]>("/api/supplier-products", { params: { status: "active" } })
+          .catch(() => ({ data: [] as SupplierProduct[] })),
+        axios.get<{ categories: ProductCategoryRecord[]; units: ProductUnitRecord[] }>("/api/product-references")
           .catch(() => ({ data: { categories: [], units: [] } })),
       ]);
 
       // Ensure the incoming data is safely an array
       const counts = offerings.data.reduce((map, offering) => map.set(offering.productId, (map.get(offering.productId) ?? 0) + 1), new Map<string, number>());
-      return Array.isArray(response.data) ? response.data.map((product) => fromV2(product, counts.get(product.productId) ?? 0, references.data.categories, references.data.units)) : [];
+      return Array.isArray(response.data) ? response.data.map((product) => toView(product, counts.get(product.productId) ?? 0, references.data.categories, references.data.units)) : [];
     } catch (error) {
       console.error("Failed to fetch products in service layer:", error);
       // Return a safe fallback array so component .map() functions don't white-screen crash
@@ -74,11 +73,11 @@ const productService = {
    */
   create: async (payload: CreateProductPayload): Promise<Product | null> => {
     try {
-      const references = await axios.get<{ categories: ProductCategoryV2[]; units: ProductUnitV2[] }>("/api/v2/product-references");
+      const references = await axios.get<{ categories: ProductCategoryRecord[]; units: ProductUnitRecord[] }>("/api/product-references");
       const category = references.data.categories.find((item) => item.categoryCode === (payload.category.code || payload.category.name));
       const unit = references.data.units.find((item) => item.unitCode === (payload.unit.code || payload.unit.name));
-      if (!category || !unit) throw new Error("The selected category or unit is not available in V2.");
-      const response = await axios.post<ProductV2>(API_BASE_URL, {
+      if (!category || !unit) throw new Error("The selected category or unit is not available.");
+      const response = await axios.post<ProductRecord>(API_BASE_URL, {
         productCode: payload.code,
         productName: payload.name,
         productCategoryId: category.productCategoryId,
@@ -86,7 +85,7 @@ const productService = {
         defaultSellingPrice: payload.pricePerUnit,
         status: "active",
       });
-      return fromV2(response.data, 0, references.data.categories, references.data.units);
+      return toView(response.data, 0, references.data.categories, references.data.units);
     } catch (error) {
       console.error("Failed to create product in service layer:", error);
       throw error;
@@ -99,10 +98,10 @@ const productService = {
   update: async (payload: UpdateProductPayload): Promise<Product | null> => {
     try {
       // Sends a PUT request with the user's updated fields bundle
-      const references = await axios.get<{ categories: ProductCategoryV2[]; units: ProductUnitV2[] }>("/api/v2/product-references");
+      const references = await axios.get<{ categories: ProductCategoryRecord[]; units: ProductUnitRecord[] }>("/api/product-references");
       const category = references.data.categories.find((item) => item.categoryCode === (payload.category?.code || payload.category?.name));
       const unit = references.data.units.find((item) => item.unitCode === (payload.unit?.code || payload.unit?.name));
-      const response = await axios.put<ProductV2>(
+      const response = await axios.put<ProductRecord>(
         `${API_BASE_URL}/${payload.id}`,
         {
           productCode: payload.code,
@@ -112,7 +111,7 @@ const productService = {
           defaultSellingPrice: payload.pricePerUnit,
         },
       );
-      return fromV2(response.data, 0, references.data.categories, references.data.units);
+      return toView(response.data, 0, references.data.categories, references.data.units);
     } catch (error) {
       console.error(
         `Failed to update product with ID ${payload.id} in service layer:`,
@@ -141,7 +140,7 @@ const productService = {
    * Clears all product rows from the Google Sheet
    */
   clearAll: async (): Promise<void> => {
-    throw new Error("Bulk clearing is disabled for ProductsV2. Import must be non-destructive.");
+    throw new Error("Bulk clearing is disabled for Products. Import must be non-destructive.");
   },
 };
 

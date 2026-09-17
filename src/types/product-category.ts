@@ -1,3 +1,7 @@
+/**
+ * Dashboard product category view ({ id, code, name }).
+ * The canonical record lives in `@/types/product-reference`.
+ */
 export interface ProductCategory {
   id: string;
   /** Short code identifier (e.g., CO, PA, PR, RE, SU, SE, TR). Acts as a display key. */

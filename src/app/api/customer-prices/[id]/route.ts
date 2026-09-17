@@ -1,65 +1,24 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import {
-  updateCustomerPriceInSheets,
-  deleteCustomerPriceFromSheets,
-} from "@/lib/customerPriceSheets";
-import { UpdateCustomerPricePayload } from "@/types/customer-price";
-
-/**
- * PUT /api/customer-prices/[id]
- * Updates an existing customer price row by ID.
- */
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const session = await requireAuthenticatedSession();
-  if (session instanceof Response) return session;
-
+import { deactivateCustomerPrice, updateCustomerPrice } from "@/lib/customerPriceSheets";
+import type { UpdateCustomerPricePayload } from "@/types/customer-price";
+import { getCompanies } from "@/lib/companySheets";
+import { getProducts } from "@/lib/productSheets";
+type Context = { params: Promise<{ id: string }> };
+export async function PUT(request: Request, { params }: Context) {
+  const session = await requireAuthenticatedSession(); if (session instanceof Response) return session;
   try {
     const { id } = await params;
-    const body: Partial<UpdateCustomerPricePayload> = await request.json();
-
-    const payload: UpdateCustomerPricePayload = {
-      id,
-      ...body,
-    };
-
-    const updated = await updateCustomerPriceInSheets(payload);
-    return NextResponse.json(updated, { status: 200 });
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to update customer price.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const body = (await request.json()) as Partial<UpdateCustomerPricePayload> & { companyName?: string; productCode?: string };
+    const [companies, products] = await Promise.all([getCompanies(), getProducts()]);
+    const customerId = body.customerId || (body.companyName ? companies.find((c) => c.companyName.trim().toLowerCase() === body.companyName?.trim().toLowerCase())?.companyId : undefined);
+    const productId = body.productId || (body.productCode ? products.find((p) => p.productCode.trim().toLowerCase() === body.productCode?.trim().toLowerCase())?.productId : undefined);
+    return NextResponse.json(await updateCustomerPrice({ ...body, customerId, productId, customerProductPriceId: id }, session.userId));
   }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update customer price." }, { status: 500 }); }
 }
-
-/**
- * DELETE /api/customer-prices/[id]
- * Clears/deletes a customer price row by ID.
- */
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const session = await requireAuthenticatedSession();
-  if (session instanceof Response) return session;
-
-  try {
-    const { id } = await params;
-    await deleteCustomerPriceFromSheets(id);
-    return NextResponse.json(
-      { message: "Customer price deleted successfully." },
-      { status: 200 },
-    );
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to delete customer price.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+export async function DELETE(_request: Request, { params }: Context) {
+  const session = await requireAuthenticatedSession(); if (session instanceof Response) return session;
+  try { const { id } = await params; return NextResponse.json(await deactivateCustomerPrice(id, session.userId)); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to deactivate customer price." }, { status: 500 }); }
 }

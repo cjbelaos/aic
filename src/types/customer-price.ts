@@ -1,35 +1,54 @@
+import type { RecordStatus } from "@/types/product-record";
+
+/**
+ * Canonical customer price record (rows in the `CustomerPrices` tab).
+ * Schema: CustomerProductPriceId | CustomerId | ProductId | CustomerProductName |
+ * PricePerUnit | EffectiveFrom | EffectiveTo | Status | CreatedAt | CreatedBy | UpdatedAt | UpdatedBy.
+ *
+ * The fields below the audit block (`id`, `companyId`, `companyName`,
+ * `productCode`, ...) are enrichment fields produced by the `/api/customer-prices`
+ * read path so existing dashboard consumers keep receiving the flat display fields.
+ */
 export interface CustomerPrice {
-  id: string;
-  /** The company name string (foreign key to Company). */
-  companyName: string;
-  /** Optional numeric company ID fallback. */
-  companyId?: number | string;
-  /** The product code string (foreign key to Product). */
-  productCode: string;
-  /** Optional numeric product ID fallback. */
-  productId?: number | string;
+  customerProductPriceId: string;
+  customerId: string;
+  productId: string;
   customerProductName?: string;
+  pricePerUnit: number;
   effectiveFrom?: string;
   effectiveTo?: string;
-  status?: "active" | "inactive";
-  sourceVersion?: "v1" | "v2";
-  /** The custom price per unit for this company-product pair. */
-  pricePerUnit: number;
-  /** Optional alias for pricePerUnit used in some sheets. */
+  status: RecordStatus;
+  createdAt: string;
+  createdBy: string;
+  updatedAt?: string;
+  updatedBy?: string;
+  /** Enriched read-only alias for customerProductPriceId. */
+  id?: string;
+  companyId?: string;
+  companyName?: string;
+  productCode?: string;
   customPricePerUnit?: number;
   customPriceUnit?: number;
 }
 
 /**
- * For Creating: We require all information EXCEPT the auto-generated ID.
- * The composite unique constraint on (companyName, productCode) is enforced
- * at the service / sheets layer.
+ * For Creating: pricePerUnit is required; customerId/productId may be
+ * resolved from companyName/productCode by the API layer.
  */
-export type CreateCustomerPricePayload = Omit<CustomerPrice, "id">;
+export type CreateCustomerPricePayload = Pick<CustomerPrice, "pricePerUnit"> &
+  Partial<
+    Omit<
+      CustomerPrice,
+      "customerProductPriceId" | "createdAt" | "createdBy" | "updatedAt" | "updatedBy"
+    >
+  >;
 
 /**
- * For Updating: The ID is strictly required to identify the row,
- * but all other fields are optional (Partial) so you can update individual fields.
+ * For Updating: the record is identified by either `id` (legacy view) or
+ * `customerProductPriceId` (canonical view); all other fields are optional.
  */
-export type UpdateCustomerPricePayload = Pick<CustomerPrice, "id"> &
-  Partial<Omit<CustomerPrice, "id">>;
+export type UpdateCustomerPricePayload = (
+  | Pick<CustomerPrice, "id">
+  | Pick<CustomerPrice, "customerProductPriceId">
+) &
+  Partial<CreateCustomerPricePayload>;

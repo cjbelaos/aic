@@ -1,47 +1,21 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { getProducts, addProduct, clearAllProducts } from "@/lib/productSheets";
-import { CreateProductPayload } from "@/types/product";
+import { addProduct, getProducts } from "@/lib/productSheets";
+import type { CreateProductRecordPayload } from "@/types/product-record";
 
 export async function GET() {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
-
-  try {
-    const products = await getProducts();
-    return NextResponse.json(products, { status: 200 });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to fetch products.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  try { return NextResponse.json(await getProducts()); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to fetch products." }, { status: 500 }); }
 }
 
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
-
   try {
-    const body: CreateProductPayload = await request.json();
-    const created = await addProduct(body);
-    return NextResponse.json(created, { status: 201 });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to create product.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-
-export async function DELETE() {
-  const session = await requireAuthenticatedSession();
-  if (session instanceof Response) return session;
-
-  try {
-    await clearAllProducts();
-    return NextResponse.json({ success: true }, { status: 200 });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to clear products.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+    const body = (await request.json()) as CreateProductRecordPayload;
+    if (!body.productName?.trim() || !body.productCategoryId?.trim() || !body.unitId?.trim()) return NextResponse.json({ error: "Product name, category, and unit are required." }, { status: 400 });
+    return NextResponse.json(await addProduct(body, session.userId), { status: 201 });
+  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create product." }, { status: 500 }); }
 }

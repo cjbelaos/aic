@@ -16,10 +16,10 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Switch } from "@/components/ui/switch";
 import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
-import supplierProductService from "@/lib/services/supplier-product-v2.service";
+import supplierProductService from "@/lib/services/supplier-product.service";
 import type { Company } from "@/types/company";
 import type { Product } from "@/types/product";
-import type { CreateSupplierProductV2Payload, SupplierProductV2 } from "@/types/supplier-product";
+import type { CreateSupplierProductPayload, SupplierProduct } from "@/types/supplier-product";
 
 interface SupplierProductForm {
   productId: string;
@@ -52,15 +52,15 @@ const currency = (value: number) => value.toLocaleString("en-PH", {
 export default function SupplierProductsPage() {
   const searchParams = useSearchParams();
   const requestedProductId = searchParams.get("productId") ?? "";
-  const [rows, setRows] = useState<SupplierProductV2[]>([]);
+  const [rows, setRows] = useState<SupplierProduct[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<SupplierProductV2 | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<SupplierProductV2 | null>(null);
+  const [editTarget, setEditTarget] = useState<SupplierProduct | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SupplierProduct | null>(null);
   const [form, setForm] = useState<SupplierProductForm>(EMPTY_FORM);
 
   const load = useCallback(async () => {
@@ -71,7 +71,7 @@ export default function SupplierProductsPage() {
         companyService.getAll(),
       ]);
       setRows(supplierProducts);
-      setProducts(canonicalProducts.filter((product) => product.sourceVersion !== "v1"));
+      setProducts(canonicalProducts);
       setSuppliers(companies.filter((company) => company.status === "active" && (company.companyType === "Supplier" || company.companyType === "Both")));
     } catch (error) {
       console.error("Failed to load supplier products:", error);
@@ -96,7 +96,7 @@ export default function SupplierProductsPage() {
     [requestedProductId, rows],
   );
 
-  const columns = useMemo<ColumnDef<SupplierProductV2>[]>(() => [
+  const columns = useMemo<ColumnDef<SupplierProduct>[]>(() => [
     {
       accessorKey: "supplierProductName",
       header: ({ column }) => <Button variant="ghost" className="px-0 font-semibold" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Supplier Product <ArrowUpDown className="ml-1 h-3.5 w-3.5" /></Button>,
@@ -129,7 +129,7 @@ export default function SupplierProductsPage() {
     setModalOpen(true);
   };
 
-  const openEdit = (row: SupplierProductV2) => {
+  const openEdit = (row: SupplierProduct) => {
     setEditTarget(row);
     setForm({
       productId: row.productId,
@@ -156,7 +156,7 @@ export default function SupplierProductsPage() {
     }
     setSaving(true);
     setFormError("");
-    const payload: CreateSupplierProductV2Payload = {
+    const payload: CreateSupplierProductPayload = {
       productId: form.productId,
       supplierId: form.supplierId,
       supplierProductCode: form.supplierProductCode.trim() || undefined,

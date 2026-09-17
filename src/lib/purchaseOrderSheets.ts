@@ -11,14 +11,13 @@ import {
   PurchaseOrderItem,
   POStatusEntry,
 } from "@/types/purchaseOrder";
-import { getPurchaseOrderItemsV2, renamePurchaseOrderItemReferencesV2, replacePurchaseOrderItemsV2 } from "@/lib/transactionItemV2Sheets";
-import { getSupplierProductsV2 } from "@/lib/supplierProductV2Sheets";
-import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
+import { getPurchaseOrderItems, renamePurchaseOrderItemReferences, replacePurchaseOrderItems } from "@/lib/transactionItemSheets";
+import { getSupplierProducts } from "@/lib/supplierProductSheets";
 
 async function validateCatalogItemsForSupplier(items: PurchaseOrderItem[], supplierId: string): Promise<void> {
   const catalogItems = items.filter((item) => item.supplierProductId);
   if (!catalogItems.length) return;
-  const offerings = await getSupplierProductsV2({ supplierId, status: "active" });
+  const offerings = await getSupplierProducts({ supplierId, status: "active" });
   for (const item of catalogItems) {
     const offering = offerings.find((entry) => entry.supplierProductId === item.supplierProductId);
     if (!offering) throw new Error(`Supplier product "${item.supplierProductId}" is not active for supplier "${supplierId}".`);
@@ -32,9 +31,8 @@ const PURCHASE_ORDERS_RANGE = `${PURCHASE_ORDERS_SHEET}!A2:Q`;
 // F:PaymentTerms G:Comments H:PreparedBy I:ApprovedBy J:NotedBy K:TotalAmount
 // L:Status M:DriveFileLink N:CreatedAt O:CreatedBy P:UpdatedBy Q:UpdatedAt
 
-const PURCHASE_ORDER_ITEMS_SHEET = "PurchaseOrderItems";
-const PURCHASE_ORDER_ITEMS_RANGE = `${PURCHASE_ORDER_ITEMS_SHEET}!A2:G`;
-// A:PurchaseOrderId(B:string) B:ItemNo C:Description D:Quantity E:Unit F:PricePerUnit G:TotalAmount
+// PO line items now live in the canonical `PurchaseOrderItems` tab; they
+// are read and written through transactionItemSheets.
 
 const PO_STATUS_HISTORY_SHEET = "PurchaseOrderStatusHistory";
 const PO_STATUS_HISTORY_RANGE = `${PO_STATUS_HISTORY_SHEET}!A2:E`;
@@ -151,68 +149,21 @@ async function findPORow(
   );
 }
 
-async function findPOItemRows(
-  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
-  spreadsheetId: string,
-  poNumber: string,
-): Promise<Array<{ rowNumber: number; rowData: string[] }>> {
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: PURCHASE_ORDER_ITEMS_RANGE,
-  });
-  const rows = response.data.values || [];
-  const result: Array<{ rowNumber: number; rowData: string[] }> = [];
-  rows.forEach((row, idx) => {
-    const poId = String(row[0] ?? "").trim();
-    if (poId === poNumber) {
-      result.push({ rowNumber: idx + 2, rowData: row });
-    }
-  });
-  return result;
-}
-
 export async function getPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    const [poResponse, itemsResponse] = await Promise.all([
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: PURCHASE_ORDERS_RANGE,
-      }),
-      sheets.spreadsheets.values
-        .get({
-          spreadsheetId,
-          range: PURCHASE_ORDER_ITEMS_RANGE,
-        })
-        .catch(() => ({ data: { values: [] as any[][] } })),
-    ]);
+    const poResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: PURCHASE_ORDERS_RANGE,
+    });
 
     const poRows = poResponse.data.values;
     if (!poRows || poRows.length === 0) return [];
 
-    const itemRows = itemsResponse.data.values || [];
-
-    // Group items by PO number
-    const itemsByPO = new Map<string, PurchaseOrderItem[]>();
-    for (const itemRow of itemRows) {
-      const poId = String(itemRow[0] ?? "").trim();
-      if (!poId) continue;
-      const item: PurchaseOrderItem = {
-        purchaseOrderId: poId,
-        itemNo: parseInt(String(itemRow[1] ?? "0"), 10) || 0,
-        description: String(itemRow[2] ?? "").trim(),
-        quantity: parseInt(String(itemRow[3] ?? "0"), 10) || 0,
-        unit: String(itemRow[4] ?? "").trim(),
-        pricePerUnit: parseFloat(String(itemRow[5] ?? "0")) || 0,
-        totalAmount: parseFloat(String(itemRow[6] ?? "0")) || 0,
-      };
-      if (!itemsByPO.has(poId)) itemsByPO.set(poId, []);
-      itemsByPO.get(poId)!.push(item);
-    }
-    const v2Items = await getPurchaseOrderItemsV2();
-    for (const [poNumber, items] of v2Items) itemsByPO.set(poNumber, items);
+    // Items live in the canonical PurchaseOrderItems tab.
+    const itemsByPO = await getPurchaseOrderItems();
 
     const suppliers = await getCompanies().catch(() => []);
 
@@ -335,7 +286,7 @@ export async function processPurchaseOrder(
       requestBody: { values: [headerRow] },
     });
 
-    await replacePurchaseOrderItemsV2(poNumber, payload.items);
+    await replacePurchaseOrderItems(poNumber, payload.items);
 
 
     return {
@@ -448,17 +399,11 @@ export async function updatePurchaseOrder(
 
     if (isFinalizingDraft) {
       try {
-        const [legacyItems, history] = await Promise.all([
-          findPOItemRows(sheets, spreadsheetId, poNumber),
-          sheets.spreadsheets.values.get({ spreadsheetId, range: PO_STATUS_HISTORY_RANGE }).catch(() => ({ data: { values: [] } })),
-        ]);
+        const history = await sheets.spreadsheets.values.get({ spreadsheetId, range: PO_STATUS_HISTORY_RANGE }).catch(() => ({ data: { values: [] } }));
         const historyUpdates = (history.data.values || []).map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] ?? "").trim() === poNumber);
-        const data = [
-          ...legacyItems.map(({ rowNumber }) => ({ range: `${PURCHASE_ORDER_ITEMS_SHEET}!A${rowNumber}`, values: [[effectivePONumber]] })),
-          ...historyUpdates.map(({ rowNumber }) => ({ range: `${PO_STATUS_HISTORY_SHEET}!A${rowNumber}`, values: [[effectivePONumber]] })),
-        ];
+        const data = historyUpdates.map(({ rowNumber }) => ({ range: `${PO_STATUS_HISTORY_SHEET}!A${rowNumber}`, values: [[effectivePONumber]] }));
         if (data.length) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data } });
-        await renamePurchaseOrderItemReferencesV2(poNumber, effectivePONumber);
+        await renamePurchaseOrderItemReferences(poNumber, effectivePONumber);
       } catch (error) {
         throw new Error(`PO was finalized as ${effectivePONumber}, but not all child references were updated: ${error instanceof Error ? error.message : "unknown error"}`);
       }
@@ -488,34 +433,12 @@ export async function updatePurchaseOrder(
     }
 
     if (effectivePONumber !== poNumber && !payload.items && !isFinalizingDraft) {
-      const orphanItemRows = await findPOItemRows(
-        sheets,
-        spreadsheetId,
-        poNumber,
-      );
-      if (orphanItemRows.length > 0) {
-        await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId,
-          requestBody: {
-            valueInputOption: "USER_ENTERED",
-            data: orphanItemRows.map((r) => ({
-              range: `${PURCHASE_ORDER_ITEMS_SHEET}!A${r.rowNumber}`,
-              values: [[String(effectivePONumber)]],
-            })),
-          },
-        });
-      }
+      await renamePurchaseOrderItemReferences(poNumber, String(effectivePONumber));
     }
 
     if (payload.items) {
-      const existingItemRows = await findPOItemRows(
-        sheets,
-        spreadsheetId,
-        poNumber,
-      );
-      if (existingItemRows.length > 0) await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: PURCHASE_ORDER_ITEMS_SHEET, columnCount: 7, existingRows: existingItemRows, values: [] });
-
-      await replacePurchaseOrderItemsV2(String(effectivePONumber), payload.items);
+      // replacePurchaseOrderItems clears the PO's existing rows before writing.
+      await replacePurchaseOrderItems(String(effectivePONumber), payload.items);
     }
 
     const suppliers = await getCompanies().catch(() => []);
@@ -606,7 +529,7 @@ export async function populateAndExportPurchaseOrderFormPdf(
   const notedBy = String(poRow[9] ?? "").trim();
   const totalAmount = parseFloat(String(poRow[10] ?? "0")) || 0;
 
-  const itemRowsData = await findPOItemRows(sheets, spreadsheetId, poNumber);
+  const poItems = (await getPurchaseOrderItems()).get(poNumber) ?? [];
 
   const suppliers = await getCompanies();
   const supplier = suppliers.find(
@@ -622,13 +545,13 @@ export async function populateAndExportPurchaseOrderFormPdf(
     range: `${PRINT_TEMPLATE_SHEET}!A15:H52`,
   });
 
-  const templateRows = itemRowsData.map(({ rowData }) => [
-    parseInt(String(rowData[1] ?? "0"), 10) || 0,
-    String(rowData[2] ?? "").trim(),
-    parseInt(String(rowData[3] ?? "0"), 10) || 0,
-    String(rowData[4] ?? "").trim(),
-    parseFloat(String(rowData[5] ?? "0")) || 0,
-    parseFloat(String(rowData[6] ?? "0")) || 0,
+  const templateRows = poItems.map((item) => [
+    item.itemNo,
+    item.description,
+    item.quantity,
+    item.unit,
+    item.pricePerUnit,
+    item.totalAmount,
   ]);
 
   const formattedDate = formatDateMMMMDDYYYY(date);

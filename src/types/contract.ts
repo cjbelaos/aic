@@ -46,9 +46,8 @@ export interface ContractItem {
   id: string; // Sheet: ItemId (e.g., "CTI-0001")
   contractId: string; // Foreign Key to Contract.id
   productCode: string; // Sheet: ProductCode
-  /** Stable ProductsV2 reference for new/migrated catalog items. */
+  /** Stable Products reference for new/migrated catalog items. */
   productId?: string;
-  sourceVersion?: "v1" | "v2";
   entitledQty: number; // Sheet: EntitledQty
   frequency: FrequencyType; // Sheet: Frequency
   status: "Active" | "Inactive"; // Sheet: Status

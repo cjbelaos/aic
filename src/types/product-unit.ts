@@ -1,3 +1,7 @@
+/**
+ * Dashboard product unit view ({ id, code, name }).
+ * The canonical record lives in `@/types/product-reference`.
+ */
 export interface ProductUnit {
   id: string;
   code: string;

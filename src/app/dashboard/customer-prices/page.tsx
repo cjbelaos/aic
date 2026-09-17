@@ -183,8 +183,8 @@ export default function CustomerPricesPage() {
   const openEdit = (row: CustomerPrice) => {
     setEditTarget(row);
     setForm({
-      companyName: row.companyName,
-      productCode: row.productCode,
+      companyName: row.companyName ?? "",
+      productCode: row.productCode ?? "",
       pricePerUnit: row.pricePerUnit,
     });
     setError("");
@@ -239,7 +239,7 @@ export default function CustomerPricesPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await customerPriceService.delete(deleteTarget.id);
+      await customerPriceService.delete(deleteTarget.id ?? deleteTarget.customerProductPriceId ?? "");
       await loadPrices();
       toast.success(
         `Price for "${deleteTarget.companyName}" / "${deleteTarget.productCode}" deleted.`,

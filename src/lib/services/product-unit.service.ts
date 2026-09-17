@@ -4,10 +4,10 @@ import {
   CreateProductUnitPayload,
   UpdateProductUnitPayload,
 } from "@/types/product-unit";
-import type { ProductUnitV2 } from "@/types/product-reference-v2";
+import type { ProductUnitRecord } from "@/types/product-reference";
 
-const API_BASE_URL = "/api/v2/product-units";
-const fromV2 = (item: ProductUnitV2): ProductUnit => ({ id: item.unitId, code: item.unitCode, name: item.unitName });
+const API_BASE_URL = "/api/product-units";
+const toView = (item: ProductUnitRecord): ProductUnit => ({ id: item.unitId, code: item.unitCode, name: item.unitName });
 
 const productUnitService = {
   /**
@@ -15,9 +15,9 @@ const productUnitService = {
    */
   getAll: async (): Promise<ProductUnit[]> => {
     try {
-      const response = await axios.get<ProductUnitV2[]>(API_BASE_URL);
+      const response = await axios.get<ProductUnitRecord[]>(API_BASE_URL);
       // Ensure the incoming data is safely an array
-      return Array.isArray(response.data) ? response.data.map(fromV2) : [];
+      return Array.isArray(response.data) ? response.data.map(toView) : [];
     } catch (error) {
       console.error("Failed to fetch products in service layer:", error);
       // Return a safe fallback array so component .map() functions don't white-screen crash
@@ -32,8 +32,8 @@ const productUnitService = {
     payload: CreateProductUnitPayload,
   ): Promise<ProductUnit | null> => {
     try {
-      const response = await axios.post<ProductUnitV2>(API_BASE_URL, { unitCode: payload.code, unitName: payload.name, status: "active" });
-      return fromV2(response.data);
+      const response = await axios.post<ProductUnitRecord>(API_BASE_URL, { unitCode: payload.code, unitName: payload.name, status: "active" });
+      return toView(response.data);
     } catch (error) {
       console.error("Failed to create product unit in service layer:", error);
       throw error;
@@ -48,11 +48,11 @@ const productUnitService = {
   ): Promise<ProductUnit | null> => {
     try {
       // Sends a PUT request with the user's updated fields bundle
-      const response = await axios.put<ProductUnitV2>(
+      const response = await axios.put<ProductUnitRecord>(
         `${API_BASE_URL}/${payload.id}`,
         { unitCode: payload.code, unitName: payload.name },
       );
-      return fromV2(response.data);
+      return toView(response.data);
     } catch (error) {
       console.error(
         `Failed to update product unit with ID ${payload.id} in service layer:`,
@@ -81,7 +81,7 @@ const productUnitService = {
    * Clears all product unit rows from the Google Sheet
    */
   clearAll: async (): Promise<void> => {
-    throw new Error("Bulk clearing is disabled for ProductUnitsV2.");
+    throw new Error("Bulk clearing is disabled for ProductUnits.");
   },
 };
 

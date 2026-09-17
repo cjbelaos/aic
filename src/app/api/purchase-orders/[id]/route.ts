@@ -7,10 +7,9 @@ import {
 } from "@/lib/purchaseOrderSheets";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCompanies } from "@/lib/companySheets";
-import { getPurchaseOrderItemsV2 } from "@/lib/transactionItemV2Sheets";
+import { getPurchaseOrderItems } from "@/lib/transactionItemSheets";
 
 const PURCHASE_ORDERS_SHEET = "PurchaseOrders";
-const PURCHASE_ORDER_ITEMS_SHEET = "PurchaseOrderItems";
 
 export async function GET(
   _request: Request,
@@ -67,27 +66,9 @@ export async function GET(
     const status = String(poRow[11] ?? "created").trim();
     const driveFileLink = String(poRow[12] ?? "").trim();
 
-    // 2. Fetch PO items
-    const itemsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${PURCHASE_ORDER_ITEMS_SHEET}!A2:G`,
-    });
-    const allItemRows = itemsResponse.data.values || [];
-    const legacyItems = allItemRows
-      .filter((row) => {
-        const poId = String(row[0] ?? "").trim();
-        return poId === poNumber;
-      })
-      .map((row) => ({
-        itemNo: parseInt(String(row[1] ?? "0"), 10) || 0,
-        description: String(row[2] ?? "").trim(),
-        quantity: parseInt(String(row[3] ?? "0"), 10) || 0,
-        unit: String(row[4] ?? "").trim(),
-        pricePerUnit: parseFloat(String(row[5] ?? "0")) || 0,
-        totalAmount: parseFloat(String(row[6] ?? "0")) || 0,
-      }));
-    const v2Items = await getPurchaseOrderItemsV2();
-    const items = v2Items.get(poNumber) || legacyItems;
+    // 2. Fetch PO items from the canonical PurchaseOrderItems tab
+    const itemsByPO = await getPurchaseOrderItems();
+    const items = itemsByPO.get(poNumber) ?? [];
 
     // 3. Fetch supplier details
     const suppliers = await getCompanies();

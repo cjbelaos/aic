@@ -8,12 +8,10 @@ import {
   CreateDeliveryPayload,
   DeliveryReceiptResponse,
   DeliveryReceiptSummary,
-  DeliveryItem,
   DRStatusEntry,
   DeliveryPersonOption,
 } from "@/types/deliveryReceipt";
-import { getDeliveryItemsV2, replaceDeliveryItemsV2 } from "@/lib/transactionItemV2Sheets";
-import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
+import { getDeliveryItems, renameDeliveryItemReferences, replaceDeliveryItems } from "@/lib/transactionItemSheets";
 import { getUserById, getUsers } from "@/lib/userSheets";
 import { ensureAutomaticDocumentHandover } from "@/lib/documentHandoverSheets";
 
@@ -23,10 +21,6 @@ const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
 const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:R`;
 // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType R:DeliveredByOptionId
-
-const DELIVERY_RECEIPT_ITEMS_SHEET = "DeliveryReceiptItems";
-const DELIVERY_RECEIPT_ITEMS_RANGE = `${DELIVERY_RECEIPT_ITEMS_SHEET}!A2:E`;
-// A:DeliveryReceiptId B:ProductCode C:Quantity D:Unit E:Status
 
 const DR_STATUS_HISTORY_SHEET = "DeliveryReceiptStatusHistory";
 const DR_STATUS_HISTORY_RANGE = `${DR_STATUS_HISTORY_SHEET}!A2:E`;
@@ -113,42 +107,16 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    // Fetch DR headers + DR items in parallel
-    const [drResponse, itemsResponse] = await Promise.all([
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: DELIVERY_RECEIPTS_RANGE,
-      }),
-      sheets.spreadsheets.values
-        .get({
-          spreadsheetId,
-          range: DELIVERY_RECEIPT_ITEMS_RANGE,
-        })
-        .catch(() => ({ data: { values: [] as string[][] } })), // items sheet may not exist yet
-    ]);
+    const drResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: DELIVERY_RECEIPTS_RANGE,
+    });
 
     const drRows = drResponse.data.values;
     if (!drRows || drRows.length === 0) return [];
 
-    const itemRows = itemsResponse.data.values || [];
-
-    // Group items by DR number (DeliveryReceiptId column A)
-    const itemsByDr = new Map<number, DeliveryItem[]>();
-    for (const itemRow of itemRows) {
-      const drId = parseInt(String(itemRow[0] ?? "").trim(), 10);
-      const itemStatus = String(itemRow[4] ?? "active").trim();
-      if (isNaN(drId) || itemStatus === "deleted") continue;
-      const item: DeliveryItem = {
-        productCode: String(itemRow[1] ?? "").trim(),
-        quantity: parseInt(String(itemRow[2] ?? "0"), 10) || 0,
-        unit: String(itemRow[3] ?? "").trim(),
-        description: "", // description resolved from product lookup if needed
-      };
-      if (!itemsByDr.has(drId)) itemsByDr.set(drId, []);
-      itemsByDr.get(drId)!.push(item);
-    }
-    const v2Items = await getDeliveryItemsV2();
-    for (const [drNumber, items] of v2Items) itemsByDr.set(drNumber, items);
+    // Items live in the canonical DeliveryReceiptItems tab, grouped by DR number.
+    const itemsByDr = await getDeliveryItems();
 
     // Resolve companies once
     const companies = await getCompanies().catch(() => []);
@@ -382,7 +350,7 @@ export async function processDeliveryReceipt(
     });
 
     // 3b. Log item rows to DeliveryReceiptItems sheet
-    await replaceDeliveryItemsV2(drNumber, payload.items);
+    await replaceDeliveryItems(drNumber, payload.items);
 
     // 4. Populate template and export PDF (skip for drafts)
     let pdfBase64: string | undefined;
@@ -503,28 +471,6 @@ async function findDrRow(
   ); // +2: 0-based findIndex + header row
 }
 
-/**
- * Finds all item rows in DeliveryReceiptItems for a given DR number.
- */
-async function findDrItemRows(
-  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
-  spreadsheetId: string,
-  drNumber: number,
-): Promise<Array<{ rowNumber: number; rowData: string[] }>> {
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: DELIVERY_RECEIPT_ITEMS_RANGE,
-  });
-  const rows = response.data.values || [];
-  const result: Array<{ rowNumber: number; rowData: string[] }> = [];
-  rows.forEach((row, idx) => {
-    const drId = parseInt(String(row[0] ?? "").trim(), 10);
-    if (drId === drNumber) {
-      result.push({ rowNumber: idx + 2, rowData: row });
-    }
-  });
-  return result;
-}
 
 export interface UpdateDeliveryPayload extends Partial<CreateDeliveryPayload> {
   status?: string;
@@ -629,35 +575,12 @@ export async function updateDeliveryReceipt(
     // re-key the existing item rows so they point at the new DR number
     // instead of the negative draft placeholder.
     if (effectiveDrNumber !== drNumber && !payload.items) {
-      const orphanItemRows = await findDrItemRows(
-        sheets,
-        spreadsheetId,
-        drNumber,
-      );
-      if (orphanItemRows.length > 0) {
-        await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId,
-          requestBody: {
-            valueInputOption: "USER_ENTERED",
-            data: orphanItemRows.map((r) => ({
-              range: `${DELIVERY_RECEIPT_ITEMS_SHEET}!A${r.rowNumber}`,
-              values: [[String(effectiveDrNumber)]],
-            })),
-          },
-        });
-      }
+      await renameDeliveryItemReferences(drNumber, effectiveDrNumber);
     }
 
-    // Replace items if provided
+    // Replace items if provided (the canonical helper clears the DR's rows first)
     if (payload.items) {
-      const existingItemRows = await findDrItemRows(
-        sheets,
-        spreadsheetId,
-        drNumber,
-      );
-      if (existingItemRows.length > 0) await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DELIVERY_RECEIPT_ITEMS_SHEET, columnCount: 5, existingRows: existingItemRows, values: [] });
-
-      await replaceDeliveryItemsV2(effectiveDrNumber, payload.items);
+      await replaceDeliveryItems(effectiveDrNumber, payload.items);
     }
 
     const companies = await getCompanies().catch(() => []);
@@ -727,29 +650,10 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
       requestBody: { values: [updatedRow] },
     });
 
-    // ── 1b. Mark all DR items as "deleted" ──
-    const itemRowsData = await findDrItemRows(sheets, spreadsheetId, drNumber);
-    if (itemRowsData.length > 0) {
-      const itemUpdates = itemRowsData.map(({ rowNumber, rowData }) => {
-        const updatedItemRow = [...rowData];
-        while (updatedItemRow.length < 5) updatedItemRow.push("");
-        updatedItemRow[4] = "deleted"; // Column E: Status
-        return {
-          range: `${DELIVERY_RECEIPT_ITEMS_SHEET}!A${rowNumber}:E${rowNumber}`,
-          values: [updatedItemRow],
-        };
-      });
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          valueInputOption: "USER_ENTERED",
-          data: itemUpdates,
-        },
-      });
-    }
+    // ── 1b. Remove the DR's item rows (canonical DeliveryReceiptItems tab) ──
+    await replaceDeliveryItems(drNumber, []);
 
     // ── 2. Fetch all ContractReleases linked to this DR ──
-    await replaceDeliveryItemsV2(drNumber, []);
     const { getContractReleases } = await import("@/lib/contractReleaseSheets");
     const { upsertPeriodSummary } =
       await import("@/lib/contractPeriodSummarySheets");
@@ -925,11 +829,7 @@ export async function populateAndExportDeliveryReceiptFormPdf(
   const deliveredBy = String(drRow[8] ?? "").trim();
 
   // 2. Fetch DR items (active only)
-  const itemRowsData = await findDrItemRows(sheets, spreadsheetId, drNumber);
-  const v2Items = await getDeliveryItemsV2();
-  const activeItems = itemRowsData.filter(
-    ({ rowData }) => String(rowData[4] ?? "active").trim() !== "deleted",
-  );
+  const itemsByDr = await getDeliveryItems();
 
   // 3. Fetch company details
   const companies = await getCompanies();
@@ -944,7 +844,9 @@ export async function populateAndExportDeliveryReceiptFormPdf(
   let products: Array<{ code: string; name: string; description?: string }> =
     [];
   try {
-    products = await getProducts();
+    products = await getProducts().then((rows) =>
+      rows.map((p) => ({ code: p.productCode, name: p.productName }))
+    );
   } catch {
     // non-fatal
   }
@@ -956,16 +858,11 @@ export async function populateAndExportDeliveryReceiptFormPdf(
     range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
   });
 
-  const templateRows = v2Items.has(drNumber) ? (v2Items.get(drNumber) ?? []).map((item) => [item.quantity, item.unit, item.description || item.productCode]) : activeItems.map(({ rowData }) => {
-    const code = String(rowData[1] ?? "").trim();
-    const product = productMap.get(code);
-    const description = product?.name || product?.description || code;
-    return [
-      parseInt(String(rowData[2] ?? "0"), 10) || 0, // quantity
-      String(rowData[3] ?? "").trim(), // unit
-      description,
-    ];
-  });
+  const templateRows = (itemsByDr.get(drNumber) ?? []).map((item) => [
+    item.quantity,
+    item.unit,
+    item.description || productMap.get(item.productCode)?.name || item.productCode,
+  ]);
 
   const formattedDate = formatDateMMDDYYYY(deliveryDate);
 

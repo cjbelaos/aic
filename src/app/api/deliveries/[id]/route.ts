@@ -9,10 +9,9 @@ import {
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCompanies } from "@/lib/companySheets";
 import { getProducts } from "@/lib/productSheets";
-import { getDeliveryItemsV2 } from "@/lib/transactionItemV2Sheets";
+import { getDeliveryItems } from "@/lib/transactionItemSheets";
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPT_ITEMS_SHEET = "DeliveryReceiptItems";
 
 export async function GET(
   _request: Request,
@@ -63,34 +62,16 @@ export async function GET(
     const deliveredBy = String(drRow[8] ?? "").trim();
     const status = String(drRow[10] ?? "created").trim();
 
-    // 2. Fetch DR items (active only)
-    const itemsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${DELIVERY_RECEIPT_ITEMS_SHEET}!A2:E`,
-    });
-    const allItemRows = itemsResponse.data.values || [];
-    const legacyItems = allItemRows
-      .filter((row) => {
-        const drId = parseInt(String(row[0] ?? "").trim(), 10);
-        const itemStatus = String(row[4] ?? "active").trim();
-        return drId === drNumber && itemStatus !== "deleted";
-      })
-      .map((row) => ({
-        productCode: String(row[1] ?? "").trim(),
-        quantity: parseInt(String(row[2] ?? "0"), 10) || 0,
-        unit: String(row[3] ?? "").trim(),
-        description: "",
-      }));
-    const v2Items = await getDeliveryItemsV2();
-    const currentItems = v2Items.get(drNumber);
+    // 2. Fetch DR items from the canonical DeliveryReceiptItems tab
+    const itemsByDr = await getDeliveryItems();
+    const currentItems = itemsByDr.get(drNumber) ?? [];
     const products = await getProducts();
-    const productMap = new Map(products.map((product) => [product.code, product]));
-    const items = (currentItems || legacyItems).map((item) => ({
+    const productMap = new Map(products.map((product) => [product.productCode, product]));
+    const items = currentItems.map((item) => ({
       ...item,
       description:
         item.description ||
-        productMap.get(item.productCode)?.name ||
-        productMap.get(item.productCode)?.description ||
+        productMap.get(item.productCode)?.productName ||
         item.productCode,
     }));
 

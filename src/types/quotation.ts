@@ -31,7 +31,7 @@ export interface Quotation extends QuotationAudit {
 
 export interface QuotationDetail extends QuotationAudit {
   quotationNo: string;
-  /** Stable ProductsV2 reference when this is a catalog item. */
+  /** Stable Products reference when this is a catalog item. */
   productId?: string;
   customerId?: string;
   productCodeSnapshot?: string;

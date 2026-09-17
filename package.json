@@ -7,11 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "audit:products-v2": "node --env-file=.env.local scripts/product-v2-migration.mjs",
-    "migrate:products-v2": "node --env-file=.env.local scripts/product-v2-migration.mjs --apply"
-    ,"audit:contracts": "node --env-file=.env.local scripts/audit-contract-integrity.mjs"
-    ,"audit:contract-items": "node --env-file=.env.local scripts/migrate-contract-items.mjs"
-    ,"migrate:contract-items": "node --env-file=.env.local scripts/migrate-contract-items.mjs --apply"
+"audit:contracts": "node --env-file=.env.local scripts/audit-contract-integrity.mjs"
     ,"audit:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs"
     ,"migrate:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs --apply"
     ,"audit:delivery-drive-links": "node --env-file=.env.local scripts/repair-delivery-drive-links.mjs"

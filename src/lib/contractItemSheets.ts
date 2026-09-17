@@ -1,6 +1,6 @@
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
-import { getProductsV2 } from "@/lib/productV2Sheets";
-import { nextStableId, rowNumberFromStableId } from "@/lib/v2Sheets.utils";
+import { getProducts } from "@/lib/productSheets";
+import { nextStableId, rowNumberFromStableId } from "@/lib/sheets.utils";
 import { getContracts } from "@/lib/contractSheets";
 import type { ContractItem, CreateContractItemPayload, FrequencyType, UpdateContractItemPayload } from "@/types/contract";
 
@@ -9,7 +9,7 @@ const RANGE = `${SHEET}!A2:G`;
 const HEADERS = ["ContractItemId", "ContractId", "ProductId", "ProductCodeSnapshot", "EntitledQty", "Frequency", "Status"];
 
 function fromRow(row: unknown[]): ContractItem {
-  return { id: String(row[0] ?? "").trim(), contractId: String(row[1] ?? "").trim(), productId: String(row[2] ?? "").trim() || undefined, productCode: String(row[3] ?? "").trim(), entitledQty: Number(row[4]) || 0, frequency: String(row[5] ?? "Monthly") as FrequencyType, status: String(row[6] ?? "Active") === "Inactive" ? "Inactive" : "Active", sourceVersion: "v2" };
+  return { id: String(row[0] ?? "").trim(), contractId: String(row[1] ?? "").trim(), productId: String(row[2] ?? "").trim() || undefined, productCode: String(row[3] ?? "").trim(), entitledQty: Number(row[4]) || 0, frequency: String(row[5] ?? "Monthly") as FrequencyType, status: String(row[6] ?? "Active") === "Inactive" ? "Inactive" : "Active" };
 }
 
 async function rows(): Promise<ContractItem[]> {
@@ -24,9 +24,9 @@ async function ensureHeaders(): Promise<void> {
 }
 
 async function resolveProduct(payload: Pick<CreateContractItemPayload, "productId" | "productCode">): Promise<{ productId: string; productCode: string }> {
-  const products = await getProductsV2();
+  const products = await getProducts();
   const product = payload.productId ? products.find((item) => item.productId === payload.productId) : products.find((item) => item.productCode === payload.productCode);
-  if (!product || product.sourceVersion === "v1") throw new Error("A migrated canonical product is required for a contract item.");
+  if (!product) throw new Error("A canonical product is required for a contract item.");
   return { productId: product.productId, productCode: product.productCode };
 }
 
@@ -37,7 +37,7 @@ export async function getContractItems(contractId?: string): Promise<ContractIte
 export async function addContractItem(payload: CreateContractItemPayload): Promise<ContractItem> {
   if (!(await getContracts()).some((contract) => contract.id === payload.contractId)) throw new Error(`Contract ${payload.contractId} does not exist.`);
   const existing = await rows(); const product = await resolveProduct(payload);
-  const item: ContractItem = { id: nextStableId("CTI", existing.map((row) => row.id), 4), contractId: payload.contractId, ...product, entitledQty: payload.entitledQty, frequency: payload.frequency, status: payload.status, sourceVersion: "v2" };
+  const item: ContractItem = { id: nextStableId("CTI", existing.map((row) => row.id), 4), contractId: payload.contractId, ...product, entitledQty: payload.entitledQty, frequency: payload.frequency, status: payload.status };
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId(); await ensureHeaders();
   await sheets.spreadsheets.values.append({ spreadsheetId, range: RANGE, valueInputOption: "USER_ENTERED", requestBody: { values: [[item.id, item.contractId, item.productId, item.productCode, item.entitledQty, item.frequency, item.status]] } });
   return item;
@@ -48,7 +48,7 @@ export async function updateContractItemInSheets(payload: UpdateContractItemPayl
   if (!current) throw new Error(`Contract item ${payload.id} not found.`);
   if (payload.contractId && payload.contractId !== current.contractId) throw new Error(`Entitlement ${payload.id} belongs to contract ${current.contractId}, not ${payload.contractId}.`);
   const product = payload.productId || payload.productCode ? await resolveProduct({ productId: payload.productId ?? current.productId, productCode: payload.productCode ?? current.productCode }) : { productId: current.productId ?? "", productCode: current.productCode };
-  const item: ContractItem = { ...current, ...payload, ...product, contractId: current.contractId, sourceVersion: "v2" };
+  const item: ContractItem = { ...current, ...payload, ...product, contractId: current.contractId };
   const row = rowNumberFromStableId(item.id, existing.map((entry) => entry.id)); const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   await sheets.spreadsheets.values.update({ spreadsheetId, range: `${SHEET}!A${row}:G${row}`, valueInputOption: "USER_ENTERED", requestBody: { values: [[item.id, item.contractId, item.productId ?? "", item.productCode, item.entitledQty, item.frequency, item.status]] } });
   return item;

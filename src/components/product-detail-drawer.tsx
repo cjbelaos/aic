@@ -6,16 +6,16 @@ import { ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import supplierProductService from "@/lib/services/supplier-product-v2.service";
+import supplierProductService from "@/lib/services/supplier-product.service";
 import customerPriceService from "@/lib/services/customer-price.service";
 import companyService from "@/lib/services/company.service";
 import type { Product } from "@/types/product";
-import type { SupplierProductV2 } from "@/types/supplier-product";
+import type { SupplierProduct } from "@/types/supplier-product";
 import type { CustomerPrice } from "@/types/customer-price";
 import type { Company } from "@/types/company";
 
 export function ProductDetailDrawer({ product, open, onOpenChange }: { product: Product | null; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [offerings, setOfferings] = useState<SupplierProductV2[]>([]);
+  const [offerings, setOfferings] = useState<SupplierProduct[]>([]);
   const [prices, setPrices] = useState<CustomerPrice[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);

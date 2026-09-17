@@ -1,188 +1,139 @@
-import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
-import { Product, CreateProductPayload } from "@/types/product";
+import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { generateProductCode } from "@/lib/productCodeGenerator";
-import { getProductCategories } from "@/lib/productCategorySheets";
-import { getProductUnits } from "@/lib/productUnitSheets";
-import { getCompanies } from "@/lib/companySheets"; // Assuming suppliers are now represented by the Company type
+import { getProductCategories, getProductUnits } from "@/lib/productReferenceSheets";
+import { isMissingSheetError, nextStableId, parseSheetNumber, rowNumberFromStableId } from "@/lib/sheets.utils";
+import type { CreateProductRecordPayload, ProductRecord, UpdateProductRecordPayload } from "@/types/product-record";
 
-const PRODUCTS_SHEET = "Products";
-// A=ProductCode, B=ProductName, C=ProductCategoryCode,
-// D=ProductDescription, E=UnitCode, F=Cost/Unit, G=Price/Unit, H=SupplierId
-const PRODUCTS_RANGE = `${PRODUCTS_SHEET}!A2:H`;
+export const PRODUCTS_SHEET = "Products";
+const RANGE = `${PRODUCTS_SHEET}!A2:K`;
 
-function parseGoogleSheetNumber(value: any): number {
-  if (value === undefined || value === null) return 0;
-  if (typeof value === "number") return value;
-  const cleanString = String(value)
-    .replace(/[₱$]/g, "")
-    .replace(/,/g, "")
-    .trim();
-  const parsed = parseFloat(cleanString);
-  return isNaN(parsed) ? 0 : parsed;
+function rowToProduct(row: unknown[]): ProductRecord {
+  return {
+    productId: String(row[0] ?? "").trim(),
+    productCode: String(row[1] ?? "").trim(),
+    productName: String(row[2] ?? "").trim(),
+    productCategoryId: String(row[3] ?? "").trim(),
+    unitId: String(row[4] ?? "").trim(),
+    defaultSellingPrice:
+      row[5] === "" || row[5] == null ? undefined : parseSheetNumber(row[5]),
+    status: String(row[6] ?? "active").toLowerCase() === "inactive" ? "inactive" : "active",
+    createdAt: String(row[7] ?? ""),
+    createdBy: String(row[8] ?? ""),
+    updatedAt: String(row[9] ?? "") || undefined,
+    updatedBy: String(row[10] ?? "") || undefined,
+  };
 }
 
-/** Serialises a CreateProductPayload into the 8-column sheet row (A=ProductCode … H=SupplierId). */
-function payloadToRow(payload: CreateProductPayload): (string | number)[] {
+function productToRow(product: ProductRecord): Array<string | number> {
   return [
-    payload.code || "",
-    payload.name || "",
-    payload.category?.code || payload.category?.name || "",
-    payload.description || "",
-    payload.unit?.code || payload.unit?.name || "",
-    payload.costPerUnit || 0,
-    payload.pricePerUnit ?? "",
-    payload.supplier?.companyId || payload.supplier?.id || "",
+    product.productId,
+    product.productCode,
+    product.productName,
+    product.productCategoryId,
+    product.unitId,
+    product.defaultSellingPrice ?? "",
+    product.status,
+    product.createdAt,
+    product.createdBy,
+    product.updatedAt ?? "",
+    product.updatedBy ?? "",
   ];
 }
 
-/** DELETE: Clears all product rows from the Products sheet. */
-export async function clearAllProducts(): Promise<void> {
+/**
+ * Canonical product read (rows in the `Products` tab).
+ */
+export async function getProductsOnly(): Promise<ProductRecord[]> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: PRODUCTS_RANGE,
-    });
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE });
+    return (response.data.values ?? [])
+      .map(rowToProduct)
+      .filter((product) => product.productId && product.productCode);
   } catch (error) {
-    console.error("Failed to clear all products from Google Sheets:", error);
+    if (isMissingSheetError(error)) return [];
     throw error;
   }
 }
 
-/** POST: Appends a new product row to the bottom of the Products sheet. */
+/** Canonical product read. */
+export async function getProducts(): Promise<ProductRecord[]> {
+  return getProductsOnly();
+}
+
 export async function addProduct(
-  payload: CreateProductPayload,
-): Promise<Product> {
-  try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: PRODUCTS_RANGE,
-    });
-    const rowCount = (response.data.values || []).length;
-    const newRowNumber = rowCount + 2; // +2 because row 1 is header, data starts at row 2
-
-    const categoryCode = payload.category?.code || payload.category?.name || "";
-    const description = payload.description || payload.name || "";
-    const sequence = rowCount + 1;
-    const finalCode = payload.code?.trim()
-      ? payload.code
-      : generateProductCode(categoryCode, description, sequence);
-
-    const row = payloadToRow({ ...payload, code: finalCode });
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: PRODUCTS_SHEET,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [row] },
-    });
-
-    return {
-      id: `prod_${newRowNumber}`,
-      code: finalCode,
-      name: payload.name || "",
-      category: {
-        id: categoryCode,
-        code: categoryCode,
-        name: payload.category?.name || categoryCode,
-      },
-      description: payload.description || "",
-      unit: {
-        id: payload.unit?.code || "",
-        code: payload.unit?.code || "",
-        name: payload.unit?.name || "",
-      },
-      costPerUnit: payload.costPerUnit,
-      pricePerUnit: payload.pricePerUnit,
-      supplier: payload.supplier || {
-        id: "",
-        companyId: "",
-        companyName: "",
-        companyType: "Supplier",
-        row: 0,
-        tin: "",
-        address: "",
-        latitude: undefined,
-        longitude: undefined,
-        status: "active",
-      },
-    };
-  } catch (error) {
-    console.error("Failed to add product to Google Sheets:", error);
-    throw error;
+  payload: CreateProductRecordPayload,
+  actor: string,
+): Promise<ProductRecord> {
+  const [existing, categories, units] = await Promise.all([getProductsOnly(), getProductCategories(), getProductUnits()]);
+  if (!categories.some((category) => category.productCategoryId === payload.productCategoryId && category.status === "active")) {
+    throw new Error(`Product category "${payload.productCategoryId}" was not found or is inactive.`);
   }
+  if (!units.some((unit) => unit.unitId === payload.unitId && unit.status === "active")) {
+    throw new Error(`Product unit "${payload.unitId}" was not found or is inactive.`);
+  }
+  const requestedCode = payload.productCode.trim();
+  const finalCode = requestedCode || generateProductCode(payload.productCategoryId, payload.productName, existing.length + 1);
+  if (existing.some((p) => p.productCode.toLowerCase() === finalCode.toLowerCase())) {
+    throw new Error(`Product code "${finalCode}" already exists in Products.`);
+  }
+  const now = new Date().toISOString();
+  const product: ProductRecord = {
+    ...payload,
+    productCode: finalCode,
+    productName: payload.productName.trim(),
+    productId: nextStableId("PROD", existing.map((p) => p.productId)),
+    createdAt: now,
+    createdBy: actor,
+  };
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: RANGE,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [productToRow(product)] },
+  });
+  return product;
 }
 
-/** GET: Reads all product rows, resolving codes/supplier IDs via their sheets. */
-export async function getProducts(): Promise<Product[]> {
-  try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: PRODUCTS_RANGE,
-    });
-    const rows = response.data.values;
-
-    if (!rows || rows.length === 0) return [];
-
-    // Resolve reference data once so column C/F/H codes map to names/objects.
-    const [categories, units, suppliers] = await Promise.all([
-      getProductCategories().catch(() => []),
-      getProductUnits().catch(() => []),
-      getCompanies().catch(() => []),
-    ]);
-
-    return rows.map((row, index): Product => {
-      const categoryCode = String(row[2] || "").trim();
-      const unitCode = String(row[4] || "").trim();
-      const supplierId = String(row[7] || "").trim();
-
-      const category = categories.find(
-        (c) => c.code === categoryCode || c.name === categoryCode,
-      );
-      const unit = units.find(
-        (u) => u.code === unitCode || u.name === unitCode,
-      );
-      const supplier = suppliers.find(
-        (s) => s.companyId === supplierId || s.id === supplierId,
-      );
-
-      return {
-        id: `prod_${index + 2}`,
-        code: String(row[0] || "").trim(),
-        name: String(row[1] || "").trim(),
-        category: category || {
-          id: categoryCode,
-          code: categoryCode,
-          name: categoryCode,
-        },
-        description: String(row[3] || "").trim(),
-        unit: unit || { id: unitCode, code: unitCode, name: unitCode },
-        costPerUnit: parseGoogleSheetNumber(row[5]),
-        pricePerUnit: parseGoogleSheetNumber(row[6]),
-        supplier: supplier || {
-          id: supplierId,
-          row: 0,
-          companyId: supplierId,
-          companyType: "Supplier",
-          companyName: supplierId,
-          tin: "",
-          address: "",
-          latitude: undefined,
-          longitude: undefined,
-          status: "active",
-        },
-      };
-    });
-  } catch (error) {
-    console.error("Failed to fetch products from Google Sheets:", error);
-    throw error;
+export async function updateProduct(
+  payload: UpdateProductRecordPayload,
+  actor: string,
+): Promise<ProductRecord> {
+  const [existing, categories, units] = await Promise.all([getProductsOnly(), getProductCategories(), getProductUnits()]);
+  const current = existing.find((p) => p.productId === payload.productId);
+  if (!current) throw new Error(`Product "${payload.productId}" was not found in Products.`);
+  const updated: ProductRecord = {
+    ...current,
+    ...payload,
+    productCode: (payload.productCode ?? current.productCode).trim(),
+    productName: (payload.productName ?? current.productName).trim(),
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+  };
+  if (!categories.some((category) => category.productCategoryId === updated.productCategoryId)) {
+    throw new Error(`Product category "${updated.productCategoryId}" was not found.`);
   }
+  if (!units.some((unit) => unit.unitId === updated.unitId)) {
+    throw new Error(`Product unit "${updated.unitId}" was not found.`);
+  }
+  if (existing.some((p) => p.productId !== updated.productId && p.productCode.toLowerCase() === updated.productCode.toLowerCase())) {
+    throw new Error(`Product code "${updated.productCode}" already exists in Products.`);
+  }
+  const row = rowNumberFromStableId(payload.productId, existing.map((p) => p.productId));
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${PRODUCTS_SHEET}!A${row}:K${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [productToRow(updated)] },
+  });
+  return updated;
+}
+
+export async function deactivateProduct(productId: string, actor: string): Promise<ProductRecord> {
+  return updateProduct({ productId, status: "inactive" }, actor);
 }
