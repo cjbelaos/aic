@@ -14,13 +14,18 @@ function getRowFromId(id: string): number {
   if (isNaN(rowNum)) {
     throw new Error(`Invalid Company Contact ID format: ${id}`);
   }
-  return rowNum;
+  return rowNum + 1; // cont_1 → sheet row 2, cont_2 → sheet row 3, etc.
 }
 
 function parseIsPrimary(value: string | undefined): boolean {
   if (value === undefined || value === "") return false;
   const v = value.trim().toLowerCase();
   return v === "true" || v === "yes" || v === "1" || v === "primary";
+}
+
+/** Force a value to be treated as text in Google Sheets by prefixing with apostrophe if it looks numeric. */
+function forceText(value: string): string {
+  return /^\d/.test(value) ? `'${value}` : value;
 }
 
 export async function getCompanyContacts(): Promise<CompanyContact[]> {
@@ -41,7 +46,7 @@ export async function getCompanyContacts(): Promise<CompanyContact[]> {
 
     return rows.map((row, index): CompanyContact => {
       return {
-        id: `cont_${index + 2}`,
+        id: `cont_${index + 1}`,
         contactId: row[0] || "",
         companyId: row[1] || "",
         fullName: row[2] || "",
@@ -78,14 +83,15 @@ export async function addCompanyContact(
       range: CONTACTS_RANGE,
     });
     const rowCount = (response.data.values || []).length;
-    const newRowNumber = rowCount + 2;
+    const newRowNumber = rowCount + 2; // actual sheet row (row 1 = header)
+    const seqNumber = rowCount + 1; // sequential number starting at 1
 
     const newRowValues = [
-      payload.contactId || "",
+      payload.contactId || `cont_${seqNumber}`,
       payload.companyId || "",
       payload.fullName || "",
       payload.email || "",
-      payload.phone || "",
+      forceText(payload.phone || ""),
       payload.isPrimary ? "TRUE" : "FALSE",
     ];
 
@@ -99,8 +105,8 @@ export async function addCompanyContact(
     });
 
     return {
-      id: `cont_${newRowNumber}`,
-      contactId: payload.contactId || "",
+      id: `cont_${seqNumber}`,
+      contactId: newRowValues[0],
       companyId: payload.companyId || "",
       fullName: payload.fullName,
       email: payload.email || "",
@@ -141,7 +147,7 @@ export async function updateCompanyContactInSheets(
         : existingRow[1] || "",
       payload.fullName !== undefined ? payload.fullName : existingRow[2] || "",
       payload.email !== undefined ? payload.email : existingRow[3] || "",
-      payload.phone !== undefined ? payload.phone : existingRow[4] || "",
+      payload.phone !== undefined ? forceText(payload.phone) : existingRow[4] || "",
       payload.isPrimary !== undefined
         ? payload.isPrimary
           ? "TRUE"

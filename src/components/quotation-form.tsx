@@ -39,7 +39,6 @@ import type { PaymentTerm } from "@/types/paymentTerm";
 import { CustomerPrice } from "@/types/customer-price";
 import type { PublicUser } from "@/types/user";
 import type { Position } from "@/types/position";
-import { QuotationTemplate } from "@/components/quotation-template";
 import { QuotationDetail, QuotationNotation } from "@/types/quotation";
 import { getDriveImageUrl } from "@/lib/signatureUpload";
 
@@ -171,7 +170,6 @@ export function QuotationForm({
   );
 
   const [loading, setLoading] = useState(true);
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [customers, setCustomers] = useState<QuotationCustomer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customerPrices, setCustomerPrices] = useState<CustomerPrice[]>([]);
@@ -268,41 +266,6 @@ export function QuotationForm({
     }
     return list;
   }, [sameDeptUsers, allUsers, executiveUsernames]);
-
-  // Fetch e-Signature URLs when preview mode is about to be used or preparedBy changes
-  useEffect(() => {
-    if (!isPreviewMode) return;
-
-    const fetchSignatures = async () => {
-      try {
-        // Fetch the logged-in user's signature (preparedBy)
-        const storedAuth = window.localStorage.getItem("auth:user");
-        if (storedAuth) {
-          const parsedAuth = JSON.parse(storedAuth);
-          const username = parsedAuth?.userName;
-          if (username) {
-            const sig = await userService.getSignatureByUsername(username);
-            if (sig) {
-              setPreparedBySignatureUrl(sig.imageUrl);
-            }
-          }
-        }
-
-        // Fetch the selected approver's signature
-        if (approvedByUsername) {
-          const approverSig =
-            await userService.getSignatureByUsername(approvedByUsername);
-          if (approverSig) {
-            setApprovedBySignatureUrl(approverSig.imageUrl);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch signatures:", err);
-      }
-    };
-
-    fetchSignatures();
-  }, [isPreviewMode, preparedBy, approvedByUsername]);
 
   const subTotal = lineItems.reduce(
     (sum, row) => sum + row.quantity * row.unitPrice,
@@ -548,7 +511,7 @@ export function QuotationForm({
     );
   };
 
-  const preview = () => {
+  const handleSaveAndPreview = () => {
     if (!selectedCustomer) {
       toast.error("Please select a customer before previewing.");
       return;
@@ -567,7 +530,8 @@ export function QuotationForm({
       return;
     }
 
-    setIsPreviewMode(true);
+    const payload = getPayload("SAVED");
+    onSubmit(payload);
   };
 
   const customerRef = useRef<HTMLDivElement>(null);
@@ -653,103 +617,11 @@ export function QuotationForm({
     };
   };
 
-  /**
-   * Store the PDF blob from the template so we can attach it during final submission.
-   */
-  const [pendingPdfBlob, setPendingPdfBlob] = useState<Blob | null>(null);
-
-  const handleFinalSubmit = (payload: QuotationFormPayload, pdfBlob: Blob) => {
-    // Transform the template payload to match QuotationFormPayload
-    const transformedPayload: QuotationFormPayload = {
-      quotationNo: payload.quotationNo,
-      date: new Date(payload.date),
-      validity: new Date(payload.validity),
-      customer: payload.customer,
-      quotationDescription: payload.quotationDescription,
-      items: payload.items.map((item: any) => ({
-        quotationNo: payload.quotationNo,
-        productId: item.productId,
-        productCodeSnapshot: item.productCodeSnapshot,
-        description: item.description,
-        quantity: item.quantity,
-        unit: item.unit,
-        unitPrice: item.unitPrice || item.pricePerUnit,
-      })),
-      notations: payload.notations || [],
-      subTotal: payload.subTotal,
-      discount: payload.discount,
-      shippingFee: payload.shippingFee || 0,
-      terms: payload.terms,
-      delivery: payload.delivery,
-      warranty: payload.warranty,
-      preparedBy: payload.preparedBy,
-      approvedBy: payload.approvedBy,
-      status: payload.status,
-      vat: payload.vat,
-      vatableAmount: payload.vatableAmount,
-      grandTotal: payload.grandTotal,
-    };
-
-    // Store the PDF blob for the parent to use
-    setPendingPdfBlob(pdfBlob);
-
-    // If in view mode, we only want to update status, not all data
-    if (isViewMode && initialData?.quotationNo) {
-      // Pass true as the third argument for statusOnly
-      onSubmit(transformedPayload, pdfBlob, true);
-    } else {
-      onSubmit(transformedPayload, pdfBlob);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
-    );
-  }
-
-  // Ensure items structure maps to exactly what your QuotationTemplate maps over
-  if (isPreviewMode && selectedCustomer) {
-    const compiledItems = lineItems.map((item) => {
-      const matchedProd = products.find((p) => String(p.id) === item.productId);
-      return {
-        quotationNo: quotationNo,
-        description: matchedProd?.name || "Manual Entry Item",
-        quantity: item.quantity,
-        unit: item.unit,
-        unitPrice: item.unitPrice,
-      };
-    });
-
-    return (
-      <QuotationTemplate
-        ref={quotationRef}
-        quotationNo={quotationNo}
-        date={formatDisplayDate(today)}
-        validity={formatDisplayDate(validityDate)}
-        customer={selectedCustomer}
-        projectDescription={projectDescription}
-        paymentTerms={paymentTerms}
-        deliveryTerms={deliveryTerms}
-        warrantyTerms={warrantyTerms}
-        items={compiledItems}
-        notations={notations.filter((n) => n.trim() !== "")}
-        subTotal={subTotal}
-        discount={discount}
-        shippingFee={shippingFee}
-        vatableAmount={vatableAmount}
-        vat={vat}
-        grandTotal={grandTotal}
-        preparedBy={preparedBy}
-        approvedBy={approvedBy}
-        preparedBySignatureUrl={preparedBySignatureUrl}
-        approvedBySignatureUrl={approvedBySignatureUrl}
-        onBack={() => setIsPreviewMode(false)}
-        onConfirmSave={handleFinalSubmit}
-        isSaving={isSaving}
-      />
     );
   }
 
@@ -1410,14 +1282,15 @@ export function QuotationForm({
               {isDraftQuotationReference(quotationNo) && <Button onClick={() => handleSaveDraft(true)} disabled={isSaving}>Save</Button>}
               <p className="text-xs text-muted-foreground">Save assigns a quotation number. Save Draft keeps it unnumbered. Download PDF from the saved quotation?s printable preview.</p>
 
-              {/* Preview button - Green solid */}
+              {/* Save & Preview button - Green solid */}
               <Button
-                onClick={preview}
+                onClick={handleSaveAndPreview}
                 disabled={isSaving}
                 className="gap-2 text-white bg-emerald-600 hover:bg-emerald-700"
               >
+                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Eye className="h-4 w-4" />
-                Preview
+                Save & Preview
               </Button>
             </div>
           )}

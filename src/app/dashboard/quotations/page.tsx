@@ -16,7 +16,6 @@ import {
 } from "@/components/quotation-form";
 import { QuotationPreviewModal } from "@/components/quotation-preview-modal";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { QuotationTemplate } from "@/components/quotation-template";
 import quotationService, {
   SaveQuotationPayload,
 } from "@/lib/services/quotation.service";
@@ -109,10 +108,10 @@ export default function QuotationsPage() {
   );
   const [viewQuotationData, setViewQuotationData] =
     useState<QuotationFormPayload | null>(null);
-  const [previewMode, setPreviewMode] = useState(false);
   const [printQuotation, setPrintQuotation] = useState<Quotation | null>(null);
   const [pdfDownloading, setPdfDownloading] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState<string | null>(null);
+  const [customerEmail, setCustomerEmail] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [preparedByFilter, setPreparedByFilter] = useState("all");
   const [fileFilter, setFileFilter] = useState("all");
@@ -242,7 +241,7 @@ export default function QuotationsPage() {
       if (!latest) throw new Error("Unable to load quotation details. Please try again.");
       setPrintQuotation(latest);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to load printable quotation.");
+      toast.error(error instanceof Error ? error.message : (isAxiosError(error) ? error.response?.data?.error || error.response?.data?.message : "Unable to load printable quotation."));
     } finally { setPreviewLoading(null); }
   };
 
@@ -251,7 +250,7 @@ export default function QuotationsPage() {
     (preparedByFilter === "all" || q.preparedBy === preparedByFilter) &&
     (fileFilter === "all" || (fileFilter === "with-pdf" ? !!q.file : !q.file))
   ).sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
-  const printableModal = printQuotation && <QuotationPreviewModal key={printQuotation.quotationNo} quotation={printQuotation} onClose={() => setPrintQuotation(null)} onSaved={() => void loadQuotations()} />;
+  const printableModal = printQuotation && <QuotationPreviewModal key={printQuotation.quotationNo} quotation={printQuotation} customerEmail={customerEmail ?? undefined} onClose={() => { setPrintQuotation(null); setCustomerEmail(null); }} onSaved={() => void loadQuotations()} />;
 
   /** Handle "View" action - fetch full quot data and show read-only */
   const handleView = async (quot: Quotation) => {
@@ -378,13 +377,24 @@ export default function QuotationsPage() {
       setViewMode("list");
       setSelectedQuotation(null);
       setViewQuotationData(null);
-      setPreviewMode(false);
       await loadQuotations();
-      if (!wantsEmail && !isDraftQuotationReference(saved.quotationNo)) setPrintQuotation(saved);
+      if (!wantsEmail && !isDraftQuotationReference(saved.quotationNo)) {
+        // Generate PDF and save to Drive so the preview modal has it ready
+        try {
+          const { generateQuotationPdfBase64 } = await import("@/lib/quotationPdf");
+          const pdfBase64 = await generateQuotationPdfBase64(saved);
+          const result = await quotationService.savePdfToDrive(saved.quotationNo, pdfBase64);
+          saved.file = result.fileLink;
+        } catch {
+          // Non-critical - the user can still save to Drive from the modal
+        }
+        setCustomerEmail(formPayload.customer?.email ?? null);
+        setPrintQuotation(saved);
+      }
     } catch (error) {
       const message = (isAxiosError(error) ? error.response?.data?.message || error.response?.data?.error : undefined) || (error instanceof Error ? error.message : "Failed to save quotation.");
       toast.error(persisted ? `Quotation saved; sending did not finish. ${message}` : message);
-      if (persisted) { setViewMode("list"); setPreviewMode(false); setSelectedQuotation(null); setViewQuotationData(null); await loadQuotations(); }
+      if (persisted) { setViewMode("list"); setSelectedQuotation(null); setViewQuotationData(null); await loadQuotations(); }
     } finally { setSaving(false); }
   };
 
@@ -813,56 +823,6 @@ export default function QuotationsPage() {
     );
   }
 
-  // Render: View Mode - Preview (template with Send to Client)
-  if (viewMode === "view" && viewQuotationData && previewMode) {
-    const formattedDate =
-      viewQuotationData.date?.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }) || "";
-    const formattedValidity =
-      viewQuotationData.validity?.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }) || "";
-
-    return (
-      <QuotationTemplate
-        quotationNo={viewQuotationData.quotationNo}
-        date={formattedDate}
-        validity={formattedValidity}
-        customer={viewQuotationData.customer}
-        projectDescription={viewQuotationData.quotationDescription}
-        items={viewQuotationData.items}
-        paymentTerms={viewQuotationData.terms}
-        deliveryTerms={viewQuotationData.delivery}
-        warrantyTerms={viewQuotationData.warranty}
-        notations={
-          Array.isArray(viewQuotationData.notations)
-            ? viewQuotationData.notations.map((n: any) =>
-                typeof n === "string" ? n : n.notation || "",
-              )
-            : []
-        }
-        subTotal={viewQuotationData.subTotal}
-        discount={viewQuotationData.discount}
-        shippingFee={viewQuotationData.shippingFee}
-        vatableAmount={viewQuotationData.vatableAmount}
-        vat={viewQuotationData.vat}
-        grandTotal={viewQuotationData.grandTotal}
-        preparedBy={viewQuotationData.preparedBy}
-        approvedBy={viewQuotationData.approvedBy}
-        onBack={() => setPreviewMode(false)}
-        onConfirmSave={(payload, pdfBlob) =>
-          handleFormSubmit(payload, pdfBlob, true)
-        }
-        isSaving={saving}
-      />
-    );
-  }
-
   // Render: View Mode (read-only)
   if (viewMode === "view" && viewQuotationData) {
     const isSent = selectedQuotation?.status === "SENT";
@@ -875,7 +835,7 @@ export default function QuotationsPage() {
             <Button variant="outline" disabled={!!previewLoading} onClick={() => selectedQuotation && void handlePrintable(selectedQuotation)} className="gap-2">
               <Printer className="h-4 w-4" />View printable
             </Button>
-            {!isSent && <Button variant="outline" onClick={() => setPreviewMode(true)} disabled={saving} className="gap-2"><Send className="h-4 w-4" />Preview & send</Button>}
+            {!isSent && <Button variant="outline" onClick={() => { if (selectedQuotation) void handlePrintable(selectedQuotation); setCustomerEmail(viewQuotationData?.customer?.email ?? null); }} disabled={saving} className="gap-2"><Send className="h-4 w-4" />Preview & send</Button>}
 
             {/* Edit button - only for DRAFT quotations */}
             {!isSent && (
