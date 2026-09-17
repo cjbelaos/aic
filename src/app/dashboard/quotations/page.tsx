@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown, Eye, Pencil, Trash2, Send, Loader2, Printer, RefreshCw, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { isAxiosError } from "axios";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
 import { EntityTable } from "@/components/ui/entity-table";
@@ -494,7 +495,8 @@ export default function QuotationsPage() {
       await loadQuotations();
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "Failed to save quotation.";
+        (isAxiosError(err) ? err.response?.data?.message || err.response?.data?.error : undefined) ||
+        (err instanceof Error ? err.message : "Failed to save quotation.");
       toast.error(message);
       console.error("Save error:", err);
     } finally {

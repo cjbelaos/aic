@@ -23,12 +23,13 @@ export async function POST(request: Request) {
     }
 
     // Extract client name from customer object or direct clientName field
-    const clientName =
+    const customerName =
       payload.clientName ||
+      payload.customer?.companyName ||
       payload.customer?.customerName ||
       payload.customer?.name ||
-      payload.customer ||
-      "";
+      (typeof payload.customer === "string" ? payload.customer : "");
+    const clientName = typeof customerName === "string" ? customerName.trim() : "";
 
     // Validate required fields
     if (!clientName || !payload.quotationDescription) {
