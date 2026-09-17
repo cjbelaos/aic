@@ -3,6 +3,7 @@ export interface User {
   username: string;
   fullName: string;
   email: string;
+  contactNumber: string;
   passwordHash: string;
   salt: string;
   userRoleId: number;
@@ -23,6 +24,7 @@ export interface PublicUser {
   username: string;
   fullName: string;
   email: string;
+  contactNumber: string;
   userRoleId: number;
   departmentId: number;
   positionId: number;
@@ -36,6 +38,7 @@ export interface CreateUserInput {
   username: string;
   fullName: string;
   email: string;
+  contactNumber?: string;
   password: string;
   userRoleId: number;
   departmentId: number;
@@ -48,6 +51,7 @@ export interface UpdateUserInput {
   username?: string;
   fullName?: string;
   email?: string;
+  contactNumber?: string;
   password?: string;
   userRoleId?: number;
   departmentId?: number;
@@ -60,6 +64,7 @@ export interface SessionUser {
   userId: string;
   username: string;
   email: string;
+  contactNumber?: string;
   userRoleId: number;
   departmentId: number;
   positionId: number;

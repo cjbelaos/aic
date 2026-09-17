@@ -64,6 +64,7 @@ export async function POST(request: Request) {
       username: String(body.username || "").trim(),
       fullName: String(body.fullName || "").trim(),
       email: String(body.email || "").trim(),
+      contactNumber: String(body.contactNumber || "").trim(),
       password: String(body.password || ""),
       userRoleId: parseNumericId(body.userRoleId, 2),
       departmentId: parseNumericId(body.departmentId, 0),

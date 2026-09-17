@@ -26,6 +26,10 @@ export async function PUT(
       fullName:
         body.fullName !== undefined ? String(body.fullName).trim() : undefined,
       email: body.email !== undefined ? String(body.email).trim() : undefined,
+      contactNumber:
+        body.contactNumber !== undefined
+          ? String(body.contactNumber).trim()
+          : undefined,
       password: body.password !== undefined ? String(body.password) : undefined,
       userRoleId: parseNumericId(body.userRoleId),
       departmentId: parseNumericId(body.departmentId),

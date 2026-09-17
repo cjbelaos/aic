@@ -35,6 +35,7 @@ export async function POST(request: Request) {
       userId: user.userId,
       username: user.username,
       email: user.email,
+      contactNumber: user.contactNumber,
       userRoleId: user.userRoleId,
       departmentId: user.departmentId,
       positionId: user.positionId,

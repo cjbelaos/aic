@@ -11,8 +11,8 @@ import type {
 const USERS_SHEET = "Users";
 // A=userId, B=username, C=fullName, D=email, E=passwordHash, F=salt,
 // G=userRoleId, H=departmentId, I=positionId, J=createdAt, K=lastLogin,
-// L=signature, M=requiresApproval (YES/NO, empty ⇒ YES)
-const USERS_RANGE = `${USERS_SHEET}!A2:M`;
+// L=signature, M=requiresApproval (YES/NO, empty ⇒ YES), N=contactNumber
+const USERS_RANGE = `${USERS_SHEET}!A2:N`;
 
 // ── Simple TTL Cache ──────────────────────────
 // getUsers()/getUserById()/getUserByUsername() are called on hot paths
@@ -92,11 +92,12 @@ function rowToUser(row: string[], rowNumber: number): User | null {
     lastLogin: (row[10] || "").trim(), // K
     signature: (row[11] || "").trim() || undefined, // L
     requiresApproval: parseRequiresApproval(row[12] || ""), // M
+    contactNumber: (row[13] || "").trim(), // N
   };
 }
 
 /**
- * Maps user objects to sheet row data (13 columns, A-M).
+ * Maps user objects to sheet row data (14 columns, A-N).
  */
 function userToRow(user: User): string[] {
   return [
@@ -113,6 +114,7 @@ function userToRow(user: User): string[] {
     user.lastLogin, // K
     user.signature || "", // L
     user.requiresApproval ? "YES" : "NO", // M
+    user.contactNumber || "", // N
   ];
 }
 
@@ -122,6 +124,7 @@ export function toPublicUser(user: User): PublicUser {
     username: user.username,
     fullName: user.fullName,
     email: user.email,
+    contactNumber: user.contactNumber,
     userRoleId: user.userRoleId,
     departmentId: user.departmentId,
     positionId: user.positionId,
@@ -218,6 +221,7 @@ export async function addUser(input: CreateUserInput): Promise<PublicUser> {
     username,
     fullName,
     email,
+    contactNumber: input.contactNumber || "",
     passwordHash: hashPassword(input.password, salt),
     salt,
     userRoleId,
@@ -231,8 +235,8 @@ export async function addUser(input: CreateUserInput): Promise<PublicUser> {
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${USERS_SHEET}!A:M`,
-    valueInputOption: "USER_ENTERED",
+    range: `${USERS_SHEET}!A:N`,
+    valueInputOption: "RAW",
     requestBody: { values: [userToRow(user)] },
   });
 
@@ -281,6 +285,10 @@ export async function updateUser(
       updatedData.email !== undefined
         ? updatedData.email.trim()
         : current.email,
+    contactNumber:
+      updatedData.contactNumber !== undefined
+        ? updatedData.contactNumber.trim()
+        : current.contactNumber,
     userRoleId:
       updatedData.userRoleId !== undefined
         ? updatedData.userRoleId
@@ -308,8 +316,8 @@ export async function updateUser(
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${USERS_SHEET}!A${rowNumber}:M${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
+    range: `${USERS_SHEET}!A${rowNumber}:N${rowNumber}`,
+    valueInputOption: "RAW",
     requestBody: { values: [userToRow(updated)] },
   });
 

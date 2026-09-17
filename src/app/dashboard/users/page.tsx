@@ -39,6 +39,7 @@ interface UserFormState {
   username: string;
   fullName: string;
   email: string;
+  contactNumber: string;
   password: string;
   userRoleId: number;
   departmentId: number;
@@ -50,6 +51,7 @@ const EMPTY_FORM: UserFormState = {
   username: "",
   fullName: "",
   email: "",
+  contactNumber: "",
   password: "",
   userRoleId: 2,
   departmentId: 0,
@@ -129,6 +131,7 @@ export default function UsersPage() {
         ),
       },
       { accessorKey: "email", header: "Email" },
+      { accessorKey: "contactNumber", header: "Contact No." },
       {
         accessorKey: "userRoleId",
         header: "Role",
@@ -223,6 +226,7 @@ export default function UsersPage() {
       username: row.username,
       fullName: row.fullName || "",
       email: row.email,
+      contactNumber: row.contactNumber || "",
       password: "",
       userRoleId: row.userRoleId,
       departmentId: row.departmentId,
@@ -263,6 +267,7 @@ export default function UsersPage() {
           username: cleanUsername,
           fullName: cleanFullName,
           email: form.email.trim(),
+          contactNumber: form.contactNumber.trim(),
           userRoleId: form.userRoleId,
           departmentId: form.departmentId,
           positionId: form.positionId,
@@ -276,6 +281,7 @@ export default function UsersPage() {
           username: cleanUsername,
           fullName: cleanFullName,
           email: form.email.trim(),
+          contactNumber: form.contactNumber.trim(),
           password: form.password,
           userRoleId: form.userRoleId,
           departmentId: form.departmentId,
@@ -407,6 +413,20 @@ export default function UsersPage() {
                     disabled={saving}
                     onChange={(e) =>
                       setForm((c) => ({ ...c, email: e.target.value }))
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="user-contact">Contact Number</Label>
+                  <Input
+                    id="user-contact"
+                    type="tel"
+                    value={form.contactNumber}
+                    disabled={saving}
+                    placeholder="e.g. 0917 183 2745"
+                    onChange={(e) =>
+                      setForm((c) => ({ ...c, contactNumber: e.target.value }))
                     }
                   />
                 </div>
