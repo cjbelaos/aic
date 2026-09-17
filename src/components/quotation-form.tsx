@@ -1,5 +1,7 @@
 "use client";
 
+import { isDraftQuotationReference, quotationNumberLabel } from "@/lib/quotationReference";
+
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Plus, Trash2, Loader2, Send, Eye, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -27,7 +29,6 @@ import productService from "@/lib/services/product.service";
 import companyService from "@/lib/services/company.service";
 import customerPriceService from "@/lib/services/customer-price.service";
 import paymentTermService from "@/lib/services/payment-term.service";
-import quotationService from "@/lib/services/quotation.service";
 import { userService } from "@/lib/services/user.service";
 import { positionService } from "@/lib/services/position.service";
 import { QuotationCustomer } from "@/lib/services/quotation.service";
@@ -50,21 +51,6 @@ function generateId(): string {
     return window.crypto.randomUUID();
   }
   return Math.random().toString(36).substring(2, 15);
-}
-
-async function generateSequentialQuotationNo(): Promise<string> {
-  const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
-  const prefix = `Q-${dateStr}`;
-
-  // Fetch today's quotations to get the count
-  const quotations = await quotationService.getAll();
-  const todayQuotations = quotations.filter(
-    (q) => q.quotationNo && q.quotationNo.startsWith(prefix),
-  );
-
-  const sequence = String(todayQuotations.length + 1).padStart(3, "0");
-  return `${prefix}-${sequence}`;
 }
 
 function addDays(date: Date, days: number): Date {
@@ -146,7 +132,7 @@ export type QuotationFormPayload = {
   warranty: string;
   preparedBy: string;
   approvedBy: string;
-  status: "DRAFT" | "SENT";
+  status: "DRAFT" | "SAVED" | "SENT";
   vat: number;
   vatableAmount: number;
   grandTotal: number;
@@ -180,7 +166,7 @@ export function QuotationForm({
     [today, initialData],
   );
 
-  const [quotationNo, setQuotationNo] = useState(
+  const [quotationNo] = useState(
     initialData?.quotationNo || "",
   );
 
@@ -334,11 +320,6 @@ export function QuotationForm({
     (async () => {
       try {
         // Generate quotation number if not already set
-        if (!quotationNo && !initialData?.quotationNo) {
-          const generatedNo = await generateSequentialQuotationNo();
-          setQuotationNo(generatedNo);
-        }
-
         const [cRes, pRes, cpRes, uRes, posRes, contactRes, termsRes] = await Promise.all([
           companyService.getAll(),
           productService.getAll(),
@@ -597,7 +578,7 @@ export function QuotationForm({
     ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  const handleSaveDraft = () => {
+  const handleSaveDraft = (numbered = false) => {
     // Validate required fields with scroll-to-field
     if (!selectedCustomer) {
       toast.error("Please select a customer.");
@@ -621,12 +602,12 @@ export function QuotationForm({
     }
 
     // Create payload with DRAFT status
-    const payload = getPayload("DRAFT");
+    const payload = getPayload(numbered || !isDraftQuotationReference(quotationNo) ? "SAVED" : "DRAFT");
     // For draft, we don't need a PDF blob
     onSubmit(payload);
   };
 
-  const getPayload = (finalStatus: "DRAFT" | "SENT"): QuotationFormPayload => {
+  const getPayload = (finalStatus: "DRAFT" | "SAVED" | "SENT"): QuotationFormPayload => {
     // Fix: Create QuotationDetail[] with proper structure
     const itemsPayload: QuotationDetail[] = lineItems.map((item) => {
       const matchedProd = products.find((p) => String(p.id) === item.productId);
@@ -832,7 +813,7 @@ export function QuotationForm({
               <div>
                 <Label>Quotation No.</Label>
                 <Input
-                  value={String(quotationNo)}
+                  value={quotationNumberLabel(quotationNo)}
                   className="mt-1 bg-muted/40"
                   readOnly
                   disabled
@@ -1076,7 +1057,7 @@ export function QuotationForm({
             <div>
               <Label>Quotation No.</Label>
               <Input
-                value={String(quotationNo)}
+                value={quotationNumberLabel(quotationNo)}
                 className="mt-1 bg-muted/40 cursor-not-allowed"
                 disabled
                 readOnly
@@ -1416,15 +1397,18 @@ export function QuotationForm({
 
               {/* Save Draft button - Green outline */}
               <Button
-                onClick={handleSaveDraft}
+                onClick={() => handleSaveDraft(false)}
                 disabled={isSaving}
                 variant="outline"
                 className="gap-2 border-emerald-600 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
               >
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Plus className="h-4 w-4" />
-                Save Draft
+                {isDraftQuotationReference(quotationNo) ? "Save Draft" : "Save"}
               </Button>
+
+              {isDraftQuotationReference(quotationNo) && <Button onClick={() => handleSaveDraft(true)} disabled={isSaving}>Save</Button>}
+              <p className="text-xs text-muted-foreground">Save assigns a quotation number. Save Draft keeps it unnumbered. Download PDF from the saved quotation?s printable preview.</p>
 
               {/* Preview button - Green solid */}
               <Button

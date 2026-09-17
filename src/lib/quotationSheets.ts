@@ -1,3 +1,5 @@
+import { randomUUID } from "crypto";
+import { isDraftQuotationReference } from "./quotationReference";
 import {
   getSheetsClient,
   getDatabaseSpreadsheetId,
@@ -19,10 +21,10 @@ const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
 const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:P`;
 const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:L`;
-const RANGE_NOTATIONS = `${QUOTATION_NOTATIONS_SHEET}!A2:B`;
+const RANGE_NOTATIONS = `${QUOTATION_NOTATIONS_SHEET}!A2:F`;
 
 const DETAILS_COL_COUNT = 12;
-const NOTATIONS_COL_COUNT = 2;
+const NOTATIONS_COL_COUNT = 6;
 
 // ──────────────── Shared helpers ────────────────
 
@@ -44,6 +46,18 @@ function findQuotationIndex(rows: string[][], quotationNo: string): number {
   return rows.findIndex(
     (r) => String(r[0] || "").trim() === String(quotationNo).trim(),
   );
+}
+
+function quotationReference(rows: string[][], requested: string, status: QuotationStatus) {
+  if (!isDraftQuotationReference(requested)) return requested;
+  if (status === "DRAFT") return requested || `DRAFT-${randomUUID()}`;
+  const prefix = `Q-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
+  const highest = rows.reduce((maximum, row) => {
+    const reference = String(row[0] ?? "");
+    const sequence = reference.startsWith(prefix + "-") ? Number(reference.slice(prefix.length + 1)) : 0;
+    return Math.max(maximum, Number.isFinite(sequence) ? sequence : 0);
+  }, 0);
+  return `${prefix}-${String(highest + 1).padStart(3, "0")}`;
 }
 
 function parseAudit(row: readonly unknown[], offset: number) {
@@ -77,7 +91,7 @@ function aggregateDetailRows(detailRows: readonly (readonly unknown[])[], quotat
 }
 
 function aggregateNotationRows(
-  notationRows: string[][],
+  notationRows: readonly (readonly unknown[])[],
   quotationNo: string,
 ): QuotationNotation[] {
   const notation: QuotationNotation[] = [];
@@ -88,6 +102,7 @@ function aggregateNotationRows(
         notation.push({
           quotationNo: String(nRow[0] || "").trim(),
           notation: text,
+          ...parseAudit(nRow, 2),
         });
       }
     }
@@ -144,7 +159,7 @@ function buildDetailAndNotationMaps(
     const text = String(row[1] || "").trim();
     if (!quotationNo || !text) return;
     if (!notationsMap.has(quotationNo)) notationsMap.set(quotationNo, []);
-    notationsMap.get(quotationNo)!.push({ quotationNo, notation: text });
+    notationsMap.get(quotationNo)!.push({ quotationNo, notation: text, ...parseAudit(row, 2) });
   });
 
   return { detailsMap, notationsMap };
@@ -245,6 +260,8 @@ export async function addQuotation(
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
     const { quotRows } = await fetchAllSheetData(spreadsheetId);
+    const reference = quotationReference(quotRows, payload.quotationNo, payload.status);
+    payload = { ...payload, quotationNo: reference };
     const nextIndex = quotRows.length + 2;
     const timestamp = new Date().toISOString();
     const audit = auditValues(actor, timestamp);
@@ -268,7 +285,7 @@ export async function addQuotation(
     const detailValues = (payload.items || []).map(item => [...detailRow(payload.quotationNo, item, payload.customerId), ...audit]);
 
     const notationValues = (payload.notation || []).map(
-      (note: QuotationNotation) => [payload.quotationNo, note.notation || ""],
+      (note: QuotationNotation) => [payload.quotationNo, note.notation || "", ...audit],
     );
 
     const writes = [
@@ -295,7 +312,7 @@ export async function addQuotation(
       writes.push(
         sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: `${QUOTATION_NOTATIONS_SHEET}!A${nextIndex}`,
+          range: RANGE_NOTATIONS,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: notationValues },
         }),
@@ -321,7 +338,7 @@ export async function addQuotation(
       status: payload.status || "DRAFT",
       items: aggregateDetailRows(detailValues, payload.quotationNo),
       ...parseAudit(headerValues, 12),
-      notation: payload.notation || [],
+      notation: aggregateNotationRows(notationValues, payload.quotationNo),
       terms: payload.terms || "",
       delivery: payload.delivery || "",
       warranty: payload.warranty || "",
@@ -347,6 +364,7 @@ export async function updateQuotationStatus(
     });
 
     const quotRows = response.data.values || [];
+    if (newStatus !== "DRAFT" && isDraftQuotationReference(quotationNo)) throw new Error("Save the draft with a quotation number before changing its status.");
     const idx = findQuotationIndex(quotRows, quotationNo);
     if (idx === -1) {
       throw new Error(`Quotation ${quotationNo} not found.`);
@@ -455,6 +473,8 @@ export async function updateQuotation(
     if (quotIdx === -1) {
       throw new Error(`Quotation ${quotationNo} not found.`);
     }
+    const reference = quotationReference(quotRows, quotationNo, payload.status);
+    payload = { ...payload, quotationNo: reference };
     const quotRowNum = quotIdx + 2;
     const timestamp = new Date().toISOString();
     const audit = auditValues(actor, timestamp, quotRows[quotIdx], 12);
@@ -492,20 +512,19 @@ export async function updateQuotation(
       ...auditValues(actor, timestamp, matchingDetails[index], 8),
     ]);
 
-    const newNotationValues = (payload.notation || []).map(
-      (note: QuotationNotation) => [
-        payload.quotationNo || quotationNo,
-        note.notation || "",
-      ],
-    );
+    const matchingNotations = notationRows.filter(row => String(row[0] ?? "").trim() === quotationNo.trim());
+    const newNotationValues = (payload.notation || []).map((note, index) => [
+      reference, note.notation || "",
+      ...auditValues(actor, timestamp, matchingNotations[index], 2),
+    ]);
     const details = detailRows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] || "").trim() === quotationNo.trim());
     const notations = notationRows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] || "").trim() === quotationNo.trim());
     await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: QUOTATION_DETAILS_SHEET, columnCount: DETAILS_COL_COUNT, existingRows: details, values: newDetailValues });
     await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: QUOTATION_NOTATIONS_SHEET, columnCount: NOTATIONS_COL_COUNT, existingRows: notations, values: newNotationValues });
     const items = aggregateDetailRows(newDetailValues, payload.quotationNo || quotationNo);
     const notation = aggregateNotationRows(
-      newNotationValues as any,
-      quotationNo,
+      newNotationValues,
+      reference,
     );
 
     return {
@@ -594,7 +613,7 @@ export async function saveQuotationData(params: {
   approvedBy?: string;
   sentByName?: string;
   fileUrl?: string;
-  status: "DRAFT" | "SENT";
+  status: "DRAFT" | "SAVED" | "SENT";
   items: Array<{
     productId?: string;
     productCodeSnapshot?: string;
@@ -615,8 +634,8 @@ export async function saveQuotationData(params: {
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
     const date = params.dateIssued || new Date().toISOString().split("T")[0];
-    const refNumber =
-      params.quotationNo || `Q-${Date.now().toString().slice(-8)}`;
+    const { quotRows } = await fetchAllSheetData(spreadsheetId);
+    const refNumber = quotationReference(quotRows, params.quotationNo, params.status);
 
     const timestamp = new Date().toISOString();
     const audit = auditValues(actor, timestamp);
@@ -666,13 +685,14 @@ export async function saveQuotationData(params: {
     const notationValues = (params.notations || []).map((note) => [
       refNumber,
       note || "",
+      ...audit,
     ]);
 
     if (notationValues.length > 0) {
       writes.push(
         sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: `${QUOTATION_NOTATIONS_SHEET}!A2:B`,
+          range: RANGE_NOTATIONS,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: notationValues },
         }),

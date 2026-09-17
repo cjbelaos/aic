@@ -94,8 +94,8 @@ export async function POST(request: Request) {
     }
 
     // Determine status from payload (any user can set SENT status)
-    const finalStatus: "DRAFT" | "SENT" =
-      payload.status === "SENT" ? "SENT" : "DRAFT";
+    const finalStatus: "DRAFT" | "SAVED" | "SENT" =
+      payload.status === "SENT" ? "SENT" : payload.status === "SAVED" ? "SAVED" : "DRAFT";
 
     // Upload PDF to Drive if provided
     let fileUrl = "";
@@ -159,7 +159,7 @@ export async function POST(request: Request) {
         message:
           finalStatus === "SENT"
             ? "Quotation saved and marked as sent."
-            : "Quotation saved as draft.",
+            : finalStatus === "SAVED" ? "Quotation saved." : "Quotation saved as draft.",
         data: {
           refNo: result.refNumber,
           date: result.date,

@@ -1,3 +1,4 @@
+import { isDraftQuotationReference } from "@/lib/quotationReference";
 import type { Quotation } from "@/types/quotation";
 import { BusinessDocumentHeader } from "./business-document-print-layout";
 import { UserSignatureImage } from "./user-signature-image";
@@ -12,7 +13,7 @@ export function QuotationPrintDocument({ quotation: q, signatureUrls = {} }: { q
       <colgroup>{[6, 42, 10, 10, 16, 16].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
       <thead>
         <tr><th colSpan={6} className="heading-cell">
-          <BusinessDocumentHeader title="QUOTATION" number={q.quotationNo} draft={q.status === "DRAFT"} />
+          <BusinessDocumentHeader title="QUOTATION" number={isDraftQuotationReference(q.quotationNo) ? "" : q.quotationNo} draft={isDraftQuotationReference(q.quotationNo)} />
           <div className="details"><div><div className="label">Prepared for</div><div className="customer">{q.customer}</div><div className="multiline">{q.description}</div></div><div><b>Date:</b> {q.date}</div></div>
         </th></tr>
         <tr className="columns"><th scope="col">#</th><th scope="col">Description</th><th scope="col" className="qty">Qty</th><th scope="col">Unit</th><th scope="col" className="qty">Unit price</th><th scope="col" className="qty">Amount</th></tr>

@@ -1,5 +1,6 @@
 "use client";
 
+import { isDraftQuotationReference, quotationNumberLabel } from "@/lib/quotationReference";
 import { useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { Printer, Download, Save, ExternalLink, Loader2 } from "lucide-react";
@@ -50,7 +51,7 @@ export function QuotationPreviewModal({ quotation, onClose, onSaved }: { quotati
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `Quotation_${latest.quotationNo.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+        link.download = `Quotation_${isDraftQuotationReference(latest.quotationNo) ? "draft" : latest.quotationNo.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
@@ -71,7 +72,7 @@ export function QuotationPreviewModal({ quotation, onClose, onSaved }: { quotati
         <Button variant="outline" size="sm" disabled={disabled} onClick={() => void run("drive")}>{busy === "drive" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}{fileLink ? "Update Drive PDF" : "Save to Drive"}</Button>
       </div>
       <div className="flex-1 min-h-48 border rounded-md overflow-hidden bg-muted/20">
-        {previous ? <iframe className="w-full h-full border-none" title="Previous quotation PDF" src={previousId ? `https://drive.google.com/file/d/${previousId}/preview` : fileLink} /> : <BusinessDocumentPrintFrame ref={printFrame} title={`Quotation ${quotation.quotationNo}`}><QuotationPrintDocument quotation={quotation} signatureUrls={signatureUrls} /></BusinessDocumentPrintFrame>}
+        {previous ? <iframe className="w-full h-full border-none" title="Previous quotation PDF" src={previousId ? `https://drive.google.com/file/d/${previousId}/preview` : fileLink} /> : <BusinessDocumentPrintFrame ref={printFrame} title={`Quotation ${quotationNumberLabel(quotation.quotationNo)}`}><QuotationPrintDocument quotation={quotation} signatureUrls={signatureUrls} /></BusinessDocumentPrintFrame>}
       </div>
     </DialogContent>
   </Dialog>;

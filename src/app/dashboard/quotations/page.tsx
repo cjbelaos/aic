@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Eye, Pencil, Trash2, Send, Loader2, Printer, RefreshCw, Plus } from "lucide-react";
+import { ArrowUpDown, Eye, Pencil, Trash2, Send, Loader2, Printer, RefreshCw, Plus, Download } from "lucide-react";
 import { toast } from "sonner";
+import { isDraftQuotationReference, quotationNumberLabel } from "@/lib/quotationReference";
 import { isAxiosError } from "axios";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,7 @@ function exportToExcel(rows: Quotation[]) {
       amount: r.amount,
       discount: r.discount || 0,
       shippingFee: r.shippingFee || 0,
-      quotationNo: r.quotationNo,
+      quotationNo: isDraftQuotationReference(r.quotationNo) ? "" : r.quotationNo,
       file: r.file,
       date: r.date,
       preparedBy: r.preparedBy,
@@ -110,6 +111,7 @@ export default function QuotationsPage() {
     useState<QuotationFormPayload | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
   const [printQuotation, setPrintQuotation] = useState<Quotation | null>(null);
+  const [pdfDownloading, setPdfDownloading] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [preparedByFilter, setPreparedByFilter] = useState("all");
@@ -216,6 +218,23 @@ export default function QuotationsPage() {
     };
   }, []);
 
+  const handleDownloadPdf = async (quotation: Quotation) => {
+    setPdfDownloading(quotation.quotationNo);
+    try {
+      const latest = await quotationService.getByRefNo(quotation.quotationNo);
+      if (!latest) throw new Error("Unable to load the quotation.");
+      const { generateQuotationPdfBase64 } = await import("@/lib/quotationPdf");
+      const base64 = await generateQuotationPdfBase64(latest);
+      const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(base64), character => character.charCodeAt(0))], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Quotation_${isDraftQuotationReference(latest.quotationNo) ? "draft" : latest.quotationNo}.pdf`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to download quotation PDF."); }
+    finally { setPdfDownloading(null); }
+  };
+
   const handlePrintable = async (quotation: Quotation) => {
     setPreviewLoading(quotation.quotationNo);
     try {
@@ -307,211 +326,68 @@ export default function QuotationsPage() {
    * - CREATE: Saves new quotation with DRAFT or SENT status
    * - EDIT: Updates existing quotation
    */
-  const handleFormSubmit = async (
-    formPayload: QuotationFormPayload,
-    pdfBlob?: Blob,
-    statusOnly?: boolean,
-  ) => {
+  const handleFormSubmit = async (formPayload: QuotationFormPayload, _pdfBlob?: Blob, statusOnly?: boolean) => {
     setSaving(true);
-
+    let persisted = false;
     try {
-      // Check if status-only update (from view mode Send to Client)
-      if (statusOnly && selectedQuotation) {
-        // ===== STATUS-ONLY: Update status to SENT =====
-        await quotationService.updateStatusOnly(
-          selectedQuotation.quotationNo,
-          "SENT",
-        );
-
-        // Send email if PDF blob is provided
-        if (pdfBlob) {
-          try {
-            const customerName = formPayload.customer?.companyName || "";
-            const customerEmail = formPayload.customer?.email || "";
-
-            if (customerEmail) {
-              const emailResult = await quotationService.sendEmail({
-                quotationNo: selectedQuotation.quotationNo,
-                customer: customerName,
-                email: customerEmail,
-                quotationDescription: formPayload.quotationDescription,
-                grandTotal: formPayload.grandTotal,
-                pdfBlob: pdfBlob,
-              });
-
-              if (emailResult.success) {
-                toast.success(
-                  `Quotation sent successfully to ${customerName}.`,
-                );
-              } else {
-                toast.error("Status updated but email failed to send.");
-              }
-            } else {
-              toast.warning(
-                "No email address found for customer. Status updated but email not sent.",
-              );
-            }
-          } catch (emailError) {
-            console.error("Email send error:", emailError);
-            toast.error((isAxiosError(emailError) ? emailError.response?.data?.message : undefined) || "Status updated but email failed to send.");
-          }
-        } else {
-          toast.success("Quotation sent successfully.");
-        }
-
-        setViewMode("list");
-        setSelectedQuotation(null);
-        setViewQuotationData(null);
-        await loadQuotations();
-        return;
-      }
-
-      // Check if we're in edit mode (has selectedQuotation)
-      if (selectedQuotation && viewMode === "edit") {
-        // ===== EDIT MODE: Update existing quotation =====
-        const quotationNo = selectedQuotation.quotationNo;
-
-        const updatePayload = {
-          customer: formPayload.customer?.companyName || "",
-          customerId: formPayload.customer?.companyId || undefined,
-          description: formPayload.quotationDescription || "",
-          amount: formPayload.grandTotal || 0,
-          discount: formPayload.discount || 0,
-          shippingFee: formPayload.shippingFee || 0,
-          quotationNo: quotationNo,
-          file: selectedQuotation.file || "",
-          date: formPayload.date?.toISOString().split("T")[0] || "",
-          preparedBy: formPayload.preparedBy || "",
-          approvedBy: selectedQuotation.approvedBy || "",
-          sentBy: selectedQuotation.sentBy || "",
-          items: formPayload.items.map((item) => ({
-            productId: item.productId,
-            productCodeSnapshot: item.productCodeSnapshot,
-            description: item.description,
-            quantity: item.quantity,
-            unit: item.unit,
-            unitPrice: item.unitPrice,
-          })),
-          notation: formPayload.notations || [],
-          terms: formPayload.terms || "",
-          delivery: formPayload.delivery || "",
-          warranty: formPayload.warranty || "",
-          status: formPayload.status || "DRAFT",
+      const wantsEmail = statusOnly || formPayload.status === "SENT";
+      const status = wantsEmail ? "SAVED" : formPayload.status;
+      const issuedDate = formPayload.date instanceof Date ? formPayload.date : new Date(formPayload.date);
+      const date = issuedDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      let saved: Quotation | null;
+      if (selectedQuotation) {
+        saved = await quotationService.updateByRefNo(selectedQuotation.quotationNo, {
+          ...selectedQuotation, quotationNo: selectedQuotation.quotationNo,
+          customer: formPayload.customer.companyName, customerId: formPayload.customer.companyId,
+          description: formPayload.quotationDescription, amount: formPayload.grandTotal,
+          discount: formPayload.discount, shippingFee: formPayload.shippingFee || 0,
+          date, preparedBy: formPayload.preparedBy, approvedBy: formPayload.approvedBy,
+          items: formPayload.items, notation: formPayload.notations || [],
+          terms: formPayload.terms, delivery: formPayload.delivery, warranty: formPayload.warranty, status,
+        });
+      } else {
+        const payload: SaveQuotationPayload = {
+          customer: formPayload.customer, quotationDescription: formPayload.quotationDescription,
+          quotationNo: formPayload.quotationNo, items: formPayload.items,
+          terms: formPayload.terms, delivery: formPayload.delivery, warranty: formPayload.warranty,
+          preparedBy: formPayload.preparedBy, approvedBy: formPayload.approvedBy,
+          discount: formPayload.discount, shippingFee: formPayload.shippingFee || 0,
+          dateIssued: date, validUntil: String(formPayload.validity), notations: formPayload.notations,
+          subTotal: formPayload.subTotal, vatableAmount: formPayload.vatableAmount,
+          vat: formPayload.vat, grandTotal: formPayload.grandTotal, status,
         };
-
-        await quotationService.updateByRefNo(quotationNo, updatePayload as any);
-        toast.success("Quotation updated successfully.");
-
-        setViewMode("list");
-        setSelectedQuotation(null);
-        setViewQuotationData(null);
-        await loadQuotations();
-        return;
+        const result = await quotationService.saveQuotation(payload);
+        if (!result.success) throw new Error(result.message);
+        saved = await quotationService.getByRefNo(result.data.refNo);
       }
-
-      // ===== CREATE MODE: New quotation =====
-      // Ensure validity is a valid date
-      let validUntilDate = formPayload.validity;
-      if (!validUntilDate || isNaN(validUntilDate.getTime())) {
-        const date = formPayload.date || new Date();
-        validUntilDate = new Date(date.getTime() + 90 * 24 * 60 * 60 * 1000);
-      }
-
-      // Determine status based on form status
-      const finalStatus = formPayload.status === "SENT" ? "SENT" : "DRAFT";
-
-      // Prepare save payload
-      const payload: SaveQuotationPayload = {
-        customer: formPayload.customer,
-        quotationDescription: formPayload.quotationDescription || "",
-        items: formPayload.items || [],
-        terms: formPayload.terms || "",
-        delivery: formPayload.delivery || "",
-        warranty: formPayload.warranty || "",
-        preparedBy: formPayload.preparedBy || "",
-        approvedBy: formPayload.approvedBy || "",
-        discount: formPayload.discount || 0,
-        shippingFee: formPayload.shippingFee || 0,
-        quotationNo: formPayload.quotationNo || "",
-        dateIssued:
-          formPayload.date?.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          }) || "",
-        validUntil:
-          validUntilDate?.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          }) || "",
-        notations: formPayload.notations || [],
-        subTotal: formPayload.subTotal || 0,
-        vatableAmount: formPayload.vatableAmount || 0,
-        vat: formPayload.vat || 0,
-        grandTotal: formPayload.grandTotal || 0,
-        status: finalStatus,
-      };
-      // Save the quotation first (sends PDF to Drive if SENT and pdfBlob provided)
-      const result = await quotationService.saveQuotation(payload, pdfBlob);
-
-      if (!result.success) {
-        toast.error(result.message || "Failed to save quotation.");
-        return;
-      }
-
-      // If status is SENT and we have a PDF blob, also send the email
-      if (finalStatus === "SENT" && pdfBlob) {
-        try {
-          const customerName = formPayload.customer?.companyName || "";
-          const customerEmail = formPayload.customer?.email || "";
-
-          if (!customerEmail) {
-            toast.warning(
-              "No email address found for customer. Quotation saved but email not sent.",
-            );
-          } else {
-            const emailResult = await quotationService.sendEmail({
-              quotationNo: payload.quotationNo,
-              customer: customerName,
-              email: customerEmail,
-              quotationDescription: payload.quotationDescription,
-              grandTotal: payload.grandTotal,
-              pdfBlob: pdfBlob,
-            });
-
-            if (emailResult.success) {
-              toast.success(`Quotation sent successfully to ${customerName}.`);
-            } else {
-              toast.error("Quotation saved but email failed to send.");
-            }
-          }
-        } catch (emailError) {
-          console.error("Email send error:", emailError);
-          toast.error((isAxiosError(emailError) ? emailError.response?.data?.message : undefined) || "Quotation saved but email failed to send.");
-        }
-      } else if (finalStatus === "SENT" && !pdfBlob) {
-        toast.warning(
-          "Quotation marked as SENT but no PDF was generated for Drive upload or email.",
-        );
-      }
-
+      if (!saved) throw new Error("Unable to load the saved quotation.");
+      persisted = true;
+      setSelectedQuotation(saved);
+      if (wantsEmail) {
+        const email = formPayload.customer.email;
+        if (!email) throw new Error("Quotation saved. Add an email to the company contact before sending, or download the PDF to email manually.");
+        const { generateQuotationPdfBase64 } = await import("@/lib/quotationPdf");
+        const pdfBase64 = await generateQuotationPdfBase64(saved);
+        await quotationService.savePdfToDrive(saved.quotationNo, pdfBase64);
+        const pdfBlob = new Blob([Uint8Array.from(atob(pdfBase64), character => character.charCodeAt(0))], { type: "application/pdf" });
+        const result = await quotationService.sendEmail({ quotationNo: saved.quotationNo, customer: saved.customer, email, quotationDescription: saved.description, grandTotal: saved.amount, pdfBlob });
+        if (!result.success) throw new Error(result.message);
+        await quotationService.updateStatusOnly(saved.quotationNo, "SENT");
+        toast.success("Quotation sent successfully.");
+      } else toast.success(isDraftQuotationReference(saved.quotationNo) ? "Unnumbered draft saved." : "Quotation saved. Download its PDF from View printable.");
       setViewMode("list");
       setSelectedQuotation(null);
       setViewQuotationData(null);
+      setPreviewMode(false);
       await loadQuotations();
-    } catch (err: unknown) {
-      const message =
-        (isAxiosError(err) ? err.response?.data?.message || err.response?.data?.error : undefined) ||
-        (err instanceof Error ? err.message : "Failed to save quotation.");
-      toast.error(message);
-      console.error("Save error:", err);
-    } finally {
-      setSaving(false);
-    }
+      if (!wantsEmail && !isDraftQuotationReference(saved.quotationNo)) setPrintQuotation(saved);
+    } catch (error) {
+      const message = (isAxiosError(error) ? error.response?.data?.message || error.response?.data?.error : undefined) || (error instanceof Error ? error.message : "Failed to save quotation.");
+      toast.error(persisted ? `Quotation saved; sending did not finish. ${message}` : message);
+      if (persisted) { setViewMode("list"); setPreviewMode(false); setSelectedQuotation(null); setViewQuotationData(null); await loadQuotations(); }
+    } finally { setSaving(false); }
   };
 
-  /** Handle Import */
   const handleImport = async (file: File) => {
     let toastId: string | number | undefined;
 
@@ -687,6 +563,7 @@ export default function QuotationsPage() {
   const columns: ColumnDef<Quotation>[] = [
     {
       accessorKey: "quotationNo",
+      cell: ({ row }) => quotationNumberLabel(row.original.quotationNo),
       header: ({ column }) => (
         <Button
           variant="ghost"
@@ -808,7 +685,7 @@ export default function QuotationsPage() {
         const url = row.original.file;
         const status = row.original.status || "DRAFT";
 
-        if (status === "SENT" && url) {
+        if (url) {
           return (
             <a
               href={url}
@@ -884,6 +761,7 @@ export default function QuotationsPage() {
             {previewLoading === row.original.quotationNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
           </Button>
 
+          <Button variant="ghost" size="icon" className="h-8 w-8" title="Download PDF for manual email" aria-label="Download quotation PDF" disabled={!!pdfDownloading} onClick={() => void handleDownloadPdf(row.original)}>{pdfDownloading === row.original.quotationNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}</Button>
           {/* Edit button - only for DRAFT quotations */}
           <Button
             variant="ghost"
@@ -1040,7 +918,7 @@ export default function QuotationsPage() {
         <ConfirmDeleteDialog
           open={!!deleteTarget}
           title="Delete quotation"
-          description={`Delete quotation ${deleteTarget ?? ""}? This action cannot be undone.`}
+          description={`Delete quotation ${quotationNumberLabel(deleteTarget || "")}? This action cannot be undone.`}
           onConfirm={confirmDelete}
           onClose={() => setDeleteTarget(null)}
         />
@@ -1079,7 +957,7 @@ export default function QuotationsPage() {
       <div className="rounded-lg border bg-card p-4 sm:p-5 mb-6">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Quotation management</p>
         <div className="mt-1 flex flex-wrap justify-between gap-3"><div><h1 className="text-2xl font-semibold">Quotations</h1><p className="text-sm text-muted-foreground">Review quotations and manage printable documents.</p></div><Button onClick={() => setViewMode("create")}><Plus className="mr-2 h-4 w-4" />New quotation</Button></div>
-        <div className="mt-4 grid grid-cols-3 gap-2 sm:max-w-xl">{[{ label: "Quotations", value: filteredQuotations.length }, { label: "Sent", value: filteredQuotations.filter(q => q.status === "SENT").length }, { label: "Drafts", value: filteredQuotations.filter(q => q.status !== "SENT").length }].map(metric => <div key={metric.label} className="rounded-md bg-muted/60 px-3 py-2"><span className="block text-xs text-muted-foreground">{metric.label}</span><strong className="text-xl tabular-nums">{metric.value}</strong></div>)}</div>
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:max-w-xl">{[{ label: "Quotations", value: filteredQuotations.length }, { label: "Saved", value: filteredQuotations.filter(q => q.status === "SAVED").length }, { label: "Sent", value: filteredQuotations.filter(q => q.status === "SENT").length }, { label: "Drafts", value: filteredQuotations.filter(q => isDraftQuotationReference(q.quotationNo)).length }].map(metric => <div key={metric.label} className="rounded-md bg-muted/60 px-3 py-2"><span className="block text-xs text-muted-foreground">{metric.label}</span><strong className="text-xl tabular-nums">{metric.value}</strong></div>)}</div>
       </div>
       {printableModal}
       <EntityTable
@@ -1089,7 +967,7 @@ export default function QuotationsPage() {
         loading={loading}
         headerActions={<Button variant="outline" disabled={loading} onClick={() => { setLoading(true); void loadQuotations().finally(() => setLoading(false)); }}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>}
         toolbarFilters={<>
-          <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="h-8 w-full sm:w-[160px]" aria-label="Filter quotations by status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="DRAFT">Draft</SelectItem><SelectItem value="SENT">Sent</SelectItem></SelectContent></Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="h-8 w-full sm:w-[160px]" aria-label="Filter quotations by status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="DRAFT">Draft</SelectItem><SelectItem value="SAVED">Saved</SelectItem><SelectItem value="SENT">Sent</SelectItem></SelectContent></Select>
           <Select value={preparedByFilter} onValueChange={setPreparedByFilter}><SelectTrigger className="h-8 w-full sm:w-[200px]" aria-label="Filter quotations by preparer"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All preparers</SelectItem>{Array.from(new Set(data.map(q => q.preparedBy).filter(Boolean))).sort().map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select>
           <Select value={fileFilter} onValueChange={setFileFilter}><SelectTrigger className="h-8 w-full sm:w-[180px]" aria-label="Filter quotations by saved PDF"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All documents</SelectItem><SelectItem value="with-pdf">With saved PDF</SelectItem><SelectItem value="without-pdf">Without saved PDF</SelectItem></SelectContent></Select>
         </>}
@@ -1100,7 +978,7 @@ export default function QuotationsPage() {
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         title="Delete quotation"
-        description={`Delete quotation ${deleteTarget ?? ""}? This action cannot be undone.`}
+        description={`Delete quotation ${quotationNumberLabel(deleteTarget || "")}? This action cannot be undone.`}
         onConfirm={confirmDelete}
         onClose={() => setDeleteTarget(null)}
       />

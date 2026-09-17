@@ -1,4 +1,4 @@
-export type QuotationStatus = "DRAFT" | "SENT";
+export type QuotationStatus = "DRAFT" | "SAVED" | "SENT";
 
 export interface QuotationAudit {
   createdBy?: string;
@@ -41,7 +41,7 @@ export interface QuotationDetail extends QuotationAudit {
   unitPrice: number;
 }
 
-export interface QuotationNotation {
+export interface QuotationNotation extends QuotationAudit {
   quotationNo: string;
   notation: string;
 }

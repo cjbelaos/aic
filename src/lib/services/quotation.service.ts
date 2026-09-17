@@ -35,7 +35,7 @@ export interface SaveAndEmailPayload {
   vatableAmount: number;
   vat: number;
   grandTotal: number;
-  status: "DRAFT" | "SENT";
+  status: "DRAFT" | "SAVED" | "SENT";
 }
 
 export interface SaveAndEmailResponse {
@@ -64,7 +64,7 @@ export interface SaveQuotationPayload {
   vatableAmount: number;
   vat: number;
   grandTotal: number;
-  status: "DRAFT" | "SENT";
+  status: "DRAFT" | "SAVED" | "SENT";
 }
 
 // New: Payload for sending email separately
@@ -131,7 +131,7 @@ const quotationService = {
 
   updateStatusOnly: async (
     refNo: string,
-    status: "DRAFT" | "SENT",
+    status: "DRAFT" | "SAVED" | "SENT",
   ): Promise<Quotation | null> => {
     try {
       const response = await axios.put<Quotation>(

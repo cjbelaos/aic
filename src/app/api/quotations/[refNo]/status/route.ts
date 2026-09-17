@@ -14,9 +14,9 @@ export async function PUT(
     const body = await request.json();
     const { status } = body;
 
-    if (!status || !["DRAFT", "SENT"].includes(status)) {
+    if (!status || !["DRAFT", "SAVED", "SENT"].includes(status)) {
       return NextResponse.json(
-        { error: "Invalid status. Must be DRAFT or SENT." },
+        { error: "Invalid status. Must be DRAFT, SAVED or SENT." },
         { status: 400 },
       );
     }

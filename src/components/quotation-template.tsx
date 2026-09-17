@@ -1,5 +1,6 @@
 "use client";
 
+import { isDraftQuotationReference } from "@/lib/quotationReference";
 import React, { useEffect, useRef, useState, forwardRef } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, Download, Save, Send, Loader2 } from "lucide-react";
@@ -147,7 +148,7 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
         const url = URL.createObjectURL(pdfBlob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `Quotation_${quotationNo || "draft"}.pdf`;
+        link.download = `Quotation_${isDraftQuotationReference(quotationNo) ? "draft" : quotationNo}.pdf`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -260,7 +261,7 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
         >
           <div className="p-8 sm:p-12 print:p-0">
             <style>{businessDocumentHeaderStyles}</style>
-            <BusinessDocumentHeader title="QUOTATION" number={quotationNo} />
+            <BusinessDocumentHeader title="QUOTATION" number={isDraftQuotationReference(quotationNo) ? "" : quotationNo} draft={isDraftQuotationReference(quotationNo)} />
             <div className="mt-3 text-right text-xs text-slate-600">
               <div><strong>Date:</strong> {date}</div>
               <div><strong>Valid Until:</strong> {validity}</div>
