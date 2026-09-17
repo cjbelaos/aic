@@ -18,12 +18,10 @@ const QUOTATION_DETAILS_SHEET = "QuotationDetails";
 const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
 const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:L`;
-const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:E`;
-const QUOTATION_DETAILS_V2_SHEET = "QuotationDetailsV2";
-const RANGE_DETAILS_V2 = `${QUOTATION_DETAILS_V2_SHEET}!A2:H`;
+const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:H`;
 const RANGE_NOTATIONS = `${QUOTATION_NOTATIONS_SHEET}!A2:B`;
 
-const DETAILS_COL_COUNT = 5;
+const DETAILS_COL_COUNT = 8;
 const NOTATIONS_COL_COUNT = 2;
 
 // ──────────────── Shared helpers ────────────────
@@ -48,23 +46,25 @@ function findQuotationIndex(rows: string[][], quotationNo: string): number {
   );
 }
 
-function aggregateDetailRows(
-  detailRows: string[][],
-  quotationNo: string,
-): QuotationDetail[] {
-  const items: QuotationDetail[] = [];
-  detailRows.forEach((dRow) => {
-    if (String(dRow[0] || "").trim() === String(quotationNo).trim()) {
-      items.push({
-        quotationNo: String(dRow[0] || "").trim(),
-        description: String(dRow[1] || ""),
-        quantity: parseInt(String(dRow[2]), 10) || 0,
-        unit: String(dRow[3] || ""),
-        unitPrice: parseFloat(String(dRow[4])) || 0,
-      });
-    }
-  });
-  return items;
+function parseDetailRow(row: readonly unknown[]): QuotationDetail {
+  return {
+    quotationNo: String(row[0] ?? "").trim(),
+    productId: String(row[1] ?? "") || undefined,
+    productCodeSnapshot: String(row[2] ?? "") || undefined,
+    description: String(row[3] ?? ""),
+    quantity: Number(row[4]) || 0,
+    unit: String(row[5] ?? ""),
+    unitPrice: Number(row[6]) || 0,
+    customerId: String(row[7] ?? "") || undefined,
+  };
+}
+
+function detailRow(quotationNo: string, item: QuotationDetail, customerId?: string) {
+  return [quotationNo, item.productId || "", item.productCodeSnapshot || "", item.description || "", item.quantity ?? 0, item.unit || "", item.unitPrice ?? 0, customerId || item.customerId || ""];
+}
+
+function aggregateDetailRows(detailRows: readonly (readonly unknown[])[], quotationNo: string): QuotationDetail[] {
+  return detailRows.filter(row => String(row[0] ?? "").trim() === quotationNo.trim()).map(parseDetailRow);
 }
 
 function aggregateNotationRows(
@@ -97,6 +97,7 @@ function parseQuotationRow(
     id: `quot_${index + 2}`,
     quotationNo,
     customer: String(row[1] || ""),
+    customerId: detailsMap.get(quotationNo)?.[0]?.customerId,
     description: String(row[2] || ""),
     amount: parseFloat(String(row[3])) || 0,
     discount: parseFloat(String(row[4])) || 0,
@@ -124,13 +125,7 @@ function buildDetailAndNotationMaps(
     const quotationNo = String(row[0] || "").trim();
     if (!quotationNo) return;
     if (!detailsMap.has(quotationNo)) detailsMap.set(quotationNo, []);
-    detailsMap.get(quotationNo)!.push({
-      quotationNo,
-      description: String(row[1] || ""),
-      quantity: parseInt(String(row[2]), 10) || 0,
-      unit: String(row[3] || ""),
-      unitPrice: parseFloat(String(row[4])) || 0,
-    });
+    detailsMap.get(quotationNo)!.push(parseDetailRow(row));
   });
 
   const notationsMap = new Map<string, QuotationNotation[]>();
@@ -156,6 +151,7 @@ function buildQuotationRow(
     id: `quot_${targetIndex + 2}`,
     quotationNo,
     customer: String(row[1] || ""),
+    customerId: items[0]?.customerId,
     description: String(row[2] || ""),
     amount: parseFloat(String(row[3])) || 0,
     discount: parseFloat(String(row[4])) || 0,
@@ -174,27 +170,6 @@ function buildQuotationRow(
   };
 }
 
-async function getV2DetailMap(spreadsheetId: string): Promise<Map<string, QuotationDetail[]>> {
-  const sheets = await getSheetsClient();
-  try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE_DETAILS_V2 });
-    const details = new Map<string, QuotationDetail[]>();
-    for (const row of response.data.values ?? []) {
-      const quotationNo = String(row[0] ?? "").trim(); if (!quotationNo) continue;
-      const item: QuotationDetail = { quotationNo, productId: String(row[1] ?? "") || undefined, productCodeSnapshot: String(row[2] ?? "") || undefined, description: String(row[3] ?? ""), quantity: Number(row[4]) || 0, unit: String(row[5] ?? ""), unitPrice: Number(row[6]) || 0 };
-      details.set(quotationNo, [...(details.get(quotationNo) ?? []), item]);
-    }
-    return details;
-  } catch { return new Map(); }
-}
-
-async function ensureQuotationDetailsV2(spreadsheetId: string): Promise<void> {
-  const sheets = await getSheetsClient(); const metadata = await sheets.spreadsheets.get({ spreadsheetId });
-  if ((metadata.data.sheets ?? []).some((sheet) => sheet.properties?.title === QUOTATION_DETAILS_V2_SHEET)) return;
-  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ addSheet: { properties: { title: QUOTATION_DETAILS_V2_SHEET } } }] } });
-  await sheets.spreadsheets.values.update({ spreadsheetId, range: `${QUOTATION_DETAILS_V2_SHEET}!A1:H1`, valueInputOption: "RAW", requestBody: { values: [["QuotationNo", "ProductId", "ProductCodeSnapshot", "DescriptionSnapshot", "Quantity", "UnitSnapshot", "UnitPriceSnapshot", "CustomerId"]] } });
-}
-
 // ──────────────── Public API ────────────────
 
 export async function getQuotations(): Promise<Quotation[]> {
@@ -209,8 +184,6 @@ export async function getQuotations(): Promise<Quotation[]> {
       notationRows,
     );
 
-    const v2Details = await getV2DetailMap(spreadsheetId);
-    for (const [quotationNo, items] of v2Details) detailsMap.set(quotationNo, items);
     return quotRows.map((row, index) => parseQuotationRow(row, index, detailsMap, notationsMap));
   } catch (error) {
     console.error("Failed to fetch quotations:", error);
@@ -242,8 +215,7 @@ export async function getQuotationByRefNo(
     if (idx === -1) return null;
 
     const row = quotRows[idx];
-    const v2Details = await getV2DetailMap(spreadsheetId);
-    const items = v2Details.get(quotationNo) ?? aggregateDetailRows(detailRows, quotationNo);
+    const items = aggregateDetailRows(detailRows, quotationNo);
     const notation = aggregateNotationRows(notationRows, quotationNo);
 
     return buildQuotationRow(row, quotationNo, idx, items, notation);
@@ -278,13 +250,7 @@ export async function addQuotation(
       payload.shippingFee || 0,
     ];
 
-    const detailValues = (payload.items || []).map((item) => [
-      payload.quotationNo,
-      item.description || "",
-      item.quantity ?? 0,
-      item.unit || "",
-      item.unitPrice ?? 0,
-    ]);
+    const detailValues = (payload.items || []).map(item => detailRow(payload.quotationNo, item, payload.customerId));
 
     const notationValues = (payload.notation || []).map(
       (note: QuotationNotation) => [payload.quotationNo, note.notation || ""],
@@ -303,7 +269,7 @@ export async function addQuotation(
       writes.push(
         sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: `${QUOTATION_DETAILS_SHEET}!A${nextIndex}`,
+          range: RANGE_DETAILS,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: detailValues },
         }),
@@ -327,6 +293,7 @@ export async function addQuotation(
       id: `quot_${nextIndex}`,
       quotationNo: payload.quotationNo,
       customer: payload.customer,
+      customerId: payload.customerId,
       description: payload.description,
       amount: payload.amount,
       discount: payload.discount,
@@ -497,13 +464,7 @@ export async function updateQuotation(
     });
 
     // 2. Update matched child rows in place, append extras, then delete only surplus rows.
-    const newDetailValues = (payload.items || []).map((item) => [
-      payload.quotationNo || quotationNo,
-      item.description || "",
-      item.quantity ?? 0,
-      item.unit || "",
-      item.unitPrice ?? 0,
-    ]);
+    const newDetailValues = (payload.items || []).map(item => detailRow(payload.quotationNo || quotationNo, item, payload.customerId));
 
     const newNotationValues = (payload.notation || []).map(
       (note: QuotationNotation) => [
@@ -515,13 +476,7 @@ export async function updateQuotation(
     const notations = notationRows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] || "").trim() === quotationNo.trim());
     await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: QUOTATION_DETAILS_SHEET, columnCount: DETAILS_COL_COUNT, existingRows: details, values: newDetailValues });
     await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: QUOTATION_NOTATIONS_SHEET, columnCount: NOTATIONS_COL_COUNT, existingRows: notations, values: newNotationValues });
-    await ensureQuotationDetailsV2(spreadsheetId);
-    const v2Rows = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE_DETAILS_V2 }).catch(() => ({ data: { values: [] } }));
-    const v2Matches = (v2Rows.data.values ?? []).map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[0] ?? "").trim() === quotationNo.trim());
-    const v2Values = (payload.items || []).map((item) => [payload.quotationNo || quotationNo, item.productId ?? "", item.productCodeSnapshot ?? "", item.description || "", item.quantity ?? 0, item.unit || "", item.unitPrice ?? 0, payload.customer || ""]);
-    await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: QUOTATION_DETAILS_V2_SHEET, columnCount: 8, existingRows: v2Matches, values: v2Values });
-
-    const items = aggregateDetailRows(newDetailValues as any, quotationNo);
+    const items = aggregateDetailRows(newDetailValues, payload.quotationNo || quotationNo);
     const notation = aggregateNotationRows(
       newNotationValues as any,
       quotationNo,
@@ -531,6 +486,7 @@ export async function updateQuotation(
       id: `quot_${quotRowNum}`,
       quotationNo: payload.quotationNo || quotationNo,
       customer: payload.customer,
+      customerId: payload.customerId || items[0]?.customerId,
       description: payload.description,
       amount: payload.amount,
       discount: payload.discount,
@@ -601,6 +557,7 @@ export async function uploadPdfToDrive(params: {
 
 export async function saveQuotationData(params: {
   clientName: string;
+  customerId?: string;
   quotationDescription: string;
   grandTotal: number;
   discount: number;
@@ -660,26 +617,20 @@ export async function saveQuotationData(params: {
       }),
     ];
 
-    const detailValues = (params.items || []).map((item) => [
-      refNumber,
-      item.description || "",
-      item.qty ?? 0,
-      item.unit || "",
-      item.priceUnit ?? 0,
-    ]);
-    const detailValuesV2 = (params.items || []).map((item) => [refNumber, item.productId || "", item.productCodeSnapshot || "", item.description || "", item.qty ?? 0, item.unit || "", item.priceUnit ?? 0, ""]);
-    await ensureQuotationDetailsV2(spreadsheetId);
+    const detailValues = (params.items || []).map(item => detailRow(refNumber, {
+      quotationNo: refNumber, productId: item.productId, productCodeSnapshot: item.productCodeSnapshot,
+      description: item.description, quantity: item.qty, unit: item.unit, unitPrice: item.priceUnit,
+    }, params.customerId));
 
     if (detailValues.length > 0) {
       writes.push(
         sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: `${QUOTATION_DETAILS_SHEET}!A2:E`,
+          range: RANGE_DETAILS,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: detailValues },
         }),
       );
-      writes.push(sheets.spreadsheets.values.append({ spreadsheetId, range: RANGE_DETAILS_V2, valueInputOption: "USER_ENTERED", requestBody: { values: detailValuesV2 } }));
     }
 
     const notationValues = (params.notations || []).map((note) => [

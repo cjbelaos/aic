@@ -4,6 +4,7 @@ export interface Quotation {
   id: string;
   quotationNo: string;
   customer: string;
+  customerId?: string;
   description: string;
   items: QuotationDetail[];
   notation: QuotationNotation[];
@@ -25,6 +26,7 @@ export interface QuotationDetail {
   quotationNo: string;
   /** Stable ProductsV2 reference when this is a catalog item. */
   productId?: string;
+  customerId?: string;
   productCodeSnapshot?: string;
   description: string;
   quantity: number;

@@ -147,7 +147,7 @@ export default function QuotationsPage() {
     const customer: QuotationCustomer = {
       id: rawCustomer?.id || "",
       row: rawCustomer?.row || 0,
-      companyId: rawCustomer?.companyId || "",
+      companyId: rawCustomer?.companyId || quot.customerId || "",
       companyType: rawCustomer?.companyType || "Customer",
       companyName:
         rawCustomer?.companyName ||
@@ -373,6 +373,7 @@ export default function QuotationsPage() {
 
         const updatePayload = {
           customer: formPayload.customer?.companyName || "",
+          customerId: formPayload.customer?.companyId || undefined,
           description: formPayload.quotationDescription || "",
           amount: formPayload.grandTotal || 0,
           discount: formPayload.discount || 0,

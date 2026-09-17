@@ -118,6 +118,7 @@ export async function POST(request: Request) {
     // Save to sheets
     const result = await saveQuotationData({
       clientName,
+      customerId: payload.customer?.companyId || undefined,
       quotationDescription: payload.quotationDescription,
       grandTotal: payload.grandTotal || 0,
       discount: payload.discount || 0,
