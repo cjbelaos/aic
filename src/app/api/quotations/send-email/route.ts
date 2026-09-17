@@ -31,16 +31,17 @@ export async function POST(request: NextRequest) {
 
     // Get SMTP configuration
     const smtpUser = process.env.SMTP_USER;
-    const smtpPassword = process.env.SMTP_PASSWORD;
+    const smtpPassword = process.env.SMTP_PASSWORD || process.env.SMTP_PASS;
 
     if (!smtpUser || !smtpPassword) {
       throw new Error("Missing SMTP credentials.");
     }
 
+    const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: process.env.SMTP_PORT === "465",
+      port: smtpPort,
+      secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === "true" : smtpPort === 465,
       auth: { user: smtpUser, pass: smtpPassword },
     });
 
@@ -112,8 +113,10 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("Send email error:", error);
-    const message =
-      error instanceof Error ? error.message : "Failed to send email.";
+    const authenticationFailed = typeof error === "object" && error !== null && "code" in error && error.code === "EAUTH";
+    const message = authenticationFailed
+      ? "Email login failed. Check the SMTP username and password configured on the server."
+      : error instanceof Error ? error.message : "Failed to send email.";
     return NextResponse.json({ success: false, message }, { status: 500 });
   }
 }

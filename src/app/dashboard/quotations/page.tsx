@@ -353,7 +353,7 @@ export default function QuotationsPage() {
             }
           } catch (emailError) {
             console.error("Email send error:", emailError);
-            toast.error("Status updated but email failed to send.");
+            toast.error((isAxiosError(emailError) ? emailError.response?.data?.message : undefined) || "Status updated but email failed to send.");
           }
         } else {
           toast.success("Quotation sent successfully.");
@@ -487,7 +487,7 @@ export default function QuotationsPage() {
           }
         } catch (emailError) {
           console.error("Email send error:", emailError);
-          toast.error("Quotation saved but email failed to send.");
+          toast.error((isAxiosError(emailError) ? emailError.response?.data?.message : undefined) || "Quotation saved but email failed to send.");
         }
       } else if (finalStatus === "SENT" && !pdfBlob) {
         toast.warning(
