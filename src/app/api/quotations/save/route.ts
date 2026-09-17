@@ -151,7 +151,7 @@ export async function POST(request: Request) {
       terms: payload.terms,
       delivery: payload.delivery,
       warranty: payload.warranty,
-    });
+    }, session.username);
 
     return NextResponse.json(
       {

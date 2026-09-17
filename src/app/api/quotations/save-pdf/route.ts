@@ -13,10 +13,10 @@ export async function POST(request: Request) {
     }
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
-    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId, range: "Quotations!A2:K" })).data.values || [];
+    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId, range: "Quotations!A2:P" })).data.values || [];
     const index = rows.findIndex(row => String(row[0]).trim() === quotationNo.trim());
     if (index < 0) return NextResponse.json({ error: "Quotation not found." }, { status: 404 });
-    const storedLink = String(rows[index][5] || "");
+    const storedLink = String(rows[index][6] || "");
     const storedId = storedLink.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || storedLink.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
     const drive = await getDriveUploadClient();
     const name = `Quotation - ${quotationNo} - ${String(rows[index][1] || "").replace(/[/\\?%*:'|"<>]/g, "_")}.pdf`;
@@ -31,7 +31,10 @@ export async function POST(request: Request) {
     }
     if (!fileId) throw new Error("Drive did not return a file ID.");
     const fileLink = `https://drive.google.com/file/d/${fileId}/view`;
-    await sheets.spreadsheets.values.update({ spreadsheetId, range: `Quotations!F${index + 2}`, valueInputOption: "RAW", requestBody: { values: [[fileLink]] } });
+    await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "RAW", data: [
+      { range: `Quotations!G${index + 2}`, values: [[fileLink]] },
+      { range: `Quotations!O${index + 2}:P${index + 2}`, values: [[session.username, new Date().toISOString()]] },
+    ] } });
     return NextResponse.json({ success: true, fileLink });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to save quotation PDF." }, { status: 500 });

@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
   try {
     const body: CreateQuotationPayload = await request.json();
-    const created = await addQuotation(body);
+    const created = await addQuotation(body, session.username);
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
     const message =

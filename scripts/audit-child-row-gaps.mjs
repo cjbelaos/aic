@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { google } from "googleapis";
 
-const targets = ["PurchaseOrderItemsV2!A2:I", "DeliveryReceiptItemsV2!A2:H", "ServiceInvoiceItems!A2:E", "QuotationDetails!A2:H", "QuotationNotations!A2:B"];
+const targets = ["PurchaseOrderItemsV2!A2:I", "DeliveryReceiptItemsV2!A2:H", "ServiceInvoiceItems!A2:E", "QuotationDetails!A2:L", "QuotationNotations!A2:B"];
 const gaps = (sheet, rows) => rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }, index) => index < rows.length - 1 && row.every((value) => String(value ?? "").trim() === "")).map(({ rowNumber }) => ({ sheet, rowNumber, issue: "Blank physical row inside child data range" }));
 const spreadsheetId = process.env.GOOGLE_SHEET_ID_DATABASE;
 if (!spreadsheetId) throw new Error("Missing GOOGLE_SHEET_ID_DATABASE.");

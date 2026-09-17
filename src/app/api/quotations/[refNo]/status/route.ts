@@ -21,7 +21,7 @@ export async function PUT(
       );
     }
 
-    await updateQuotationStatus(refNo, status);
+    await updateQuotationStatus(refNo, status, session.username);
 
     return NextResponse.json(
       { success: true, message: `Status updated to ${status}` },

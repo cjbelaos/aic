@@ -1,6 +1,13 @@
 export type QuotationStatus = "DRAFT" | "SENT";
 
-export interface Quotation {
+export interface QuotationAudit {
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export interface Quotation extends QuotationAudit {
   id: string;
   quotationNo: string;
   customer: string;
@@ -22,7 +29,7 @@ export interface Quotation {
   status: QuotationStatus;
 }
 
-export interface QuotationDetail {
+export interface QuotationDetail extends QuotationAudit {
   quotationNo: string;
   /** Stable ProductsV2 reference when this is a catalog item. */
   productId?: string;

@@ -17,11 +17,11 @@ const QUOTATIONS_SHEET = "Quotations";
 const QUOTATION_DETAILS_SHEET = "QuotationDetails";
 const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
-const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:L`;
-const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:H`;
+const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:P`;
+const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:L`;
 const RANGE_NOTATIONS = `${QUOTATION_NOTATIONS_SHEET}!A2:B`;
 
-const DETAILS_COL_COUNT = 8;
+const DETAILS_COL_COUNT = 12;
 const NOTATIONS_COL_COUNT = 2;
 
 // ──────────────── Shared helpers ────────────────
@@ -46,6 +46,14 @@ function findQuotationIndex(rows: string[][], quotationNo: string): number {
   );
 }
 
+function parseAudit(row: readonly unknown[], offset: number) {
+  return { createdBy: String(row[offset] ?? ""), createdAt: String(row[offset + 1] ?? ""), updatedBy: String(row[offset + 2] ?? ""), updatedAt: String(row[offset + 3] ?? "") };
+}
+
+function auditValues(actor: string, timestamp: string, existing?: readonly unknown[], offset = 0) {
+  return [existing ? String(existing[offset] ?? "") : actor, existing ? String(existing[offset + 1] ?? "") : timestamp, actor, timestamp];
+}
+
 function parseDetailRow(row: readonly unknown[]): QuotationDetail {
   return {
     quotationNo: String(row[0] ?? "").trim(),
@@ -56,6 +64,7 @@ function parseDetailRow(row: readonly unknown[]): QuotationDetail {
     unit: String(row[5] ?? ""),
     unitPrice: Number(row[6]) || 0,
     customerId: String(row[7] ?? "") || undefined,
+    ...parseAudit(row, 8),
   };
 }
 
@@ -101,13 +110,14 @@ function parseQuotationRow(
     description: String(row[2] || ""),
     amount: parseFloat(String(row[3])) || 0,
     discount: parseFloat(String(row[4])) || 0,
-    shippingFee: parseFloat(String(row[11])) || 0,
-    file: String(row[5] || ""),
-    date: String(row[6] || ""),
-    preparedBy: String(row[7] || ""),
-    approvedBy: String(row[8] || ""),
-    sentBy: String(row[9] || ""),
-    status: (String(row[10] || "").trim() as QuotationStatus) || "DRAFT",
+    shippingFee: Number(row[5]) || 0,
+    ...parseAudit(row, 12),
+    file: String(row[6] || ""),
+    date: String(row[7] || ""),
+    preparedBy: String(row[8] || ""),
+    approvedBy: String(row[9] || ""),
+    sentBy: String(row[10] || ""),
+    status: (String(row[11] || "").trim() as QuotationStatus) || "DRAFT",
     items: detailsMap.get(quotationNo) || [],
     notation: notationsMap.get(quotationNo) || [],
     terms: "",
@@ -155,13 +165,14 @@ function buildQuotationRow(
     description: String(row[2] || ""),
     amount: parseFloat(String(row[3])) || 0,
     discount: parseFloat(String(row[4])) || 0,
-    shippingFee: parseFloat(String(row[11])) || 0,
-    file: String(row[5] || ""),
-    date: String(row[6] || ""),
-    preparedBy: String(row[7] || ""),
-    approvedBy: String(row[8] || ""),
-    sentBy: String(row[9] || ""),
-    status: (String(row[10] || "").trim() as QuotationStatus) || "DRAFT",
+    shippingFee: Number(row[5]) || 0,
+    ...parseAudit(row, 12),
+    file: String(row[6] || ""),
+    date: String(row[7] || ""),
+    preparedBy: String(row[8] || ""),
+    approvedBy: String(row[9] || ""),
+    sentBy: String(row[10] || ""),
+    status: (String(row[11] || "").trim() as QuotationStatus) || "DRAFT",
     items,
     notation,
     terms: "",
@@ -227,6 +238,7 @@ export async function getQuotationByRefNo(
 
 export async function addQuotation(
   payload: CreateQuotationPayload,
+  actor: string,
 ): Promise<Quotation> {
   try {
     const sheets = await getSheetsClient();
@@ -234,6 +246,8 @@ export async function addQuotation(
 
     const { quotRows } = await fetchAllSheetData(spreadsheetId);
     const nextIndex = quotRows.length + 2;
+    const timestamp = new Date().toISOString();
+    const audit = auditValues(actor, timestamp);
 
     const headerValues = [
       payload.quotationNo || "",
@@ -241,16 +255,17 @@ export async function addQuotation(
       payload.description || "",
       payload.amount ?? 0,
       payload.discount ?? 0,
+      payload.shippingFee || 0,
       payload.file || "",
       payload.date || "",
       payload.preparedBy || "",
       payload.approvedBy || "",
       payload.sentBy || "",
       payload.status || "DRAFT",
-      payload.shippingFee || 0,
+      ...audit,
     ];
 
-    const detailValues = (payload.items || []).map(item => detailRow(payload.quotationNo, item, payload.customerId));
+    const detailValues = (payload.items || []).map(item => [...detailRow(payload.quotationNo, item, payload.customerId), ...audit]);
 
     const notationValues = (payload.notation || []).map(
       (note: QuotationNotation) => [payload.quotationNo, note.notation || ""],
@@ -304,7 +319,8 @@ export async function addQuotation(
       approvedBy: payload.approvedBy,
       sentBy: payload.sentBy,
       status: payload.status || "DRAFT",
-      items: payload.items || [],
+      items: aggregateDetailRows(detailValues, payload.quotationNo),
+      ...parseAudit(headerValues, 12),
       notation: payload.notation || [],
       terms: payload.terms || "",
       delivery: payload.delivery || "",
@@ -319,6 +335,7 @@ export async function addQuotation(
 export async function updateQuotationStatus(
   quotationNo: string,
   newStatus: QuotationStatus,
+  actor: string,
 ): Promise<void> {
   try {
     const sheets = await getSheetsClient();
@@ -335,11 +352,12 @@ export async function updateQuotationStatus(
       throw new Error(`Quotation ${quotationNo} not found.`);
     }
 
-    await sheets.spreadsheets.values.update({
+    await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
-      range: `${QUOTATIONS_SHEET}!K${idx + 2}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[newStatus]] },
+      requestBody: { valueInputOption: "RAW", data: [
+        { range: `${QUOTATIONS_SHEET}!L${idx + 2}`, values: [[newStatus]] },
+        { range: `${QUOTATIONS_SHEET}!O${idx + 2}:P${idx + 2}`, values: [[actor, new Date().toISOString()]] },
+      ] },
     });
   } catch (error) {
     console.error(`Failed to update status for ${quotationNo}:`, error);
@@ -424,6 +442,7 @@ export async function deleteQuotationByRefNo(
 export async function updateQuotation(
   quotationNo: string,
   payload: CreateQuotationPayload,
+  actor: string,
 ): Promise<Quotation> {
   try {
     const sheets = await getSheetsClient();
@@ -437,6 +456,8 @@ export async function updateQuotation(
       throw new Error(`Quotation ${quotationNo} not found.`);
     }
     const quotRowNum = quotIdx + 2;
+    const timestamp = new Date().toISOString();
+    const audit = auditValues(actor, timestamp, quotRows[quotIdx], 12);
 
     // 1. Update main row
     await sheets.spreadsheets.values.update({
@@ -451,20 +472,25 @@ export async function updateQuotation(
             payload.description || "",
             payload.amount ?? 0,
             payload.discount ?? 0,
+            payload.shippingFee || 0,
             payload.file || "",
             payload.date || "",
             payload.preparedBy || "",
             payload.approvedBy || "",
             payload.sentBy || "",
             payload.status || "DRAFT",
-            payload.shippingFee || 0,
+            ...audit,
           ],
         ],
       },
     });
 
     // 2. Update matched child rows in place, append extras, then delete only surplus rows.
-    const newDetailValues = (payload.items || []).map(item => detailRow(payload.quotationNo || quotationNo, item, payload.customerId));
+    const matchingDetails = detailRows.filter(row => String(row[0] ?? "").trim() === quotationNo.trim());
+    const newDetailValues = (payload.items || []).map((item, index) => [
+      ...detailRow(payload.quotationNo || quotationNo, item, payload.customerId),
+      ...auditValues(actor, timestamp, matchingDetails[index], 8),
+    ]);
 
     const newNotationValues = (payload.notation || []).map(
       (note: QuotationNotation) => [
@@ -498,6 +524,7 @@ export async function updateQuotation(
       sentBy: payload.sentBy,
       status: payload.status || "DRAFT",
       items,
+      ...parseAudit(audit, 0),
       notation,
       terms: payload.terms || "",
       delivery: payload.delivery || "",
@@ -582,7 +609,7 @@ export async function saveQuotationData(params: {
   terms?: string;
   delivery?: string;
   warranty?: string;
-}): Promise<{ refNumber: string; date: string }> {
+}, actor: string): Promise<{ refNumber: string; date: string }> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
@@ -591,12 +618,15 @@ export async function saveQuotationData(params: {
     const refNumber =
       params.quotationNo || `Q-${Date.now().toString().slice(-8)}`;
 
+    const timestamp = new Date().toISOString();
+    const audit = auditValues(actor, timestamp);
     const logRow = [
       refNumber,
       params.clientName,
       params.quotationDescription,
       params.grandTotal || 0,
       params.discount || 0,
+      params.shippingFee || 0,
       params.fileUrl || "",
       date,
       params.preparedByName,
@@ -605,22 +635,22 @@ export async function saveQuotationData(params: {
       params.sentByName ||
         (params.status === "SENT" ? params.preparedByName : ""),
       params.status,
-      params.shippingFee || 0,
+      ...audit,
     ];
 
     const writes = [
       sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `${QUOTATIONS_SHEET}!A2:L`,
+        range: RANGE_QUOTATIONS,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [logRow] },
       }),
     ];
 
-    const detailValues = (params.items || []).map(item => detailRow(refNumber, {
+    const detailValues = (params.items || []).map(item => [...detailRow(refNumber, {
       quotationNo: refNumber, productId: item.productId, productCodeSnapshot: item.productCodeSnapshot,
       description: item.description, quantity: item.qty, unit: item.unit, unitPrice: item.priceUnit,
-    }, params.customerId));
+    }, params.customerId), ...audit]);
 
     if (detailValues.length > 0) {
       writes.push(
