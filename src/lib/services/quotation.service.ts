@@ -82,6 +82,10 @@ export interface ApiResponse {
 }
 
 const quotationService = {
+  savePdfToDrive: async (quotationNo: string, pdfBase64: string): Promise<{ fileLink: string }> => {
+    const response = await axios.post<{ fileLink: string }>(`${API_BASE_URL}/save-pdf`, { quotationNo, pdfBase64 });
+    return response.data;
+  },
   // Uses GET /api/quotations
   getAll: async (): Promise<Quotation[]> => {
     try {
@@ -89,7 +93,7 @@ const quotationService = {
       return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.error("Failed to fetch quotations:", error);
-      return [];
+      throw error;
     }
   },
 

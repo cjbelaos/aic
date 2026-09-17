@@ -1,3 +1,13 @@
+export const businessDocumentHeaderStyles = `
+  .business-document-header { color: #17232d; font: 12px/1.45 Arial, sans-serif; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 3px solid #17232d; padding-bottom: 14px; }
+  .business-document-header img { width: 125px; height: 70px; object-fit: contain; object-position: left center; }
+  .business-document-header .company-info { flex: 1; min-width: 0; text-align: left; font-size: 10px; line-height: 1.35; }
+  .business-document-header .company-name { font-size: 13px; font-weight: 700; letter-spacing: .2px; }
+  .business-document-header .title { text-align: right; }
+  .business-document-header h1 { font-weight: 700; font-size: 22px; letter-spacing: 1px; margin: 0; }
+  .business-document-header .number { font-size: 18px; font-weight: bold; }
+`;
+
 // A separate document keeps dashboard/dialog CSS out of the printed receipt.
 export const businessDocumentPrintShell = `<!doctype html><html><head><meta charset="utf-8"><title>Print document</title><style>
   @page { size: A4 portrait; margin: 12mm; }
@@ -8,13 +18,7 @@ export const businessDocumentPrintShell = `<!doctype html><html><head><meta char
   thead { display: table-header-group; }
   th, td { text-align: left; overflow-wrap: anywhere; }
   .heading-cell { padding: 0 0 18px; font-weight: normal; }
-  .brand { display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 3px solid #17232d; padding-bottom: 14px; }
-  .brand img { width: 125px; height: 70px; object-fit: contain; object-position: left center; }
-  .company-info { flex: 1; min-width: 0; text-align: left; font-size: 10px; line-height: 1.35; }
-  .company-name { font-size: 13px; font-weight: 700; letter-spacing: .2px; }
-  .title { text-align: right; }
-  h1 { font-size: 22px; letter-spacing: 1px; margin: 0; }
-  .number { font-size: 18px; font-weight: bold; }
+  ${businessDocumentHeaderStyles}
   .details { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; padding-top: 14px; }
   .label { color: #52616b; font-size: 10px; text-transform: uppercase; letter-spacing: .6px; }
   .customer { font-size: 15px; font-weight: bold; }
@@ -34,7 +38,7 @@ export const businessDocumentPrintShell = `<!doctype html><html><head><meta char
 </style></head><body></body></html>`;
 
 export function BusinessDocumentHeader({ title, number, draft = false }: { title: string; number: string; draft?: boolean }) {
-  return <div className="brand">
+  return <div className="business-document-header">
     {/* eslint-disable-next-line @next/next/no-img-element */}
     <img src="/logo.png" alt="Aerich Innovation Corp. logo" />
     <div className="company-info"><div className="company-name">AERICH INNOVATION CORP.</div><div>BLK 4 LOT 2 BAMBOO ORCHARD BANAY - BANAY</div><div>CABUYAO CITY, LAGUNA</div><div>aerichinnovationcorp@gmail.com</div></div>

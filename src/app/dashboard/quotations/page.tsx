@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Eye, Pencil, Trash2, Send, Loader2 } from "lucide-react";
+import { ArrowUpDown, Eye, Pencil, Trash2, Send, Loader2, Printer, RefreshCw, Plus } from "lucide-react";
 import { toast } from "sonner";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import {
   QuotationForm,
   QuotationFormPayload,
 } from "@/components/quotation-form";
+import { QuotationPreviewModal } from "@/components/quotation-preview-modal";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { QuotationTemplate } from "@/components/quotation-template";
 import quotationService, {
   SaveQuotationPayload,
@@ -103,6 +105,11 @@ export default function QuotationsPage() {
   const [viewQuotationData, setViewQuotationData] =
     useState<QuotationFormPayload | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
+  const [printQuotation, setPrintQuotation] = useState<Quotation | null>(null);
+  const [previewLoading, setPreviewLoading] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [preparedByFilter, setPreparedByFilter] = useState("all");
+  const [fileFilter, setFileFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const loadQuotations = async () => {
@@ -203,6 +210,24 @@ export default function QuotationsPage() {
       ),
     };
   }, []);
+
+  const handlePrintable = async (quotation: Quotation) => {
+    setPreviewLoading(quotation.quotationNo);
+    try {
+      const latest = await quotationService.getByRefNo(quotation.quotationNo);
+      if (!latest) throw new Error("Unable to load quotation details. Please try again.");
+      setPrintQuotation(latest);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to load printable quotation.");
+    } finally { setPreviewLoading(null); }
+  };
+
+  const filteredQuotations = data.filter(q =>
+    (statusFilter === "all" || q.status === statusFilter) &&
+    (preparedByFilter === "all" || q.preparedBy === preparedByFilter) &&
+    (fileFilter === "all" || (fileFilter === "with-pdf" ? !!q.file : !q.file))
+  ).sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+  const printableModal = printQuotation && <QuotationPreviewModal key={printQuotation.quotationNo} quotation={printQuotation} onClose={() => setPrintQuotation(null)} onSaved={() => void loadQuotations()} />;
 
   /** Handle "View" action - fetch full quot data and show read-only */
   const handleView = async (quot: Quotation) => {
@@ -821,6 +846,8 @@ export default function QuotationsPage() {
     },
   ];
 
+  columns.push({ id: "itemCount", header: "Items", cell: ({ row }) => `${row.original.items?.length ?? 0} item(s)` });
+
   // Add actions column - show Edit/Delete for DRAFT quotations only
   columns.push({
     id: "actions",
@@ -839,6 +866,10 @@ export default function QuotationsPage() {
             onClick={() => handleView(row.original)}
           >
             <Eye className="h-4 w-4" />
+          </Button>
+
+          <Button variant="ghost" size="icon" className="h-8 w-8" title="View printable" aria-label={`View printable quotation ${row.original.quotationNo}`} disabled={!!previewLoading} onClick={() => void handlePrintable(row.original)}>
+            {previewLoading === row.original.quotationNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
           </Button>
 
           {/* Edit button - only for DRAFT quotations */}
@@ -950,18 +981,10 @@ export default function QuotationsPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">View Quotation</h1>
           <div className="flex gap-2">
-            {/* Preview button */}
-            {!isSent && (
-              <Button
-                variant="outline"
-                onClick={() => setPreviewMode(true)}
-                disabled={saving}
-                className="gap-2 border-blue-600 text-blue-600"
-              >
-                <Eye className="h-4 w-4" />
-                Preview
-              </Button>
-            )}
+            <Button variant="outline" disabled={!!previewLoading} onClick={() => selectedQuotation && void handlePrintable(selectedQuotation)} className="gap-2">
+              <Printer className="h-4 w-4" />View printable
+            </Button>
+            {!isSent && <Button variant="outline" onClick={() => setPreviewMode(true)} disabled={saving} className="gap-2"><Send className="h-4 w-4" />Preview & send</Button>}
 
             {/* Edit button - only for DRAFT quotations */}
             {!isSent && (
@@ -1000,6 +1023,7 @@ export default function QuotationsPage() {
           readOnly={true}
           isViewMode={true}
         />
+        {printableModal}
         <ConfirmDeleteDialog
           open={!!deleteTarget}
           title="Delete quotation"
@@ -1039,12 +1063,23 @@ export default function QuotationsPage() {
   // Default: List Mode
   return (
     <>
+      <div className="rounded-lg border bg-card p-4 sm:p-5 mb-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Quotation management</p>
+        <div className="mt-1 flex flex-wrap justify-between gap-3"><div><h1 className="text-2xl font-semibold">Quotations</h1><p className="text-sm text-muted-foreground">Review quotations and manage printable documents.</p></div><Button onClick={() => setViewMode("create")}><Plus className="mr-2 h-4 w-4" />New quotation</Button></div>
+        <div className="mt-4 grid grid-cols-3 gap-2 sm:max-w-xl">{[{ label: "Quotations", value: filteredQuotations.length }, { label: "Sent", value: filteredQuotations.filter(q => q.status === "SENT").length }, { label: "Drafts", value: filteredQuotations.filter(q => q.status !== "SENT").length }].map(metric => <div key={metric.label} className="rounded-md bg-muted/60 px-3 py-2"><span className="block text-xs text-muted-foreground">{metric.label}</span><strong className="text-xl tabular-nums">{metric.value}</strong></div>)}</div>
+      </div>
+      {printableModal}
       <EntityTable
         title="Quotation List"
         columns={columns}
-        data={data}
+        data={filteredQuotations}
         loading={loading}
-        onCreateNew={() => setViewMode("create")}
+        headerActions={<Button variant="outline" disabled={loading} onClick={() => { setLoading(true); void loadQuotations().finally(() => setLoading(false)); }}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>}
+        toolbarFilters={<>
+          <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="h-8 w-full sm:w-[160px]" aria-label="Filter quotations by status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="DRAFT">Draft</SelectItem><SelectItem value="SENT">Sent</SelectItem></SelectContent></Select>
+          <Select value={preparedByFilter} onValueChange={setPreparedByFilter}><SelectTrigger className="h-8 w-full sm:w-[200px]" aria-label="Filter quotations by preparer"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All preparers</SelectItem>{Array.from(new Set(data.map(q => q.preparedBy).filter(Boolean))).sort().map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select>
+          <Select value={fileFilter} onValueChange={setFileFilter}><SelectTrigger className="h-8 w-full sm:w-[180px]" aria-label="Filter quotations by saved PDF"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All documents</SelectItem><SelectItem value="with-pdf">With saved PDF</SelectItem><SelectItem value="without-pdf">Without saved PDF</SelectItem></SelectContent></Select>
+        </>}
         onExport={exportToExcel}
         onImport={handleImport}
         mobileLayout={{ primary: ["quotationNo", "customer", "status"], labels: { quotationNo: "Quotation", customer: "Customer", description: "Description", amount: "Amount", discount: "Discount", status: "Status", date: "Date", preparedBy: "Prepared by", actions: "Actions" } }}

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { QuotationCustomer } from "@/lib/services/quotation.service";
 import { QuotationDetail } from "@/types/quotation";
 import { getDriveImageUrl } from "@/lib/signatureUpload";
+import { BusinessDocumentHeader, businessDocumentHeaderStyles } from "./business-document-print-layout";
 
 interface QuotationProps {
   quotationNo: string;
@@ -85,7 +86,8 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
         const html2canvasPro = (await import("html2canvas-pro")).default;
         const { jsPDF } = await import("jspdf");
 
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await Promise.all(Array.from(element.querySelectorAll("img")).map((image) => image.decode()));
+        await document.fonts.ready;
 
         const canvas = await html2canvasPro(element, {
           scale: 2,
@@ -253,54 +255,12 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
           ref={quotationRef}
           className="max-w-4xl mx-auto bg-white rounded-xl shadow-md border border-slate-100 overflow-hidden print:shadow-none print:border-none print:rounded-none print:max-w-full print:w-full print:mx-0 print:my-0"
         >
-          <div className="h-2 bg-gradient-to-r from-blue-600 to-indigo-600 print:break-inside-avoid"></div>
-
           <div className="p-8 sm:p-12 print:p-0">
-            {/* Company Brand Block */}
-            <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-6 border-b border-slate-100 pb-8 print:flex-row print:justify-between print:pb-4">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 print:text-xl">
-                  AERICH INNOVATION CORP.
-                </h1>
-                <p className="text-sm text-slate-500 mt-1 max-w-sm print:text-xs">
-                  BLK 4, LOT 2 Bamboo Orchard Subdivision, Brgy. Banay Banay,
-                  Cabuyao City, Laguna
-                </p>
-                <div className="mt-3 space-y-0.5 text-xs text-slate-500">
-                  <p>
-                    <span className="font-medium text-slate-700">Email:</span>{" "}
-                    aerichinnovationcorp@gmail.com
-                  </p>
-                  <p>
-                    <span className="font-medium text-slate-700">Contact:</span>{" "}
-                    09171832745 / 09399063645
-                  </p>
-                </div>
-              </div>
-
-              <div className="text-left md:text-right print:text-right">
-                <h2 className="text-4xl font-extrabold tracking-wide text-slate-400 uppercase print:text-2xl">
-                  Quotation
-                </h2>
-                <div className="mt-4 space-y-1 text-sm text-slate-600 print:text-xs print:mt-2">
-                  <p>
-                    <span className="font-medium text-slate-900">
-                      Quotation No:
-                    </span>{" "}
-                    #{quotationNo}
-                  </p>
-                  <p>
-                    <span className="font-medium text-slate-900">Date:</span>{" "}
-                    {date}
-                  </p>
-                  <p>
-                    <span className="font-medium text-slate-900">
-                      Valid Until:
-                    </span>{" "}
-                    {validity}
-                  </p>
-                </div>
-              </div>
+            <style>{businessDocumentHeaderStyles}</style>
+            <BusinessDocumentHeader title="QUOTATION" number={quotationNo} />
+            <div className="mt-3 text-right text-xs text-slate-600">
+              <div><strong>Date:</strong> {date}</div>
+              <div><strong>Valid Until:</strong> {validity}</div>
             </div>
 
             {/* Customer Metadata Overview */}
