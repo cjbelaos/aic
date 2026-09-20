@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "rootDir": "../..",
+    "outDir": "../../tmp/sales-order-tests/out"
+  },
+  "include": [
+    "*.ts",
+    "../../src/lib/salesOrders/errors.ts",
+    "../../src/lib/salesOrders/ids.ts",
+    "../../src/lib/salesOrders/money.ts",
+    "../../src/lib/salesOrders/domain.ts",
+    "../../src/lib/salesOrders/validation.ts",
+    "../../src/lib/salesOrders/sync.ts",
+    "../../src/lib/salesOrders/protocol.ts",
+    "../../src/lib/salesOrders/crypto-hash.ts",
+    "../../src/lib/salesOrders/permissions.ts",
+    "../../src/lib/salesOrders/gateway.ts",
+    "../../src/types/salesOrder.ts"
+  ]
+}

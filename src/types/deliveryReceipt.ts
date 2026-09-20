@@ -1,4 +1,8 @@
 export interface DeliveryItem {
+  /** Stable child-row key; required when this item is used as fulfillment evidence. */
+  deliveryReceiptItemId?: string;
+  /** Immutable Sales Order line key when the release was created from an SO. */
+  salesOrderItemId?: string;
   productId?: string;
   productCode: string;
   unit: string;
@@ -11,6 +15,9 @@ export interface CreateDeliveryPayload {
   date: string;
   drNumber?: number; // optional — if provided, skips auto-generation; validated for duplicates
   poNo?: string;
+  /** Immutable Sales Order link. The legacy TR column displays its Sales Order No. */
+  salesOrderId?: string;
+  salesOrderNo?: string;
   trNo?: string;
   srNo?: string;
   preparedBy: string;
@@ -31,6 +38,8 @@ export interface DeliveryReceiptResponse {
   tin: string;
   date: string;
   poNo?: string;
+  salesOrderId?: string;
+  salesOrderNo?: string;
   trNo?: string;
   preparedBy: string;
   deliveredBy: string;
@@ -53,6 +62,9 @@ export interface DeliveryReceiptSummary {
   companyId: string;
   companyName: string;
   poNo: string;
+  salesOrderId?: string;
+  salesOrderNo?: string;
+  /** Legacy alias for salesOrderNo. Retained for historical records. */
   trNo: string;
   srNo?: string;
   items: DeliveryItem[];

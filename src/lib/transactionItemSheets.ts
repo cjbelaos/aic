@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { isMissingSheetError, parseSheetNumber } from "@/lib/sheets.utils";
 import type { PurchaseOrderItem } from "@/types/purchaseOrder";
@@ -46,9 +47,9 @@ export async function renamePurchaseOrderItemReferences(fromPONumber: string, to
 export async function getDeliveryItems(): Promise<Map<number, DeliveryItem[]>> {
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:H` }); const result = new Map<number, DeliveryItem[]>();
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:J` }); const result = new Map<number, DeliveryItem[]>();
     for (const row of response.data.values ?? []) { const dr = Number(row[0]); if (!dr || String(row[7] ?? "active") === "deleted") continue;
-      const item: DeliveryItem = { productId: String(row[2] ?? "") || undefined, productCode: String(row[3] ?? ""), description: String(row[4] ?? ""), quantity: Number(row[5]) || 0, unit: String(row[6] ?? "") };
+      const item: DeliveryItem = { deliveryReceiptItemId: String(row[8] ?? "") || undefined, salesOrderItemId: String(row[9] ?? "") || undefined, productId: String(row[2] ?? "") || undefined, productCode: String(row[3] ?? ""), description: String(row[4] ?? ""), quantity: Number(row[5]) || 0, unit: String(row[6] ?? "") };
       result.set(dr, [...(result.get(dr) ?? []), item]); }
     return result;
   } catch (error) { if (isMissingSheetError(error)) return new Map(); throw error; }
@@ -56,9 +57,9 @@ export async function getDeliveryItems(): Promise<Map<number, DeliveryItem[]>> {
 
 export async function replaceDeliveryItems(drNumber: number, items: DeliveryItem[]): Promise<void> {
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
-  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:H` }).catch(() => ({ data: { values: [] } })); const rows = existing.data.values ?? [];
+  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:J` }).catch(() => ({ data: { values: [] } })); const rows = existing.data.values ?? [];
   const matches = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => Number(row[0]) === drNumber);
-  await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DR_SHEET, columnCount: 8, existingRows: matches, values: items.map((item, index) => [drNumber, index + 1, item.productId ?? "", item.productCode, item.description, item.quantity, item.unit, "active"]) });
+  await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DR_SHEET, columnCount: 10, existingRows: matches, values: items.map((item, index) => [drNumber, index + 1, item.productId ?? "", item.productCode, item.description, item.quantity, item.unit, "active", item.deliveryReceiptItemId ?? randomUUID(), item.salesOrderItemId ?? ""]) });
 }
 
 /** Repoints existing item rows when a draft DR is finalized to a real DR number. */

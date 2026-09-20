@@ -12,6 +12,7 @@ export interface Quotation extends QuotationAudit {
   quotationNo: string;
   customer: string;
   customerId?: string;
+  paymentTermId?: string;
   description: string;
   items: QuotationDetail[];
   notation: QuotationNotation[];

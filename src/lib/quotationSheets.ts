@@ -19,7 +19,7 @@ const QUOTATIONS_SHEET = "Quotations";
 const QUOTATION_DETAILS_SHEET = "QuotationDetails";
 const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
-const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:P`;
+const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:S`;
 const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:L`;
 const RANGE_NOTATIONS = `${QUOTATION_NOTATIONS_SHEET}!A2:F`;
 
@@ -120,22 +120,23 @@ function parseQuotationRow(
   return {
     id: `quot_${index + 2}`,
     quotationNo,
-    customer: String(row[1] || ""),
-    customerId: detailsMap.get(quotationNo)?.[0]?.customerId,
-    description: String(row[2] || ""),
-    amount: parseFloat(String(row[3])) || 0,
-    discount: parseFloat(String(row[4])) || 0,
-    shippingFee: Number(row[5]) || 0,
-    ...parseAudit(row, 12),
-    file: String(row[6] || ""),
-    date: String(row[7] || ""),
-    preparedBy: String(row[8] || ""),
-    approvedBy: String(row[9] || ""),
-    sentBy: String(row[10] || ""),
-    status: (String(row[11] || "").trim() as QuotationStatus) || "DRAFT",
+    customerId: String(row[1] || "") || detailsMap.get(quotationNo)?.[0]?.customerId,
+    customer: String(row[2] || ""),
+    description: String(row[3] || ""),
+    amount: parseFloat(String(row[4])) || 0,
+    discount: parseFloat(String(row[5])) || 0,
+    shippingFee: Number(row[6]) || 0,
+    paymentTermId: String(row[7] || "") || undefined,
+    terms: String(row[8] || ""),
+    file: String(row[9] || ""),
+    date: String(row[10] || ""),
+    preparedBy: String(row[11] || ""),
+    approvedBy: String(row[12] || ""),
+    sentBy: String(row[13] || ""),
+    status: (String(row[14] || "").trim() as QuotationStatus) || "DRAFT",
+    ...parseAudit(row, 15),
     items: detailsMap.get(quotationNo) || [],
     notation: notationsMap.get(quotationNo) || [],
-    terms: "",
     delivery: "",
     warranty: "",
   };
@@ -175,22 +176,23 @@ function buildQuotationRow(
   return {
     id: `quot_${targetIndex + 2}`,
     quotationNo,
-    customer: String(row[1] || ""),
-    customerId: items[0]?.customerId,
-    description: String(row[2] || ""),
-    amount: parseFloat(String(row[3])) || 0,
-    discount: parseFloat(String(row[4])) || 0,
-    shippingFee: Number(row[5]) || 0,
-    ...parseAudit(row, 12),
-    file: String(row[6] || ""),
-    date: String(row[7] || ""),
-    preparedBy: String(row[8] || ""),
-    approvedBy: String(row[9] || ""),
-    sentBy: String(row[10] || ""),
-    status: (String(row[11] || "").trim() as QuotationStatus) || "DRAFT",
+    customerId: String(row[1] || "") || items[0]?.customerId,
+    customer: String(row[2] || ""),
+    description: String(row[3] || ""),
+    amount: parseFloat(String(row[4])) || 0,
+    discount: parseFloat(String(row[5])) || 0,
+    shippingFee: Number(row[6]) || 0,
+    paymentTermId: String(row[7] || "") || undefined,
+    terms: String(row[8] || ""),
+    file: String(row[9] || ""),
+    date: String(row[10] || ""),
+    preparedBy: String(row[11] || ""),
+    approvedBy: String(row[12] || ""),
+    sentBy: String(row[13] || ""),
+    status: (String(row[14] || "").trim() as QuotationStatus) || "DRAFT",
+    ...parseAudit(row, 15),
     items,
     notation,
-    terms: "",
     delivery: "",
     warranty: "",
   };
@@ -268,11 +270,14 @@ export async function addQuotation(
 
     const headerValues = [
       payload.quotationNo || "",
+      payload.customerId || "",
       payload.customer || "",
       payload.description || "",
       payload.amount ?? 0,
       payload.discount ?? 0,
       payload.shippingFee || 0,
+      payload.paymentTermId || "",
+      payload.terms || "",
       payload.file || "",
       payload.date || "",
       payload.preparedBy || "",
@@ -330,6 +335,7 @@ export async function addQuotation(
       amount: payload.amount,
       discount: payload.discount,
       shippingFee: payload.shippingFee || 0,
+      paymentTermId: payload.paymentTermId,
       file: payload.file,
       date: payload.date,
       preparedBy: payload.preparedBy,
@@ -337,7 +343,7 @@ export async function addQuotation(
       sentBy: payload.sentBy,
       status: payload.status || "DRAFT",
       items: aggregateDetailRows(detailValues, payload.quotationNo),
-      ...parseAudit(headerValues, 12),
+      ...parseAudit(headerValues, 15),
       notation: aggregateNotationRows(notationValues, payload.quotationNo),
       terms: payload.terms || "",
       delivery: payload.delivery || "",
@@ -373,8 +379,8 @@ export async function updateQuotationStatus(
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
       requestBody: { valueInputOption: "RAW", data: [
-        { range: `${QUOTATIONS_SHEET}!L${idx + 2}`, values: [[newStatus]] },
-        { range: `${QUOTATIONS_SHEET}!O${idx + 2}:P${idx + 2}`, values: [[actor, new Date().toISOString()]] },
+        { range: `${QUOTATIONS_SHEET}!O${idx + 2}`, values: [[newStatus]] },
+        { range: `${QUOTATIONS_SHEET}!R${idx + 2}:S${idx + 2}`, values: [[actor, new Date().toISOString()]] },
       ] },
     });
   } catch (error) {
@@ -477,7 +483,7 @@ export async function updateQuotation(
     payload = { ...payload, quotationNo: reference };
     const quotRowNum = quotIdx + 2;
     const timestamp = new Date().toISOString();
-    const audit = auditValues(actor, timestamp, quotRows[quotIdx], 12);
+    const audit = auditValues(actor, timestamp, quotRows[quotIdx], 15);
 
     // 1. Update main row
     await sheets.spreadsheets.values.update({
@@ -488,11 +494,14 @@ export async function updateQuotation(
         values: [
           [
             payload.quotationNo || quotationNo,
+            payload.customerId || "",
             payload.customer || "",
             payload.description || "",
             payload.amount ?? 0,
             payload.discount ?? 0,
             payload.shippingFee || 0,
+            payload.paymentTermId || "",
+            payload.terms || "",
             payload.file || "",
             payload.date || "",
             payload.preparedBy || "",
@@ -536,6 +545,7 @@ export async function updateQuotation(
       amount: payload.amount,
       discount: payload.discount,
       shippingFee: payload.shippingFee || 0,
+      paymentTermId: payload.paymentTermId,
       file: payload.file,
       date: payload.date,
       preparedBy: payload.preparedBy,
@@ -604,6 +614,7 @@ export async function uploadPdfToDrive(params: {
 export async function saveQuotationData(params: {
   clientName: string;
   customerId?: string;
+  paymentTermId?: string;
   quotationDescription: string;
   grandTotal: number;
   discount: number;
@@ -641,11 +652,14 @@ export async function saveQuotationData(params: {
     const audit = auditValues(actor, timestamp);
     const logRow = [
       refNumber,
+      params.customerId || "",
       params.clientName,
       params.quotationDescription,
       params.grandTotal || 0,
       params.discount || 0,
       params.shippingFee || 0,
+      params.paymentTermId || "",
+      params.terms || "",
       params.fileUrl || "",
       date,
       params.preparedByName,

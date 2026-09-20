@@ -50,7 +50,7 @@ export async function GET(
 
     const drResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
     });
     const drRow = drResponse.data.values?.[0] || [];
     const deliveryDate = String(drRow[1] ?? "").trim();
@@ -102,6 +102,8 @@ export async function GET(
         tin,
         date: deliveryDate,
         poNo,
+        salesOrderNo: trNo || undefined,
+        salesOrderId: String(drRow[18] ?? "").trim() || undefined,
         trNo,
         preparedBy,
         deliveredBy,

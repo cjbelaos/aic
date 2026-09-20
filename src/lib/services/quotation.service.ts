@@ -27,6 +27,7 @@ export interface SaveAndEmailPayload {
   preparedBy: string;
   discount: number;
   shippingFee?: number;
+  paymentTermId?: string;
   quotationNo: string;
   dateIssued: string;
   validUntil: string;
@@ -56,6 +57,7 @@ export interface SaveQuotationPayload {
   approvedBy?: string;
   discount: number;
   shippingFee?: number;
+  paymentTermId?: string;
   quotationNo: string;
   dateIssued: string;
   validUntil: string;

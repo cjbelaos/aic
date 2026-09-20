@@ -37,6 +37,7 @@ import productCategoryService from "@/lib/services/product-category.service";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
+import salesOrderService from "@/lib/services/sales-order.service";
 import userService from "@/lib/services/user.service";
 import contractItemService from "@/lib/services/contract-item.service";
 import { DeliveryReceiptPreviewModal } from "@/components/delivery-receipt-preview-modal";
@@ -58,6 +59,8 @@ import { ProductCategory } from "@/types/product-category";
 import { ProductUnit } from "@/types/product-unit";
 
 interface LineItem {
+  deliveryReceiptItemId?: string;
+  salesOrderItemId?: string;
   productId: string;
   productCode: string;
   unit: string;
@@ -103,6 +106,7 @@ export default function DeliveryReleasePage() {
     [],
   );
   const [drivers, setDrivers] = useState<DeliveryPersonOption[]>([]);
+  const [salesOrders, setSalesOrders] = useState<Awaited<ReturnType<typeof salesOrderService.list>>["rows"]>([]);
 
   /* SI lookup: drNumber → list of linked ServiceInvoice summaries */
   const [siLookup, setSiLookup] = useState<Map<number, any[]>>(new Map());
@@ -116,6 +120,7 @@ export default function DeliveryReleasePage() {
   );
   const [poNo, setPoNo] = useState("");
   const [trNo, setTrNo] = useState("");
+  const [salesOrderId, setSalesOrderId] = useState("");
   const [drNo, setDrNo] = useState("");
   const [preparedBy, setPreparedBy] = useState("");
   const [deliveredBy, setDeliveredBy] = useState("");
@@ -158,6 +163,7 @@ export default function DeliveryReleasePage() {
   const [editDate, setEditDate] = useState("");
   const [editPoNo, setEditPoNo] = useState("");
   const [editTrNo, setEditTrNo] = useState("");
+  const [editSalesOrderId, setEditSalesOrderId] = useState("");
   const [editComments, setEditComments] = useState("");
   const [editDeliveredBy, setEditDeliveredBy] = useState("");
   const [editStatus, setEditStatus] = useState("");
@@ -248,6 +254,15 @@ export default function DeliveryReleasePage() {
       })
       .catch(() => {
         /* non-critical */
+      });
+
+    salesOrderService
+      .list({ status: "CONFIRMED", pageSize: 100 })
+      .then((result) => setSalesOrders(result.rows))
+      .catch(() => {
+        // Delivery Releases remain usable for historical/manual releases when
+        // Sales Orders are unavailable to this user.
+        setSalesOrders([]);
       });
 
     (async () => {
@@ -357,6 +372,43 @@ export default function DeliveryReleasePage() {
     () => drivers.map((driver) => ({ value: driver.value, label: `${driver.label} (${driver.type === "internal" ? "Employee" : "External"})` })),
     [drivers],
   );
+
+  const salesOrderOptions = useMemo(
+    () => salesOrders.map((row) => ({
+      value: row.order.salesOrderId,
+      label: `${row.order.salesOrderNo} — ${row.order.customerNameSnapshot || row.order.customerId}`,
+    })),
+    [salesOrders],
+  );
+
+  const selectSalesOrder = useCallback(async (id: string, editing = false) => {
+    const selected = salesOrders.find((row) => row.order.salesOrderId === id);
+    if (!selected) return;
+    if (editing) {
+      setEditSalesOrderId(id);
+      setEditTrNo(selected.order.salesOrderNo);
+      setEditPoNo(selected.order.customerPONo || "");
+      return;
+    }
+    setSalesOrderId(id);
+    setTrNo(selected.order.salesOrderNo);
+    setSelectedCompany(selected.order.customerId);
+    setPoNo(selected.order.customerPONo || "");
+    try {
+      const detail = await salesOrderService.get(id);
+      const availableProducts = detail.items.filter((item) => item.lineType === "PRODUCT" && item.lineStatus === "ACTIVE" && item.quantity !== null && item.quantity > item.fulfilledQty + item.cancelledQty);
+      setLineItems(availableProducts.map((item) => ({
+        salesOrderItemId: item.salesOrderItemId,
+        productId: item.productId,
+        productCode: item.productCodeSnapshot,
+        unit: item.unitSnapshot || "PC",
+        description: item.description,
+        quantity: Math.max(0, (item.quantity ?? 0) - item.fulfilledQty - item.cancelledQty),
+      })));
+    } catch {
+      toast.warning("Sales Order selected, but its remaining product lines could not be loaded.");
+    }
+  }, [salesOrders]);
 
   const assignedToOptions = useMemo(() => {
     const assignees = new Map<string, string>();
@@ -791,6 +843,8 @@ export default function DeliveryReleasePage() {
         drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
         trNo,
+        salesOrderId: salesOrderId || undefined,
+        salesOrderNo: trNo || undefined,
         preparedBy,
         deliveredBy: selectedDriver.label,
         deliveredById: selectedDriver.userId,
@@ -865,6 +919,8 @@ export default function DeliveryReleasePage() {
         drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
         trNo,
+        salesOrderId: salesOrderId || undefined,
+        salesOrderNo: trNo || undefined,
         preparedBy: preparedBy || "",
         deliveredBy: selectedDriver?.label || "",
         deliveredById: selectedDriver?.userId,
@@ -1000,6 +1056,7 @@ export default function DeliveryReleasePage() {
       setEditDate(editTarget.date);
       setEditPoNo(editTarget.poNo);
       setEditTrNo(editTarget.trNo);
+      setEditSalesOrderId(editTarget.salesOrderId || "");
       setEditComments(editTarget.comments);
       setEditDeliveredBy(
         editTarget.deliveredById
@@ -1012,6 +1069,8 @@ export default function DeliveryReleasePage() {
       setEditLineItems(
         editTarget.items.map((item) => ({
           productId: item.productId || "",
+          deliveryReceiptItemId: item.deliveryReceiptItemId,
+          salesOrderItemId: item.salesOrderItemId,
           productCode: item.productCode,
           unit: item.unit,
           description: item.description,
@@ -1060,6 +1119,8 @@ export default function DeliveryReleasePage() {
         date: editDate,
         poNo: editPoNo,
         trNo: editTrNo,
+        salesOrderId: editSalesOrderId || undefined,
+        salesOrderNo: editTrNo || undefined,
         comments: editComments,
         deliveredBy: selectedDriver.label,
         deliveredById: selectedDriver.userId || "",
@@ -1070,6 +1131,8 @@ export default function DeliveryReleasePage() {
           .filter((li) => li.productCode || li.description.trim())
           .map((li) => ({
             productId: li.productId,
+            deliveryReceiptItemId: li.deliveryReceiptItemId,
+            salesOrderItemId: li.salesOrderItemId,
             productCode: li.productCode,
             unit: li.unit,
             description: li.description,
@@ -1237,12 +1300,16 @@ export default function DeliveryReleasePage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>TR#</Label>
-                <Input
-                  value={trNo}
-                  onChange={(e) => setTrNo(e.target.value)}
-                  placeholder="e.g. TR-8841"
+                <Label>Sales Order No.</Label>
+                <SearchableSelect
+                  value={salesOrderId}
+                  onValueChange={(value) => void selectSalesOrder(value)}
+                  options={salesOrderOptions}
+                  placeholder="Select a confirmed Sales Order…"
+                  searchPlaceholder="Search Sales Order No. or customer…"
+                  emptyText="No confirmed Sales Orders available"
                 />
+                {trNo ? <p className="text-xs text-muted-foreground">Linked order: {trNo}</p> : <p className="text-xs text-muted-foreground">Historical releases may remain unlinked.</p>}
               </div>
             </div>
 
@@ -1518,11 +1585,16 @@ export default function DeliveryReleasePage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>TR#</Label>
-                <Input
-                  value={editTrNo}
-                  onChange={(e) => setEditTrNo(e.target.value)}
+                <Label>Sales Order No.</Label>
+                <SearchableSelect
+                  value={editSalesOrderId}
+                  onValueChange={(value) => void selectSalesOrder(value, true)}
+                  options={salesOrderOptions}
+                  placeholder={editTrNo || "Select a confirmed Sales Order…"}
+                  searchPlaceholder="Search Sales Order No. or customer…"
+                  emptyText="No confirmed Sales Orders available"
                 />
+                {editTrNo ? <p className="text-xs text-muted-foreground">Linked order: {editTrNo}</p> : null}
               </div>
             </div>
 

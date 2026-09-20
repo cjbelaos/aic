@@ -126,6 +126,7 @@ export type QuotationFormPayload = {
   subTotal: number;
   discount: number;
   shippingFee?: number;
+  paymentTermId?: string;
   terms: string;
   delivery: string;
   warranty: string;
@@ -604,6 +605,7 @@ export function QuotationForm({
       subTotal,
       discount,
       shippingFee,
+      paymentTermId: paymentTermOptions.find((term) => term.name === paymentTerms)?.paymentTermId || initialData?.paymentTermId || "",
       terms: paymentTerms,
       delivery: deliveryTerms,
       warranty: warrantyTerms,

@@ -478,10 +478,10 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={isItemActive("/dashboard/#")}
+                  isActive={isItemActive("/dashboard/sales-orders")}
                   tooltip="Sales Orders"
                 >
-                  <Link href="/dashboard/#">
+                  <Link href="/dashboard/sales-orders">
                     <TrendingUp />
                     <span>Sales Orders</span>
                   </Link>

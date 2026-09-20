@@ -19,8 +19,11 @@ const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:R`;
-// A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType R:DeliveredByOptionId
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:S`;
+// A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:SalesOrderNo (legacy TRNumber)
+// F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink
+// M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType
+// R:DeliveredByOptionId S:SalesOrderId
 
 const DR_STATUS_HISTORY_SHEET = "DeliveryReceiptStatusHistory";
 const DR_STATUS_HISTORY_RANGE = `${DR_STATUS_HISTORY_SHEET}!A2:E`;
@@ -132,6 +135,8 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           companyId: String(row[2] ?? "").trim(),
           poNo: String(row[3] ?? "").trim(),
           trNo: String(row[4] ?? "").trim(),
+          salesOrderNo: String(row[4] ?? "").trim() || undefined,
+          salesOrderId: String(row[18] ?? "").trim() || undefined,
           srNo: String(row[5] ?? "").trim(),
           comments: String(row[6] ?? "").trim(),
           preparedBy: String(row[7] ?? "").trim(),
@@ -185,7 +190,7 @@ export async function resolveDeliveryReceiptDeliveredBy(drNumber: number): Promi
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${DELIVERY_RECEIPTS_SHEET}!A2:R`,
+    range: `${DELIVERY_RECEIPTS_SHEET}!A2:S`,
   });
   const row = (response.data.values || []).find(
     (entry) => parseInt(String(entry[0] ?? "").trim(), 10) === drNumber,
@@ -326,7 +331,7 @@ export async function processDeliveryReceipt(
       payload.date, // B: DeliveryDate
       payload.companyId, // C: CompanyId
       payload.poNo || "", // D: PONumber
-      payload.trNo || "", // E: TRNumber
+      payload.salesOrderNo || payload.trNo || "", // E: SalesOrderNo (legacy TRNumber)
       payload.srNo || "", // F: SRNumber
       payload.comments || "", // G: Comments
       payload.preparedBy || "", // H: PreparedBy
@@ -340,6 +345,7 @@ export async function processDeliveryReceipt(
       payload.deliveredById || "", // P: DeliveredById
       payload.deliveredByType || "internal", // Q: DeliveredByType
       payload.deliveredByOptionId || "", // R: DeliveredByOptionId
+      payload.salesOrderId || "", // S: immutable SalesOrderId
     ];
 
     await sheets.spreadsheets.values.append({
@@ -385,7 +391,7 @@ export async function processDeliveryReceipt(
             },
             {
               range: `${PRINT_TEMPLATE_SHEET}!F11`,
-              values: [[payload.trNo || ""]],
+              values: [[payload.salesOrderNo || payload.trNo || ""]],
             },
             {
               range: `${PRINT_TEMPLATE_SHEET}!A13:C${12 + templateRows.length}`,
@@ -434,7 +440,9 @@ export async function processDeliveryReceipt(
       tin,
       date: payload.date,
       poNo: payload.poNo,
-      trNo: payload.trNo,
+      trNo: payload.salesOrderNo || payload.trNo,
+      salesOrderNo: payload.salesOrderNo || payload.trNo,
+      salesOrderId: payload.salesOrderId,
       preparedBy: payload.preparedBy,
       deliveredBy: payload.deliveredBy,
       comments: payload.comments,
@@ -493,7 +501,7 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:R${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     if (payload.deliveredByOptionId) {
@@ -546,11 +554,12 @@ export async function updateDeliveryReceipt(
       payload.deliveredById ?? String(currentRow[15] ?? "").trim(), // P
       payload.deliveredByType ?? String(currentRow[16] ?? "internal").trim(), // Q
       payload.deliveredByOptionId ?? String(currentRow[17] ?? "").trim(), // R
+      payload.salesOrderId ?? String(currentRow[18] ?? "").trim(), // S
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:R${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -600,6 +609,8 @@ export async function updateDeliveryReceipt(
       companyName: company?.companyName || updatedRow[2],
       poNo: updatedRow[3],
       trNo: updatedRow[4],
+      salesOrderNo: updatedRow[4] || undefined,
+      salesOrderId: updatedRow[18] || undefined,
       srNo: updatedRow[5] || undefined,
       comments: updatedRow[6],
       preparedBy: updatedRow[7],
