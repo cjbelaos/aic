@@ -52,7 +52,7 @@ export async function GET(
 
     const invResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${invRowNumber}:J${invRowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${invRowNumber}:R${invRowNumber}`,
     });
     const invRow = invResponse.data.values?.[0] || [];
     const date = String(invRow[1] ?? "").trim();
@@ -103,6 +103,10 @@ export async function GET(
         preparedByPosition,
         items,
         status: String(invRow[8] ?? "created").trim(),
+        assignedTechnicianUserId: String(invRow[14] ?? "").trim() || undefined,
+        assignedTechnicianName: String(invRow[15] ?? "").trim() || undefined,
+        serviceReportId: String(invRow[16] ?? "").trim() || undefined,
+        serviceReportStatus: String(invRow[17] ?? "").trim() || undefined,
         printUrl,
         pdfBase64,
       },

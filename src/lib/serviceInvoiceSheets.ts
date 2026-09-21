@@ -16,8 +16,8 @@ import { resolveDeliveryReceiptDeliveredBy } from "@/lib/deliverySheets";
 import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/documentHandoverSheets";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
-const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:N`;
-// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo M:DeliveredById N:DeliveredByName
+const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:R`;
+// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo M:DeliveredById N:DeliveredByName O:AssignedTechnicianUserId P:AssignedTechnicianName Q:ServiceReportId R:ServiceReportStatus
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
@@ -113,6 +113,14 @@ type DeliveredByResolution = {
 };
 
 /** Applies the Service Invoice source-of-truth rules for its assignee. */
+async function resolveAssignedTechnician(payload: { assignedTechnicianUserId?: string }): Promise<{ assignedTechnicianUserId: string; assignedTechnicianName: string }> {
+  const id = String(payload.assignedTechnicianUserId ?? "").trim();
+  if (!id) return { assignedTechnicianUserId: "", assignedTechnicianName: "" };
+  const user = await getUserById(id);
+  if (!user) throw new Error(`Assigned technician user "${id}" not found.`);
+  return { assignedTechnicianUserId: user.userId, assignedTechnicianName: user.fullName };
+}
+
 async function resolveServiceInvoiceDeliveredBy(
   payload: Pick<CreateServiceInvoicePayload, "drNumber" | "deliveredById">,
   isFinal: boolean,
@@ -288,6 +296,10 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
             : undefined,
           deliveredById: String(row[12] ?? "").trim() || undefined,
           deliveredByName: String(row[13] ?? "").trim() || undefined,
+          assignedTechnicianUserId: String(row[14] ?? "").trim() || undefined,
+          assignedTechnicianName: String(row[15] ?? "").trim() || undefined,
+          serviceReportId: String(row[16] ?? "").trim() || undefined,
+          serviceReportStatus: String(row[17] ?? "").trim() || undefined,
           items: itemsByInvoice.get(invoiceNo) || [],
         };
       })
@@ -426,6 +438,7 @@ export async function processServiceInvoice(
 
     const createdAt = new Date().toISOString();
     const deliveredBy = await resolveServiceInvoiceDeliveredBy(payload, !isDraft);
+    const assignedTechnician = await resolveAssignedTechnician(payload);
     const headerRow = [
       invoiceNo,
       payload.date,
@@ -441,6 +454,10 @@ export async function processServiceInvoice(
       payload.drNumber?.toString() || "",
       deliveredBy.deliveredById || "",
       deliveredBy.deliveredByName || "",
+      assignedTechnician.assignedTechnicianUserId || "",
+      assignedTechnician.assignedTechnicianName || "",
+      "",
+      "",
     ];
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -564,7 +581,7 @@ export async function updateServiceInvoice(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:N${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:R${rowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[8] ?? "created").trim();
@@ -607,6 +624,11 @@ export async function updateServiceInvoice(
       }
     }
 
+    const currentTechnicianId = String(currentRow[14] ?? "").trim() || "";
+    const currentTechnicianName = String(currentRow[15] ?? "").trim() || "";
+    const assignedTechnician = payload.assignedTechnicianUserId !== undefined
+      ? await resolveAssignedTechnician(payload)
+      : { assignedTechnicianUserId: currentTechnicianId, assignedTechnicianName: currentTechnicianName };
     const updatedRow = [
       effectiveInvoiceNo,
       payload.date ?? String(currentRow[1] ?? "").trim(),
@@ -626,11 +648,15 @@ export async function updateServiceInvoice(
         : String(currentRow[11] ?? "").trim(),
       deliveredBy.deliveredById || "",
       deliveredBy.deliveredByName || "",
+      assignedTechnician.assignedTechnicianUserId || "",
+      assignedTechnician.assignedTechnicianName || "",
+      String(currentRow[16] ?? "").trim(),
+      String(currentRow[17] ?? "").trim(),
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:N${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:R${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -744,7 +770,7 @@ export async function ensureServiceInvoiceDocumentTrackerAssignment(
   if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:N${rowNumber}`,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:R${rowNumber}`,
   });
   const row = response.data.values?.[0] || [];
   const status = String(row[8] ?? "").trim();
@@ -941,4 +967,31 @@ export async function testPopulateServiceInvoiceTemplateWithDuplicatedItems(
     preparedBy,
     items: duplicatedItems,
   });
+}
+
+
+/**
+ * Best-effort ServiceInvoices Q:R link used by the Service Report module after
+ * create/acknowledge/void transitions. Writes ONLY columns Q and R - existing
+ * columns are never shifted.
+ */
+export async function syncServiceInvoiceReportLink(
+  invoiceNo: string,
+  reportId: string,
+  reportStatus: string,
+): Promise<void> {
+  try {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+    if (rowNumber <= 1) return;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SERVICE_INVOICES_SHEET}!Q${rowNumber}:R${rowNumber}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[reportId, reportStatus]] },
+    });
+  } catch (error) {
+    console.error("syncServiceInvoiceReportLink failed (non-fatal):", error);
+  }
 }

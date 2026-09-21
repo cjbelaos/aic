@@ -6,7 +6,7 @@ export interface ServiceInvoiceItem {
 }
 
 export interface CreateServiceInvoicePayload {
-  /** Invoice number typed from the physical paper — required, must be unique. */
+  /** Invoice number typed from the physical paper. Required, must be unique. */
   invoiceNo: string;
   date: string;
   /** Company ID of a Customer/Both company. */
@@ -22,6 +22,12 @@ export interface CreateServiceInvoicePayload {
   deliveredById?: string;
   /** Historical display-name snapshot. Never trusted from the client. */
   deliveredByName?: string;
+  /**
+   * Service Report technician assignment (appended column O). The display name
+   * (P) is server-resolved from the Users sheet. Do NOT reuse deliveredById;
+   * it keeps its document-handover meaning.
+   */
+  assignedTechnicianUserId?: string;
 }
 
 export interface ServiceInvoiceResponse {
@@ -42,6 +48,10 @@ export interface ServiceInvoiceResponse {
   drNumber?: number;
   deliveredById?: string;
   deliveredByName?: string;
+  assignedTechnicianUserId?: string;
+  assignedTechnicianName?: string;
+  serviceReportId?: string;
+  serviceReportStatus?: string;
   trackerAssignmentOutcome?: "created" | "updated" | "unchanged" | "already_returned" | "unassigned";
   trackerAssignmentWarning?: string;
 }
@@ -63,6 +73,10 @@ export interface ServiceInvoiceSummary {
   drNumber?: number;
   deliveredById?: string;
   deliveredByName?: string;
+  assignedTechnicianUserId?: string;
+  assignedTechnicianName?: string;
+  serviceReportId?: string;
+  serviceReportStatus?: string;
   trackerAssignmentOutcome?: "created" | "updated" | "unchanged" | "already_returned" | "unassigned";
   trackerAssignmentWarning?: string;
 }

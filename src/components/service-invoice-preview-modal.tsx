@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Printer, Save, Loader2, ExternalLink } from "lucide-react";
+import { Printer, Save, Loader2, ExternalLink, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +11,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
+import serviceReportService from "@/lib/services/service-report.service";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { REPORT_TYPE_LABELS } from "@/lib/serviceReports/labels";
+import type { ServiceReportType } from "@/types/serviceReport";
 import { ServiceInvoiceResponse } from "@/types/serviceInvoice";
 import ServiceInvoicePrintDocument from "@/components/service-invoice-print-document";
 import { resolveUserSignatureUrls, signerNameKey } from "@/lib/userSignatures";
@@ -28,6 +37,25 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
   const [htmlPrinting, setHtmlPrinting] = useState(false);
   const [layoutMode, setLayoutMode] = useState<"sheets" | "html">("html");
   const [preparedBySignatureUrl, setPreparedBySignatureUrl] = useState("");
+  /** Stored report type per report id (never a query parameter). */
+  const [serviceReportTypes, setServiceReportTypes] = useState<Record<string, ServiceReportType>>({});
+  const serviceReportType: ServiceReportType | "" =
+    si?.serviceReportId ? serviceReportTypes[si.serviceReportId] ?? "" : "";
+
+  useEffect(() => {
+    const reportId = si?.serviceReportId;
+    if (!reportId) return;
+    let cancelled = false;
+    void serviceReportService.list()
+      .then((result) => {
+        if (cancelled) return;
+        const map: Record<string, ServiceReportType> = {};
+        for (const row of result.rows ?? []) map[row.report.serviceReportId] = row.report.reportType;
+        setServiceReportTypes(map);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [si?.serviceReportId]);
 
   // Printing always uses the HTML print document (ServiceInvoicePrintDocument).
   // The Sheets PDF view stays available for reference, but is never the default.
@@ -243,6 +271,49 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
           )}
         </div>
 
+        {/* Service Report action */}
+        <div className="flex items-center gap-2 shrink-0">
+          {si.serviceReportId ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { window.location.href = `/dashboard/service-reports/${si.serviceReportId}`; }}
+              title="View Service Report"
+            >
+              <FileText className="mr-1.5 h-3.5 w-3.5" />
+              {serviceReportType
+                ? `View Service Report (${REPORT_TYPE_LABELS[serviceReportType]})`
+                : "View Service Report"}
+            </Button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!si.assignedTechnicianUserId}
+                  title={si.assignedTechnicianUserId
+                    ? "Create Service Report"
+                    : "Assign a technician before creating a Service Report."}
+                >
+                  <FileText className="mr-1.5 h-3.5 w-3.5" /> Create Service Report
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => { window.location.href = `/dashboard/service-reports/new?invoiceNo=${encodeURIComponent(si.invoiceNo)}&type=GENERAL`; }}
+                >
+                  Create General Service Report
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => { window.location.href = `/dashboard/service-reports/new?invoiceNo=${encodeURIComponent(si.invoiceNo)}&type=WATER_TREATMENT`; }}
+                >
+                  Create Water Treatment System Service Report
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
         {/* Action Footer */}
         <div className="flex items-center justify-between gap-2 pt-1 shrink-0">
           {/* Layout source toggle — keep both so you can compare approaches */}

@@ -31,6 +31,7 @@ import {
   Pencil,
   ExternalLink,
   Upload,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -40,6 +41,15 @@ import deliveryService from "@/lib/services/delivery.service";
 import userService from "@/lib/services/user.service";
 import positionService from "@/lib/services/position.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
+import serviceReportService from "@/lib/services/service-report.service";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { REPORT_TYPE_LABELS } from "@/lib/serviceReports/labels";
+import type { ServiceReportType } from "@/types/serviceReport";
 import { ServiceInvoicePreviewModal } from "@/components/service-invoice-preview-modal";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +78,27 @@ export default function ServiceInvoicesPage() {
   /* List state */
   const [invoices, setInvoices] = useState<ServiceInvoiceSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Service Report type per report id (best effort; never blocks the list). */
+  const [reportTypeByReportId, setReportTypeByReportId] = useState<Record<string, ServiceReportType>>({});
+
+  const reportTypeLabelFor = useCallback(
+    (reportId?: string): string => {
+      if (!reportId) return "";
+      const type = reportTypeByReportId[reportId];
+      return type ? ` (${REPORT_TYPE_LABELS[type]})` : "";
+    },
+    [reportTypeByReportId],
+  );
+
+  useEffect(() => {
+    void serviceReportService.list()
+      .then((result) => {
+        const map: Record<string, ServiceReportType> = {};
+        for (const row of result.rows ?? []) map[row.report.serviceReportId] = row.report.reportType;
+        setReportTypeByReportId(map);
+      })
+      .catch(() => {});
+  }, []);
 
   /* Reference data (customers only) */
   const [companies, setCompanies] = useState<any[]>([]);
@@ -93,6 +124,8 @@ export default function ServiceInvoicesPage() {
   >([]);
   const [deliveredById, setDeliveredById] = useState("");
   const [deliveredByName, setDeliveredByName] = useState("");
+  const [assignedTechnicianUserId, setAssignedTechnicianUserId] = useState("");
+  const [editAssignedTechnicianUserId, setEditAssignedTechnicianUserId] = useState("");
   const [deliveryUsers, setDeliveryUsers] = useState<{ value: string; label: string }[]>([]);
   const [deliveryUsersLoading, setDeliveryUsersLoading] = useState(true);
   const [deliveryUsersError, setDeliveryUsersError] = useState("");
@@ -684,6 +717,45 @@ export default function ServiceInvoicesPage() {
                   <Upload className="h-4 w-4" />
                 )}
               </Button>
+              {row.original.serviceReportId ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => router.push(`/dashboard/service-reports/${row.original.serviceReportId}`)}
+                  title={`View Service Report${reportTypeLabelFor(row.original.serviceReportId)}`}
+                >
+                  <FileText className="h-4 w-4" />
+                </Button>
+              ) : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                      disabled={!row.original.assignedTechnicianUserId}
+                      title={row.original.assignedTechnicianUserId
+                        ? "Create Service Report"
+                        : "Assign a technician before creating a Service Report."}
+                    >
+                      <FileText className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => router.push(`/dashboard/service-reports/new?invoiceNo=${encodeURIComponent(row.original.invoiceNo)}&type=GENERAL`)}
+                    >
+                      Create General Service Report
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => router.push(`/dashboard/service-reports/new?invoiceNo=${encodeURIComponent(row.original.invoiceNo)}&type=WATER_TREATMENT`)}
+                    >
+                      Create Water Treatment System Service Report
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               {!locked && (
                 <>
                   <Button
@@ -791,6 +863,7 @@ export default function ServiceInvoicesPage() {
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
         deliveredById: deliveredById || undefined,
+        assignedTechnicianUserId: assignedTechnicianUserId || undefined,
       };
       const res = await serviceInvoiceService.createAndPopulateSheet(payload);
       toast.success("Service invoice recorded!");
@@ -831,6 +904,7 @@ export default function ServiceInvoicesPage() {
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
         deliveredById: deliveredById || undefined,
+        assignedTechnicianUserId: assignedTechnicianUserId || undefined,
       };
       await serviceInvoiceService.createAndPopulateSheet(payload);
       toast.success("Service invoice saved as draft.");
@@ -875,6 +949,7 @@ export default function ServiceInvoicesPage() {
       setEditDrNumber(editTarget.drNumber?.toString() || "");
       setEditDeliveredById(editTarget.deliveredById || "");
       setEditDeliveredByName(editTarget.deliveredByName || "");
+      setEditAssignedTechnicianUserId(editTarget.assignedTechnicianUserId || "");
     }
   }, [editTarget]);
 
@@ -908,6 +983,7 @@ export default function ServiceInvoicesPage() {
           })),
         drNumber: editDrNumber ? parseInt(editDrNumber, 10) : null,
         deliveredById: editDeliveredById || undefined,
+        assignedTechnicianUserId: editAssignedTechnicianUserId || undefined,
       };
       const res = await serviceInvoiceService.update(
         editTarget.invoiceNo,
@@ -1047,6 +1123,18 @@ export default function ServiceInvoicesPage() {
                   onChange={(e) => setInvoiceDate(e.target.value)}
                 />
               </div>
+              <div className="space-y-1.5 w-full">
+                <Label>Assigned Technician (Service Reports)</Label>
+                <SearchableSelect
+                  value={editAssignedTechnicianUserId}
+                  onValueChange={(id) => setEditAssignedTechnicianUserId(id)}
+                  options={deliveryUsers}
+                  disabled={deliveryUsersLoading || !!deliveryUsersError}
+                  placeholder="Select the technician who will fill the Service Report"
+                  emptyText="No eligible application users found."
+                />
+                <p className="text-xs text-muted-foreground">Separate from Delivered By (document handover). Required to create a Service Report.</p>
+              </div>
             </div>
 
             {/* Items Section */}
@@ -1177,6 +1265,18 @@ export default function ServiceInvoicesPage() {
                     {deliveryUsersError && <p className="text-xs text-destructive">{deliveryUsersError}</p>}
                   </>
                 )}
+              <div className="space-y-1.5 w-full">
+                <Label>Assigned Technician (Service Reports)</Label>
+                <SearchableSelect
+                  value={assignedTechnicianUserId}
+                  onValueChange={(id) => setAssignedTechnicianUserId(id)}
+                  options={deliveryUsers}
+                  disabled={deliveryUsersLoading || !!deliveryUsersError}
+                  placeholder="Select the technician who will fill the Service Report"
+                  emptyText="No eligible application users found."
+                />
+                <p className="text-xs text-muted-foreground">Separate from Delivered By (document handover). Required to create a Service Report.</p>
+              </div>
               </div>
             </div>
           </div>

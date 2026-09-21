@@ -415,6 +415,18 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+<SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/service-reports")}
+                  tooltip="Service Reports"
+                >
+                  <Link href="/dashboard/service-reports">
+                    <FileText />
+                    <span>Service Reports</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
