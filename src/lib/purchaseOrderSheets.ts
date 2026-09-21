@@ -26,10 +26,11 @@ async function validateCatalogItemsForSupplier(items: PurchaseOrderItem[], suppl
 }
 
 const PURCHASE_ORDERS_SHEET = "PurchaseOrders";
-const PURCHASE_ORDERS_RANGE = `${PURCHASE_ORDERS_SHEET}!A2:Q`;
+const PURCHASE_ORDERS_RANGE = `${PURCHASE_ORDERS_SHEET}!A2:V`;
 // A:PONumber(B:string) B:Date C:SupplierId D:PRNumber E:DeliveryDate
 // F:PaymentTerms G:Comments H:PreparedBy I:ApprovedBy J:NotedBy K:TotalAmount
-// L:Status M:DriveFileLink N:CreatedAt O:CreatedBy P:UpdatedBy Q:UpdatedAt
+// L:Status M:DriveFileLink N:ShipToType O:ShipToId P:ShipToName
+// Q:ShipToAddress R:ShipToContact S:CreatedAt T:CreatedBy U:UpdatedBy V:UpdatedAt
 
 // PO line items now live in the canonical `PurchaseOrderItems` tab; they
 // are read and written through transactionItemSheets.
@@ -392,7 +393,7 @@ export async function updatePurchaseOrder(
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:Q${poRowNumber}`,
+      range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:V${poRowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -484,16 +485,16 @@ export async function deletePurchaseOrder(poNumber: string): Promise<void> {
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:Q${poRowNumber}`,
+      range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:V${poRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const updatedRow = [...currentRow];
-    while (updatedRow.length < 17) updatedRow.push("");
+    while (updatedRow.length < 22) updatedRow.push("");
     updatedRow[11] = "deleted"; // Column L: Status
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:Q${poRowNumber}`,
+      range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:V${poRowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -517,7 +518,7 @@ export async function populateAndExportPurchaseOrderFormPdf(
 
   const poResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:Q${poRowNumber}`,
+    range: `${PURCHASE_ORDERS_SHEET}!A${poRowNumber}:V${poRowNumber}`,
   });
   const poRow = poResponse.data.values?.[0] || [];
 
