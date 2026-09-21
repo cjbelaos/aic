@@ -4,8 +4,8 @@
 //
 // PATCH is discriminated by the STORED report type: GENERAL requests reject
 // Water Treatment payload content (waterTreatmentDetails) and WATER_TREATMENT
-// requests reject the General work record (fieldReport). reportType itself is
-// immutable and never accepted inside a PATCH body.
+// requests reject the General work record (fieldReport). Type changes use the
+// dedicated draft-only endpoint rather than a save payload.
 
 import {
   badRequest,
@@ -357,4 +357,22 @@ export function parseVoidReportInput(body: unknown): ValidatedVoidReport {
   if (!reason) errors.reason = "A void reason is required.";
   if (Object.keys(errors).length > 0) throw validationError("Void validation failed.", errors);
   return { commandId, expectedVersion: expectedVersion ?? 0, reason };
+}
+
+/** Parsed input for the dedicated draft-only report-type change operation. */
+export interface ValidatedChangeReportTypeInput {
+  commandId: string;
+  expectedVersion: number;
+  reportType: ServiceReportType;
+}
+
+export function parseChangeReportTypeInput(body: unknown): ValidatedChangeReportTypeInput {
+  if (typeof body !== "object" || body === null) throw badRequest("Request body must be a JSON object.");
+  const errors: Record<string, string> = {};
+  const value = body as Record<string, unknown>;
+  const commandId = parseUuidField(value.commandId, "commandId", errors);
+  const expectedVersion = nonNegativeInteger(value.expectedVersion, "expectedVersion", errors);
+  const reportType = parseReportTypeField(value.reportType, "reportType", errors);
+  if (Object.keys(errors).length > 0) throw badRequest("Invalid change-report-type payload.", errors);
+  return { commandId, expectedVersion: expectedVersion ?? 0, reportType };
 }

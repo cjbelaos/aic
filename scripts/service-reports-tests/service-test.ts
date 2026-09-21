@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createOperationContext, createOrOpenReport, saveDraft, markReady, voidReport, getReportDetail } from "../../src/lib/serviceReports/service.ts";
+import { changeReportType, createOperationContext, createOrOpenReport, saveDraft, markReady, voidReport, getReportDetail } from "../../src/lib/serviceReports/service.ts";
 import { InMemoryServiceReportStore } from "./fake-store.ts";
 import { FakeServiceReportDrive, makeInvoice, makeDraftReport, TECHNICIAN, OTHER_USER, ADMIN } from "./fake-drive.ts";
 import { ServiceReportError } from "../../src/lib/serviceReports/errors.ts";
@@ -47,6 +47,21 @@ const saveGeneral = (
   assert.equal(first.report.serviceReportNo, "");
   assert.equal(first.report.version, 1);
   assert.equal(store.history.some((event) => event.eventType === "REPORT_CREATED"), true);
+
+  // A technician can correct a mistaken type while the report is still a draft.
+  const typeChanged = await changeReportType(ctx, TECHNICIAN, first.report.serviceReportId, {
+    commandId: UUID(101), expectedVersion: 1, reportType: "WATER_TREATMENT",
+  });
+  assert.equal(typeChanged.reportType, "WATER_TREATMENT");
+  assert.equal(typeChanged.version, 2);
+  assert.equal(store.history.some((event) => event.eventType === "REPORT_TYPE_CHANGED"), true);
+  const changeReplay = await changeReportType(ctx, TECHNICIAN, first.report.serviceReportId, {
+    commandId: UUID(101), expectedVersion: 1, reportType: "WATER_TREATMENT",
+  });
+  assert.equal(changeReplay.version, 2, "type changes are idempotent");
+  await changeReportType(ctx, TECHNICIAN, first.report.serviceReportId, {
+    commandId: UUID(102), expectedVersion: 2, reportType: "GENERAL",
+  });
 
   // Repeated creation returns the same report (duplicate prevention).
   const reopened = await createGeneral(ctx, TECHNICIAN, UUID(2));

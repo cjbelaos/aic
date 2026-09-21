@@ -97,6 +97,9 @@ export const serviceReportService = {
       waterTreatmentDetails: input.waterTreatmentDetails,
     }),
 
+  changeReportType: (id: string, reportType: ServiceReportType, expectedVersion: number): Promise<{ success: boolean; report: ServiceReport }> =>
+    api.post(`${BASE}/${encodeURIComponent(id)}/type`, { commandId: newId(), expectedVersion, reportType }),
+
   markReady: (id: string, expectedVersion: number): Promise<{ success: boolean; report: ServiceReport }> =>
     api.post(`${BASE}/${encodeURIComponent(id)}/ready`, { commandId: newId(), expectedVersion }),
 

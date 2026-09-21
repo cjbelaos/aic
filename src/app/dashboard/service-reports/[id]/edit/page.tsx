@@ -5,13 +5,15 @@ import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { serviceReportStatusBadge } from "@/components/service-report-badges";
 import { GeneralServiceReportForm } from "@/components/service-reports/general-service-report-form";
 import { WaterTreatmentServiceReportForm } from "@/components/service-reports/water-treatment-service-report-form";
 import serviceReportService, { ReportDetailResponse } from "@/lib/services/service-report.service";
 import { REPORT_TYPE_LABELS } from "@/lib/serviceReports/labels";
-import type { ServiceReport } from "@/types/serviceReport";
+import type { ServiceReport, ServiceReportType } from "@/types/serviceReport";
 
 /**
  * Edit/draft loader. The STORED ReportType decides which form renders — never a
@@ -53,6 +55,21 @@ export default function EditServiceReportPage() {
     setDetail((current) => (current ? { ...current, report: saved } : current));
   };
 
+  const changeType = async (nextType: ServiceReportType) => {
+    if (nextType === report.reportType || report.status !== "DRAFT") return;
+    const nextLabel = REPORT_TYPE_LABELS[nextType];
+    if (!window.confirm(`Change this draft to ${nextLabel}? The form will switch to the selected report type.`)) return;
+    try {
+      await serviceReportService.changeReportType(report.serviceReportId, nextType, report.version);
+      setDirty(false);
+      await load();
+      toast.success("Report type updated.");
+    } catch (caught) {
+      const data = (caught as { response?: { data?: { message?: string } } }).response?.data;
+      toast.error(data?.message || (caught instanceof Error ? caught.message : "Failed to change report type."));
+    }
+  };
+
   const goBack = () => {
     if (dirty && !window.confirm("You have unsaved changes. Leave anyway?")) return;
     router.push(`/dashboard/service-reports/${report.serviceReportId}`);
@@ -72,6 +89,20 @@ export default function EditServiceReportPage() {
       {report.status !== "DRAFT" ? (
         <div className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive">
           This report is {report.status} and is read-only. Go back to the report to view it.
+        </div>
+      ) : null}
+
+      {report.status === "DRAFT" ? (
+        <div className="max-w-sm space-y-2">
+          <Label htmlFor="report-type">Report type</Label>
+          <Select value={report.reportType} onValueChange={(value) => void changeType(value as ServiceReportType)}>
+            <SelectTrigger id="report-type"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="GENERAL">{REPORT_TYPE_LABELS.GENERAL}</SelectItem>
+              <SelectItem value="WATER_TREATMENT">{REPORT_TYPE_LABELS.WATER_TREATMENT}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">You can correct the report type only while this report is a draft.</p>
         </div>
       ) : null}
 

@@ -83,6 +83,11 @@ export interface ExpectedVersionInput {
   expectedVersion: number;
 }
 
+/** A report type can be corrected only while the report is still a draft. */
+export interface ChangeReportTypeInput extends ExpectedVersionInput {
+  reportType: ServiceReportType;
+}
+
 export interface AcknowledgeInput {
   commandId: string;
   expectedVersion: number;
@@ -418,6 +423,63 @@ function typeConflictFor(existingType: string, existing: ServiceReport): never {
 }
 
 // ── Draft mutations ──────────────────────────────────────────────
+
+/**
+ * Corrects a draft report's type before any workflow transition. The report's
+ * shared draft values remain intact; type-specific draft data is retained so a
+ * technician never loses work merely by correcting a mistaken selection.
+ */
+export async function changeReportType(
+  ctx: OperationContext,
+  actor: Actor,
+  reportId: string,
+  input: ChangeReportTypeInput,
+): Promise<ServiceReport> {
+  return runWithReceipt(ctx, {
+    commandId: input.commandId,
+    commandType: "sr.changeReportType",
+    reportId,
+    operation: "changeReportType",
+    input: { expectedVersion: input.expectedVersion, reportType: input.reportType },
+    actor,
+    execute: async () => {
+      const current = await ctx.store.getReport(reportId);
+      assertFound(current, reportId);
+      const invoice = await invoiceForReport(ctx.store, current);
+      const decision = canModifyReport(actor, current, invoice);
+      if (!decision.allowed) throw forbidden(decision.reason ?? "Forbidden.");
+      if (current.status !== "DRAFT") {
+        throw validationError("Only draft Service Reports can change report type.", {
+          reportType: "Report type can only be changed while the report is a draft.",
+        });
+      }
+      if (current.reportType === input.reportType) {
+        return { version: current.version, result: current };
+      }
+
+      const now = nowFor(ctx);
+      const next: ServiceReport = {
+        ...current,
+        reportType: input.reportType,
+        version: current.version + 1,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      };
+      await ctx.store.updateReport(next, input.expectedVersion);
+      await ctx.store.appendHistory(historyEvent({
+        report: next,
+        eventType: "REPORT_TYPE_CHANGED",
+        fromStatus: current.status,
+        toStatus: next.status,
+        changedFields: { reportType: { from: current.reportType, to: next.reportType } },
+        commandId: input.commandId,
+        actor,
+        createdAt: now,
+      }));
+      return { version: next.version, result: next };
+    },
+  });
+}
 
 export async function saveDraft(
   ctx: OperationContext,
