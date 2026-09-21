@@ -9,6 +9,10 @@ import {
 import { getDriveUploadClient, resolveDriveFolderPath, MONTH_NAMES, getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { CreateDeliveryPayload } from "@/types/deliveryReceipt";
 import { getOrderDetail } from "@/lib/salesOrders/service";
+import {
+  isDeliveryReferenceMode,
+  resolveDeliveryReference,
+} from "@/lib/deliveryReference";
 import { postFinalizedDeliveryReleaseFulfillment } from "@/lib/deliverySalesOrderIntegration";
 import { can } from "@/lib/salesOrders/permissions";
 
@@ -45,6 +49,24 @@ export async function POST(request: Request) {
     }
 
     const isDraft = body.status === "draft";
+
+    // The reference is either a selected Sales Order (current flow) or a
+    // manually typed legacy TR Number. Validate it here so a browser cannot skip
+    // the rule, and keep the modes mutually exclusive: a legacy TR Number never
+    // carries a Sales Order link.
+    const reference = resolveDeliveryReference({
+      referenceMode: body.referenceMode,
+      salesOrderId: body.salesOrderId,
+      salesOrderNo: body.salesOrderNo,
+      trNo: body.trNo,
+    });
+    if (reference.error) {
+      return NextResponse.json({ error: reference.error }, { status: 422 });
+    }
+    if (isDeliveryReferenceMode(body.referenceMode)) {
+      body.salesOrderId = reference.salesOrderId || undefined;
+      body.trNo = reference.trNo;
+    }
 
     // A Delivery Release may retain a legacy TR value, but newly linked
     // releases use the immutable Sales Order ID and display its SO number.

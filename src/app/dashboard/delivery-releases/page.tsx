@@ -41,6 +41,7 @@ import salesOrderService from "@/lib/services/sales-order.service";
 import userService from "@/lib/services/user.service";
 import contractItemService from "@/lib/services/contract-item.service";
 import { DeliveryReceiptPreviewModal } from "@/components/delivery-receipt-preview-modal";
+import { DeliveryReleaseReferenceField } from "@/components/delivery-release-reference-field";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -57,6 +58,14 @@ import {
 } from "@/types/deliveryReceipt";
 import { ProductCategory } from "@/types/product-category";
 import { ProductUnit } from "@/types/product-unit";
+import {
+  deliveryReferenceDisplay,
+  deliveryReferenceKindLabel,
+  legacyTrNumberForRecord,
+  referenceModeForRecord,
+  resolveDeliveryReference,
+  type DeliveryReferenceMode,
+} from "@/lib/deliveryReference";
 
 interface LineItem {
   deliveryReceiptItemId?: string;
@@ -119,6 +128,8 @@ export default function DeliveryReleasePage() {
     new Date().toISOString().split("T")[0],
   );
   const [poNo, setPoNo] = useState("");
+  /* Reference: a selected Sales Order, or a manual legacy TR Number */
+  const [referenceMode, setReferenceMode] = useState<DeliveryReferenceMode>("SALES_ORDER");
   const [trNo, setTrNo] = useState("");
   const [salesOrderId, setSalesOrderId] = useState("");
   const [drNo, setDrNo] = useState("");
@@ -162,6 +173,7 @@ export default function DeliveryReleasePage() {
   /* Edit modal form state */
   const [editDate, setEditDate] = useState("");
   const [editPoNo, setEditPoNo] = useState("");
+  const [editReferenceMode, setEditReferenceMode] = useState<DeliveryReferenceMode>("SALES_ORDER");
   const [editTrNo, setEditTrNo] = useState("");
   const [editSalesOrderId, setEditSalesOrderId] = useState("");
   const [editComments, setEditComments] = useState("");
@@ -381,17 +393,59 @@ export default function DeliveryReleasePage() {
     [salesOrders],
   );
 
+  const salesOrderNumberById = useMemo(
+    () => new Map(salesOrders.map((row) => [row.order.salesOrderId, row.order.salesOrderNo])),
+    [salesOrders],
+  );
+
+  /**
+   * Reference mode switch. The two modes are mutually exclusive, so choosing one
+   * clears the other: a Sales Order clears the manual TR Number, and a manual TR
+   * Number clears the Sales Order link.
+   */
+  const changeReferenceMode = useCallback((mode: DeliveryReferenceMode, editing = false) => {
+    if (editing) {
+      setEditReferenceMode(mode);
+      if (mode === "SALES_ORDER") setEditTrNo("");
+      else setEditSalesOrderId("");
+      return;
+    }
+    setReferenceMode(mode);
+    if (mode === "SALES_ORDER") setTrNo("");
+    else setSalesOrderId("");
+  }, []);
+
+  /**
+   * Reference fields for a payload. A mode is only sent when the user actually
+   * supplied a value, so an untouched optional reference stays optional while a
+   * chosen mode is still validated on the server.
+   */
+  const referencePayload = (
+    mode: DeliveryReferenceMode,
+    orderId: string,
+    manualTr: string,
+  ): { referenceMode?: "SALES_ORDER" | "TR_NUMBER"; salesOrderId?: string; trNo?: string } => {
+    if (mode === "SALES_ORDER") {
+      return orderId ? { referenceMode: "SALES_ORDER", salesOrderId: orderId } : {};
+    }
+    const trNumber = resolveDeliveryReference({ referenceMode: "TR_NUMBER", trNo: manualTr }).trNo;
+    return trNumber ? { referenceMode: "TR_NUMBER", trNo: trNumber } : {};
+  };
+
   const selectSalesOrder = useCallback(async (id: string, editing = false) => {
     const selected = salesOrders.find((row) => row.order.salesOrderId === id);
     if (!selected) return;
     if (editing) {
       setEditSalesOrderId(id);
-      setEditTrNo(selected.order.salesOrderNo);
+      setEditReferenceMode("SALES_ORDER");
+      // Selecting a Sales Order clears the manual TR Number (mutually exclusive).
+      setEditTrNo("");
       setEditPoNo(selected.order.customerPONo || "");
       return;
     }
     setSalesOrderId(id);
-    setTrNo(selected.order.salesOrderNo);
+    setReferenceMode("SALES_ORDER");
+    setTrNo("");
     setSelectedCompany(selected.order.customerId);
     setPoNo(selected.order.customerPONo || "");
     try {
@@ -499,6 +553,25 @@ export default function DeliveryReleasePage() {
       {
         accessorKey: "companyName",
         header: "Customer",
+      },
+      {
+        id: "reference",
+        accessorFn: (row) => deliveryReferenceDisplay(row),
+        header: "Sales Order / TR Number",
+        cell: ({ row }) => {
+          const reference = deliveryReferenceDisplay(row.original);
+          if (!reference) {
+            return <span className="text-muted-foreground italic">Unlinked</span>;
+          }
+          return (
+            <div className="flex flex-col text-xs">
+              <span className="font-medium tabular-nums break-words">{reference}</span>
+              <span className="text-[11px] text-muted-foreground">
+                {deliveryReferenceKindLabel(row.original)}
+              </span>
+            </div>
+          );
+        },
       },
       {
         id: "itemCount",
@@ -776,6 +849,8 @@ export default function DeliveryReleasePage() {
     setDrNo("");
     setPoNo("");
     setTrNo("");
+    setSalesOrderId("");
+    setReferenceMode("SALES_ORDER");
     setDeliveredBy("");
     setComments("");
     setLineItems([]);
@@ -842,9 +917,7 @@ export default function DeliveryReleasePage() {
         date: deliveryDate,
         drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
-        trNo,
-        salesOrderId: salesOrderId || undefined,
-        salesOrderNo: trNo || undefined,
+        ...referencePayload(referenceMode, salesOrderId, trNo),
         preparedBy,
         deliveredBy: selectedDriver.label,
         deliveredById: selectedDriver.userId,
@@ -918,9 +991,7 @@ export default function DeliveryReleasePage() {
         date: deliveryDate,
         drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
-        trNo,
-        salesOrderId: salesOrderId || undefined,
-        salesOrderNo: trNo || undefined,
+        ...referencePayload(referenceMode, salesOrderId, trNo),
         preparedBy: preparedBy || "",
         deliveredBy: selectedDriver?.label || "",
         deliveredById: selectedDriver?.userId,
@@ -1055,7 +1126,8 @@ export default function DeliveryReleasePage() {
     if (editTarget) {
       setEditDate(editTarget.date);
       setEditPoNo(editTarget.poNo);
-      setEditTrNo(editTarget.trNo);
+      setEditReferenceMode(referenceModeForRecord(editTarget));
+      setEditTrNo(legacyTrNumberForRecord(editTarget));
       setEditSalesOrderId(editTarget.salesOrderId || "");
       setEditComments(editTarget.comments);
       setEditDeliveredBy(
@@ -1115,12 +1187,19 @@ export default function DeliveryReleasePage() {
     try {
       const selectedDriver = drivers.find((driver) => driver.value === editDeliveredBy);
       if (!selectedDriver) throw new Error("Please select a valid Delivered By option.");
+      // The engaged reference mode must be complete: switching to the legacy TR
+      // mode must not silently drop the stored link, and the Sales Order mode
+      // needs a selected order.
+      if (editReferenceMode === "TR_NUMBER" && !editTrNo.trim() && editTarget.salesOrderId) {
+        throw new Error("Enter a TR Number to replace the linked Sales Order, or switch the reference back to Sales Order.");
+      }
+      if (editReferenceMode === "SALES_ORDER" && !editSalesOrderId && editTarget.trNo && !editTarget.salesOrderId) {
+        throw new Error("Select a Sales Order, or switch the reference back to Legacy TR Number.");
+      }
       const payload = {
         date: editDate,
         poNo: editPoNo,
-        trNo: editTrNo,
-        salesOrderId: editSalesOrderId || undefined,
-        salesOrderNo: editTrNo || undefined,
+        ...referencePayload(editReferenceMode, editSalesOrderId, editTrNo),
         comments: editComments,
         deliveredBy: selectedDriver.label,
         deliveredById: selectedDriver.userId || "",
@@ -1176,7 +1255,7 @@ export default function DeliveryReleasePage() {
           </div>
         </div>
         <EntityTable
-          mobileLayout={{ primary: ["drNumber", "companyName", "status", "date", "itemCount"], labels: { drNumber: "DR number", companyName: "Customer", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
+          mobileLayout={{ primary: ["drNumber", "companyName", "reference", "status", "date", "itemCount"], labels: { drNumber: "DR number", companyName: "Customer", reference: "Sales Order / TR No.", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Delivery Receipts"
           columns={columns}
           data={filteredReceipts}
@@ -1299,18 +1378,17 @@ export default function DeliveryReleasePage() {
                   placeholder="e.g. PO-10293"
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Sales Order No.</Label>
-                <SearchableSelect
-                  value={salesOrderId}
-                  onValueChange={(value) => void selectSalesOrder(value)}
-                  options={salesOrderOptions}
-                  placeholder="Select a confirmed Sales Order…"
-                  searchPlaceholder="Search Sales Order No. or customer…"
-                  emptyText="No confirmed Sales Orders available"
-                />
-                {trNo ? <p className="text-xs text-muted-foreground">Linked order: {trNo}</p> : <p className="text-xs text-muted-foreground">Historical releases may remain unlinked.</p>}
-              </div>
+              <DeliveryReleaseReferenceField
+                mode={referenceMode}
+                onModeChange={(mode) => changeReferenceMode(mode)}
+                salesOrderId={salesOrderId}
+                onSalesOrderIdChange={(value) => void selectSalesOrder(value)}
+                salesOrderOptions={salesOrderOptions}
+                trNo={trNo}
+                onTrNoChange={setTrNo}
+                selectedSalesOrderNo={salesOrderNumberById.get(salesOrderId)}
+                disabled={printing || drafting}
+              />
             </div>
 
             {/* Products Section - Create DR */}
@@ -1584,18 +1662,17 @@ export default function DeliveryReleasePage() {
                   onChange={(e) => setEditPoNo(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Sales Order No.</Label>
-                <SearchableSelect
-                  value={editSalesOrderId}
-                  onValueChange={(value) => void selectSalesOrder(value, true)}
-                  options={salesOrderOptions}
-                  placeholder={editTrNo || "Select a confirmed Sales Order…"}
-                  searchPlaceholder="Search Sales Order No. or customer…"
-                  emptyText="No confirmed Sales Orders available"
-                />
-                {editTrNo ? <p className="text-xs text-muted-foreground">Linked order: {editTrNo}</p> : null}
-              </div>
+              <DeliveryReleaseReferenceField
+                mode={editReferenceMode}
+                onModeChange={(mode) => changeReferenceMode(mode, true)}
+                salesOrderId={editSalesOrderId}
+                onSalesOrderIdChange={(value) => void selectSalesOrder(value, true)}
+                salesOrderOptions={salesOrderOptions}
+                trNo={editTrNo}
+                onTrNoChange={setEditTrNo}
+                selectedSalesOrderNo={salesOrderNumberById.get(editSalesOrderId)}
+                disabled={editSubmitting}
+              />
             </div>
 
             {/* Products Section - Edit DR */}

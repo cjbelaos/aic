@@ -14,6 +14,11 @@ import {
 import { getDeliveryItems, renameDeliveryItemReferences, replaceDeliveryItems } from "@/lib/transactionItemSheets";
 import { getUserById, getUsers } from "@/lib/userSheets";
 import { ensureAutomaticDocumentHandover } from "@/lib/documentHandoverSheets";
+import {
+  deliveryReferenceFromRow,
+  deliveryReferenceRowValues,
+} from "@/lib/deliveryReference";
+import { getOrderDetail } from "@/lib/salesOrders/service";
 
 const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
@@ -129,14 +134,16 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
         const drNumber = parseInt(String(row[0] ?? "").trim(), 10);
         if (isNaN(drNumber)) return null;
 
+        const reference = deliveryReferenceFromRow(row);
+
         return {
           drNumber,
           date: String(row[1] ?? "").trim(),
           companyId: String(row[2] ?? "").trim(),
           poNo: String(row[3] ?? "").trim(),
-          trNo: String(row[4] ?? "").trim(),
-          salesOrderNo: String(row[4] ?? "").trim() || undefined,
-          salesOrderId: String(row[18] ?? "").trim() || undefined,
+          trNo: reference.displayReference,
+          salesOrderNo: reference.salesOrderNo || undefined,
+          salesOrderId: reference.salesOrderId || undefined,
           srNo: String(row[5] ?? "").trim(),
           comments: String(row[6] ?? "").trim(),
           preparedBy: String(row[7] ?? "").trim(),
@@ -326,12 +333,28 @@ export async function processDeliveryReceipt(
 
     // 3. Log ONE header row to DeliveryReceipts sheet (columns A–O)
     const createdAt = new Date().toISOString();
+    // Reference: a selected Sales Order, or a manual legacy TR number. The modes
+    // are mutually exclusive, so the manual TR number clears the Sales Order link
+    // and a selected Sales Order supplies the number written to column E.
+    let referenceRow = deliveryReferenceRowValues({
+      referenceMode: payload.referenceMode,
+      salesOrderId: payload.salesOrderId,
+      salesOrderNo: payload.salesOrderNo,
+      trNo: payload.trNo,
+    });
+    if (referenceRow.error) throw new Error(referenceRow.error);
+    if (payload.referenceMode === "SALES_ORDER" && referenceRow.salesOrderId && !referenceRow.reference) {
+      // Safety net for callers that omit the Sales Order number: column E must
+      // never stay blank while a Sales Order link is stored.
+      const order = await getOrderDetail(referenceRow.salesOrderId);
+      referenceRow = { ...referenceRow, reference: order.order.salesOrderNo };
+    }
     const headerRow = [
       String(drNumber), // A: DRNumber
       payload.date, // B: DeliveryDate
       payload.companyId, // C: CompanyId
       payload.poNo || "", // D: PONumber
-      payload.salesOrderNo || payload.trNo || "", // E: SalesOrderNo (legacy TRNumber)
+      referenceRow.reference, // E: SalesOrderNo (legacy TRNumber)
       payload.srNo || "", // F: SRNumber
       payload.comments || "", // G: Comments
       payload.preparedBy || "", // H: PreparedBy
@@ -345,7 +368,7 @@ export async function processDeliveryReceipt(
       payload.deliveredById || "", // P: DeliveredById
       payload.deliveredByType || "internal", // Q: DeliveredByType
       payload.deliveredByOptionId || "", // R: DeliveredByOptionId
-      payload.salesOrderId || "", // S: immutable SalesOrderId
+      referenceRow.salesOrderId, // S: immutable SalesOrderId
     ];
 
     await sheets.spreadsheets.values.append({
@@ -440,8 +463,8 @@ export async function processDeliveryReceipt(
       tin,
       date: payload.date,
       poNo: payload.poNo,
-      trNo: payload.salesOrderNo || payload.trNo,
-      salesOrderNo: payload.salesOrderNo || payload.trNo,
+      trNo: referenceRow.reference,
+      salesOrderNo: referenceRow.salesOrderId ? referenceRow.reference : undefined,
       salesOrderId: payload.salesOrderId,
       preparedBy: payload.preparedBy,
       deliveredBy: payload.deliveredBy,
@@ -529,6 +552,34 @@ export async function updateDeliveryReceipt(
       effectiveDrNumber = await generateNextDrNumber(sheets, spreadsheetId);
     }
 
+    // Reference: an explicit mode decides columns E and S, so switching modes
+    // clears the other value. Without a mode the previous rule is kept (the
+    // supplied TR number, else the stored one).
+    let referenceRow = deliveryReferenceRowValues(
+      {
+        referenceMode: payload.referenceMode,
+        salesOrderId: payload.salesOrderId,
+        salesOrderNo: payload.salesOrderNo,
+        trNo: payload.trNo,
+      },
+      {
+        trNo: String(currentRow[4] ?? "").trim(),
+        salesOrderId: String(currentRow[18] ?? "").trim(),
+      },
+    );
+    if (referenceRow.error) throw new Error(referenceRow.error);
+    if (payload.referenceMode === "SALES_ORDER" && referenceRow.salesOrderId) {
+      // Server-resolved number (a browser cannot invent one) plus the same
+      // cross-customer guard the create path applies.
+      const order = await getOrderDetail(referenceRow.salesOrderId);
+      const targetCompanyId = payload.companyId ?? String(currentRow[2] ?? "").trim();
+      if (order.order.customerId !== targetCompanyId) {
+        throw new Error("The selected Sales Order belongs to a different customer.");
+      }
+      referenceRow = { ...referenceRow, reference: order.order.salesOrderNo };
+    }
+
+
     const updatedRow = [
       String(effectiveDrNumber), // A: DRNumber (assigned when a draft is promoted)
       payload.date ?? String(currentRow[1] ?? "").trim(), // B
@@ -536,9 +587,10 @@ export async function updateDeliveryReceipt(
       payload.poNo !== undefined
         ? payload.poNo
         : String(currentRow[3] ?? "").trim(), // D
-      payload.trNo !== undefined
-        ? payload.trNo
-        : String(currentRow[4] ?? "").trim(), // E
+      referenceRow.reference, // E: SalesOrderNo (legacy TRNumber)
+      // A legacy payload without a mode keeps the stored reference, which
+      // deliveryReferenceRowValues() already resolved into referenceRow above.
+      // (column E value is decided by the reference mode, never by a formula)
       String(currentRow[5] ?? "").trim(), // F: SRNumber (preserved)
       payload.comments !== undefined
         ? payload.comments
@@ -554,7 +606,7 @@ export async function updateDeliveryReceipt(
       payload.deliveredById ?? String(currentRow[15] ?? "").trim(), // P
       payload.deliveredByType ?? String(currentRow[16] ?? "internal").trim(), // Q
       payload.deliveredByOptionId ?? String(currentRow[17] ?? "").trim(), // R
-      payload.salesOrderId ?? String(currentRow[18] ?? "").trim(), // S
+      referenceRow.salesOrderId, // S: immutable SalesOrderId (cleared for a legacy TR Number)
     ];
 
     await sheets.spreadsheets.values.update({

@@ -19,6 +19,13 @@ export interface CreateDeliveryPayload {
   salesOrderId?: string;
   salesOrderNo?: string;
   trNo?: string;
+  /**
+   * Which reference the user supplied: a selected Sales Order or a manually typed
+   * legacy TR Number (see src/lib/deliveryReference.ts). Optional — without it the
+   * previous "Sales Order number, else TR number" mapping applies.
+   */
+  referenceMode?: "SALES_ORDER" | "TR_NUMBER";
+
   srNo?: string;
   preparedBy: string;
   deliveredBy: string;

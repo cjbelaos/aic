@@ -10,6 +10,11 @@ import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCompanies } from "@/lib/companySheets";
 import { getProducts } from "@/lib/productSheets";
 import { getDeliveryItems } from "@/lib/transactionItemSheets";
+import {
+  deliveryReferenceFromRow,
+  isDeliveryReferenceMode,
+  resolveDeliveryReference,
+} from "@/lib/deliveryReference";
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
 
@@ -57,6 +62,7 @@ export async function GET(
     const companyId = String(drRow[2] ?? "").trim();
     const poNo = String(drRow[3] ?? "").trim();
     const trNo = String(drRow[4] ?? "").trim();
+    const reference = deliveryReferenceFromRow(drRow);
     const comments = String(drRow[6] ?? "").trim();
     const preparedBy = String(drRow[7] ?? "").trim();
     const deliveredBy = String(drRow[8] ?? "").trim();
@@ -102,7 +108,7 @@ export async function GET(
         tin,
         date: deliveryDate,
         poNo,
-        salesOrderNo: trNo || undefined,
+        salesOrderNo: reference.salesOrderNo || undefined,
         salesOrderId: String(drRow[18] ?? "").trim() || undefined,
         trNo,
         preparedBy,
@@ -141,6 +147,22 @@ export async function PUT(
     }
 
     const body: UpdateDeliveryPayload = await request.json();
+
+    // Same reference rule as the create path, enforced on the server: a mode
+    // requires its value, and the two modes are mutually exclusive.
+    const reference = resolveDeliveryReference({
+      referenceMode: body.referenceMode,
+      salesOrderId: body.salesOrderId,
+      salesOrderNo: body.salesOrderNo,
+      trNo: body.trNo,
+    });
+    if (reference.error) {
+      return NextResponse.json({ error: reference.error }, { status: 422 });
+    }
+    if (isDeliveryReferenceMode(body.referenceMode)) {
+      body.salesOrderId = reference.salesOrderId || undefined;
+      body.trNo = reference.trNo;
+    }
     const result = await updateDeliveryReceipt(drNumber, body, session.userId);
     return NextResponse.json(result, { status: 200 });
   } catch (error) {

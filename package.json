@@ -19,6 +19,7 @@
     ,"audit:child-row-gaps": "node --env-file=.env.local scripts/audit-child-row-gaps.mjs"
     ,"test:sales-orders": "npx tsc -p scripts/sales-order-tests/tsconfig.json && node tmp/sales-order-tests/out/scripts/sales-order-tests/run.js && node scripts/sales-order-tests/apps-script-test.mjs && node scripts/migrate-sales-orders.mjs --self-test"
     ,"test:service-reports": "npx tsc -p scripts/service-reports-tests/tsconfig.json && node tmp/service-reports-tests/out/scripts/service-reports-tests/run.js"
+    ,"test:delivery-releases": "npx tsc -p scripts/delivery-release-tests/tsconfig.json && node tmp/delivery-release-tests/out/scripts/delivery-release-tests/run.js"
     ,"verify:service-report-schema": "node --env-file=.env.local scripts/verify-service-report-schema.mjs"
     ,"backfill:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs"
     ,"apply:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs --apply"
