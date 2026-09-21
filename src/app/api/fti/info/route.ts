@@ -11,7 +11,7 @@ import { getLocationAddresses } from "@/lib/locationAddressSheets";
 import { getSession } from "@/lib/auth/session";
 import { getUsers } from "@/lib/userSheets";
 import { getGlobalFuelPrice } from "@/lib/ftiFuelPrice";
-import { isAfterSalesManager } from "@/lib/technicianEarningsAccess";
+import { canManageFuelPrice as canSessionManageFuelPrice } from "@/lib/technicianEarningsAccess";
 
 export async function GET() {
   try {
@@ -34,7 +34,7 @@ export async function GET() {
       getExpresswayGroups(),
       getKmPerLiter(session?.userId || ""),
       getGlobalFuelPrice(),
-      session ? isAfterSalesManager(session) : false,
+      session ? canSessionManageFuelPrice(session) : false,
     ]);
 
     // Map to backward-compatible formats

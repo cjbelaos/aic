@@ -1,5 +1,6 @@
 import { getDepartments } from "@/lib/departmentSheets";
 import { getPositions } from "@/lib/positionSheets";
+import { isSuperAdmin } from "@/lib/auth/superAdmin";
 import type { SessionUser } from "@/types/user";
 
 const EXECUTIVE_POSITIONS = new Set(["general manager", "cfo", "coo", "ceo"]);
@@ -35,8 +36,20 @@ export async function isAfterSalesManager(
 export async function canAccessTechnicianEarnings(
   session: SessionUser,
 ): Promise<boolean> {
+  if (isSuperAdmin(session)) return true;
   if (await isAfterSalesManager(session)) return true;
   const positions = await getPositions();
   const position = positions.find((item) => item.positionId === session.positionId);
   return EXECUTIVE_POSITIONS.has(normalizeTitle(position?.positionTitle ?? ""));
+}
+
+/**
+ * Fuel-price settings are owned by the After Sales Manager. Super Admins are
+ * allowed through as well so a single account can operate every page.
+ */
+export async function canManageFuelPrice(
+  session: SessionUser,
+): Promise<boolean> {
+  if (isSuperAdmin(session)) return true;
+  return isAfterSalesManager(session);
 }

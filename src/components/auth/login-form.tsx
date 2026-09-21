@@ -68,6 +68,7 @@ export function LoginForm() {
         const loginResult = res.result;
         let deptId: number | null = loginResult?.departmentId ?? null;
         let posId: number | null = loginResult?.positionId ?? null;
+        let superAdmin = loginResult?.isSuperAdmin === true;
         try {
           const me = await authService.me();
           if (me.isSuccess && me.result) {
@@ -76,6 +77,9 @@ export function LoginForm() {
             }
             if (posId == null && me.result.positionId != null) {
               posId = me.result.positionId;
+            }
+            if (me.result.isSuperAdmin) {
+              superAdmin = true;
             }
           }
         } catch {
@@ -92,6 +96,7 @@ export function LoginForm() {
             userRoleId: loginResult?.userRoleId ?? 2,
             departmentId: deptId,
             positionId: posId,
+            isSuperAdmin: superAdmin,
           }),
         );
 

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { isSuperAdmin } from "@/lib/auth/superAdmin";
 import type { SessionUser } from "@/types/user";
 
 const SESSION_COOKIE = "aic_session";
@@ -76,6 +77,15 @@ export function isAdminRole(userRoleId: number): boolean {
   return userRoleId === 1;
 }
 
+/**
+ * Role-based admin OR an allow-listed Super Admin account (see
+ * `superAdmin.ts`). Server-side gates should use this helper so a Super Admin
+ * is treated exactly like an Admin.
+ */
+export function isAdminUser(user: SessionUser): boolean {
+  return isAdminRole(user.userRoleId) || isSuperAdmin(user);
+}
+
 export async function requireAuthenticatedSession(): Promise<
   SessionUser | Response
 > {
@@ -93,7 +103,7 @@ export async function requireAdminSession(): Promise<SessionUser | Response> {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
 
-  if (!isAdminRole(session.userRoleId)) {
+  if (!isAdminUser(session)) {
     return Response.json(
       { error: "Forbidden. Admin access required." },
       { status: 403 },

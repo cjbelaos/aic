@@ -12,6 +12,8 @@ interface StoredUser {
   fullName?: string;
   userName?: string;
   userRoleId?: number;
+  departmentId?: number | null;
+  isSuperAdmin?: boolean;
 }
 
 export function UserMenu() {
@@ -126,9 +128,13 @@ export function UserMenu() {
             <User className="h-4 w-4 text-muted-foreground" />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{displayName}</p>
-              {user.userRoleId && (
+              {(user.userRoleId || user.isSuperAdmin) && (
                 <p className="text-xs text-muted-foreground capitalize">
-                  {user.userRoleId === 1 ? "Admin" : "User"}
+                  {user.isSuperAdmin
+                    ? "Super Admin"
+                    : user.userRoleId === 1
+                      ? "Admin"
+                      : "User"}
                 </p>
               )}
             </div>

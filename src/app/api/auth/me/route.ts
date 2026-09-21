@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
+import { isSuperAdmin } from "@/lib/auth/superAdmin";
 
 export async function GET() {
   const session = await getSession();
@@ -19,6 +20,7 @@ export async function GET() {
       userRoleId: session.userRoleId,
       departmentId: session.departmentId,
       positionId: session.positionId,
+      isSuperAdmin: isSuperAdmin(session),
     },
   });
 }

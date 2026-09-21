@@ -22,6 +22,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
               userRoleId: res.result?.userRoleId ?? 2,
               departmentId: res.result?.departmentId ?? null,
               positionId: res.result?.positionId ?? null,
+              isSuperAdmin: res.result?.isSuperAdmin === true,
             }),
           );
           setReady(true);

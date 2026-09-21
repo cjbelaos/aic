@@ -87,9 +87,28 @@ export default function DocumentTrackerPage() {
       return 2;
     }
   });
-  const isAdmin = currentUserRoleId === 1;
+  const [isSuperAdmin] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const raw = window.localStorage.getItem("auth:user");
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed.isSuperAdmin === true;
+    } catch {
+      return false;
+    }
+  });
+  const isAdmin = currentUserRoleId === 1 || isSuperAdmin;
   const isAfterSalesReceiver = currentUser.userId === AFTER_SALES_DOCUMENT_RECEIVER_ID;
-  const workflowAction = isAfterSalesReceiver ? "receive" : isAdmin ? "verify" : null;
+  const canReceiveDocuments = isAfterSalesReceiver;
+  const canVerifyDocuments = isAdmin && (!isAfterSalesReceiver || isSuperAdmin);
+  const defaultWorkflowAction: "receive" | "verify" | null = canReceiveDocuments
+    ? "receive"
+    : canVerifyDocuments
+      ? "verify"
+      : null;
+  const [workflowAction, setWorkflowAction] = useState<
+    "receive" | "verify" | null
+  >(defaultWorkflowAction);
   const [myDocsOnly, setMyDocsOnly] = useState<boolean>(
     () => currentUserRoleId !== 1,
   );
@@ -697,7 +716,7 @@ export default function DocumentTrackerPage() {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => {
-          const canProcess = (isAfterSalesReceiver && row.original.status === "handed_over") || (isAdmin && !isAfterSalesReceiver && row.original.status === "received_by_after_sales");
+          const canProcess = (canReceiveDocuments && row.original.status === "handed_over") || (canVerifyDocuments && row.original.status === "received_by_after_sales");
           return canProcess ? (
             <div className="flex gap-1">
             <Button
@@ -706,9 +725,9 @@ export default function DocumentTrackerPage() {
               className="h-7 text-xs border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950"
               onClick={() => handleSingleReturn(row.original.id)}
             >
-              <RotateCcw className="h-3 w-3 mr-1" /> {isAfterSalesReceiver ? "Receive" : "Verify"}
+              <RotateCcw className="h-3 w-3 mr-1" /> {row.original.status === "handed_over" ? "Receive" : "Verify"}
             </Button>
-            {isAfterSalesReceiver && <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleUnassign(row.original)}>Unassign</Button>}
+            {canReceiveDocuments && <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleUnassign(row.original)}>Unassign</Button>}
             </div>
           ) : (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -718,7 +737,7 @@ export default function DocumentTrackerPage() {
         },
       },
     ],
-    [handleSingleReturn, handleUnassign, isAdmin, isAfterSalesReceiver],
+    [handleSingleReturn, handleUnassign, canReceiveDocuments, canVerifyDocuments],
   );
 
   /* ── Render ────────────────────────────────────────────────────────────── */
@@ -763,6 +782,28 @@ export default function DocumentTrackerPage() {
             />
             Refresh
           </Button>
+          {canReceiveDocuments && canVerifyDocuments && (
+            <div className="flex items-center gap-1 rounded-md border p-0.5">
+              <Button
+                variant={workflowAction === "receive" ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                title="Receive documents handed over by staff"
+                onClick={() => setWorkflowAction("receive")}
+              >
+                Receive
+              </Button>
+              <Button
+                variant={workflowAction === "verify" ? "default" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                title="Verify documents already received by After Sales"
+                onClick={() => setWorkflowAction("verify")}
+              >
+                Verify
+              </Button>
+            </div>
+          )}
           {workflowAction && <Button
             variant="outline"
             onClick={() => {

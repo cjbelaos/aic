@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyPassword } from "@/lib/password";
 import { getUserByUsername, updateLastLogin } from "@/lib/userSheets";
 import { setSessionCookie } from "@/lib/auth/session";
+import { isSuperAdminUserId } from "@/lib/auth/superAdmin";
 
 export async function POST(request: Request) {
   try {
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
         userRoleId: user.userRoleId,
         departmentId: user.departmentId || 0,
         positionId: user.positionId || 0,
+        isSuperAdmin: isSuperAdminUserId(user.userId),
       },
     });
   } catch (error) {

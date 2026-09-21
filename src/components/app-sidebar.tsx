@@ -51,6 +51,7 @@ interface StoredUser {
   userId?: string;
   departmentId?: number;
   userRoleId?: number;
+  isSuperAdmin?: boolean;
 }
 
 interface TechnicianEarningsAccessResponse {
@@ -78,15 +79,32 @@ function getStoredRoleId(): number | null {
   try { const raw = window.localStorage.getItem("auth:user"); const value = raw ? JSON.parse(raw) as StoredUser : null; return typeof value?.userRoleId === "number" ? value.userRoleId : null; } catch { return null; }
 }
 
+/**
+ * Super Admin flag persisted by AuthGuard/login from `/api/auth/me`. Super
+ * Admins see every navigation group regardless of role or department.
+ */
+function getStoredSuperAdmin(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem("auth:user");
+    if (!raw) return false;
+    const value = JSON.parse(raw) as StoredUser;
+    return value?.isSuperAdmin === true;
+  } catch {
+    return false;
+  }
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
   const [departmentId] = useState<number | null>(getStoredDepartmentId);
   const [roleId] = useState<number | null>(getStoredRoleId);
+  const [superAdmin] = useState<boolean>(getStoredSuperAdmin);
   const [canSeeTechnicianEarnings, setCanSeeTechnicianEarnings] =
     useState(false);
   const [canManageFuelPrice, setCanManageFuelPrice] = useState(false);
-  const canSeeTravel = departmentId === 1;
-  const isAdmin = roleId === 1;
+  const canSeeTravel = departmentId === 1 || superAdmin;
+  const isAdmin = roleId === 1 || superAdmin;
 
   useEffect(() => {
     let mounted = true;

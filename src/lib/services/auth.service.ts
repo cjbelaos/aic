@@ -13,6 +13,8 @@ export interface AuthUser {
   userRoleId?: number;
   departmentId?: number | null;
   positionId?: number | null;
+  /** True when the account is on the Super Admin allow-list (all pages). */
+  isSuperAdmin?: boolean;
 }
 
 const authService = {
