@@ -2,8 +2,8 @@
  * Technician monthly earnings-vs-expenses report types.
  *
  * Attribution rule for Service Invoices (SR):
- * 1. Use the SI's own deliveredById when present.
- * 2. Otherwise, when the SI has a linked DR, use that DR's deliveredById
+ * 1. Use the SI's own assigned technician (columns M/N) when present.
+ * 2. Otherwise, when the SI has a linked DR, use that DR's technician
  *    (internal delivery only; external DRs carry no internal user).
  * 3. When neither exists, the SI is excluded from earnings entirely.
  */

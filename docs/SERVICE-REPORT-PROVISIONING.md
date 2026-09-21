@@ -112,9 +112,32 @@ them through the authenticated proxy.
 4. `ServiceReportSequences`
 5. `ServiceReportCommands`
 
-The `ServiceInvoices` integration columns `AssignedTechnicianUserId`,
-`AssignedTechnicianName`, `ServiceReportId`, and `ServiceReportStatus` (O..R)
-are unchanged.
+## 5. ServiceInvoices integration columns (A:P)
+
+The Service Invoice save path maps columns by position, so `ServiceInvoices` must
+keep this exact 16-column layout:
+
+| Col | Header | Col | Header |
+|---|---|---|---|
+| A | `InvoiceNo` | I | `Status` |
+| B | `Date` | J | `DriveFileLink` |
+| C | `CustomerId` | K | `ContractId` |
+| D | `PreparedBy` | L | `DRNo` |
+| E | `CreatedBy` | M | `AssignedTechnicianUserId` |
+| F | `CreatedAt` | N | `AssignedTechnicianName` |
+| G | `UpdatedBy` | O | `ServiceReportId` |
+| H | `UpdatedAt` | P | `ServiceReportStatus` |
+
+- **M/N hold the assigned technician.** Only technicians perform the services, so
+  this single pair replaces the former separate "Delivered By" and "Assigned
+  Technician" pairs; the previously appended O/P technician columns were removed.
+  The name in N is server-resolved from the Users sheet, and a linked Delivery
+  Receipt's technician always wins over a value submitted by the browser.
+- **O/P hold the Service Report link**, written only by
+  `syncServiceInvoiceReportLink` after a report is created, acknowledged or voided.
+- Never insert, rename or reorder a column.
+<!-- superseded: the appended O..R technician columns were removed when M/N became the technician -->
+<!-- end of provisioning notes -->
 
 
 

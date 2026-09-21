@@ -52,7 +52,7 @@ export async function GET(
 
     const invResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${invRowNumber}:R${invRowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${invRowNumber}:P${invRowNumber}`,
     });
     const invRow = invResponse.data.values?.[0] || [];
     const date = String(invRow[1] ?? "").trim();
@@ -103,10 +103,10 @@ export async function GET(
         preparedByPosition,
         items,
         status: String(invRow[8] ?? "created").trim(),
-        assignedTechnicianUserId: String(invRow[14] ?? "").trim() || undefined,
-        assignedTechnicianName: String(invRow[15] ?? "").trim() || undefined,
-        serviceReportId: String(invRow[16] ?? "").trim() || undefined,
-        serviceReportStatus: String(invRow[17] ?? "").trim() || undefined,
+        assignedTechnicianUserId: String(invRow[12] ?? "").trim() || undefined,
+        assignedTechnicianName: String(invRow[13] ?? "").trim() || undefined,
+        serviceReportId: String(invRow[14] ?? "").trim() || undefined,
+        serviceReportStatus: String(invRow[15] ?? "").trim() || undefined,
         printUrl,
         pdfBase64,
       },
@@ -140,7 +140,7 @@ export async function PUT(
       error instanceof Error
         ? error.message
         : "Failed to update service invoice.";
-    const isValidationError = /Delivered By|Delivery Receipt/i.test(message);
+    const isValidationError = /Assigned Technician|Delivery Receipt/i.test(message);
     return NextResponse.json({ error: message }, { status: isValidationError ? 400 : 500 });
   }
 }

@@ -122,10 +122,9 @@ export default function ServiceInvoicesPage() {
   const [drOptions, setDrOptions] = useState<
     { value: string; label: string }[]
   >([]);
-  const [deliveredById, setDeliveredById] = useState("");
-  const [deliveredByName, setDeliveredByName] = useState("");
-  const [assignedTechnicianUserId, setAssignedTechnicianUserId] = useState("");
-  const [editAssignedTechnicianUserId, setEditAssignedTechnicianUserId] = useState("");
+  /* Assigned technician (ServiceInvoices M/N). Inherited from a linked DR. */
+  const [technicianId, setTechnicianId] = useState("");
+  const [technicianName, setTechnicianName] = useState("");
   const [deliveryUsers, setDeliveryUsers] = useState<{ value: string; label: string }[]>([]);
   const [deliveryUsersLoading, setDeliveryUsersLoading] = useState(true);
   const [deliveryUsersError, setDeliveryUsersError] = useState("");
@@ -144,8 +143,8 @@ export default function ServiceInvoicesPage() {
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editDrNumber, setEditDrNumber] = useState("");
-  const [editDeliveredById, setEditDeliveredById] = useState("");
-  const [editDeliveredByName, setEditDeliveredByName] = useState("");
+  const [editTechnicianId, setEditTechnicianId] = useState("");
+  const [editTechnicianName, setEditTechnicianName] = useState("");
 
   /* Delete */
   const [deleteTarget, setDeleteTarget] =
@@ -496,18 +495,19 @@ export default function ServiceInvoicesPage() {
       });
   }, [linkedDrNumber, companies]);
 
-  /* Linked DR owns Delivered By; show its current user immediately. Server re-validates on save. */
+  /* Linked DR owns the assigned technician; show its current user immediately.
+     The server re-resolves the technician from the DR on save. */
   useEffect(() => {
     if (!linkedDrNumber) return;
     const selected = deliveryService.getAll().then((drs) =>
       drs.find((dr) => dr.drNumber === parseInt(linkedDrNumber, 10)),
     );
     selected.then((dr) => {
-      setDeliveredById(dr?.deliveredById || "");
-      setDeliveredByName(dr?.deliveredBy || "");
+      setTechnicianId(dr?.deliveredById || "");
+      setTechnicianName(dr?.deliveredBy || "");
     }).catch(() => {
-      setDeliveredById("");
-      setDeliveredByName("");
+      setTechnicianId("");
+      setTechnicianName("");
     });
   }, [linkedDrNumber]);
 
@@ -516,12 +516,12 @@ export default function ServiceInvoicesPage() {
     deliveryService.getAll()
       .then((drs) => drs.find((dr) => dr.drNumber === parseInt(editDrNumber, 10)))
       .then((dr) => {
-        setEditDeliveredById(dr?.deliveredById || "");
-        setEditDeliveredByName(dr?.deliveredBy || "");
+        setEditTechnicianId(dr?.deliveredById || "");
+        setEditTechnicianName(dr?.deliveredBy || "");
       })
       .catch(() => {
-        setEditDeliveredById("");
-        setEditDeliveredByName("");
+        setEditTechnicianId("");
+        setEditTechnicianName("");
       });
   }, [editDrNumber]);
 
@@ -802,8 +802,8 @@ export default function ServiceInvoicesPage() {
     setInvoiceDate(new Date().toISOString().split("T")[0]);
     setLineItems([]);
     setLinkedDrNumber("");
-    setDeliveredById("");
-    setDeliveredByName("");
+    setTechnicianId("");
+    setTechnicianName("");
     setSelectedContractId("");
     setModalOpen(true);
   };
@@ -843,8 +843,8 @@ export default function ServiceInvoicesPage() {
       toast.error("Please add at least one item.");
       return;
     }
-    if (!linkedDrNumber && !deliveredById) {
-      toast.error("Delivered By is required before finalizing.");
+    if (!linkedDrNumber && !technicianId) {
+      toast.error("Assigned Technician is required before finalizing.");
       return;
     }
 
@@ -862,8 +862,7 @@ export default function ServiceInvoicesPage() {
         })),
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
-        deliveredById: deliveredById || undefined,
-        assignedTechnicianUserId: assignedTechnicianUserId || undefined,
+        assignedTechnicianUserId: technicianId || undefined,
       };
       const res = await serviceInvoiceService.createAndPopulateSheet(payload);
       toast.success("Service invoice recorded!");
@@ -903,8 +902,7 @@ export default function ServiceInvoicesPage() {
         status: "draft",
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
-        deliveredById: deliveredById || undefined,
-        assignedTechnicianUserId: assignedTechnicianUserId || undefined,
+        assignedTechnicianUserId: technicianId || undefined,
       };
       await serviceInvoiceService.createAndPopulateSheet(payload);
       toast.success("Service invoice saved as draft.");
@@ -947,9 +945,8 @@ export default function ServiceInvoicesPage() {
         })),
       );
       setEditDrNumber(editTarget.drNumber?.toString() || "");
-      setEditDeliveredById(editTarget.deliveredById || "");
-      setEditDeliveredByName(editTarget.deliveredByName || "");
-      setEditAssignedTechnicianUserId(editTarget.assignedTechnicianUserId || "");
+      setEditTechnicianId(editTarget.assignedTechnicianUserId || "");
+      setEditTechnicianName(editTarget.assignedTechnicianName || "");
     }
   }, [editTarget]);
 
@@ -982,8 +979,7 @@ export default function ServiceInvoicesPage() {
             unitPrice: Number(li.unitPrice) || 0,
           })),
         drNumber: editDrNumber ? parseInt(editDrNumber, 10) : null,
-        deliveredById: editDeliveredById || undefined,
-        assignedTechnicianUserId: editAssignedTechnicianUserId || undefined,
+        assignedTechnicianUserId: editTechnicianId || undefined,
       };
       const res = await serviceInvoiceService.update(
         editTarget.invoiceNo,
@@ -1123,18 +1119,7 @@ export default function ServiceInvoicesPage() {
                   onChange={(e) => setInvoiceDate(e.target.value)}
                 />
               </div>
-              <div className="space-y-1.5 w-full">
-                <Label>Assigned Technician (Service Reports)</Label>
-                <SearchableSelect
-                  value={editAssignedTechnicianUserId}
-                  onValueChange={(id) => setEditAssignedTechnicianUserId(id)}
-                  options={deliveryUsers}
-                  disabled={deliveryUsersLoading || !!deliveryUsersError}
-                  placeholder="Select the technician who will fill the Service Report"
-                  emptyText="No eligible application users found."
-                />
-                <p className="text-xs text-muted-foreground">Separate from Delivered By (document handover). Required to create a Service Report.</p>
-              </div>
+              {/* The assigned technician is edited next to the Linked DR below. */}
             </div>
 
             {/* Items Section */}
@@ -1231,7 +1216,7 @@ export default function ServiceInvoicesPage() {
               <div className="space-y-1.5 w-full">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Linked DR (optional)</Label>
-                  {linkedDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => { setLinkedDrNumber(""); setDeliveredById(""); setDeliveredByName(""); }}>Remove DR</Button>}
+                  {linkedDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setLinkedDrNumber("")}>Remove DR</Button>}
                 </div>
                 <SearchableSelect
                   value={linkedDrNumber}
@@ -1242,41 +1227,29 @@ export default function ServiceInvoicesPage() {
               </div>
               <div className="space-y-1.5 w-full">
                 <Label>
-                  Delivered By {!linkedDrNumber && <span className="text-destructive">*</span>}
+                  Assigned Technician {!linkedDrNumber && <span className="text-destructive">*</span>}
                 </Label>
                 {linkedDrNumber ? (
                   <>
-                    <Input value={deliveredByName} readOnly className="bg-muted" placeholder="Loading from Delivery Receipt..." />
+                    <Input value={technicianName} readOnly className="bg-muted" placeholder="Loading from Delivery Receipt..." />
                     <p className="text-xs text-muted-foreground">Automatically assigned from DR #{linkedDrNumber}</p>
                   </>
                 ) : (
                   <>
                     <SearchableSelect
-                      value={deliveredById}
+                      value={technicianId}
                       onValueChange={(id) => {
-                        setDeliveredById(id);
-                        setDeliveredByName(deliveryUsers.find((user) => user.value === id)?.label || "");
+                        setTechnicianId(id);
+                        setTechnicianName(deliveryUsers.find((user) => user.value === id)?.label || "");
                       }}
                       options={deliveryUsers}
                       disabled={deliveryUsersLoading || !!deliveryUsersError}
-                      placeholder={deliveryUsersLoading ? "Loading eligible users..." : "Select Delivered By"}
+                      placeholder={deliveryUsersLoading ? "Loading eligible users..." : "Select Assigned Technician"}
                       emptyText="No eligible application users found."
                     />
                     {deliveryUsersError && <p className="text-xs text-destructive">{deliveryUsersError}</p>}
                   </>
                 )}
-              <div className="space-y-1.5 w-full">
-                <Label>Assigned Technician (Service Reports)</Label>
-                <SearchableSelect
-                  value={assignedTechnicianUserId}
-                  onValueChange={(id) => setAssignedTechnicianUserId(id)}
-                  options={deliveryUsers}
-                  disabled={deliveryUsersLoading || !!deliveryUsersError}
-                  placeholder="Select the technician who will fill the Service Report"
-                  emptyText="No eligible application users found."
-                />
-                <p className="text-xs text-muted-foreground">Separate from Delivered By (document handover). Required to create a Service Report.</p>
-              </div>
               </div>
             </div>
           </div>
@@ -1368,7 +1341,7 @@ export default function ServiceInvoicesPage() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Linked DR (optional)</Label>
-                  {editDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => { setEditDrNumber(""); setEditDeliveredById(""); setEditDeliveredByName(""); }}>Remove DR</Button>}
+                  {editDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setEditDrNumber("")}>Remove DR</Button>}
                 </div>
                 <SearchableSelect
                   value={editDrNumber}
@@ -1378,22 +1351,22 @@ export default function ServiceInvoicesPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Delivered By {editDrNumber === "" && <span className="text-destructive">*</span>}</Label>
+                <Label>Assigned Technician {editDrNumber === "" && <span className="text-destructive">*</span>}</Label>
                 {editDrNumber ? (
                   <>
-                    <Input value={editDeliveredByName} readOnly className="bg-muted" placeholder="Loading from Delivery Receipt..." />
+                    <Input value={editTechnicianName} readOnly className="bg-muted" placeholder="Loading from Delivery Receipt..." />
                     <p className="text-xs text-muted-foreground">Automatically assigned from DR #{editDrNumber}</p>
                   </>
                 ) : (
                   <SearchableSelect
-                    value={editDeliveredById}
+                    value={editTechnicianId}
                     onValueChange={(id) => {
-                      setEditDeliveredById(id);
-                      setEditDeliveredByName(deliveryUsers.find((user) => user.value === id)?.label || "");
+                      setEditTechnicianId(id);
+                      setEditTechnicianName(deliveryUsers.find((user) => user.value === id)?.label || "");
                     }}
                     options={deliveryUsers}
                     disabled={deliveryUsersLoading || !!deliveryUsersError}
-                    placeholder={deliveryUsersLoading ? "Loading eligible users..." : "Select Delivered By"}
+                    placeholder={deliveryUsersLoading ? "Loading eligible users..." : "Select Assigned Technician"}
                     emptyText="No eligible application users found."
                   />
                 )}

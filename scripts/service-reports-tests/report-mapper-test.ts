@@ -11,6 +11,8 @@ import {
   SERVICE_REPORTS_ROW_WIDTH,
 } from "../../src/lib/serviceReports/constants.ts";
 import { reportFromRow, reportToRow } from "../../src/lib/serviceReports/reportRow.ts";
+import { invoiceCoarseFromRow } from "../../src/lib/serviceReports/invoiceRow.ts";
+import { SERVICE_INVOICES_ROW_WIDTH } from "../../src/lib/serviceReports/constants.ts";
 import type { ServiceReport } from "../../src/types/serviceReport.ts";
 
 // 1. Exact canonical order, all 34 columns.
@@ -188,6 +190,34 @@ assert.equal(empty.version, 0);
 assert.equal(empty.signatureSize, 0);
 assert.equal(empty.pdfGenerationStatus, "NONE");
 assert.equal(reportFromRow(["SR-2"]).serviceReportId, "SR-2");
+
+// ServiceInvoices reference columns — the mapping that decides whether a Service
+// Invoice may create a Service Report and which report it opens.
+assert.equal(SERVICE_INVOICES_ROW_WIDTH, 16, "ServiceInvoices is A:P (16 columns)");
+
+const invoiceRow = (over: Record<number, string> = {}): string[] => {
+  const row = Array.from({ length: SERVICE_INVOICES_ROW_WIDTH }, () => "");
+  row[0] = "1593";
+  row[2] = "CMP-1";
+  for (const [index, value] of Object.entries(over)) row[Number(index)] = value;
+  return row;
+};
+
+// M/N = assigned technician, O/P = Service Report link.
+const linked = invoiceCoarseFromRow(invoiceRow({ 12: "tech-1", 13: "Tech One", 14: "report-1", 15: "DRAFT" }));
+assert.equal(linked.invoiceNo, "1593");
+assert.equal(linked.assignedTechnicianUserId, "tech-1");
+assert.equal(linked.assignedTechnicianName, "Tech One");
+assert.equal(linked.serviceReportId, "report-1");
+assert.equal(linked.serviceReportStatus, "DRAFT");
+
+// A technician with no report yet: no link, so the UI may create one.
+const unlinked = invoiceCoarseFromRow(invoiceRow({ 12: "tech-2", 13: "Tech Two" }));
+assert.equal(unlinked.assignedTechnicianUserId, "tech-2");
+assert.equal(unlinked.serviceReportId, "");
+assert.equal(unlinked.serviceReportStatus, "");
+assert.equal(invoiceCoarseFromRow([]).serviceReportId, "", "a short row is padded, never misaligned");
+assert.equal(invoiceCoarseFromRow([]).assignedTechnicianUserId, "");
 
 console.log("service-report mapper/schema tests passed");
 

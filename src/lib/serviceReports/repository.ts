@@ -21,7 +21,8 @@ import {
   SERVICE_REPORTS_SEQUENCES_TAB,
   SERVICE_REPORTS_COMMANDS_TAB,
   SERVICE_INVOICES_TAB,
-  SERVICE_INVOICES_APPENDED_HEADERS,
+  SERVICE_INVOICES_TECHNICIAN_HEADERS,
+  SERVICE_INVOICES_REPORT_LINK_HEADERS,
   SERVICE_REPORTS_HEADERS,
   WATER_TREATMENT_DETAILS_HEADERS,
   SERVICE_REPORTS_HISTORY_HEADERS,
@@ -157,7 +158,7 @@ export async function listServiceInvoiceRows(): Promise<ServiceInvoiceCoarseRow[
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_TAB}!A2:R`,
+    range: `${SERVICE_INVOICES_TAB}!A2:P`,
   });
   const rows = (response.data.values ?? [])
     .map(invoiceCoarseFromRow)
@@ -196,9 +197,9 @@ function headerEndColumn(count: number): string {
 }
 
 /**
- * Read-only provisioning gate for the five Service Report tabs and the four
- * appended ServiceInvoices columns. Never writes to the spreadsheet.
- * Headers must match by name AND order AND exact width.
+ * Read-only provisioning gate for the five Service Report tabs and the
+ * ServiceInvoices integration columns (technician M/N, report link O/P). Never
+ * writes to the spreadsheet. Headers must match by name AND order AND width.
  */
 export async function verifyServiceReportHeaders(): Promise<HeaderVerificationResult[]> {
   const tabs: Array<{ tab: string; headers: readonly string[] }> = [
@@ -235,20 +236,21 @@ export async function verifyServiceReportHeaders(): Promise<HeaderVerificationRe
     results.push({ tab, missing, unexpected, ok: missing.length === 0 && unexpected.length === 0 });
   }
 
-  // ServiceInvoices appended columns: O..R must exist (and be the trailing cells).
-  try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_TAB}!O1:R1` });
-    const actual = (response.data.values?.[0] ?? []).map((cell) => String(cell ?? "").trim());
-    const missing = SERVICE_INVOICES_APPENDED_HEADERS.filter((expected) => !actual.includes(expected));
-    const unexpected = actual.filter((cell) => !SERVICE_INVOICES_APPENDED_HEADERS.includes(cell));
-    results.push({ tab: `${SERVICE_INVOICES_TAB} (appended O:R)`, missing, unexpected, ok: missing.length === 0 && unexpected.length === 0 });
-  } catch {
-    results.push({
-      tab: `${SERVICE_INVOICES_TAB} (appended O:R)`,
-      missing: [...SERVICE_INVOICES_APPENDED_HEADERS],
-      unexpected: [],
-      ok: false,
-    });
+  // ServiceInvoices integration columns: M/N technician identity, O/P report link.
+  const invoiceChecks: Array<{ label: string; range: string; headers: readonly string[] }> = [
+    { label: `${SERVICE_INVOICES_TAB} (technician M:N)`, range: `${SERVICE_INVOICES_TAB}!M1:N1`, headers: SERVICE_INVOICES_TECHNICIAN_HEADERS },
+    { label: `${SERVICE_INVOICES_TAB} (report link O:P)`, range: `${SERVICE_INVOICES_TAB}!O1:P1`, headers: SERVICE_INVOICES_REPORT_LINK_HEADERS },
+  ];
+  for (const check of invoiceChecks) {
+    try {
+      const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: check.range });
+      const actual = (response.data.values?.[0] ?? []).map((cell) => String(cell ?? "").trim());
+      const missing = check.headers.filter((expected) => !actual.includes(expected));
+      const unexpected = actual.filter((cell) => !check.headers.includes(cell));
+      results.push({ tab: check.label, missing, unexpected, ok: missing.length === 0 && unexpected.length === 0 });
+    } catch {
+      results.push({ tab: check.label, missing: [...check.headers], unexpected: [], ok: false });
+    }
   }
   return results;
 }
@@ -290,20 +292,8 @@ export function commandToRow(receipt: ServiceReportCommandReceipt): string[] {
   ];
 }
 
-export function invoiceCoarseFromRow(row: unknown[]): ServiceInvoiceCoarseRow {
-  const r = row.length >= 18 ? row : [...row, ...Array<unknown>(18 - row.length).fill("")];
-  const text = (value: unknown): string => String(value ?? "").trim();
-  return {
-    invoiceNo: text(r[0]),
-    customerId: text(r[2]),
-    companyName: text(r[0]),
-    address: "",
-    // For Service Reports, the invoice's Delivered By identity is the
-    // assigned technician. M/N are the canonical, server-resolved user
-    // snapshot and therefore remain correct for invoices linked to a DR too.
-    assignedTechnicianUserId: text(r[12]),
-    assignedTechnicianName: text(r[13]),
-    serviceReportId: text(r[16]),
-    serviceReportStatus: text(r[17]),
-  };
-}
+// ServiceInvoices row mapping lives in the pure ./invoiceRow module (no Google
+// or node-only imports) so focused Node tests cover the column contract directly.
+import { invoiceCoarseFromRow } from "./invoiceRow";
+
+export { invoiceCoarseFromRow };

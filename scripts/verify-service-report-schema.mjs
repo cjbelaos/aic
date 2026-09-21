@@ -1,6 +1,6 @@
 // Service Report schema verification (READ-ONLY provisioning gate).
-// Verifies the FIVE Service Report tabs + the four appended ServiceInvoices
-// columns (O..R) and the Drive env var. NEVER writes.
+// Verifies the FIVE Service Report tabs + the ServiceInvoices integration columns
+// (technician M/N and Service Report link O/P) and the Drive env var. NEVER writes.
 // Run: node --env-file=.env.local scripts/verify-service-report-schema.mjs
 //
 // Manual provisioning (do NOT run any script against the live sheet):
@@ -27,9 +27,17 @@
 //        node --env-file=.env.local scripts/provision-water-treatment-details-tab.mjs --apply
 //      which creates the tab and writes row 1 only (no other tab or row is
 //      touched).
-//   3. Ensure GOOGLE_DRIVE_SERVICE_REPORTS_FOLDER_ID exists for the private
+//   3. ServiceInvoices must keep the 16-column A:P layout, in this exact order:
+//        InvoiceNo, Date, CustomerId, PreparedBy, CreatedBy, CreatedAt, UpdatedBy,
+//        UpdatedAt, Status, DriveFileLink, ContractId, DRNo,
+//        AssignedTechnicianUserId (M), AssignedTechnicianName (N),
+//        ServiceReportId (O), ServiceReportStatus (P)
+//      M/N hold the assigned technician (the only identity that performs the
+//      services) and O/P hold the Service Report link. Never insert, rename or
+//      reorder a column: every mapper reads by position.
+//   4. Ensure GOOGLE_DRIVE_SERVICE_REPORTS_FOLDER_ID exists for the private
 //      signature/PDF folder.
-//   4. Optional idempotent backfill of historical blank ReportType values:
+//   5. Optional idempotent backfill of historical blank ReportType values:
 //        node --env-file=.env.local scripts/backfill-service-report-types.mjs        (preview)
 //        node --env-file=.env.local scripts/backfill-service-report-types.mjs --apply
 
@@ -104,14 +112,13 @@ const WATER_TREATMENT_DETAILS_HEADERS = [
   "DistributionPumpStatus","PressureSensorsStatus","UvLightStatus",
   "Remarks","Recommendation","CreatedAt","CreatedBy","UpdatedAt","UpdatedBy",
 ];
-const SERVICE_INVOICES_BASE_HEADERS = [
+// ServiceInvoices is A:P (16 columns): M/N hold the assigned technician and O/P
+// hold the Service Report link. Nothing may be inserted, renamed or reordered.
+const SERVICE_INVOICES_HEADERS = [
   "InvoiceNo","Date","CustomerId","PreparedBy","CreatedBy","CreatedAt",
   "UpdatedBy","UpdatedAt","Status","DriveFileLink","ContractId","DRNo",
-  "DeliveredById","DeliveredByName",
-];
-const SERVICE_INVOICES_APPENDED_HEADERS = [
-  "AssignedTechnicianUserId","AssignedTechnicianName","ServiceReportId",
-  "ServiceReportStatus",
+  "AssignedTechnicianUserId","AssignedTechnicianName",
+  "ServiceReportId","ServiceReportStatus",
 ];
 const TABS = [
   { tab: "ServiceReports", headers: SERVICE_REPORTS_HEADERS },
@@ -229,20 +236,23 @@ async function main() {
       else problems.push(`${tab}: ${mismatches.join("; ")}`);
     }
 
-    const invActual = await readHeaderRow(sheets, spreadsheetId, "ServiceInvoices", columnEnd(18));
+    const invActual = await readHeaderRow(sheets, spreadsheetId, "ServiceInvoices", columnEnd(SERVICE_INVOICES_HEADERS.length));
     if (invActual === null) {
       problems.push("ServiceInvoices: header row not readable.");
     } else {
-      for (let i = 0; i < 14; i++) {
-        if (invActual[i] !== SERVICE_INVOICES_BASE_HEADERS[i]) {
-          problems.push(`ServiceInvoices column ${columnEnd(i + 1)} is "${invActual[i] ?? ""}" expected "${SERVICE_INVOICES_BASE_HEADERS[i]}" (existing columns must not shift).`);
+      const invMismatches = [];
+      for (let i = 0; i < SERVICE_INVOICES_HEADERS.length; i++) {
+        if (invActual[i] !== SERVICE_INVOICES_HEADERS[i]) {
+          invMismatches.push(i >= invActual.length
+            ? `<col ${columnEnd(i + 1)} missing "${SERVICE_INVOICES_HEADERS[i]}">`
+            : `<col ${columnEnd(i + 1)} is "${invActual[i] ?? ""}" expected "${SERVICE_INVOICES_HEADERS[i]}">`);
         }
       }
-      const appended = invActual.slice(14, 18);
-      const missing = SERVICE_INVOICES_APPENDED_HEADERS.filter((expected) => !appended.includes(expected));
-      const unexpected = appended.filter((cell) => !SERVICE_INVOICES_APPENDED_HEADERS.includes(cell));
-      if (missing.length === 0 && unexpected.length === 0) ok.push("ServiceInvoices: appended columns O..R OK (A..N unchanged).");
-      else problems.push(`ServiceInvoices appended O..R: missing=[${missing.join(",")}] unexpected=[${unexpected.join(",")}]`);
+      if (invActual.length > SERVICE_INVOICES_HEADERS.length) {
+        invMismatches.push(`<unexpected extra column(s): ${invActual.slice(SERVICE_INVOICES_HEADERS.length).join(", ")}>`);
+      }
+      if (invMismatches.length === 0) ok.push("ServiceInvoices: headers OK (16 columns A:P — technician M/N, report link O/P).");
+      else problems.push(`ServiceInvoices: ${invMismatches.join("; ")}`);
     }
   }
 

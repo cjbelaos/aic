@@ -20,6 +20,7 @@
     "../../src/lib/serviceReports/ids.ts",
     "../../src/lib/serviceReports/constants.ts",
   "../../src/lib/serviceReports/reportRow.ts",
+  "../../src/lib/serviceReports/invoiceRow.ts",
     "../../src/lib/serviceReports/labels.ts",
     "../../src/lib/serviceReports/domain.ts",
     "../../src/lib/serviceReports/validation.ts",

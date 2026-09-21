@@ -599,7 +599,7 @@ export default function TechnicianEarningsPage() {
 
           <p className="text-xs text-muted-foreground break-words">
             Excluded: {data.excluded.noDelivererCount} SR(s) worth {fmt(data.excluded.noDelivererTotal)}
-            have no deliveredById and no linked DR; {data.excluded.outsideDeptCount} SR(s) worth
+            have no assigned technician and no linked DR; {data.excluded.outsideDeptCount} SR(s) worth
             {fmt(data.excluded.outsideDeptTotal)} were delivered by users outside {data.department.name}.
           </p>
         </>

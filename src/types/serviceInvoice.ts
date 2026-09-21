@@ -18,14 +18,14 @@ export interface CreateServiceInvoicePayload {
   contractId?: string;
   /** Linked Delivery Receipt number. */
   drNumber?: number | null;
-  /** Internal handover assignee. Server-resolved when a DR is linked. */
+  /** @deprecated Legacy name of `assignedTechnicianUserId`; still accepted. */
   deliveredById?: string;
-  /** Historical display-name snapshot. Never trusted from the client. */
+  /** @deprecated Legacy display-name snapshot; the server resolves the name. */
   deliveredByName?: string;
   /**
-   * Service Report technician assignment (appended column O). The display name
-   * (P) is server-resolved from the Users sheet. Do NOT reuse deliveredById;
-   * it keeps its document-handover meaning.
+   * Assigned technician (ServiceInvoices column M; the display name in column N is
+   * server-resolved from the Users sheet). A linked Delivery Receipt's technician
+   * always wins over the value submitted here.
    */
   assignedTechnicianUserId?: string;
 }
@@ -46,6 +46,7 @@ export interface ServiceInvoiceResponse {
   driveFileLink?: string;
   contractId?: string;
   drNumber?: number;
+  /** @deprecated The assigned technician is `assignedTechnicianUserId` (column M). */
   deliveredById?: string;
   deliveredByName?: string;
   assignedTechnicianUserId?: string;
@@ -71,6 +72,7 @@ export interface ServiceInvoiceSummary {
   items: ServiceInvoiceItem[];
   contractId?: string;
   drNumber?: number;
+  /** @deprecated The assigned technician is `assignedTechnicianUserId` (column M). */
   deliveredById?: string;
   deliveredByName?: string;
   assignedTechnicianUserId?: string;

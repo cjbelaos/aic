@@ -10,13 +10,24 @@ export const SERVICE_REPORTS_SEQUENCES_TAB = "ServiceReportSequences";
 export const SERVICE_REPORTS_COMMANDS_TAB = "ServiceReportCommands";
 
 export const SERVICE_INVOICES_TAB = "ServiceInvoices";
-/** Appended columns for ServiceInvoices (O..R). Never shift existing columns. */
-export const SERVICE_INVOICES_APPENDED_HEADERS: readonly string[] = [
+/**
+ * ServiceInvoices integration columns (the live sheet is A:P — 16 columns):
+ *  - M/N `AssignedTechnicianUserId` / `AssignedTechnicianName` — the assigned
+ *    technician. Only technicians perform the services, so this single pair is
+ *    the technician identity that creates and owns a Service Report.
+ *  - O/P `ServiceReportId` / `ServiceReportStatus` — the Service Report link.
+ * Never insert, rename or reorder a column: every mapper reads by position.
+ */
+export const SERVICE_INVOICES_TECHNICIAN_HEADERS: readonly string[] = [
   "AssignedTechnicianUserId",
   "AssignedTechnicianName",
+];
+export const SERVICE_INVOICES_REPORT_LINK_HEADERS: readonly string[] = [
   "ServiceReportId",
   "ServiceReportStatus",
 ];
+/** ServiceInvoices row width, columns A:P. */
+export const SERVICE_INVOICES_ROW_WIDTH = 16;
 
 // Canonical ServiceReports schema (34 columns, A:AH) in this exact order. The
 // live sheet was reordered by hand to match this order; it is now the contract

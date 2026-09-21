@@ -16,8 +16,9 @@ import { resolveDeliveryReceiptDeliveredBy } from "@/lib/deliverySheets";
 import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/documentHandoverSheets";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
-const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:R`;
-// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo M:DeliveredById N:DeliveredByName O:AssignedTechnicianUserId P:AssignedTechnicianName Q:ServiceReportId R:ServiceReportStatus
+const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:P`;
+// A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo
+// M:AssignedTechnicianUserId N:AssignedTechnicianName O:ServiceReportId P:ServiceReportStatus (16 columns, A:P)
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
@@ -107,14 +108,20 @@ function normalizeDescription(desc: string): string {
   return (desc || "").trim().toUpperCase();
 }
 
+/**
+ * Resolved assigned-technician pair. The field names keep the historical
+ * `deliveredBy` spelling: the values are the technician stored in ServiceInvoices
+ * M/N, or the linked Delivery Receipt's technician snapshot.
+ */
 type DeliveredByResolution = {
   deliveredById?: string;
   deliveredByName?: string;
 };
 
 /** Applies the Service Invoice source-of-truth rules for its assignee. */
-async function resolveAssignedTechnician(payload: { assignedTechnicianUserId?: string }): Promise<{ assignedTechnicianUserId: string; assignedTechnicianName: string }> {
-  const id = String(payload.assignedTechnicianUserId ?? "").trim();
+async function resolveAssignedTechnician(payload: { assignedTechnicianUserId?: string; deliveredById?: string }): Promise<{ assignedTechnicianUserId: string; assignedTechnicianName: string }> {
+  // `deliveredById` is accepted as the legacy name of the same field.
+  const id = String(payload.assignedTechnicianUserId ?? payload.deliveredById ?? "").trim();
   if (!id) return { assignedTechnicianUserId: "", assignedTechnicianName: "" };
   const user = await getUserById(id);
   if (!user) throw new Error(`Assigned technician user "${id}" not found.`);
@@ -136,12 +143,12 @@ async function resolveServiceInvoiceDeliveredBy(
 
   const requestedId = payload.deliveredById?.trim();
   if (!requestedId) {
-    if (isFinal) throw new Error("Delivered By is required before finalizing a Service Invoice.");
+    if (isFinal) throw new Error("Assigned Technician is required before finalizing a Service Invoice.");
     return {};
   }
   const user = await getUserById(requestedId);
   if (!user?.fullName.trim()) {
-    throw new Error("Delivered By must be an active application user.");
+    throw new Error("Assigned Technician must be an active application user.");
   }
   return { deliveredById: user.userId, deliveredByName: user.fullName };
 }
@@ -294,12 +301,10 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           drNumber: row[11]
             ? parseInt(String(row[11]), 10) || undefined
             : undefined,
-          deliveredById: String(row[12] ?? "").trim() || undefined,
-          deliveredByName: String(row[13] ?? "").trim() || undefined,
-          assignedTechnicianUserId: String(row[14] ?? "").trim() || undefined,
-          assignedTechnicianName: String(row[15] ?? "").trim() || undefined,
-          serviceReportId: String(row[16] ?? "").trim() || undefined,
-          serviceReportStatus: String(row[17] ?? "").trim() || undefined,
+          assignedTechnicianUserId: String(row[12] ?? "").trim() || undefined,
+          assignedTechnicianName: String(row[13] ?? "").trim() || undefined,
+          serviceReportId: String(row[14] ?? "").trim() || undefined,
+          serviceReportStatus: String(row[15] ?? "").trim() || undefined,
           items: itemsByInvoice.get(invoiceNo) || [],
         };
       })
@@ -437,8 +442,20 @@ export async function processServiceInvoice(
     const tin = company.tin || "";
 
     const createdAt = new Date().toISOString();
-    const deliveredBy = await resolveServiceInvoiceDeliveredBy(payload, !isDraft);
+    // Technician source: a linked DR wins, else the explicit technician, else the
+    // legacy `deliveredById` alias. `assignedTechnicianUserId` is passed through as
+    // the requested user so the "required when finalizing" rule still applies.
+    const deliveredBy = await resolveServiceInvoiceDeliveredBy(
+      { drNumber: payload.drNumber, deliveredById: payload.assignedTechnicianUserId ?? payload.deliveredById },
+      !isDraft,
+    );
     const assignedTechnician = await resolveAssignedTechnician(payload);
+    // Columns M/N hold the assigned technician: a linked DR's technician wins,
+    // then the explicit technician, then the legacy `deliveredById` alias.
+    const technicianId = deliveredBy.deliveredById || assignedTechnician.assignedTechnicianUserId || "";
+    const technicianName = deliveredBy.deliveredById
+      ? deliveredBy.deliveredByName || assignedTechnician.assignedTechnicianName || ""
+      : assignedTechnician.assignedTechnicianName || deliveredBy.deliveredByName || "";
     const headerRow = [
       invoiceNo,
       payload.date,
@@ -452,12 +469,10 @@ export async function processServiceInvoice(
       "",
       payload.contractId || "",
       payload.drNumber?.toString() || "",
-      deliveredBy.deliveredById || "",
-      deliveredBy.deliveredByName || "",
-      assignedTechnician.assignedTechnicianUserId || "",
-      assignedTechnician.assignedTechnicianName || "",
-      "",
-      "",
+      technicianId, // M: AssignedTechnicianUserId
+      technicianName, // N: AssignedTechnicianName
+      "", // O: ServiceReportId (written by the Service Report link)
+      "", // P: ServiceReportStatus
     ];
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -514,14 +529,14 @@ export async function processServiceInvoice(
 
     let trackerAssignmentOutcome: ServiceInvoiceResponse["trackerAssignmentOutcome"];
     let trackerAssignmentWarning: string | undefined;
-    if (!isDraft && pdfBase64 && deliveredBy.deliveredById && deliveredBy.deliveredByName) {
+    if (!isDraft && pdfBase64 && technicianId && technicianName) {
       try {
         const assignment = await ensureAutomaticDocumentHandover({
           documentType: "service_invoice",
           documentNumber: invoiceNo,
           customerName: companyName,
-          assignedToId: deliveredBy.deliveredById,
-          assignedToName: deliveredBy.deliveredByName,
+          assignedToId: technicianId,
+          assignedToName: technicianName,
           assignedBy: userId,
           assignedByName: payload.preparedBy || userId,
           notes: "Automatically assigned from Service Invoice",
@@ -551,8 +566,8 @@ export async function processServiceInvoice(
       pdfBase64,
       contractId: payload.contractId,
       drNumber: payload.drNumber ?? undefined,
-      deliveredById: deliveredBy.deliveredById,
-      deliveredByName: deliveredBy.deliveredByName,
+      assignedTechnicianUserId: technicianId || undefined,
+      assignedTechnicianName: technicianName || undefined,
       trackerAssignmentOutcome,
       trackerAssignmentWarning,
     };
@@ -581,7 +596,7 @@ export async function updateServiceInvoice(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:R${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:P${rowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[8] ?? "created").trim();
@@ -607,13 +622,15 @@ export async function updateServiceInvoice(
     if (linkedDrNumber !== undefined) {
       // A linked DR always wins, even if a client submits another user ID.
       deliveredBy = await resolveServiceInvoiceDeliveredBy({ drNumber: linkedDrNumber }, isFinal);
-    } else if (payload.drNumber === null) {
-      // Removing a DR must not silently retain its inherited assignee.
-      deliveredBy = payload.deliveredById
-        ? await resolveServiceInvoiceDeliveredBy({ deliveredById: payload.deliveredById }, isFinal)
-        : {};
-    } else if (payload.deliveredById !== undefined) {
-      deliveredBy = await resolveServiceInvoiceDeliveredBy({ deliveredById: payload.deliveredById }, isFinal);
+    } else if (payload.assignedTechnicianUserId !== undefined || payload.deliveredById !== undefined) {
+      // The explicit technician (or its legacy `deliveredById` alias) replaces the
+      // stored value. No DR is linked here, so it decides alone. An explicitly
+      // empty value clears M/N.
+      const resolved = await resolveAssignedTechnician(payload);
+      deliveredBy = {
+        deliveredById: resolved.assignedTechnicianUserId,
+        deliveredByName: resolved.assignedTechnicianName,
+      };
     } else {
       deliveredBy = {
         deliveredById: String(currentRow[12] ?? "").trim() || undefined,
@@ -624,11 +641,20 @@ export async function updateServiceInvoice(
       }
     }
 
-    const currentTechnicianId = String(currentRow[14] ?? "").trim() || "";
-    const currentTechnicianName = String(currentRow[15] ?? "").trim() || "";
-    const assignedTechnician = payload.assignedTechnicianUserId !== undefined
+    // M/N hold the assigned technician; O/P are owned by the Service Report link.
+    const currentTechnicianId = String(currentRow[12] ?? "").trim() || "";
+    const currentTechnicianName = String(currentRow[13] ?? "").trim() || "";
+    const assignedTechnician = payload.assignedTechnicianUserId !== undefined || payload.deliveredById !== undefined
       ? await resolveAssignedTechnician(payload)
       : { assignedTechnicianUserId: currentTechnicianId, assignedTechnicianName: currentTechnicianName };
+    // The values written to M/N: a linked DR's technician wins, else the explicit
+    // technician, else the stored value.
+    const technicianIdForRow = linkedDrNumber !== undefined && deliveredBy.deliveredById
+      ? deliveredBy.deliveredById
+      : assignedTechnician.assignedTechnicianUserId || "";
+    const technicianNameForRow = linkedDrNumber !== undefined && deliveredBy.deliveredById
+      ? deliveredBy.deliveredByName || ""
+      : assignedTechnician.assignedTechnicianName || "";
     const updatedRow = [
       effectiveInvoiceNo,
       payload.date ?? String(currentRow[1] ?? "").trim(),
@@ -646,17 +672,15 @@ export async function updateServiceInvoice(
       payload.drNumber !== undefined
         ? linkedDrNumber?.toString() || ""
         : String(currentRow[11] ?? "").trim(),
-      deliveredBy.deliveredById || "",
-      deliveredBy.deliveredByName || "",
-      assignedTechnician.assignedTechnicianUserId || "",
-      assignedTechnician.assignedTechnicianName || "",
-      String(currentRow[16] ?? "").trim(),
-      String(currentRow[17] ?? "").trim(),
+      technicianIdForRow, // M: AssignedTechnicianUserId
+      technicianNameForRow, // N: AssignedTechnicianName
+      String(currentRow[14] ?? "").trim(), // O: ServiceReportId (owned by the report link)
+      String(currentRow[15] ?? "").trim(), // P: ServiceReportStatus
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:R${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:P${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -712,14 +736,14 @@ export async function updateServiceInvoice(
           handover.documentNumber.trim().toLowerCase() === effectiveInvoiceNo.trim().toLowerCase(),
         )
       : false;
-    if (existingTracker && deliveredBy.deliveredById && deliveredBy.deliveredByName) {
+    if (existingTracker && technicianIdForRow && technicianNameForRow) {
       try {
         const assignment = await ensureAutomaticDocumentHandover({
           documentType: "service_invoice",
           documentNumber: effectiveInvoiceNo,
           customerName: company?.companyName || updatedRow[2],
-          assignedToId: deliveredBy.deliveredById,
-          assignedToName: deliveredBy.deliveredByName,
+          assignedToId: technicianIdForRow,
+          assignedToName: technicianNameForRow,
           assignedBy: userId,
           assignedByName: updatedRow[3] || userId,
           notes: "Automatically assigned from Service Invoice",
@@ -746,8 +770,8 @@ export async function updateServiceInvoice(
       drNumber: updatedRow[11]
         ? parseInt(String(updatedRow[11]), 10) || undefined
         : undefined,
-      deliveredById: deliveredBy.deliveredById,
-      deliveredByName: deliveredBy.deliveredByName,
+      assignedTechnicianUserId: technicianIdForRow || undefined,
+      assignedTechnicianName: technicianNameForRow || undefined,
       trackerAssignmentOutcome,
       trackerAssignmentWarning,
       items: payload.items || [],
@@ -770,13 +794,13 @@ export async function ensureServiceInvoiceDocumentTrackerAssignment(
   if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:R${rowNumber}`,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:P${rowNumber}`,
   });
   const row = response.data.values?.[0] || [];
   const status = String(row[8] ?? "").trim();
-  const deliveredById = String(row[12] ?? "").trim();
-  const deliveredByName = String(row[13] ?? "").trim();
-  if (status === "draft" || !deliveredById || !deliveredByName) return "unassigned";
+  const technicianId = String(row[12] ?? "").trim();
+  const technicianName = String(row[13] ?? "").trim();
+  if (status === "draft" || !technicianId || !technicianName) return "unassigned";
   const companyId = String(row[2] ?? "").trim();
   const companies = await getCompanies().catch(() => []);
   const companyName = companies.find((company) => company.companyId === companyId || company.id === companyId)?.companyName || companyId;
@@ -784,8 +808,8 @@ export async function ensureServiceInvoiceDocumentTrackerAssignment(
     documentType: "service_invoice",
     documentNumber: String(row[0] ?? invoiceNo).trim(),
     customerName: companyName,
-    assignedToId: deliveredById,
-    assignedToName: deliveredByName,
+    assignedToId: technicianId,
+    assignedToName: technicianName,
     assignedBy,
     assignedByName,
     notes: "Automatically assigned from Service Invoice",
@@ -971,9 +995,9 @@ export async function testPopulateServiceInvoiceTemplateWithDuplicatedItems(
 
 
 /**
- * Best-effort ServiceInvoices Q:R link used by the Service Report module after
- * create/acknowledge/void transitions. Writes ONLY columns Q and R - existing
- * columns are never shifted.
+ * Best-effort ServiceInvoices O:P link used by the Service Report module after
+ * create/acknowledge/void transitions. Writes ONLY columns O and P - existing
+ * columns (including the M/N assigned technician) are never shifted.
  */
 export async function syncServiceInvoiceReportLink(
   invoiceNo: string,
@@ -987,7 +1011,7 @@ export async function syncServiceInvoiceReportLink(
     if (rowNumber <= 1) return;
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!Q${rowNumber}:R${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!O${rowNumber}:P${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[reportId, reportStatus]] },
     });

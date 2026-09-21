@@ -18,11 +18,11 @@ import type {
  * Monthly or yearly earnings vs expenses for technicians (users with departmentId === 1).
  *
  * Earnings (Service Invoices / SR):
- * - An SI is credited to the technician resolved by (1) the SI's own
- *   deliveredById, else (2) the linked DR's deliveredById (internal only).
- * - "SR with DR" = the SI has a linked DR. "SR without DR" = the SI has no DR
- *   but carries its own deliveredById.
- * - SIs with no deliveredById and no DR are excluded entirely (per D-006).
+ * - An SI is credited to the technician resolved by (1) the SI's own assigned
+ *   technician (columns M/N), else (2) the linked DR's technician (internal only).
+ * - "SR with DR" = the SI has a linked DR. "SR without DR" = the SI has no DR but
+ *   carries its own assigned technician.
+ * - SIs with no assigned technician and no DR are excluded entirely (per D-006).
  *
  * When `month` is omitted the response covers the full year and the `monthly`
  * array holds 12 aggregated buckets for analytics charts.
@@ -156,8 +156,8 @@ export async function GET(req: NextRequest) {
       const hasDr = inv.drNumber != null && inv.drNumber > 0;
 
       let delivererId = "";
-      if (inv.deliveredById && inv.deliveredById.trim()) {
-        delivererId = inv.deliveredById.trim();
+      if (inv.assignedTechnicianUserId && inv.assignedTechnicianUserId.trim()) {
+        delivererId = inv.assignedTechnicianUserId.trim();
       } else if (hasDr) {
         const dr = drMap.get(String(inv.drNumber));
         if (dr && dr.deliveredById && dr.deliveredByType !== "external") {
