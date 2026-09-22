@@ -21,6 +21,7 @@ import {
 
 const SIGNATURE_PROXY = "/api/images/drive/";
 const fmt = (iso: string) => (iso || "").slice(0, 19).replace("T", " ");
+const fmtSignedAt = (iso: string) => (iso || "").slice(0, 19).replace("T", " ").replace(/:/g, "-");
 const display = (value: string | undefined) => (value && value.trim() ? value.trim() : "—");
 const equipmentLabel = (value: string | undefined) =>
   value === "WORKING" ? "Working" : value === "DEFECTIVE" ? "Defective" : "—";
@@ -208,7 +209,7 @@ export default function ServiceReportDetailPage() {
             <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div><dt className="text-xs text-muted-foreground">Acknowledged by</dt><dd className="font-medium">{report.acknowledgedByFullName}</dd></div>
               <div><dt className="text-xs text-muted-foreground">Position / department</dt><dd>{report.acknowledgedByPosition || "—"}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Signed at</dt><dd className="tabular-nums">{fmt(report.signedAt)}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Signed at</dt><dd className="tabular-nums">{fmtSignedAt(report.signedAt)}</dd></div>
               <div><dt className="text-xs text-muted-foreground">PDF status</dt><dd>{pdfStatusLabel(report.pdfGenerationStatus)}</dd></div>
             </dl>
           ) : (
