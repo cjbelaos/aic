@@ -54,6 +54,7 @@ const saveGeneral = (
     standalone: {
       customerId: "COMP-EMERGENCY", companyName: "Emergency Customer", address: "Emergency Site",
       assignedTechnicianUserId: TECHNICIAN.userId, assignedTechnicianName: TECHNICIAN.fullName,
+      reason: "EMERGENCY_REPAIR", reasonDetails: "",
     },
   });
   assert.equal(standalone.reusedExisting, false);

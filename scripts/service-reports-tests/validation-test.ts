@@ -27,9 +27,10 @@ const created = parseCreateReportInput({ commandId: UUID, invoiceNo: "1001", rep
 assert.equal(created.invoiceNo, "1001");
 assert.equal(created.reportType, "GENERAL");
 assert.equal(parseCreateReportInput({ commandId: UUID, invoiceNo: "1001", reportType: "WATER_TREATMENT" }).reportType, "WATER_TREATMENT");
-const standaloneCreate = parseCreateReportInput({ commandId: UUID, invoiceNo: "", reportType: "GENERAL", customerId: "COMP-1", assignedTechnicianUserId: "tech-1" });
+const standaloneCreate = parseCreateReportInput({ commandId: UUID, invoiceNo: "", reportType: "GENERAL", customerId: "COMP-1", assignedTechnicianUserId: "tech-1", createWithoutInvoice: true, standaloneReason: "WARRANTY_SERVICE" });
 assert.equal(standaloneCreate.invoiceNo, "");
 assert.equal(standaloneCreate.customerId, "COMP-1");
+assert.equal(standaloneCreate.standaloneReason, "WARRANTY_SERVICE");
 assert.throws(() => parseCreateReportInput({ commandId: UUID, invoiceNo: "", reportType: "GENERAL" }), /create-report payload/);
 assert.throws(() => parseCreateReportInput({ commandId: UUID, invoiceNo: "1001", reportType: "AERICH" }), /create-report payload/);
 assert.throws(() => parseCreateReportInput({ commandId: UUID, invoiceNo: "1001", reportType: "water_treatment" }), /create-report payload/);

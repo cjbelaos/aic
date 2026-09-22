@@ -28,6 +28,7 @@ import type {
 export const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STANDALONE_REPORT_REASONS = ["EMERGENCY_REPAIR", "WARRANTY_SERVICE", "NO_CHARGE_SERVICE", "OTHER"] as const;
 
 export function isUuid(value: unknown): boolean {
   return typeof value === "string" && UUID_PATTERN.test(value);
@@ -120,6 +121,9 @@ export interface ValidatedCreateReport {
   reportType: ServiceReportType;
   customerId: string;
   assignedTechnicianUserId: string;
+  createWithoutInvoice: boolean;
+  standaloneReason: string;
+  standaloneReasonDetails: string;
 }
 
 export function parseCreateReportInput(body: unknown): ValidatedCreateReport {
@@ -131,12 +135,20 @@ export function parseCreateReportInput(body: unknown): ValidatedCreateReport {
   const reportType = parseReportTypeField(value.reportType, "reportType", errors);
   const customerId = optionalString(value.customerId, "customerId", errors);
   const assignedTechnicianUserId = optionalString(value.assignedTechnicianUserId, "assignedTechnicianUserId", errors);
+  const createWithoutInvoice = value.createWithoutInvoice === true;
+  const standaloneReason = optionalString(value.standaloneReason, "standaloneReason", errors);
+  const standaloneReasonDetails = optionalString(value.standaloneReasonDetails, "standaloneReasonDetails", errors);
   if (!invoiceNo) {
+    if (!createWithoutInvoice) errors.invoiceNo = "Select a Service Invoice, or explicitly choose Create without Service Invoice.";
     if (!customerId) errors.customerId = "Select a customer for a standalone Service Report.";
     if (!assignedTechnicianUserId) errors.assignedTechnicianUserId = "Select the technician attending this standalone Service Report.";
+    if (!STANDALONE_REPORT_REASONS.includes(standaloneReason as typeof STANDALONE_REPORT_REASONS[number])) {
+      errors.standaloneReason = "Select a valid reason for creating a Service Report without a Service Invoice.";
+    }
+    if (standaloneReason === "OTHER" && !standaloneReasonDetails) errors.standaloneReasonDetails = "Describe why this Service Report has no Service Invoice.";
   }
   if (Object.keys(errors).length > 0) throw badRequest("Invalid create-report payload.", errors);
-  return { commandId, invoiceNo, reportType, customerId, assignedTechnicianUserId };
+  return { commandId, invoiceNo, reportType, customerId, assignedTechnicianUserId, createWithoutInvoice, standaloneReason, standaloneReasonDetails };
 }
 
 export interface ValidatedGeneralSaveDraft {

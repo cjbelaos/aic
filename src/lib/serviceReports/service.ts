@@ -54,6 +54,8 @@ export interface CreateReportInput {
     address: string;
     assignedTechnicianUserId: string;
     assignedTechnicianName: string;
+    reason: string;
+    reasonDetails: string;
   };
 }
 
@@ -401,6 +403,7 @@ export async function createOrOpenReport(
           serviceInvoiceNo: report.serviceInvoiceNo,
           assignedTechnicianUserId: report.assignedTechnicianUserId,
           reportType: report.reportType,
+          ...(input.standalone ? { standaloneReason: input.standalone.reason, standaloneReasonDetails: input.standalone.reasonDetails } : {}),
         },
         commandId: input.commandId,
         actor,

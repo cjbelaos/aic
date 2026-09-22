@@ -61,6 +61,8 @@ export async function POST(request: Request) {
         address: customer.address,
         assignedTechnicianUserId: technician.userId,
         assignedTechnicianName: technician.fullName,
+        reason: input.standaloneReason,
+        reasonDetails: input.standaloneReasonDetails,
       };
     }
     const result = await createOrOpenReport(reportContext(), auth.actor, {

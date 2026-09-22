@@ -6,8 +6,9 @@ import { Loader2, FilePlus2, FileText, Droplets } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 import serviceReportService, { ReportOptionsResponse } from "@/lib/services/service-report.service";
 import { REPORT_TYPE_LABELS } from "@/lib/serviceReports/labels";
@@ -31,6 +32,9 @@ export default function NewServiceReportPage() {
   const [invoiceNo, setInvoiceNo] = useState(invoiceParam);
   const [customerId, setCustomerId] = useState("");
   const [assignedTechnicianUserId, setAssignedTechnicianUserId] = useState("");
+  const [createWithoutInvoice, setCreateWithoutInvoice] = useState(false);
+  const [standaloneReason, setStandaloneReason] = useState("");
+  const [standaloneReasonDetails, setStandaloneReasonDetails] = useState("");
   const [reportType, setReportType] = useState<ServiceReportType>(parseTypeParam(searchParams.get("type")));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -60,11 +64,15 @@ export default function NewServiceReportPage() {
     ? (options?.invoices ?? []).find((invoice) => invoice.invoiceNo.trim().toLowerCase() === invoiceNo.trim().toLowerCase())
     : undefined;
   const openExisting = (id: string) => router.push(`/dashboard/service-reports/${id}`);
-  const standalone = !invoiceNo.trim();
+  const standalone = createWithoutInvoice;
 
   const submit = async () => {
-    if (standalone && (!customerId || !assignedTechnicianUserId)) {
-      setError("Select the customer and assigned technician for this standalone Service Report.");
+    if (!standalone && !invoiceNo) {
+      setError("Select a Service Invoice before creating the report.");
+      return;
+    }
+    if (standalone && (!customerId || !assignedTechnicianUserId || !standaloneReason || (standaloneReason === "OTHER" && !standaloneReasonDetails.trim()))) {
+      setError("Complete the customer, technician, and reason for creating a report without a Service Invoice.");
       return;
     }
     if (blockedMatches) {
@@ -75,7 +83,15 @@ export default function NewServiceReportPage() {
     setConflict(null);
     setSubmitting(true);
     try {
-      const result = await serviceReportService.createOrOpen({ invoiceNo: invoiceNo.trim(), reportType, customerId, assignedTechnicianUserId });
+      const result = await serviceReportService.createOrOpen({
+        invoiceNo: standalone ? "" : invoiceNo,
+        reportType,
+        customerId,
+        assignedTechnicianUserId,
+        createWithoutInvoice: standalone,
+        standaloneReason,
+        standaloneReasonDetails,
+      });
       if (result.reusedExisting) {
         toast.info("This invoice already has a Service Report - opening the existing one.");
       } else {
@@ -100,14 +116,14 @@ export default function NewServiceReportPage() {
       <div>
         <h1 className="text-lg font-semibold">New Service Report</h1>
         <p className="text-sm text-muted-foreground">
-          Link a report to a Service Invoice when there is one, or create a standalone report for warranty, emergency, and other non-invoiced service work.
+          Select the Service Invoice for this report. Creating without one is reserved for documented exceptions such as warranty or emergency work.
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Report source</CardTitle>
-          <CardDescription>A Service Invoice is optional. Standalone reports require a customer and an assigned technician.</CardDescription>
+          <CardTitle>{standalone ? "Service Invoice exception" : "Select Service Invoice"}</CardTitle>
+          <CardDescription>{standalone ? "Record why this report cannot be linked to an invoice." : "A Service Invoice is required by default so every report stays linked to its service record."}</CardDescription>
         </CardHeader>
         <CardContent>
           {loadingOptions ? (
@@ -116,43 +132,53 @@ export default function NewServiceReportPage() {
             </div>
           ) : (
             <>
-              <div className="space-y-2">
-                <Label>Service Invoice <span className="text-muted-foreground">(optional)</span></Label>
-                <Input
-                  list="service-report-invoice-options"
-                  value={invoiceNo}
-                  onChange={(e) => { setInvoiceNo(e.target.value); setConflict(null); }}
-                  placeholder="Select an invoice, or leave blank for standalone service"
-                  aria-label="Service Invoice number"
-                />
-                <datalist id="service-report-invoice-options">
-                  {eligible.map((invoice) => (
-                    <option key={invoice.invoiceNo} value={invoice.invoiceNo}>
-                      {invoice.invoiceNo} - {invoice.companyName} ({invoice.assignedTechnicianName})
-                    </option>
-                  ))}
-                </datalist>
-              </div>
-
-              {standalone ? (
+              {!standalone ? (
+                <div className="space-y-2">
+                  <Label>Service Invoice <span className="text-destructive">*</span></Label>
+                  <SearchableSelect
+                    value={invoiceNo}
+                    onValueChange={(value) => { setInvoiceNo(value); setConflict(null); setError(""); }}
+                    options={eligible.map((invoice) => ({ value: invoice.invoiceNo, label: `${invoice.invoiceNo} — ${invoice.companyName} (${invoice.assignedTechnicianName})` }))}
+                    placeholder="Select a Service Invoice…"
+                    searchPlaceholder="Search invoice number or customer…"
+                    emptyText="No eligible Service Invoice found."
+                  />
+                  <p className="text-xs text-muted-foreground">Only invoices with an assigned technician are available.</p>
+                  <Button type="button" variant="link" className="h-auto px-0 text-xs" onClick={() => { setCreateWithoutInvoice(true); setInvoiceNo(""); setConflict(null); setError(""); }}>
+                    No Service Invoice? Create an exception report
+                  </Button>
+                </div>
+              ) : (
                 <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                    <p className="font-medium">Creating without a Service Invoice</p>
+                    <p className="mt-1 text-muted-foreground">Use this only for emergency, warranty, no-charge, or other exceptional service. The reason is recorded in the report history.</p>
+                    <Button type="button" variant="link" className="mt-2 h-auto px-0 text-xs" onClick={() => { setCreateWithoutInvoice(false); setError(""); }}>
+                      Use a Service Invoice instead
+                    </Button>
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="standalone-customer">Customer <span className="text-destructive">*</span></Label>
-                    <select id="standalone-customer" value={customerId} onChange={(event) => { setCustomerId(event.target.value); setError(""); }} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs">
-                      <option value="">Select a customer</option>
-                      {(options?.customers ?? []).map((customer) => <option key={customer.customerId} value={customer.customerId}>{customer.companyName}</option>)}
-                    </select>
+                    <SearchableSelect value={customerId} onValueChange={(value) => { setCustomerId(value); setError(""); }} options={(options?.customers ?? []).map((customer) => ({ value: customer.customerId, label: customer.companyName }))} placeholder="Select customer…" searchPlaceholder="Search customer…" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="standalone-technician">Assigned technician <span className="text-destructive">*</span></Label>
-                    <select id="standalone-technician" value={assignedTechnicianUserId} onChange={(event) => { setAssignedTechnicianUserId(event.target.value); setError(""); }} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs">
-                      <option value="">Select a technician</option>
-                      {(options?.users ?? []).map((user) => <option key={user.userId} value={user.userId}>{user.fullName}</option>)}
-                    </select>
+                    <SearchableSelect value={assignedTechnicianUserId} onValueChange={(value) => { setAssignedTechnicianUserId(value); setError(""); }} options={(options?.users ?? []).map((user) => ({ value: user.userId, label: user.fullName }))} placeholder="Select technician…" searchPlaceholder="Search technician…" />
                     <p className="text-xs text-muted-foreground">The selected technician will have access to this report.</p>
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="standalone-reason">Why is there no Service Invoice? <span className="text-destructive">*</span></Label>
+                    <select id="standalone-reason" value={standaloneReason} onChange={(event) => { setStandaloneReason(event.target.value); setError(""); }} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs">
+                      <option value="">Select a reason</option>
+                      <option value="EMERGENCY_REPAIR">Emergency repair</option>
+                      <option value="WARRANTY_SERVICE">Warranty service</option>
+                      <option value="NO_CHARGE_SERVICE">No-charge service</option>
+                      <option value="OTHER">Other documented exception</option>
+                    </select>
+                  </div>
+                  {standaloneReason === "OTHER" ? <div className="space-y-2 md:col-span-2"><Label htmlFor="standalone-reason-details">Exception details <span className="text-destructive">*</span></Label><Textarea id="standalone-reason-details" value={standaloneReasonDetails} onChange={(event) => { setStandaloneReasonDetails(event.target.value); setError(""); }} placeholder="Explain why no Service Invoice applies" /></div> : null}
                 </div>
-              ) : null}
+              )}
 
               <div className="mt-6 space-y-2">
                 <Label>Service Report type</Label>
@@ -223,7 +249,7 @@ export default function NewServiceReportPage() {
           )}
         </CardContent>
         <CardFooter>
-          <Button onClick={submit} disabled={submitting || loadingOptions || (standalone && (!customerId || !assignedTechnicianUserId)) || blockedMatches || Boolean(conflict)}>
+          <Button onClick={submit} disabled={submitting || loadingOptions || (!standalone && !invoiceNo) || (standalone && (!customerId || !assignedTechnicianUserId || !standaloneReason || (standaloneReason === "OTHER" && !standaloneReasonDetails.trim()))) || blockedMatches || Boolean(conflict)}>
             {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}
             {submitting ? "Creating..." : "Create / Open Service Report"}
           </Button>

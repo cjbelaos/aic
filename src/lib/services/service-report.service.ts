@@ -71,7 +71,7 @@ export const serviceReportService = {
 
   get: (id: string): Promise<ReportDetailResponse> => api.get(`${BASE}/${encodeURIComponent(id)}`),
 
-  createOrOpen: (input: { invoiceNo?: string; reportType: ServiceReportType; customerId?: string; assignedTechnicianUserId?: string }): Promise<{
+  createOrOpen: (input: { invoiceNo?: string; reportType: ServiceReportType; customerId?: string; assignedTechnicianUserId?: string; createWithoutInvoice?: boolean; standaloneReason?: string; standaloneReasonDetails?: string }): Promise<{
     success: boolean;
     report: ServiceReport;
     invoice: ServiceInvoiceCoarseRow | null;
