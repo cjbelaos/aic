@@ -13,6 +13,8 @@ import {
 } from "@/lib/serviceReports/http-helpers";
 import { parseCreateReportInput } from "@/lib/serviceReports/validation";
 import { syncServiceInvoiceReportLink } from "@/lib/serviceInvoiceSheets";
+import { getCustomers } from "@/lib/companySheets";
+import { getUsers } from "@/lib/userSheets";
 
 let cachedContext: ReturnType<typeof createOperationContext> | undefined;
 
@@ -45,13 +47,32 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const input = parseCreateReportInput(body);
+    let standalone: Parameters<typeof createOrOpenReport>[2]["standalone"];
+    if (!input.invoiceNo) {
+      const [customers, users] = await Promise.all([getCustomers(), getUsers()]);
+      const customer = customers.find((item) => item.companyId === input.customerId);
+      const technician = users.find((item) => item.userId === input.assignedTechnicianUserId);
+      if (!customer || !technician) {
+        return NextResponse.json({ success: false, message: "The selected customer or technician is no longer available." }, { status: 422 });
+      }
+      standalone = {
+        customerId: customer.companyId,
+        companyName: customer.companyName,
+        address: customer.address,
+        assignedTechnicianUserId: technician.userId,
+        assignedTechnicianName: technician.fullName,
+      };
+    }
     const result = await createOrOpenReport(reportContext(), auth.actor, {
       commandId: input.commandId,
       invoiceNo: input.invoiceNo,
       reportType: input.reportType,
+      standalone,
     });
     // Keep the ServiceInvoices Q:R link fresh (best-effort; never blocks the response).
-    void syncServiceInvoiceReportLink(result.report.serviceInvoiceNo, result.report.serviceReportId, result.report.status).catch(() => {});
+    if (result.report.serviceInvoiceNo) {
+      void syncServiceInvoiceReportLink(result.report.serviceInvoiceNo, result.report.serviceReportId, result.report.status).catch(() => {});
+    }
     return NextResponse.json(
       { success: true, report: result.report, invoice: result.invoice, reusedExisting: result.reusedExisting },
       { status: 201 },

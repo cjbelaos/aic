@@ -26,7 +26,7 @@ export async function POST(
       consentConfirmed: input.consentConfirmed,
       signaturePng: input.signaturePng,
     });
-    void syncServiceInvoiceReportLink(result.report.serviceInvoiceNo, result.report.serviceReportId, result.report.status).catch(() => {});
+    if (result.report.serviceInvoiceNo) void syncServiceInvoiceReportLink(result.report.serviceInvoiceNo, result.report.serviceReportId, result.report.status).catch(() => {});
     return NextResponse.json(
       {
         success: true,

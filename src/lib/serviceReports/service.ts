@@ -47,6 +47,14 @@ export interface CreateReportInput {
   commandId: string;
   invoiceNo: string;
   reportType: ServiceReportType;
+  /** Resolved by the route from the authoritative customer and user records. */
+  standalone?: {
+    customerId: string;
+    companyName: string;
+    address: string;
+    assignedTechnicianUserId: string;
+    assignedTechnicianName: string;
+  };
 }
 
 export interface GeneralSaveDraftFields {
@@ -174,6 +182,7 @@ async function invoiceForReport(
   store: ServiceReportStore,
   report: ServiceReport,
 ): Promise<ServiceInvoiceCoarseRow | null> {
+  if (!report.serviceInvoiceNo) return null;
   const invoices = await store.listInvoices();
   return invoices.find((i) => i.invoiceNo.trim().toLowerCase() === report.serviceInvoiceNo.trim().toLowerCase()) ?? null;
 }
@@ -294,28 +303,37 @@ export async function createOrOpenReport(
     commandType: "sr.create",
     reportId: null,
     operation: "createOrOpenReport",
-    input: { invoiceNo: input.invoiceNo, reportType: input.reportType },
+    input: { invoiceNo: input.invoiceNo, reportType: input.reportType, standalone: input.standalone ?? null },
     actor,
     execute: async () => {
       const invoices = await ctx.store.listInvoices();
-      const invoice = invoices.find((i) => i.invoiceNo.trim().toLowerCase() === input.invoiceNo.trim().toLowerCase());
-      if (!invoice) throw notFound(`Service Invoice "${input.invoiceNo}" was not found.`);
-      if (!invoice.assignedTechnicianUserId || !invoice.assignedTechnicianName) {
+      const invoice = input.invoiceNo
+        ? invoices.find((i) => i.invoiceNo.trim().toLowerCase() === input.invoiceNo.trim().toLowerCase())
+        : undefined;
+      if (input.invoiceNo && !invoice) throw notFound(`Service Invoice "${input.invoiceNo}" was not found.`);
+      if (invoice && (!invoice.assignedTechnicianUserId || !invoice.assignedTechnicianName)) {
         throw validationError("Assign a technician before creating a Service Report.", {
           assignedTechnicianUserId: "Assign a technician before creating a Service Report.",
         });
       }
-      const decision = canAccessReport(actor, null, invoice);
+      const standaloneInvoice: ServiceInvoiceCoarseRow | null = input.standalone ? {
+        invoiceNo: "", customerId: input.standalone.customerId, companyName: input.standalone.companyName,
+        address: input.standalone.address, assignedTechnicianUserId: input.standalone.assignedTechnicianUserId,
+        assignedTechnicianName: input.standalone.assignedTechnicianName, serviceReportId: "", serviceReportStatus: "",
+      } : null;
+      if (!invoice && !standaloneInvoice) throw validationError("A Service Invoice or standalone customer and technician are required.");
+      const source = invoice ?? standaloneInvoice!;
+      const decision = canAccessReport(actor, null, source);
       if (!decision.allowed) throw forbidden(decision.reason ?? "Forbidden.");
 
-      const existing = await ctx.store.findReportByInvoiceNo(invoice.invoiceNo);
+      const existing = invoice ? await ctx.store.findReportByInvoiceNo(invoice.invoiceNo) : null;
       if (existing) {
         if (existing.reportType !== input.reportType) {
           throw typeConflictFor(existing.reportType, existing);
         }
         return {
           version: existing.version,
-          result: { report: existing, invoice, reusedExisting: true },
+          result: { report: existing, invoice: invoice ?? null, reusedExisting: true },
         };
       }
 
@@ -324,13 +342,13 @@ export async function createOrOpenReport(
         serviceReportId: newUuid(),
         reportType: input.reportType,
         serviceReportNo: "",
-        serviceInvoiceNo: invoice.invoiceNo,
-        customerId: invoice.customerId,
-        companyNameSnapshot: invoice.companyName,
-        clientNameSnapshot: invoice.companyName,
-        clientAddressSnapshot: invoice.address,
-        assignedTechnicianUserId: invoice.assignedTechnicianUserId,
-        assignedTechnicianNameSnapshot: invoice.assignedTechnicianName,
+        serviceInvoiceNo: invoice?.invoiceNo ?? "",
+        customerId: source.customerId,
+        companyNameSnapshot: source.companyName,
+        clientNameSnapshot: source.companyName,
+        clientAddressSnapshot: source.address,
+        assignedTechnicianUserId: source.assignedTechnicianUserId,
+        assignedTechnicianNameSnapshot: source.assignedTechnicianName,
         serviceDate: manilaBusinessDate(),
         serviceType: "",
         fieldReport: "",
@@ -388,7 +406,7 @@ export async function createOrOpenReport(
         actor,
         createdAt: now,
       }));
-      return { version: report.version, result: { report, invoice, reusedExisting: false } };
+      return { version: report.version, result: { report, invoice: invoice ?? null, reusedExisting: false } };
     },
   }).catch((error) => {
     // A concurrent creation for the same invoice won the write: open it instead.

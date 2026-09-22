@@ -8,6 +8,7 @@ import {
 } from "@/lib/serviceReports/http-helpers";
 import { reportContext } from "../route";
 import { getUsers } from "@/lib/userSheets";
+import { getCustomers } from "@/lib/companySheets";
 
 export async function GET() {
   const auth = await requireReportActor();
@@ -17,10 +18,12 @@ export async function GET() {
     // Only identity fields are exposed — never password hashes.
     const users = (await getUsers()).map((user) => ({
       userId: user.userId,
-      username: user.username,
       fullName: user.fullName,
     }));
-    return NextResponse.json({ success: true, invoices: result.invoices, users }, { status: 200 });
+    const customers = (await getCustomers())
+      .filter((customer) => customer.status === "active")
+      .map((customer) => ({ customerId: customer.companyId, companyName: customer.companyName, address: customer.address }));
+    return NextResponse.json({ success: true, invoices: result.invoices, users, customers }, { status: 200 });
   } catch (error) {
     return serviceReportErrorResponse(error);
   }

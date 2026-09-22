@@ -45,6 +45,7 @@ export class InMemoryServiceReportStore implements ServiceReportStore {
   }
 
   async findReportByInvoiceNo(invoiceNo: string): Promise<ServiceReport | null> {
+    if (!invoiceNo) return null;
     const report = this.reports.find(
       (r) => r.serviceInvoiceNo === invoiceNo && r.status !== "VOID",
     );
@@ -79,7 +80,7 @@ export class InMemoryServiceReportStore implements ServiceReportStore {
   }
 
   async createReport(report: ServiceReport): Promise<void> {
-    const duplicate = this.reports.some(
+    const duplicate = report.serviceInvoiceNo && this.reports.some(
       (r) => r.serviceInvoiceNo === report.serviceInvoiceNo && r.status !== "VOID",
     );
     if (duplicate) {

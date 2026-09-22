@@ -118,7 +118,7 @@ export default function ServiceReportDetailPage() {
         <CardHeader><CardTitle>Service information</CardTitle></CardHeader>
         <CardContent>
           <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div><dt className="text-xs text-muted-foreground">Service Invoice</dt><dd className="font-medium">{report.serviceInvoiceNo}</dd></div>
+            <div><dt className="text-xs text-muted-foreground">Service Invoice</dt><dd className="font-medium">{report.serviceInvoiceNo || "Not linked"}</dd></div>
             <div><dt className="text-xs text-muted-foreground">Report type</dt><dd>{REPORT_TYPE_LABELS[report.reportType]}</dd></div>
             {field("Service date", report.serviceDate.slice(0, 10))}
             {isWaterTreatment ? <div><dt className="text-xs text-muted-foreground">Email</dt><dd>{display(details?.emailAddress)}</dd></div> : null}

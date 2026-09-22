@@ -147,12 +147,12 @@ export function WaterTreatmentServiceReportForm({ detail, onSaved, onDirtyChange
       <Card>
         <CardHeader>
           <CardTitle>Service information</CardTitle>
-          <CardDescription>Email, client name, and address are entered here and never change the customer or Service Invoice records.</CardDescription>
+          <CardDescription>Email, client name, and address are entered here and never change the customer or linked Service Invoice records.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2"><Label>Service Report No.</Label><Input value="Draft (assigned after acknowledgment)" readOnly className="bg-muted" /></div>
-            <div className="space-y-2"><Label>Service Invoice No.</Label><Input value={report.serviceInvoiceNo} readOnly className="bg-muted" /></div>
+            <div className="space-y-2"><Label>Service Invoice No.</Label><Input value={report.serviceInvoiceNo || "Not linked to a Service Invoice"} readOnly className="bg-muted" /></div>
             <div className="space-y-2">
               <Label>Report type</Label>
               <div><Badge variant="outline">{REPORT_TYPE_LABELS[report.reportType]}</Badge></div>
@@ -181,7 +181,7 @@ export function WaterTreatmentServiceReportForm({ detail, onSaved, onDirtyChange
             <div className="space-y-2 md:col-span-2">
               <Label>Client address</Label>
               <Input value={clientAddress} onChange={(e) => markText(setClientAddress, e.target.value)} placeholder="Service site address" aria-label="Client address" />
-              <p className="text-xs text-muted-foreground">Pre-filled from the Service Invoice; editing here does not change the invoice or customer record.</p>
+              <p className="text-xs text-muted-foreground">Pre-filled from the linked invoice or standalone customer record; editing here does not change either source record.</p>
             </div>
           </div>
         </CardContent>

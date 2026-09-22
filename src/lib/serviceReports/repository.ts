@@ -135,6 +135,7 @@ export async function readServiceReportById(serviceReportId: string): Promise<Se
 
 export async function findServiceReportByInvoiceNo(invoiceNo: string): Promise<ServiceReport | null> {
   const wanted = String(invoiceNo ?? "").trim().toLowerCase();
+  if (!wanted) return null;
   return (await readServiceReports()).find(
     (report) => report.serviceInvoiceNo.trim().toLowerCase() === wanted && report.status !== "VOID",
   ) ?? null;

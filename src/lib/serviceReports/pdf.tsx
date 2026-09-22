@@ -62,7 +62,7 @@ function ServiceReportPdfDocument(data: ServiceReportPdfData) {
         {block("Service Information", (
           <>
             {row("Service Report No.", report.serviceReportNo)}
-            {row("Service Invoice No.", report.serviceInvoiceNo)}
+            {row("Service Invoice No.", report.serviceInvoiceNo || "Not linked")}
             {row("Service date", report.serviceDate.slice(0, 10))}
             {row("Company", report.companyNameSnapshot)}
             {row("Client name", report.clientNameSnapshot)}
@@ -226,7 +226,7 @@ function WaterTreatmentServiceReportPdfDocument(data: WaterTreatmentServiceRepor
         <View style={waterTreatmentStyles.block} wrap={false}>
           <Text style={waterTreatmentStyles.blockTitle}>Service information</Text>
           {waterTreatmentRow("Service Report No.", report.serviceReportNo)}
-          {waterTreatmentRow("Service Invoice No.", report.serviceInvoiceNo)}
+          {waterTreatmentRow("Service Invoice No.", report.serviceInvoiceNo || "Not linked")}
           {waterTreatmentRow("Service date", report.serviceDate.slice(0, 10))}
           {waterTreatmentRow("Email", details.emailAddress)}
           {waterTreatmentRow("Client name", report.clientNameSnapshot)}

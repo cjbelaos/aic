@@ -22,7 +22,7 @@ export async function POST(
       commandId: input.commandId,
       expectedVersion: input.expectedVersion,
     });
-    void syncServiceInvoiceReportLink(result.report.serviceInvoiceNo, result.report.serviceReportId, result.report.status).catch(() => {});
+    if (result.report.serviceInvoiceNo) void syncServiceInvoiceReportLink(result.report.serviceInvoiceNo, result.report.serviceReportId, result.report.status).catch(() => {});
     return NextResponse.json(
       { success: true, report: result.report, reused: result.reused },
       { status: 200 },

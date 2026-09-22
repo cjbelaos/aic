@@ -53,7 +53,7 @@ export async function createServiceReport(report: ServiceReport): Promise<void> 
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   // One active report per invoice: the authoritative row set decides.
-  const existing = await findServiceReportByInvoiceNo(report.serviceInvoiceNo);
+  const existing = report.serviceInvoiceNo ? await findServiceReportByInvoiceNo(report.serviceInvoiceNo) : null;
   if (existing) {
     throw duplicate(
       `A Service Report already exists for invoice ${report.serviceInvoiceNo}. Open the existing report instead of creating a duplicate.`,

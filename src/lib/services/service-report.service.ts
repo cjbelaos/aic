@@ -3,6 +3,8 @@ import type {
   ServiceReport,
   ServiceReportHistoryEvent,
   ServiceInvoiceCoarseRow,
+  ServiceReportCustomerOption,
+  ServiceReportUserOption,
   ServiceReportType,
   WaterTreatmentServiceReportDetails,
 } from "@/types/serviceReport";
@@ -32,7 +34,8 @@ export interface ReportListRow {
 export interface ReportOptionsResponse {
   success: boolean;
   invoices: ServiceInvoiceCoarseRow[];
-  users: Array<{ userId: string; username: string; fullName: string }>;
+  users: ServiceReportUserOption[];
+  customers: ServiceReportCustomerOption[];
 }
 
 export interface GeneralDraftInput {
@@ -68,12 +71,12 @@ export const serviceReportService = {
 
   get: (id: string): Promise<ReportDetailResponse> => api.get(`${BASE}/${encodeURIComponent(id)}`),
 
-  createOrOpen: (invoiceNo: string, reportType: ServiceReportType): Promise<{
+  createOrOpen: (input: { invoiceNo?: string; reportType: ServiceReportType; customerId?: string; assignedTechnicianUserId?: string }): Promise<{
     success: boolean;
     report: ServiceReport;
     invoice: ServiceInvoiceCoarseRow | null;
     reusedExisting: boolean;
-  }> => api.post(`${BASE}`, { commandId: newId(), invoiceNo, reportType }),
+  }> => api.post(`${BASE}`, { commandId: newId(), ...input }),
 
   saveDraft: (id: string, input: GeneralDraftInput): Promise<{ success: boolean; report: ServiceReport }> =>
     api.patch(`${BASE}/${encodeURIComponent(id)}`, {

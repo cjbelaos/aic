@@ -118,6 +118,8 @@ export interface ValidatedCreateReport {
   commandId: string;
   invoiceNo: string;
   reportType: ServiceReportType;
+  customerId: string;
+  assignedTechnicianUserId: string;
 }
 
 export function parseCreateReportInput(body: unknown): ValidatedCreateReport {
@@ -125,10 +127,16 @@ export function parseCreateReportInput(body: unknown): ValidatedCreateReport {
   const errors: Record<string, string> = {};
   const value = body as Record<string, unknown>;
   const commandId = parseUuidField(value.commandId, "commandId", errors);
-  const invoiceNo = requiredString(value.invoiceNo, "invoiceNo", errors);
+  const invoiceNo = optionalString(value.invoiceNo, "invoiceNo", errors);
   const reportType = parseReportTypeField(value.reportType, "reportType", errors);
+  const customerId = optionalString(value.customerId, "customerId", errors);
+  const assignedTechnicianUserId = optionalString(value.assignedTechnicianUserId, "assignedTechnicianUserId", errors);
+  if (!invoiceNo) {
+    if (!customerId) errors.customerId = "Select a customer for a standalone Service Report.";
+    if (!assignedTechnicianUserId) errors.assignedTechnicianUserId = "Select the technician attending this standalone Service Report.";
+  }
   if (Object.keys(errors).length > 0) throw badRequest("Invalid create-report payload.", errors);
-  return { commandId, invoiceNo, reportType };
+  return { commandId, invoiceNo, reportType, customerId, assignedTechnicianUserId };
 }
 
 export interface ValidatedGeneralSaveDraft {

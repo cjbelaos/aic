@@ -29,6 +29,8 @@ export default function NewServiceReportPage() {
   const [options, setOptions] = useState<ReportOptionsResponse | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [invoiceNo, setInvoiceNo] = useState(invoiceParam);
+  const [customerId, setCustomerId] = useState("");
+  const [assignedTechnicianUserId, setAssignedTechnicianUserId] = useState("");
   const [reportType, setReportType] = useState<ServiceReportType>(parseTypeParam(searchParams.get("type")));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -58,10 +60,11 @@ export default function NewServiceReportPage() {
     ? (options?.invoices ?? []).find((invoice) => invoice.invoiceNo.trim().toLowerCase() === invoiceNo.trim().toLowerCase())
     : undefined;
   const openExisting = (id: string) => router.push(`/dashboard/service-reports/${id}`);
+  const standalone = !invoiceNo.trim();
 
   const submit = async () => {
-    if (!invoiceNo.trim()) {
-      setError("Select a Service Invoice with an assigned technician first.");
+    if (standalone && (!customerId || !assignedTechnicianUserId)) {
+      setError("Select the customer and assigned technician for this standalone Service Report.");
       return;
     }
     if (blockedMatches) {
@@ -72,7 +75,7 @@ export default function NewServiceReportPage() {
     setConflict(null);
     setSubmitting(true);
     try {
-      const result = await serviceReportService.createOrOpen(invoiceNo.trim(), reportType);
+      const result = await serviceReportService.createOrOpen({ invoiceNo: invoiceNo.trim(), reportType, customerId, assignedTechnicianUserId });
       if (result.reusedExisting) {
         toast.info("This invoice already has a Service Report - opening the existing one.");
       } else {
@@ -97,14 +100,14 @@ export default function NewServiceReportPage() {
       <div>
         <h1 className="text-lg font-semibold">New Service Report</h1>
         <p className="text-sm text-muted-foreground">
-          Creates a draft for a Service Invoice, or opens the existing report if one is already active.
+          Link a report to a Service Invoice when there is one, or create a standalone report for warranty, emergency, and other non-invoiced service work.
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Choose a Service Invoice</CardTitle>
-          <CardDescription>A technician must be assigned before a Service Report can be created.</CardDescription>
+          <CardTitle>Report source</CardTitle>
+          <CardDescription>A Service Invoice is optional. Standalone reports require a customer and an assigned technician.</CardDescription>
         </CardHeader>
         <CardContent>
           {loadingOptions ? (
@@ -114,12 +117,12 @@ export default function NewServiceReportPage() {
           ) : (
             <>
               <div className="space-y-2">
-                <Label>Service Invoice</Label>
+                <Label>Service Invoice <span className="text-muted-foreground">(optional)</span></Label>
                 <Input
                   list="service-report-invoice-options"
                   value={invoiceNo}
                   onChange={(e) => { setInvoiceNo(e.target.value); setConflict(null); }}
-                  placeholder="Select or type an invoice number"
+                  placeholder="Select an invoice, or leave blank for standalone service"
                   aria-label="Service Invoice number"
                 />
                 <datalist id="service-report-invoice-options">
@@ -130,6 +133,26 @@ export default function NewServiceReportPage() {
                   ))}
                 </datalist>
               </div>
+
+              {standalone ? (
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="standalone-customer">Customer <span className="text-destructive">*</span></Label>
+                    <select id="standalone-customer" value={customerId} onChange={(event) => { setCustomerId(event.target.value); setError(""); }} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs">
+                      <option value="">Select a customer</option>
+                      {(options?.customers ?? []).map((customer) => <option key={customer.customerId} value={customer.customerId}>{customer.companyName}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="standalone-technician">Assigned technician <span className="text-destructive">*</span></Label>
+                    <select id="standalone-technician" value={assignedTechnicianUserId} onChange={(event) => { setAssignedTechnicianUserId(event.target.value); setError(""); }} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs">
+                      <option value="">Select a technician</option>
+                      {(options?.users ?? []).map((user) => <option key={user.userId} value={user.userId}>{user.fullName}</option>)}
+                    </select>
+                    <p className="text-xs text-muted-foreground">The selected technician will have access to this report.</p>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-6 space-y-2">
                 <Label>Service Report type</Label>
@@ -163,7 +186,7 @@ export default function NewServiceReportPage() {
                 </p>
               </div>
 
-              {blocked.length > 0 ? (
+              {!standalone && blocked.length > 0 ? (
                 <p className="mt-3 text-xs text-muted-foreground">
                   {blocked.length} invoice(s) have no technician assigned yet and cannot start a report:
                   {blocked.slice(0, 3).map((invoice) => invoice.invoiceNo).join(", ")}
@@ -200,7 +223,7 @@ export default function NewServiceReportPage() {
           )}
         </CardContent>
         <CardFooter>
-          <Button onClick={submit} disabled={submitting || loadingOptions || !invoiceNo.trim() || blockedMatches || Boolean(conflict)}>
+          <Button onClick={submit} disabled={submitting || loadingOptions || (standalone && (!customerId || !assignedTechnicianUserId)) || blockedMatches || Boolean(conflict)}>
             {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}
             {submitting ? "Creating..." : "Create / Open Service Report"}
           </Button>

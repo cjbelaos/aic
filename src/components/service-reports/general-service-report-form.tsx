@@ -95,7 +95,7 @@ export function GeneralServiceReportForm({ detail, onSaved, onDirtyChange }: Ser
         <CardContent>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2"><Label>Service Report No.</Label><Input value="Draft (assigned after acknowledgment)" readOnly className="bg-muted" /></div>
-            <div className="space-y-2"><Label>Service Invoice No.</Label><Input value={report.serviceInvoiceNo} readOnly className="bg-muted" /></div>
+            <div className="space-y-2"><Label>Service Invoice No.</Label><Input value={report.serviceInvoiceNo || "Not linked to a Service Invoice"} readOnly className="bg-muted" /></div>
             <div className="space-y-2">
               <Label>Service date <span className="text-destructive">*</span></Label>
               <Input type="date" value={serviceDate} onChange={(e) => mark(setServiceDate, e.target.value)} aria-invalid={!serviceDate} />
@@ -106,7 +106,7 @@ export function GeneralServiceReportForm({ detail, onSaved, onDirtyChange }: Ser
             <div className="space-y-2">
               <Label>Client address</Label>
               <Input value={clientAddress} onChange={(e) => mark(setClientAddress, e.target.value)} placeholder={report.clientAddressSnapshot || "Site address if it differs from the invoice address"} aria-label="Client address" />
-              <p className="text-xs text-muted-foreground">Pre-filled from the Service Invoice; correction is allowed only while the report is a draft.</p>
+              <p className="text-xs text-muted-foreground">Pre-filled from the linked invoice or standalone customer record; correction is allowed only while the report is a draft.</p>
             </div>
             <div className="space-y-2">
               <Label>Service type <span className="text-destructive">*</span></Label>

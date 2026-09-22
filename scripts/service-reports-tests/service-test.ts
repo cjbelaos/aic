@@ -48,6 +48,19 @@ const saveGeneral = (
   assert.equal(first.report.version, 1);
   assert.equal(store.history.some((event) => event.eventType === "REPORT_CREATED"), true);
 
+  // Emergency and warranty work can be reported without a Service Invoice.
+  const standalone = await createOrOpenReport(ctx, TECHNICIAN, {
+    commandId: UUID(100), invoiceNo: "", reportType: "GENERAL",
+    standalone: {
+      customerId: "COMP-EMERGENCY", companyName: "Emergency Customer", address: "Emergency Site",
+      assignedTechnicianUserId: TECHNICIAN.userId, assignedTechnicianName: TECHNICIAN.fullName,
+    },
+  });
+  assert.equal(standalone.reusedExisting, false);
+  assert.equal(standalone.report.serviceInvoiceNo, "");
+  assert.equal(standalone.report.companyNameSnapshot, "Emergency Customer");
+  assert.equal(standalone.invoice, null);
+
   // A technician can correct a mistaken type while the report is still a draft.
   const typeChanged = await changeReportType(ctx, TECHNICIAN, first.report.serviceReportId, {
     commandId: UUID(101), expectedVersion: 1, reportType: "WATER_TREATMENT",

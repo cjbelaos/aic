@@ -52,7 +52,7 @@ export default function ServiceReportsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Service Reports</h1>
-          <p className="text-sm text-muted-foreground">One active report per Service Invoice — signed into a final A4 PDF.</p>
+          <p className="text-sm text-muted-foreground">Invoice-linked and standalone service reports, signed into a final A4 PDF.</p>
         </div>
         <Button onClick={() => router.push("/dashboard/service-reports/new")}>
           <Plus className="mr-2 h-4 w-4" /> New Service Report
@@ -85,7 +85,7 @@ export default function ServiceReportsPage() {
       {!loading && visible.length === 0 ? (
         <Card>
           <div className="px-6 py-8 text-sm text-muted-foreground">
-            No Service Reports found. Create one from a Service Invoice row that has an assigned technician.
+            No Service Reports found. Create one from a Service Invoice or as standalone service work.
           </div>
         </Card>
       ) : null}
@@ -101,7 +101,7 @@ export default function ServiceReportsPage() {
                   {serviceReportStatusBadge(report.status)}
                 </div>
                 <p className="text-xs text-muted-foreground">{REPORT_TYPE_LABELS[report.reportType]}</p>
-                <p className="text-xs text-muted-foreground">Service Invoice {report.serviceInvoiceNo}</p>
+                <p className="text-xs text-muted-foreground">{report.serviceInvoiceNo ? `Service Invoice ${report.serviceInvoiceNo}` : "Standalone service report"}</p>
                 <p className="text-sm font-medium">{report.companyNameSnapshot || report.clientNameSnapshot}</p>
                 <p className="text-xs text-muted-foreground">{report.assignedTechnicianNameSnapshot || "No technician assigned"}</p>
                 <p className="text-xs text-muted-foreground">Service date: {report.serviceDate.slice(0, 10)}</p>

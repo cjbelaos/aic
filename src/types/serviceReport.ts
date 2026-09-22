@@ -38,6 +38,7 @@ export interface ServiceReport {
   reportType: ServiceReportType;
   /** Empty until acknowledgment succeeds. Format AIC-SR-YYYY-NNNN. */
   serviceReportNo: string;
+  /** Optional link to the originating Service Invoice. Blank for warranty, emergency, and other standalone work. */
   serviceInvoiceNo: string;
   customerId: string;
   companyNameSnapshot: string;
@@ -237,4 +238,16 @@ export interface ServiceInvoiceCoarseRow {
 export interface ServiceReportRowView {
   report: ServiceReport;
   invoice: ServiceInvoiceCoarseRow | null;
+}
+
+/** Customer and technician choices used when a report is not tied to an invoice. */
+export interface ServiceReportCustomerOption {
+  customerId: string;
+  companyName: string;
+  address: string;
+}
+
+export interface ServiceReportUserOption {
+  userId: string;
+  fullName: string;
 }

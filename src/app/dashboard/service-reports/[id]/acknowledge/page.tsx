@@ -122,7 +122,7 @@ export default function AcknowledgeServiceReportPage() {
             <CardContent>
               <p className="text-sm text-muted-foreground">The customer representative reviews the completed report before acknowledging the work.</p>
               <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <div><dt className="text-xs text-muted-foreground">Service Invoice</dt><dd className="font-medium">{report.serviceInvoiceNo}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">Service Invoice</dt><dd className="font-medium">{report.serviceInvoiceNo || "Not linked"}</dd></div>
                 <div><dt className="text-xs text-muted-foreground">Service date</dt><dd>{report.serviceDate.slice(0, 10)}</dd></div>
                 <div><dt className="text-xs text-muted-foreground">Company</dt><dd>{report.companyNameSnapshot}</dd></div>
                 <div><dt className="text-xs text-muted-foreground">Client</dt><dd>{report.clientNameSnapshot}</dd></div>

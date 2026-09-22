@@ -195,23 +195,32 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {canSeeTechnicianEarnings && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isItemActive("/dashboard/technician-earnings")}
+                    tooltip="Technician Earnings vs Expenses"
+                  >
+                    <Link href="/dashboard/technician-earnings">
+                      <BarChart3 />
+                      <span>Technician Earnings</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={isItemActive("/dashboard/supplier-products")}
-                  tooltip="Supplier Products"
+                  isActive={isItemActive("/dashboard/monthly-summary")}
+                  tooltip="Monthly Profit Summary"
                 >
-                  <Link href="/dashboard/supplier-products">
-                    <Boxes />
-                    <span>Supplier Products</span>
+                  <Link href="/dashboard/monthly-summary">
+                    <TrendingUp />
+                    <span>Monthly Summary</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              {isAdmin && <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isItemActive("/dashboard/payment-terms")} tooltip="Payment Terms">
-                  <Link href="/dashboard/payment-terms"><CalendarDays /><span>Payment Terms</span></Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -320,6 +329,23 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/supplier-products")}
+                  tooltip="Supplier Products"
+                >
+                  <Link href="/dashboard/supplier-products">
+                    <Boxes />
+                    <span>Supplier Products</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              {isAdmin && <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isItemActive("/dashboard/payment-terms")} tooltip="Payment Terms">
+                  <Link href="/dashboard/payment-terms"><CalendarDays /><span>Payment Terms</span></Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -466,18 +492,6 @@ export function AppSidebar() {
                   <Link href="/dashboard/contract-analytics">
                     <BarChart3 />
                     <span>Contract Analytics</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive("/dashboard/monthly-summary")}
-                  tooltip="Monthly Profit Summary"
-                >
-                  <Link href="/dashboard/monthly-summary">
-                    <BarChart3 />
-                    <span>Monthly Summary</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -664,20 +678,6 @@ export function AppSidebar() {
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   )}
-                  {canSeeTechnicianEarnings && (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isItemActive("/dashboard/technician-earnings")}
-                        tooltip="Technician Earnings vs Expenses"
-                      >
-                        <Link href="/dashboard/technician-earnings">
-                          <BarChart3 />
-                          <span>Technician Earnings</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )}
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
@@ -689,30 +689,6 @@ export function AppSidebar() {
                       <Link href="/dashboard/location-addresses">
                         <MapPin />
                         <span>Location Addresses</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </>
-        )}
-        {canSeeTechnicianEarnings && !canSeeTravel && (
-          <>
-            <SidebarSeparator />
-            <SidebarGroup>
-              <SidebarGroupLabel>Reports</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isItemActive("/dashboard/technician-earnings")}
-                      tooltip="Technician Earnings vs Expenses"
-                    >
-                      <Link href="/dashboard/technician-earnings">
-                        <BarChart3 />
-                        <span>Technician Earnings</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
