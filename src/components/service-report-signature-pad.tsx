@@ -84,8 +84,13 @@ export function ServiceReportSignaturePad({
     const canvas = canvasRef.current;
     const wrapper = wrapperRef.current;
     if (!canvas || !wrapper) return;
-    const cssW = Math.max(120, wrapper.clientWidth);
-    const cssH = Math.max(120, wrapper.clientHeight);
+    // The wrapper also contains the action buttons. Measuring it here makes
+    // the canvas height include those buttons; updating the backing canvas
+    // then changes the wrapper height again and can cause an endless growth
+    // loop through ResizeObserver. Keep the signing surface at its CSS-sized
+    // dimensions instead.
+    const cssW = Math.max(120, canvas.clientWidth);
+    const cssH = Math.max(120, canvas.clientHeight);
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     sizeRef.current = { cssW, cssH, dpr };
     canvas.width = Math.round(cssW * dpr);
@@ -216,7 +221,7 @@ export function ServiceReportSignaturePad({
       <div className="overflow-hidden rounded-md border border-input bg-white">
         <canvas
           ref={canvasRef}
-          className="block w-full select-none"
+          className="block h-48 w-full select-none sm:h-56"
           style={{
             touchAction: "none",
             overscrollBehavior: "contain",
@@ -226,6 +231,7 @@ export function ServiceReportSignaturePad({
             cursor: "crosshair",
           }}
           aria-label="Customer signature canvas. Draw your signature with a finger, stylus, or mouse."
+          aria-disabled={disabled}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
