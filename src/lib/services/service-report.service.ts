@@ -112,9 +112,15 @@ export const serviceReportService = {
     pdfReady: boolean;
     pdfWarning?: string;
     reused: boolean;
-  }> => api.post(`${BASE}/${encodeURIComponent(id)}/acknowledge`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  }),
+  }> => {
+    // Multipart requests do not go through the JSON command envelope used by
+    // the other mutations. Add the idempotency key here, while preserving an
+    // existing key when the same FormData is retried.
+    if (!formData.has("commandId")) formData.set("commandId", newId());
+    return api.post(`${BASE}/${encodeURIComponent(id)}/acknowledge`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
 
   retryPdf: (id: string, expectedVersion: number): Promise<{ success: boolean; report: ServiceReport; reused: boolean }> =>
     api.post(`${BASE}/${encodeURIComponent(id)}/pdf`, { commandId: newId(), expectedVersion }),

@@ -88,7 +88,12 @@ export default function AcknowledgeServiceReportPage() {
       else toast.success("Service Report acknowledged and signed.");
       router.push(`/dashboard/service-reports/${result.report.serviceReportId}`);
     } catch (caught) {
-      const data = (caught as { response?: { data?: { message?: string; fieldErrors?: Record<string, string> } } }).response?.data;
+      // apiRequest wraps Axios failures in ApiError, so validation details are
+      // exposed on `data` rather than Axios's original `response.data`.
+      const data = (caught as {
+        data?: { message?: string; fieldErrors?: Record<string, string> };
+        response?: { data?: { message?: string; fieldErrors?: Record<string, string> } };
+      }).data ?? (caught as { response?: { data?: { message?: string; fieldErrors?: Record<string, string> } } }).response?.data;
       const field = data?.fieldErrors ? Object.values(data.fieldErrors)[0] : undefined;
       setFieldError(field || data?.message || (caught instanceof Error ? caught.message : "Failed to submit the acknowledgment."));
       setSubmitting(false);
