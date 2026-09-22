@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import Link from "next/link";
 import { Pencil, CheckCircle2, Loader2, FileText, Ban, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -224,12 +223,10 @@ export default function ServiceReportDetailPage() {
               </div>
             </div>
           ) : null}
-          {report.pdfUrl ? (
+          {report.pdfGenerationStatus === "READY" && report.pdfDriveFileId ? (
             <div className="mt-4">
-              <Button variant="outline" size="sm" asChild className="h-8 px-2 text-xs" aria-label="Open the final Service Report PDF">
-                <Link href={report.pdfUrl} target="_blank" rel="noopener noreferrer">
-                  <FileText className="mr-1.5 h-3.5 w-3.5" /> Open the final PDF
-                </Link>
+              <Button variant="outline" size="sm" className="h-8 px-2 text-xs" aria-label="Open the final Service Report PDF" onClick={() => window.open(`/api/service-reports/${encodeURIComponent(report.serviceReportId)}/pdf`, "_blank", "noopener,noreferrer")}>
+                <FileText className="mr-1.5 h-3.5 w-3.5" /> Open the final PDF
               </Button>
             </div>
           ) : null}
