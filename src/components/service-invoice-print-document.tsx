@@ -85,6 +85,8 @@ const PREPARED_BY_LEFT = MARGIN_LEFT;
 // Self height for Prepared By (approximately 1 line height at 11pt)
 const SELF_HEIGHT = 16; // 1 self height (approx 1 line height)
 const VERTICAL_SHIFT = SELF_HEIGHT; // 1 character/line height down
+// A4 browser-print calibration: raise the date and both summary groups one text line.
+const DATE_SUMMARY_SHIFT_UP = SELF_HEIGHT; // 16px, approximately 4.2mm
 
 const FONT_SIZE = 11;
 
@@ -355,7 +357,7 @@ export default function ServiceInvoicePrintDocument({
       <div
         style={{
           position: "absolute",
-          top: DATE_TOP + VERTICAL_SHIFT,
+          top: DATE_TOP + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP,
           right: DATE_RIGHT,
           fontSize: FONT_SIZE,
           fontFamily: FONT_FAMILY,
@@ -521,7 +523,7 @@ export default function ServiceInvoicePrintDocument({
       <div
         style={{
           position: "absolute",
-          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3 + VERTICAL_SHIFT,
+          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3 + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP,
 
           /*
            * Same 3-character shift as the Amount column.
@@ -688,7 +690,7 @@ export default function ServiceInvoicePrintDocument({
       <div
         style={{
           position: "absolute",
-          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3 + VERTICAL_SHIFT,
+          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3 + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP,
           right: ADDITIONAL_TABLE_RIGHT,
           width: ADDITIONAL_TABLE_WIDTH,
         }}
