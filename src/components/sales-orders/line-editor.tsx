@@ -74,7 +74,7 @@ export function LineEditor({ lines, onChange, units, products, orderCategories }
             <Button type="button" variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" aria-label={`Remove item ${index + 1}`} onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-12">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-12">
             <Field label="Line type" className="md:col-span-2"><Select value={line.lineType} onValueChange={(value) => update(index, { lineType: value === "SERVICE" ? "SERVICE" : "PRODUCT", productId: value === "SERVICE" ? "" : line.productId, productCodeSnapshot: value === "SERVICE" ? "" : line.productCodeSnapshot })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PRODUCT">Product</SelectItem><SelectItem value="SERVICE">Service</SelectItem></SelectContent></Select></Field>
             <Field label={line.lineType === "PRODUCT" ? "Product" : "Service description"} className="md:col-span-5">
               {line.lineType === "PRODUCT" ? <SearchableSelect value={line.productId} onValueChange={(value) => selectProduct(index, value)} options={productOptions} placeholder="Select product…" searchPlaceholder="Search product or SKU…" /> : <Input value={line.description} onChange={(event) => update(index, { description: event.target.value })} placeholder="Describe the service" />}
@@ -89,7 +89,7 @@ export function LineEditor({ lines, onChange, units, products, orderCategories }
             <Field label="VAT" className="md:col-span-2"><Select value={line.taxMode || "VAT_INCLUSIVE"} onValueChange={(value) => update(index, { taxMode: value, taxRate: value === "VAT_EXEMPT" || value === "ZERO_RATED" ? 0 : 0.12 })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="VAT_INCLUSIVE">VAT inclusive</SelectItem><SelectItem value="VAT_EXCLUSIVE">VAT exclusive</SelectItem><SelectItem value="VAT_EXEMPT">VAT exempt</SelectItem><SelectItem value="ZERO_RATED">Zero-rated</SelectItem></SelectContent></Select></Field>
           </div>
 
-          <div className="mt-4 flex items-center justify-end border-t pt-3 text-sm"><span className="mr-3 text-muted-foreground">Line total</span><strong className="min-w-28 text-right text-base tabular-nums">{money(lineTotal(line))}</strong></div>
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-x-3 gap-y-1 border-t pt-3 text-sm"><span className="text-muted-foreground">Line total</span><strong className="min-w-28 text-right text-base tabular-nums">{money(lineTotal(line))}</strong></div>
             </>;
           })()}
         </div>

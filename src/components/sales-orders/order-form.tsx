@@ -16,9 +16,15 @@ export interface OrderFormProps {
   initial: OrderInput;
   options: OptionsResponse;
   submitLabel: string;
-  onSubmit: (payload: OrderInput) => Promise<void>;
+  onSubmit: (payload: OrderInput, referenceFiles?: SalesOrderReferenceFiles) => Promise<void>;
   onCancel?: () => void;
   onCreateFromQuotation?: (quotationNo: string) => Promise<void>;
+  enableReferenceUploads?: boolean;
+}
+
+export interface SalesOrderReferenceFiles {
+  quotation?: File;
+  customerPO?: File;
 }
 
 function estimatedTotal(line: OrderLineInput): number {
@@ -27,7 +33,7 @@ function estimatedTotal(line: OrderLineInput): number {
   return line.taxMode === "VAT_EXCLUSIVE" ? payable * (1 + (line.taxRate ?? 0)) : payable;
 }
 
-export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, onCreateFromQuotation }: OrderFormProps): React.ReactNode {
+export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, onCreateFromQuotation, enableReferenceUploads = false }: OrderFormProps): React.ReactNode {
   const [header, setHeader] = React.useState({
     customerId: initial.customerId,
     receivedDate: initial.receivedDate,
@@ -42,6 +48,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
   const [submitting, setSubmitting] = React.useState(false);
   const [converting, setConverting] = React.useState(false);
   const [error, setError] = React.useState("");
+  const [referenceFiles, setReferenceFiles] = React.useState<SalesOrderReferenceFiles>({});
   const dirty = React.useRef(false);
 
   const markDirty = <T,>(fn: () => T): T => { dirty.current = true; return fn(); };
@@ -58,6 +65,12 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
 
   const submit = async (): Promise<void> => {
     if (submitting) return;
+    const selectedFiles = Object.values(referenceFiles).filter((file): file is File => Boolean(file));
+    const invalidFile = selectedFiles.find((file) => file.size > 10 * 1024 * 1024 || !/\.(pdf|jpe?g|png|webp|docx?)$/i.test(file.name));
+    if (invalidFile) {
+      setError(`${invalidFile.name} must be a PDF, JPG, PNG, WebP, DOC, or DOCX file that is 10 MB or smaller.`);
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -68,7 +81,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
         customerTINSnapshot: selectedCustomer?.tin ?? initial.customerTINSnapshot,
         billingAddressSnapshot: selectedCustomer?.address ?? initial.billingAddressSnapshot,
         lines,
-      });
+      }, enableReferenceUploads ? referenceFiles : undefined);
       dirty.current = false;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to save the Sales Order.");
@@ -119,6 +132,19 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
         </CardContent>
       </Card>
 
+      {enableReferenceUploads ? (
+        <Card className="gap-4">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-blue-600" />Reference documents</CardTitle>
+            <p className="text-sm text-muted-foreground">Optional. Select a current or external quotation and/or the customer&apos;s external PO. They upload automatically when this Sales Order is created.</p>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            <ReferenceFileInput label="Current / external quotation" file={referenceFiles.quotation} onChange={(file) => { setReferenceFiles((current) => ({ ...current, quotation: file })); dirty.current = true; }} />
+            <ReferenceFileInput label="Customer external PO" file={referenceFiles.customerPO} onChange={(file) => { setReferenceFiles((current) => ({ ...current, customerPO: file })); dirty.current = true; }} />
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card className="gap-4">
         <CardHeader><CardTitle className="text-base">Products / Services</CardTitle></CardHeader>
         <CardContent><LineEditor lines={lines} onChange={(next) => markDirty(() => setLines(next))} units={options.units} products={options.products} orderCategories={options.orderCategories} /></CardContent>
@@ -141,4 +167,18 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
 
 function Field({ label, required = false, className, children }: { label: string; required?: boolean; className?: string; children: React.ReactNode }): React.ReactNode {
   return <div className={className}><Label className="mb-1.5 block">{label}{required ? <span className="ml-1 text-destructive">*</span> : null}</Label>{children}</div>;
+}
+
+function ReferenceFileInput({ label, file, onChange }: { label: string; file?: File; onChange: (file?: File) => void }): React.ReactNode {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputId = React.useId();
+
+  return (
+    <div className="min-w-0 space-y-2 rounded-md border border-dashed p-3">
+      <Label htmlFor={inputId} className="block">{label}</Label>
+      <Input ref={inputRef} id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" onChange={(event) => onChange(event.target.files?.[0])} />
+      <p className="text-xs text-muted-foreground">PDF, JPG, PNG, WebP, DOC, or DOCX · up to 10 MB</p>
+      {file ? <div className="flex min-w-0 items-center justify-between gap-2 text-sm"><span className="truncate" title={file.name}>{file.name}</span><Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={`Remove ${label}`} onClick={() => { onChange(); if (inputRef.current) inputRef.current.value = ""; }}><X className="h-4 w-4" /></Button></div> : null}
+    </div>
+  );
 }

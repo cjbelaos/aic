@@ -4,7 +4,7 @@ import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { PageLoader } from "@/components/ui/logo-loader";
 import { OrderForm } from "@/components/sales-orders/order-form";
 import salesOrderService, { type OptionsResponse, type OrderInput } from "@/lib/services/sales-order.service";
 
@@ -29,7 +29,7 @@ export default function EditSalesOrderPage(): React.ReactNode {
   };
 
   if (error) return <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>;
-  if (!options || !detail) return <div className="space-y-4"><Skeleton className="h-9 w-64" /><Skeleton className="h-64 w-full" /></div>;
+  if (!options || !detail) return <PageLoader label="Loading sales orderâ€¦" />;
 
   const order = detail.order;
   const initial: OrderInput = {

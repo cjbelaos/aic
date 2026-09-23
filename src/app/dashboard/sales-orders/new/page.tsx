@@ -3,9 +3,10 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { OrderForm } from "@/components/sales-orders/order-form";
+import { PageLoader } from "@/components/ui/logo-loader";
+import { OrderForm, type SalesOrderReferenceFiles } from "@/components/sales-orders/order-form";
 import salesOrderService, { type OptionsResponse, type OrderInput } from "@/lib/services/sales-order.service";
 
 export default function NewSalesOrderPage(): React.ReactNode {
@@ -17,9 +18,32 @@ export default function NewSalesOrderPage(): React.ReactNode {
     salesOrderService.options().then(setOptions).catch((caught) => setError(caught instanceof Error ? caught.message : "Failed to load options."));
   }, []);
 
-  const submit = async (payload: OrderInput): Promise<void> => {
+  const submit = async (payload: OrderInput, referenceFiles?: SalesOrderReferenceFiles): Promise<void> => {
     const result = await salesOrderService.createDraft(payload);
-    router.push(`/dashboard/sales-orders/${result.order.order.salesOrderId}`);
+    const orderId = result.order.order.salesOrderId;
+    let orderVersion = result.order.order.version;
+    const uploads: Array<{ documentType: "QUOTATION" | "CUSTOMER_PO"; file?: File }> = [
+      { documentType: "QUOTATION", file: referenceFiles?.quotation },
+      { documentType: "CUSTOMER_PO", file: referenceFiles?.customerPO },
+    ];
+    const failedUploads: string[] = [];
+
+    for (const upload of uploads) {
+      if (!upload.file) continue;
+      try {
+        await salesOrderService.uploadDocument(orderId, { documentType: upload.documentType, file: upload.file, orderVersion });
+        orderVersion = (await salesOrderService.get(orderId)).order.version;
+      } catch {
+        failedUploads.push(upload.file.name);
+      }
+    }
+
+    if (failedUploads.length > 0) {
+      toast.error(`Sales Order created, but ${failedUploads.join(", ")} could not be uploaded. Retry it in Documents.`);
+    } else if (uploads.some((upload) => upload.file)) {
+      toast.success("Sales Order created and reference documents uploaded.");
+    }
+    router.push(`/dashboard/sales-orders/${orderId}`);
   };
 
   const createFromQuotation = async (quotationNo: string): Promise<void> => {
@@ -29,7 +53,7 @@ export default function NewSalesOrderPage(): React.ReactNode {
   };
 
   if (error) return <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>;
-  if (!options) return <div className="space-y-4"><Skeleton className="h-9 w-64" /><Skeleton className="h-64 w-full" /></div>;
+  if (!options) return <PageLoader label="Loading sales order optionsâ€¦" />;
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] min-w-0 flex-col gap-5">
@@ -40,10 +64,11 @@ export default function NewSalesOrderPage(): React.ReactNode {
       <OrderForm
         initial={{ customerId: "", receivedDate: new Date().toISOString().slice(0, 10), lines: [] }}
         options={options}
-        submitLabel="Save Draft"
+        submitLabel="Create Sales Order"
         onSubmit={submit}
         onCancel={() => router.push("/dashboard/sales-orders")}
         onCreateFromQuotation={createFromQuotation}
+        enableReferenceUploads
       />
     </div>
   );
