@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { LogoLoader, PageLoader } from "@/components/ui/logo-loader";
 import {
   Select,
   SelectContent,
@@ -249,13 +250,7 @@ export default function TechnicianEarningsPage() {
       (t) => t.srTotal > 0 || t.liquidationTotal > 0 || t.ftiTotal > 0,
     ).length ?? 0;
 
-  if (access === "loading") {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (access === "loading") return <PageLoader label="Loading technician earnings…" />;
 
   if (access === "denied") {
     return (
@@ -610,11 +605,7 @@ export default function TechnicianEarningsPage() {
           Select a year/month, then click Load.
         </div>
       )}
-      {loading && (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      )}
+      {loading && <div className="flex justify-center py-12"><LogoLoader label="Loading technician earnings…" size={56} /></div>}
     </div>
   );
 }

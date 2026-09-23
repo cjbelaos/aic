@@ -11,6 +11,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/logo-loader";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -108,11 +109,7 @@ export default function FTISummaryReportPage() {
   }, [selectedTechnician, dateFrom, dateTo]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoader label="Loading FTI summary…" />;
   }
 
   const summary = data?.summary;

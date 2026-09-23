@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { Pencil, CheckCircle2, Loader2, FileText, Ban, RefreshCw } from "lucide-react";
+import { ArrowLeft, Pencil, CheckCircle2, Loader2, FileText, Ban, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { PageLoader } from "@/components/ui/logo-loader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +48,7 @@ export default function ServiceReportDetailPage() {
 
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
-  if (loading) return <Card className="animate-pulse bg-muted" />;
+  if (loading) return <PageLoader label="Loading Service Report…" />;
   if (error || !detail) return (
     <div className="flex min-w-0 flex-col gap-6">
       <h1 className="text-lg font-semibold">Service Report</h1>
@@ -96,21 +97,26 @@ export default function ServiceReportDetailPage() {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-lg font-semibold">{report.serviceReportNo || "Draft Service Report"}</h1>
-          {serviceReportStatusBadge(report.status)}
-          <Badge variant="outline">{REPORT_TYPE_LABELS[report.reportType]}</Badge>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {actions.edit ? <Button onClick={routerToEdit}><Pencil className="mr-2 h-4 w-4" /> Edit Draft</Button> : null}
-          {actions.acknowledge ? <Button onClick={routerToAck}><CheckCircle2 className="mr-2 h-4 w-4" /> Acknowledge</Button> : null}
-          {actions.retryPdf ? (
-            <Button variant="outline" onClick={retryPdf} disabled={busy === "pdf"} aria-label="Retry PDF generation">
-              {busy === "pdf" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Retry PDF
-            </Button>
-          ) : null}
-          {actions.void ? <Button variant="destructive" onClick={() => setVoidOpen(true)}><Ban className="mr-2 h-4 w-4" /> Void</Button> : null}
+      <div className="flex flex-col gap-3">
+        <Button variant="outline" onClick={() => router.push("/dashboard/service-reports")} className="w-full self-start sm:w-auto">
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Service Reports
+        </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg font-semibold">{report.serviceReportNo || "Draft Service Report"}</h1>
+            {serviceReportStatusBadge(report.status)}
+            <Badge variant="outline">{REPORT_TYPE_LABELS[report.reportType]}</Badge>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {actions.edit ? <Button onClick={routerToEdit}><Pencil className="mr-2 h-4 w-4" /> Edit Draft</Button> : null}
+            {actions.acknowledge ? <Button onClick={routerToAck}><CheckCircle2 className="mr-2 h-4 w-4" /> Acknowledge</Button> : null}
+            {actions.retryPdf ? (
+              <Button variant="outline" onClick={retryPdf} disabled={busy === "pdf"} aria-label="Retry PDF generation">
+                {busy === "pdf" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Retry PDF
+              </Button>
+            ) : null}
+            {actions.void ? <Button variant="destructive" onClick={() => setVoidOpen(true)}><Ban className="mr-2 h-4 w-4" /> Void</Button> : null}
+          </div>
         </div>
       </div>
 

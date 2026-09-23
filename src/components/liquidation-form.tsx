@@ -19,6 +19,7 @@ import {
   HelpCircle as QuestionIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -1039,9 +1040,8 @@ export function LiquidationForm({
               <div className="space-y-2">
                 <Label>FTI Control No.</Label>
                 {loadingFti ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading FTI requests...
+                  <div className="flex justify-center py-3">
+                    <LogoLoader label="Loading FTI requests…" size={40} />
                   </div>
                 ) : (
                   <Select value={controlNo} onValueChange={setControlNo}>
@@ -1183,9 +1183,8 @@ export function LiquidationForm({
               </SelectTrigger>
               <SelectContent>
                 {loadingCategories ? (
-                  <div className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading categories...
+                  <div className="flex justify-center px-4 py-3">
+                    <LogoLoader label="Loading categories…" size={40} />
                   </div>
                 ) : categories.length === 0 ? (
                   <p className="px-4 py-2 text-sm text-muted-foreground">

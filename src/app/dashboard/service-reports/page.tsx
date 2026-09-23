@@ -27,6 +27,11 @@ function formatDate(value: string): string {
   return Number.isNaN(date.valueOf()) ? raw : date.toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
 }
 
+function escapeCsvValue(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
 export default function ServiceReportsPage() {
   const router = useRouter();
   const [rows, setRows] = useState<ReportRow[]>([]);
@@ -49,6 +54,26 @@ export default function ServiceReportsPage() {
     () => filter === "all" ? rows : rows.filter((row) => row.report.status === filter),
     [filter, rows],
   );
+
+  const handleExport = useCallback((records: ReportRow[]) => {
+    const headers = ["Report No.", "Service Invoice", "Customer", "Report Type", "Service Date", "Technician", "Status"];
+    const rows = records.map(({ report }) => [
+      report.serviceReportNo || "Draft",
+      report.serviceInvoiceNo || "Standalone",
+      report.companyNameSnapshot || report.clientNameSnapshot,
+      REPORT_TYPE_LABELS[report.reportType],
+      report.serviceDate,
+      report.assignedTechnicianNameSnapshot,
+      STATUS_LABEL[report.status],
+    ]);
+    const csv = [headers, ...rows].map((row) => row.map(escapeCsvValue).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "service-reports.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   const columns = useMemo<ColumnDef<ReportRow>[]>(() => [
     {
@@ -82,10 +107,11 @@ export default function ServiceReportsPage() {
     columns={columns}
     data={visible}
     loading={loading}
+    onExport={handleExport}
     getRowId={(row) => row.report.serviceReportId}
     onRowClick={(row) => router.push(`/dashboard/service-reports/${row.report.serviceReportId}`)}
     headerActions={<Button onClick={() => router.push("/dashboard/service-reports/new")}><Plus className="mr-2 h-4 w-4" />New Service Report</Button>}
-    toolbarFilters={<Select value={filter} onValueChange={(value) => setFilter(value as "all" | ServiceReportStatus)}><SelectTrigger className="h-8 w-52"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent>{FILTERS.map((status) => <SelectItem key={status} value={status}>{status === "all" ? `All statuses (${rows.length})` : `${STATUS_LABEL[status]} (${rows.filter((row) => row.report.status === status).length})`}</SelectItem>)}</SelectContent></Select>}
-    mobileLayout={{ primary: ["reportNo", "customer", "serviceDate", "status"], labels: { reportNo: "Report No.", invoiceNo: "Service Invoice", customer: "Customer", reportType: "Report type", serviceDate: "Service date", technician: "Technician", status: "Status" } }}
+    toolbarFilters={<Select value={filter} onValueChange={(value) => setFilter(value as "all" | ServiceReportStatus)}><SelectTrigger className="h-8 w-full sm:w-52"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent>{FILTERS.map((status) => <SelectItem key={status} value={status}>{status === "all" ? `All statuses (${rows.length})` : `${STATUS_LABEL[status]} (${rows.filter((row) => row.report.status === status).length})`}</SelectItem>)}</SelectContent></Select>}
+    mobileLayout={{ primary: ["reportNo", "customer", "serviceDate", "technician", "status"], labels: { reportNo: "Report No.", invoiceNo: "Service Invoice", customer: "Customer", reportType: "Report type", serviceDate: "Service date", technician: "Technician", status: "Status", actions: "Actions" } }}
   />;
 }

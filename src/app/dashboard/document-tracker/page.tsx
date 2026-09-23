@@ -61,6 +61,11 @@ function getAssignedTime(handover: DocumentHandover) {
   return Number.isNaN(time) ? 0 : time;
 }
 
+function escapeCsvValue(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
 export default function DocumentTrackerPage() {
   /* Data state */
   const [handovers, setHandovers] = useState<DocumentHandover[]>([]);
@@ -747,6 +752,26 @@ export default function DocumentTrackerPage() {
     [handleSingleReturn, handleUnassign, canReceiveDocuments, canVerifyDocuments],
   );
 
+  const handleExport = useCallback((records: DocumentHandover[]) => {
+    const headers = ["Document Type", "Document Number", "Customer", "Assigned To", "Assigned At", "Status", "Notes"];
+    const rows = records.map((record) => [
+      record.documentType === "delivery_receipt" ? "DR" : "SR",
+      record.documentNumber,
+      record.customerName,
+      record.assignedToName,
+      record.assignedAt,
+      record.status,
+      record.notes,
+    ]);
+    const csv = [headers, ...rows].map((row) => row.map(escapeCsvValue).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "document-tracker.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
   /* ── Render ────────────────────────────────────────────────────────────── */
 
   return (
@@ -888,6 +913,7 @@ export default function DocumentTrackerPage() {
         columns={columns}
         data={filteredHandoverRecords}
         loading={loading}
+        onExport={handleExport}
         mobileLayout={{
           primary: ["documentNumber", "customerName", "assignedToName", "assignedAt", "status"],
           labels: { documentNumber: "Document", customerName: "Customer", assignedToName: "Assigned to", assignedAt: "Assigned at", status: "Status", notes: "Notes", actions: "Actions" },
@@ -1118,9 +1144,10 @@ export default function DocumentTrackerPage() {
                 Array.from(groupedDocuments.entries()).map(
                   ([customer, docs]) => (
                     <Collapsible key={customer} defaultOpen={false}>
-                      <div className="flex items-center justify-between px-4 py-2 bg-muted/30 hover:bg-muted/50 border-t">
+                      <div className="dt-picker-group flex items-center justify-between px-4 py-2 bg-muted/30 hover:bg-muted/50 border-t">
                         <div className="flex items-center gap-3">
                           <Checkbox
+                            aria-label={`Select all documents for ${customer}`}
                             checked={isGroupFullySelected(docs)}
                             data-state={
                               isGroupPartiallySelected(docs)
@@ -1134,8 +1161,8 @@ export default function DocumentTrackerPage() {
                             }
                           />
                         </div>
-                        <CollapsibleTrigger className="flex flex-1 items-center gap-2">
-                          <span className="font-medium">{customer}</span>
+                        <CollapsibleTrigger className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-left">
+                          <span className="min-w-0 break-words font-medium">{customer}</span>
                           <Badge variant="secondary" className="text-xs">
                             {docs.length} document{docs.length > 1 ? "s" : ""}
                           </Badge>

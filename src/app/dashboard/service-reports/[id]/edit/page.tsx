@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { PageLoader } from "@/components/ui/logo-loader";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -48,7 +48,7 @@ export default function EditServiceReportPage() {
       </div>
     );
   }
-  if (!detail) return <Card className="animate-pulse bg-muted" />;
+  if (!detail) return <PageLoader label="Loading Service Report…" />;
   const report = detail.report;
 
   const onSaved = (saved: ServiceReport) => {

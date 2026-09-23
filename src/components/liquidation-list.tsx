@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import {
-  Loader2,
   Eye,
   Trash2,
   Plus,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import { EntityTable } from "@/components/ui/entity-table";
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/logo-loader";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -668,14 +668,7 @@ export function LiquidationList() {
     },
   ];
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        Loading liquidations...
-      </div>
-    );
-  }
+  if (loading) return <PageLoader label="Loading liquidations…" />;
 
   if (error) {
     return (

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/logo-loader";
 
 export default function FTIFuelPricePage() {
   const [access, setAccess] = useState<"loading" | "allowed" | "denied">("loading");
@@ -50,7 +51,7 @@ export default function FTIFuelPricePage() {
     }
   };
 
-  if (access === "loading") return <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
+  if (access === "loading") return <PageLoader label="Loading fuel price settings…" />;
   if (access === "denied") return <div className="py-12 text-center text-muted-foreground">Only the After Sales Manager can manage the shared fuel price.</div>;
 
   return (

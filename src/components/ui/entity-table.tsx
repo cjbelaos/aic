@@ -20,9 +20,9 @@ import {
   Plus,
   Download,
   Upload,
-  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -345,7 +345,7 @@ export function EntityTable<TData>({
             </select>
             {sorting.length > 0 && <Button variant="outline" onClick={() => setSorting([{ ...sorting[0], desc: !sorting[0].desc }])}>{sorting[0].desc ? "Descending" : "Ascending"}</Button>}
           </label>
-          {loading ? <div role="status" className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" /><span>Loading records…</span></div> : !table.getRowModel().rows.length ? <p role="status" className="py-8 text-center">No results found.</p> : table.getRowModel().rows.map(row => {
+          {loading ? <div className="flex justify-center py-10"><LogoLoader label="Loading records…" size={48} /></div> : !table.getRowModel().rows.length ? <p role="status" className="py-8 text-center">No results found.</p> : table.getRowModel().rows.map(row => {
             const cells = row.getVisibleCells();
             const field = (cell: typeof cells[number]) => <div key={cell.id} className="min-w-0 space-y-1"><dt className="text-xs text-muted-foreground">{mobileLayout.labels[cell.column.id] ?? cell.column.id}</dt><dd className="break-words text-sm [overflow-wrap:anywhere]">{flexRender(cell.column.columnDef.cell, cell.getContext())}</dd></div>;
             const statusCell = cells.find(cell => cell.column.id === "status");
@@ -384,10 +384,7 @@ export function EntityTable<TData>({
                     colSpan={allColumns.length}
                     className="h-32 text-center text-muted-foreground"
                   >
-                    <div role="status" className="flex flex-col items-center justify-center gap-2">
-                      <Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
-                      <span>Loading records…</span>
-                    </div>
+                    <LogoLoader label="Loading records…" size={48} />
                   </TableCell>
                 </TableRow>
               ) : table.getRowModel().rows.length ? (

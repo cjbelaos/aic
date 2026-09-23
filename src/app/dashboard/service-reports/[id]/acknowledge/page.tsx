@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { Loader2, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import { PageLoader } from "@/components/ui/logo-loader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +58,7 @@ export default function AcknowledgeServiceReportPage() {
       </div>
     );
   }
-  if (!detail) return <Card className="animate-pulse bg-muted" />;
+  if (!detail) return <PageLoader label="Loading Service Report…" />;
   const report = detail.report;
   const isWaterTreatment = report.reportType === "WATER_TREATMENT";
   const wtDetails = (detail.waterTreatmentDetails ?? null) as unknown as Record<string, string> | null;

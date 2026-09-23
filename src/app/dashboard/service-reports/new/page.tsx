@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Loader2, FilePlus2, FileText, Droplets } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -127,8 +128,8 @@ export default function NewServiceReportPage() {
         </CardHeader>
         <CardContent>
           {loadingOptions ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading invoices...
+            <div className="flex min-h-40 items-center justify-center">
+              <LogoLoader label="Loading Service Invoices…" size={56} />
             </div>
           ) : (
             <>

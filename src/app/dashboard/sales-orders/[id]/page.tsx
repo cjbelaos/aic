@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PageLoader } from "@/components/ui/logo-loader";
 import { ArrowLeft, CheckCircle2, CirclePause, CirclePlay, Pencil, RefreshCw, XCircle } from "lucide-react";
 import salesOrderService, { type SalesOrderDetail } from "@/lib/services/sales-order.service";
 import { money, formatDate, orderStatusBadge, fulfillmentBadge, syncBadge } from "@/components/sales-orders/badges";
@@ -52,7 +53,7 @@ function DetailInner({ orderId }: { orderId: string }) {
   }, [busy, refresh]);
 
   if (error && !detail) return <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive">{error}</p>;
-  if (!detail) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!detail) return <PageLoader label="Loading sales order…" />;
   const order = detail.order;
   const version = order.version;
   const latestSync = detail.syncJobs.length > 0 ? detail.syncJobs[detail.syncJobs.length - 1] : null;
