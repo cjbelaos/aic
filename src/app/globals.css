@@ -197,4 +197,9 @@
   .po-item-row > div:not(.po-description), .po-item-row > input, .po-item-row > label { width: 100%; min-width: 0; }
   .po-item-row [role="combobox"] { width: 100%; }
   .po-form [data-slot="dialog-footer"] { position: static; background: var(--background); padding-top: 12px; }
+  .dt-picker-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; padding: 12px; }
+  .dt-picker-row > :first-child { grid-row: 1 / span 4; align-self: start; }
+  .dt-picker-row > [data-label] { display: grid; grid-template-columns: minmax(88px, 36%) minmax(0, 1fr); align-items: start; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+  .dt-picker-row > [data-label]::before { content: attr(data-label); color: var(--muted-foreground); font-size: 12px; }
+  .dt-picker-row > [data-label] > * { min-width: 0; }
 }

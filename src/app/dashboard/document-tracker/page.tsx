@@ -116,6 +116,9 @@ export default function DocumentTrackerPage() {
   const [handoverDocumentTypeFilter, setHandoverDocumentTypeFilter] = useState<
     "all" | "delivery_receipt" | "service_invoice"
   >("all");
+  const [handoverStatusFilter, setHandoverStatusFilter] = useState<
+    "all" | "handed_over" | "received_by_after_sales" | "returned" | "unassigned"
+  >("all");
 
   /* Modal open states */
   const [modalOpen, setModalOpen] = useState(false);
@@ -333,7 +336,10 @@ export default function DocumentTrackerPage() {
       const matchesDocumentType =
         handoverDocumentTypeFilter === "all" ||
         handover.documentType === handoverDocumentTypeFilter;
-      return matchesAssignee && matchesDocumentType;
+      const matchesStatus =
+        handoverStatusFilter === "all" ||
+        handover.status === handoverStatusFilter;
+      return matchesAssignee && matchesDocumentType && matchesStatus;
     });
 
     return filtered.sort(
@@ -342,6 +348,7 @@ export default function DocumentTrackerPage() {
   }, [
     handoverAssigneeFilter,
     handoverDocumentTypeFilter,
+    handoverStatusFilter,
     viewedHandovers,
   ]);
 
@@ -743,7 +750,7 @@ export default function DocumentTrackerPage() {
   /* ── Render ────────────────────────────────────────────────────────────── */
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -754,8 +761,9 @@ export default function DocumentTrackerPage() {
             Track physical documents assigned to staff and monitor returns
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {!workflowAction && <div className="flex items-center gap-2 pr-2">
+        <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+          {!workflowAction && <div className="flex min-h-11 items-center gap-2 pr-2">
             <Checkbox
               id="my-docs-only"
               checked={myDocsOnly}
@@ -804,6 +812,8 @@ export default function DocumentTrackerPage() {
               </Button>
             </div>
           )}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row md:justify-end">
           {workflowAction && <Button
             variant="outline"
             onClick={() => {
@@ -811,60 +821,61 @@ export default function DocumentTrackerPage() {
               setReturnModalOpen(true);
             }}
             disabled={assignedDocs.length === 0}
-            className="gap-2 border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950"
+            className="w-full gap-2 border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950 sm:w-auto"
           >
             <BadgeCheck className="h-4 w-4" />
             {workflowAction === "receive" ? "Receive Documents" : "Verify Received Documents"}
           </Button>}
           {isAdmin && (
-            <Button onClick={() => setModalOpen(true)} className="gap-2">
+            <Button onClick={() => setModalOpen(true)} className="w-full gap-2 sm:w-auto">
               <Hand className="h-4 w-4" />
               Assign Document
             </Button>
           )}
+          </div>
         </div>
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+        <Card className="min-w-0">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2 md:p-6 md:pb-2">
             <CardTitle className="text-sm font-medium">Total Tracked</CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
             <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden text-xs text-muted-foreground sm:block">
               Total document transactions logged
             </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+        <Card className="min-w-0">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2 md:p-6 md:pb-2">
             <CardTitle className="text-sm font-medium">
               Awaiting After Sales
             </CardTitle>
             <Clock className="h-4 w-4 text-amber-500" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
             <div className="text-2xl font-bold text-amber-600">
               {stats.pending}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden text-xs text-muted-foreground sm:block">
               Awaiting physical receipt from staff
             </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+        <Card className="col-span-2 min-w-0 md:col-span-1">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2 md:p-6 md:pb-2">
             <CardTitle className="text-sm font-medium">Returned</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
             <div className="text-2xl font-bold text-green-600">
               {stats.returned}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden text-xs text-muted-foreground sm:block">
               Successfully processed back into office
             </p>
           </CardContent>
@@ -877,11 +888,22 @@ export default function DocumentTrackerPage() {
         columns={columns}
         data={filteredHandoverRecords}
         loading={loading}
-        mobileLayout={{ primary: ["documentNumber", "customerName", "status"], labels: { documentNumber: "Document", customerName: "Customer", assignedToName: "Assigned to", assignedAt: "Assigned at", status: "Status", notes: "Notes", actions: "Actions" } }}
+        mobileLayout={{
+          primary: ["documentNumber", "customerName", "assignedToName", "assignedAt", "status"],
+          labels: { documentNumber: "Document", customerName: "Customer", assignedToName: "Assigned to", assignedAt: "Assigned at", status: "Status", notes: "Notes", actions: "Actions" },
+          renderTitle: (record) => (
+            <span className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className={record.documentType === "delivery_receipt" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border-blue-200" : "bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200"}>
+                {record.documentType === "delivery_receipt" ? "DR" : "SR"}
+              </Badge>
+              <span className="font-mono tabular-nums">#{record.documentNumber}</span>
+            </span>
+          ),
+        }}
         toolbarFilters={
           <>
             {isAdmin && (
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
                 <Label
                   htmlFor="handover-assignee-filter"
                   className="text-sm font-normal text-muted-foreground whitespace-nowrap"
@@ -892,7 +914,7 @@ export default function DocumentTrackerPage() {
                   id="handover-assignee-filter"
                   value={handoverAssigneeFilter}
                   onChange={(event) => setHandoverAssigneeFilter(event.target.value)}
-                  className="h-8 w-[200px] rounded-md border border-input bg-background px-2 text-sm"
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[200px]"
                 >
                   <option value="all">All assignees</option>
                   {handoverAssigneeOptions.map((assignee) => (
@@ -903,7 +925,7 @@ export default function DocumentTrackerPage() {
                 </select>
               </div>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <Label
                 htmlFor="handover-document-type-filter"
                 className="text-sm font-normal text-muted-foreground whitespace-nowrap"
@@ -921,11 +943,40 @@ export default function DocumentTrackerPage() {
                       | "service_invoice",
                   )
                 }
-                className="h-8 w-[180px] rounded-md border border-input bg-background px-2 text-sm"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[180px]"
               >
                 <option value="all">All document types</option>
                 <option value="delivery_receipt">Delivery Receipts (DR)</option>
                 <option value="service_invoice">Service Reports (SR)</option>
+              </select>
+            </div>
+            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+              <Label
+                htmlFor="handover-status-filter"
+                className="text-sm font-normal text-muted-foreground whitespace-nowrap"
+              >
+                Status
+              </Label>
+              <select
+                id="handover-status-filter"
+                value={handoverStatusFilter}
+                onChange={(event) =>
+                  setHandoverStatusFilter(
+                    event.target.value as
+                      | "all"
+                      | "handed_over"
+                      | "received_by_after_sales"
+                      | "returned"
+                      | "unassigned",
+                  )
+                }
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[200px]"
+              >
+                <option value="all">All statuses</option>
+                <option value="handed_over">Assigned</option>
+                <option value="received_by_after_sales">Received by After Sales</option>
+                <option value="returned">Returned / verified</option>
+                <option value="unassigned">Unassigned</option>
               </select>
             </div>
           </>
@@ -936,7 +987,7 @@ export default function DocumentTrackerPage() {
       {isAdmin && (
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="flex max-h-[92dvh] flex-col sm:max-w-[800px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Hand className="h-5 w-5" />
@@ -944,7 +995,7 @@ export default function DocumentTrackerPage() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-6 py-4">
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4">
             {/* Assignee Selection */}
             <div className="space-y-2">
               <Label>Assign To</Label>
@@ -1007,7 +1058,7 @@ export default function DocumentTrackerPage() {
                   placeholder="Search documents..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="max-w-xs"
+                  className="w-full sm:max-w-xs"
                 />
               </div>
               <div className="text-sm text-muted-foreground">
@@ -1016,10 +1067,11 @@ export default function DocumentTrackerPage() {
             </div>
 
             {/* Document List with Grouping */}
-            <div className="border rounded-lg overflow-hidden">
-              <div className="bg-muted/50 px-4 py-2 grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground">
+            <div className="max-h-[min(42dvh,420px)] overflow-y-auto rounded-lg border">
+              <div className="hidden bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground md:grid md:grid-cols-12 md:gap-2">
                 <div className="col-span-1">
                   <Checkbox
+                    aria-label="Select all available documents"
                     checked={selectAll}
                     onCheckedChange={(checked) => {
                       setSelectAll(!!checked);
@@ -1037,6 +1089,17 @@ export default function DocumentTrackerPage() {
                 <div className="col-span-4">Customer</div>
                 <div className="col-span-4">Date</div>
               </div>
+              <label className="flex min-h-11 items-center gap-2 px-4 py-2 text-sm md:hidden">
+                <Checkbox
+                  aria-label="Select all available documents"
+                  checked={selectAll}
+                  onCheckedChange={(checked) => {
+                    setSelectAll(!!checked);
+                    setSelectedDocuments(checked ? documentOptions.map((d) => d.value) : []);
+                  }}
+                />
+                Select all available documents
+              </label>
 
               {groupedDocuments.size === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
@@ -1095,7 +1158,7 @@ export default function DocumentTrackerPage() {
                         {docs.map((doc) => (
                           <div
                             key={doc.value}
-                            className={`grid grid-cols-12 gap-2 px-4 py-2 hover:bg-muted/30 border-t items-center ${
+                            className={`dt-picker-row grid grid-cols-12 gap-2 px-4 py-2 hover:bg-muted/30 border-t items-center ${
                               selectedDocuments.includes(doc.value)
                                 ? "bg-muted/20"
                                 : ""
@@ -1103,13 +1166,14 @@ export default function DocumentTrackerPage() {
                           >
                             <div className="col-span-1">
                               <Checkbox
+                                aria-label={`Select document ${doc.documentNumber}`}
                                 checked={selectedDocuments.includes(doc.value)}
                                 onCheckedChange={() =>
                                   toggleDocumentSelection(doc.value)
                                 }
                               />
                             </div>
-                            <div className="col-span-3 flex items-center gap-2">
+                            <div className="col-span-3 flex items-center gap-2" data-label="Document">
                               {doc.documentType === "delivery_receipt" ? (
                                 <Badge
                                   variant="outline"
@@ -1129,10 +1193,10 @@ export default function DocumentTrackerPage() {
                                 #{doc.documentNumber}
                               </span>
                             </div>
-                            <div className="col-span-4 text-sm truncate">
+                            <div className="col-span-4 text-sm" data-label="Customer">
                               {doc.customerName || "—"}
                             </div>
-                            <div className="col-span-4 text-sm text-muted-foreground">
+                            <div className="col-span-4 text-sm text-muted-foreground" data-label="Date">
                               {doc.date
                                 ? new Date(doc.date).toLocaleDateString()
                                 : "—"}
@@ -1202,7 +1266,7 @@ export default function DocumentTrackerPage() {
       {/* ── Batch Return Dialog ──────────────────────────────────────────── */}
 
       <Dialog open={returnModalOpen} onOpenChange={setReturnModalOpen}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh] flex flex-col">
+        <DialogContent className="flex max-h-[92dvh] flex-col sm:max-w-[800px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <BadgeCheck className="h-5 w-5 text-green-600" />
@@ -1210,7 +1274,7 @@ export default function DocumentTrackerPage() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-4 overflow-y-auto">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-4">
             <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
               <div>
                 <Label htmlFor="return-search" className="sr-only">
@@ -1223,12 +1287,12 @@ export default function DocumentTrackerPage() {
                   onChange={(event) => setReturnSearchQuery(event.target.value)}
                 />
               </div>
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
                 <Button size="sm" variant={returnDocType === "all" ? "default" : "outline"} onClick={() => setReturnDocType("all")}>All</Button>
                 <Button size="sm" variant={returnDocType === "delivery_receipt" ? "default" : "outline"} onClick={() => setReturnDocType("delivery_receipt")}>DR</Button>
                 <Button size="sm" variant={returnDocType === "service_invoice" ? "default" : "outline"} onClick={() => setReturnDocType("service_invoice")}>SR</Button>
               </div>
-              <div className="min-w-48">
+              <div className="min-w-0 sm:min-w-48">
                 <Label htmlFor="return-assignee" className="sr-only">Filter by assignee</Label>
                 <select
                   id="return-assignee"
@@ -1244,14 +1308,15 @@ export default function DocumentTrackerPage() {
               </div>
             </div>
 
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden text-xs text-muted-foreground sm:block">
               {workflowAction === "receive" ? "Select documents physically received from staff." : "Select documents received by After Sales for final admin verification."} {filteredAssignedDocs.length} of {assignedDocs.length} shown.
             </p>
             {/* List of assigned documents for batch return */}
-            <div className="border rounded-lg overflow-hidden max-h-[48vh] overflow-y-auto">
-              <div className="bg-muted/50 px-4 py-2 grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground items-center">
+            <div className="max-h-[min(42dvh,420px)] overflow-y-auto rounded-lg border">
+              <div className="hidden bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground md:grid md:grid-cols-12 md:gap-2 md:items-center">
                 <div className="col-span-1">
                   <Checkbox
+                    aria-label="Select all filtered documents"
                     checked={
                       filteredAssignedDocs.length > 0 &&
                       filteredAssignedDocs.every((doc) =>
@@ -1272,6 +1337,19 @@ export default function DocumentTrackerPage() {
                 <div className="col-span-3">Customer</div>
                 <div className="col-span-2">Assigned</div>
               </div>
+              <label className="flex min-h-11 items-center gap-2 px-4 py-2 text-sm md:hidden">
+                <Checkbox
+                  aria-label="Select all filtered documents"
+                  checked={
+                    filteredAssignedDocs.length > 0 &&
+                    filteredAssignedDocs.every((doc) => selectedHandoverIds.includes(doc.id))
+                  }
+                  onCheckedChange={(checked) => {
+                    setSelectedHandoverIds(checked ? filteredAssignedDocs.map((doc) => doc.id) : []);
+                  }}
+                />
+                Select all shown documents
+              </label>
 
               {filteredAssignedDocs.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
@@ -1281,12 +1359,13 @@ export default function DocumentTrackerPage() {
                 filteredAssignedDocs.map((doc) => (
                   <div
                     key={doc.id}
-                    className={`grid grid-cols-12 gap-2 px-4 py-2 border-t hover:bg-muted/30 items-center ${
+                    className={`dt-picker-row grid grid-cols-12 gap-2 px-4 py-2 border-t hover:bg-muted/30 items-center ${
                       selectedHandoverIds.includes(doc.id) ? "bg-muted/20" : ""
                     }`}
                   >
                     <div className="col-span-1">
                       <Checkbox
+                        aria-label={`Select document ${doc.documentNumber}`}
                         checked={selectedHandoverIds.includes(doc.id)}
                         onCheckedChange={() => {
                           setSelectedHandoverIds((prev) =>
@@ -1297,7 +1376,7 @@ export default function DocumentTrackerPage() {
                         }}
                       />
                     </div>
-                    <div className="col-span-3 flex items-center gap-2">
+                    <div className="col-span-3 flex items-center gap-2" data-label="Document">
                       {doc.documentType === "delivery_receipt" ? (
                         <Badge
                           variant="outline"
@@ -1317,14 +1396,14 @@ export default function DocumentTrackerPage() {
                         #{doc.documentNumber}
                       </span>
                     </div>
-                    <div className="col-span-3 text-sm truncate">
+                    <div className="col-span-3 text-sm" data-label="Assigned to">
                       {doc.assignedToName}
                       {doc.assigneeType === "external" ? " (External)" : ""}
                     </div>
-                    <div className="col-span-3 text-sm truncate">
+                    <div className="col-span-3 text-sm" data-label="Customer">
                       {doc.customerName || "—"}
                     </div>
-                    <div className="col-span-2 text-xs text-muted-foreground">
+                    <div className="col-span-2 text-xs text-muted-foreground" data-label="Assigned">
                       {new Date(doc.assignedAt).toLocaleDateString()}
                     </div>
                   </div>
