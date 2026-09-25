@@ -27,6 +27,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Shipping fee must be a non-negative number." }, { status: 400 });
     }
 
+    const singleTotalPrice = payload.singleTotalPrice ?? 0;
+    if (typeof singleTotalPrice !== "number" || !Number.isFinite(singleTotalPrice) || singleTotalPrice < 0) {
+      return NextResponse.json({ success: false, message: "The combined total price must be a non-negative number." }, { status: 400 });
+    }
+
     // Extract client name from customer object or direct clientName field
     const customerName =
       payload.clientName ||
@@ -152,6 +157,8 @@ export async function POST(request: Request) {
       terms: payload.terms,
       delivery: payload.delivery,
       warranty: payload.warranty,
+      pricingMode: payload.pricingMode,
+      singleTotalPrice,
     }, session.username);
 
     return NextResponse.json(

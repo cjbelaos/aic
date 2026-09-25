@@ -64,6 +64,13 @@ export interface OrderLineInput {
 export interface OrderInput {
   commandId?: string;
   sourceQuotationNo?: string;
+  /**
+   * Quotation reference mode. `INTERNAL` (default) selects an existing
+   * quotation; `EXTERNAL` saves a manually entered external quotation number.
+   */
+  quotationSource?: "INTERNAL" | "EXTERNAL";
+  /** Manually entered external quotation number (required in EXTERNAL mode). */
+  externalQuotationNo?: string;
   customerId: string;
   customerNameSnapshot?: string;
   customerTINSnapshot?: string;

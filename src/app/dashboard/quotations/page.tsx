@@ -21,6 +21,11 @@ import quotationService, {
 } from "@/lib/services/quotation.service";
 import { Quotation } from "@/types/quotation";
 import { QuotationCustomer } from "@/lib/services/quotation.service";
+import {
+  normalizeQuotationPricingMode,
+  quotationTotals,
+  singleTotalPriceFromRecord,
+} from "@/lib/quotationPricing";
 
 // Exports data safely using ExcelJS buffer streams
 function exportToExcel(rows: Quotation[]) {
@@ -173,6 +178,18 @@ export default function QuotationsPage() {
       customer.id = c.id || "";
     }
 
+    const storedPricingMode = normalizeQuotationPricingMode(quot.pricingMode);
+    const storedSingleTotalPrice = singleTotalPriceFromRecord(quot);
+    const storedTotals = quotationTotals(storedPricingMode, {
+      lineItems: (quot.items || []).map((item) => ({
+        quantity: item.quantity || 0,
+        unitPrice: item.unitPrice || 0,
+      })),
+      singleTotalPrice: storedSingleTotalPrice,
+      discount: quot.discount || 0,
+      shippingFee: quot.shippingFee || 0,
+    });
+
     return {
       quotationNo: quot.quotationNo || "",
       date: parsedDate,
@@ -189,13 +206,9 @@ export default function QuotationsPage() {
         unitPrice: item.unitPrice || 0,
       })),
       notations: quot.notation || [],
-      subTotal: quot.items
-        ? (quot.items as any[]).reduce(
-            (sum: number, item: any) =>
-              sum + (item.quantity || 0) * (item.unitPrice || 0),
-            0,
-          )
-        : quot.amount || 0,
+      // Stored pricing mode drives the totals: single-total quotations show the
+      // one combined price, never a divided per-line figure.
+      subTotal: storedTotals.subtotal,
       discount: quot.discount || 0,
       shippingFee: quot.shippingFee || 0,
       paymentTermId: quot.paymentTermId || "",
@@ -205,16 +218,11 @@ export default function QuotationsPage() {
       preparedBy: quot.preparedBy || "",
       approvedBy: quot.approvedBy || "",
       status: quot.status || "DRAFT",
-      vat: 0,
-      vatableAmount: 0,
-      grandTotal: Math.max(
-        ((quot.items as any[]) || []).reduce(
-          (sum: number, item: any) =>
-            sum + (item.quantity || 0) * (item.unitPrice || 0),
-          0,
-        ) - (quot.discount || 0),
-        0,
-      ) + (quot.shippingFee || 0),
+      vat: storedTotals.vat,
+      vatableAmount: storedTotals.vatableAmount,
+      grandTotal: storedTotals.grandTotal,
+      pricingMode: storedPricingMode,
+      singleTotalPrice: storedSingleTotalPrice,
     };
   }, []);
 
@@ -345,6 +353,8 @@ export default function QuotationsPage() {
           date, preparedBy: formPayload.preparedBy, approvedBy: formPayload.approvedBy,
           items: formPayload.items, notation: formPayload.notations || [],
           terms: formPayload.terms, delivery: formPayload.delivery, warranty: formPayload.warranty, status,
+          pricingMode: formPayload.pricingMode,
+          singleTotalPrice: formPayload.singleTotalPrice ?? 0,
         });
       } else {
         const payload: SaveQuotationPayload = {
@@ -357,6 +367,8 @@ export default function QuotationsPage() {
           dateIssued: date, validUntil: String(formPayload.validity), notations: formPayload.notations,
           subTotal: formPayload.subTotal, vatableAmount: formPayload.vatableAmount,
           vat: formPayload.vat, grandTotal: formPayload.grandTotal, status,
+          pricingMode: formPayload.pricingMode,
+          singleTotalPrice: formPayload.singleTotalPrice ?? 0,
         };
         const result = await quotationService.saveQuotation(payload);
         if (!result.success) throw new Error(result.message);
@@ -503,6 +515,9 @@ export default function QuotationsPage() {
             vat: 0,
             vatableAmount: 0,
             grandTotal: quotation.amount || 0,
+            // Excel imports carry no line-level pricing, so they stay per-line.
+            pricingMode: "PER_LINE",
+            singleTotalPrice: 0,
           };
 
           const importApiPayload: SaveQuotationPayload = {

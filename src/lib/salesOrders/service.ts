@@ -7,19 +7,30 @@ import { payloadHash } from "./crypto-hash.ts";
 
 import type { SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument, SalesOrderFulfillment, SalesOrderDocumentLink, SalesOrderSyncJob, OrderStatus } from "@/types/salesOrder";
 import {
+  COMBINED_CHARGE_DESCRIPTION,
+  SALES_ORDER_COMBINED_CATEGORY,
+  SALES_ORDER_PRODUCT_CATEGORY,
+  SALES_ORDER_SERVICE_CATEGORY,
+  SALES_ORDER_SHIPPING_CATEGORY,
+  SHIPPING_LINE_DESCRIPTION,
+} from "@/types/salesOrder";
+
+import {
   readSalesOrders, readSalesOrderById, readSalesOrderItems,
   readSalesOrderListSnapshot, readSalesOrderDetailSnapshot,
 } from "./repository.ts";
 import { nowIso, newUuid, manilaBusinessDate, businessDateYear } from "./ids.ts";
 import {
   canTransition, collectConfirmationIssues, deriveFulfillmentStatus, deriveOrderCategory,
-  postFulfillment, applyReversalToItem, applyCancellationToItem, recalculateItemMoney,
-  recalculateOrderTotals, remainingDemand, conversionPlanFromQuotation,
+  postFulfillment, applyReversalToItem, applyCancellationToItem, recalculateItemMoneyForLine,
+  recalculateOrderTotals, remainingDemand, conversionPlanFromQuotation, convertedLineCategory,
 } from "./domain.ts";
 import { createSyncJob } from "./sync.ts";
 import { sendGatewayCommand, verifyEnvironment } from "./gateway.ts";
 import { notFound, validationError } from "./errors.ts";
 import { TAX_RATE_LEGACY_PHI } from "./money.ts";
+import { resolveSalesOrderQuotation } from "./quotationReference.ts";
+import { normalizeQuotationPricingMode, singleTotalPriceFromRecord } from "../quotationPricing.ts";
 import { getQuotationByRefNo } from "@/lib/quotationSheets";
 
 export interface Actor {
@@ -197,13 +208,17 @@ export function buildItems(orderId: string, lines: Array<{
   taxRate: number; orderCategory: string;
 }>, actor: Actor, now = nowIso()): SalesOrderItem[] {
   return lines.map((line, index) => {
-    const money = recalculateItemMoney({
+    const money = recalculateItemMoneyForLine({
       quantity: line.quantity, unitPrice: line.unitPrice, discountAmount: line.discountAmount,
       taxMode: line.taxMode as SalesOrderItem["taxMode"], taxRate: line.taxRate,
+      priceSource: line.priceSource,
     });
     return {
       salesOrderItemId: newUuid(), salesOrderId: orderId, lineNo: index + 1,
-      orderCategory: line.orderCategory || "Parts", lineType: line.lineType, productId: line.productId,
+      // Services (including repair work) always fall into the Services/ Repair
+      // category the reporting view filters on; the user is never asked for it.
+      orderCategory: line.orderCategory || (line.lineType === "SERVICE" ? SALES_ORDER_SERVICE_CATEGORY : SALES_ORDER_PRODUCT_CATEGORY),
+      lineType: line.lineType, productId: line.productId,
       productCodeSnapshot: line.productCodeSnapshot, productNameSnapshot: line.productNameSnapshot,
       customerProductNameSnapshot: line.customerProductName, description: line.description,
       unitId: line.unitId, unitSnapshot: line.unitSnapshot, quantity: line.quantity, unitPrice: line.unitPrice,
@@ -251,7 +266,8 @@ async function runWrite<T>(
 }
 async function createDraftImpl(actor: Actor, input: {
   commandId: string;
-  sourceQuotationNo?: string; customerId: string; customerNameSnapshot: string; customerTINSnapshot: string;
+  sourceQuotationNo?: string; quotationSource?: string; externalQuotationNo?: string;
+  customerId: string; customerNameSnapshot: string; customerTINSnapshot: string;
   billingAddressSnapshot: string; contactId: string; contactNameSnapshot: string; contactPhoneSnapshot: string;
   deliveryAddressSnapshot: string; customerPONo: string; paymentTermId: string; paymentTermsSnapshot: string;
   receivedDate: string; requiredDate: string; assignedToUserId: string; currency: string; remarks: string;
@@ -262,7 +278,15 @@ async function createDraftImpl(actor: Actor, input: {
     taxRate: number; orderCategory: string; }>;
 }): Promise<SalesOrderDetail> {
   verifyEnvironment();
-  const order = baseOrder({ ...input, quotationNo: input.sourceQuotationNo ?? "" }, actor);
+  // An existing quotation (default) and a manually entered external quotation
+  // number are mutually exclusive; both persist in the `QuotationNo` column.
+  const quotation = resolveSalesOrderQuotation({
+    quotationSource: input.quotationSource,
+    quotationNo: input.sourceQuotationNo,
+    externalQuotationNo: input.externalQuotationNo,
+  });
+  if (quotation.error) throw validationError(quotation.error, { quotationNo: quotation.error });
+  const order = baseOrder({ ...input, quotationNo: quotation.quotationNo }, actor);
   const items = buildItems(order.salesOrderId, input.lines, actor);
   const totals = recalculateOrderTotals(items);
   order.subtotalExTax = totals.subtotalExTax;
@@ -652,7 +676,19 @@ async function createDraftFromQuotationImpl(actor: Actor, input: { commandId: st
     shippingFee: quotation.shippingFee,
     defaultTaxMode: "VAT_INCLUSIVE",
     defaultTaxRate: TAX_RATE_LEGACY_PHI,
+    pricingMode: normalizeQuotationPricingMode(quotation.pricingMode),
+    singleTotalPrice: singleTotalPriceFromRecord(quotation),
+    discount: quotation.discount,
   });
+  const categoryFor = (line: { lineType: string; description: string }): string => {
+    if (line.description === SHIPPING_LINE_DESCRIPTION) return SALES_ORDER_SHIPPING_CATEGORY;
+    if (plan.pricingMode === "SINGLE_TOTAL" && line.description === COMBINED_CHARGE_DESCRIPTION) return SALES_ORDER_COMBINED_CATEGORY;
+    return convertedLineCategory(line);
+  };
+  const pricingNote = plan.pricingMode === "SINGLE_TOTAL"
+    ? ` Quoted as one total price of ${plan.combinedTotal.toFixed(2)}; the combined charge is carried on its own line and no per-line price was derived.`
+    : "";
+
   return createDraftImpl(actor, {
     commandId: input.commandId,
     sourceQuotationNo: quotation.quotationNo,
@@ -671,15 +707,15 @@ async function createDraftFromQuotationImpl(actor: Actor, input: { commandId: st
     requiredDate: "",
     assignedToUserId: "",
     currency: "PHP",
-    remarks: `Converted from quotation ${quotation.quotationNo}; original total ${quotation.amount}.`,
+    remarks: `Converted from quotation ${quotation.quotationNo}; original total ${quotation.amount}.${pricingNote}`,
     lines: plan.lines.map((line) => ({
-      orderCategory: line.description === "Shipping Fee" ? "Supplies" : "",
+      orderCategory: categoryFor(line),
       ...line,
       productNameSnapshot: "",
       customerProductName: line.customerProductNameSnapshot ?? "",
       priceOverrideReason: "",
       customerProductPriceId: "",
-      quotationLineReference: line.description === "Shipping Fee" ? `${quotation.quotationNo}:SHIPPING` : quotation.quotationNo,
+      quotationLineReference: line.description === SHIPPING_LINE_DESCRIPTION ? `${quotation.quotationNo}:SHIPPING` : quotation.quotationNo,
     })),
   });
 }

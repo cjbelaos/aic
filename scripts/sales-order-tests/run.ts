@@ -7,6 +7,8 @@ import "./domain-test.ts";
 import "./sync-test.ts";
 import "./protocol-test.ts";
 import "./validation-test.ts";
+import "./quotation-reference-test.ts";
+import "./quotation-conversion-test.ts";
 import "./concurrency-test.ts";
 import "./gateway-http-test.ts";
 

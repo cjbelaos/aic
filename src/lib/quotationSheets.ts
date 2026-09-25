@@ -11,7 +11,18 @@ import {
   QuotationStatus,
   QuotationDetail,
   QuotationNotation,
+  QuotationPricingMode,
 } from "@/types/quotation";
+import {
+  parseQuotationPricingCells,
+  parseQuotationRowValues,
+  quotationAuditCells,
+  quotationCellRange,
+  quotationCellSpanRange,
+  quotationPricingCells,
+  quotationRowValues,
+  quotationSheetRange,
+} from "@/lib/quotationRow";
 import { Readable } from "stream";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 
@@ -19,7 +30,13 @@ const QUOTATIONS_SHEET = "Quotations";
 const QUOTATION_DETAILS_SHEET = "QuotationDetails";
 const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
-const RANGE_QUOTATIONS = `${QUOTATIONS_SHEET}!A2:S`;
+// The Quotations tab has exactly 21 columns (A..U) and the layout is owned by
+// src/lib/quotationRow.ts:
+//   ... G ShippingFee, H PricingMode, I SingleTotalPrice, J PaymentTermId ...
+//   Q Status, R CreatedBy, S CreatedAt, T UpdatedBy, U UpdatedAt
+// Historical rows have blank H/I: they read back as PER_LINE with no single
+// total, so their stored amounts are never re-derived or rewritten.
+const RANGE_QUOTATIONS = quotationSheetRange(QUOTATIONS_SHEET);
 const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:L`;
 const RANGE_NOTATIONS = `${QUOTATION_NOTATIONS_SHEET}!A2:F`;
 
@@ -66,6 +83,19 @@ function parseAudit(row: readonly unknown[], offset: number) {
 
 function auditValues(actor: string, timestamp: string, existing?: readonly unknown[], offset = 0) {
   return [existing ? String(existing[offset] ?? "") : actor, existing ? String(existing[offset + 1] ?? "") : timestamp, actor, timestamp];
+}
+
+/**
+ * Resolves the H/I pair for a write. A caller that omits `pricingMode` (older
+ * client or an import path) keeps the stored mode instead of clearing it: a blank
+ * stored cell is written back as PER_LINE/0, which is the same meaning and infers
+ * no price, so an unrelated save never changes a historical amount.
+ */
+function pricingCellsForWrite(payload: CreateQuotationPayload, existing?: readonly unknown[]): [QuotationPricingMode, number] {
+  if (payload.pricingMode === undefined) {
+    return existing ? parseQuotationPricingCells(existing) : ["PER_LINE", 0];
+  }
+  return quotationPricingCells(payload.pricingMode, payload.singleTotalPrice);
 }
 
 function parseDetailRow(row: readonly unknown[]): QuotationDetail {
@@ -116,25 +146,31 @@ function parseQuotationRow(
   detailsMap: Map<string, QuotationDetail[]>,
   notationsMap: Map<string, QuotationNotation[]>,
 ): Quotation {
-  const quotationNo = String(row[0] || "").trim();
+  const values = parseQuotationRowValues(row);
+  const quotationNo = values.quotationNo;
   return {
     id: `quot_${index + 2}`,
     quotationNo,
-    customerId: String(row[1] || "") || detailsMap.get(quotationNo)?.[0]?.customerId,
-    customer: String(row[2] || ""),
-    description: String(row[3] || ""),
-    amount: parseFloat(String(row[4])) || 0,
-    discount: parseFloat(String(row[5])) || 0,
-    shippingFee: Number(row[6]) || 0,
-    paymentTermId: String(row[7] || "") || undefined,
-    terms: String(row[8] || ""),
-    file: String(row[9] || ""),
-    date: String(row[10] || ""),
-    preparedBy: String(row[11] || ""),
-    approvedBy: String(row[12] || ""),
-    sentBy: String(row[13] || ""),
-    status: (String(row[14] || "").trim() as QuotationStatus) || "DRAFT",
-    ...parseAudit(row, 15),
+    customerId: values.customerId || detailsMap.get(quotationNo)?.[0]?.customerId,
+    customer: values.customer,
+    description: values.description,
+    amount: values.amount,
+    discount: values.discount,
+    shippingFee: values.shippingFee,
+    paymentTermId: values.paymentTermId || undefined,
+    terms: values.paymentTerms,
+    file: values.file,
+    date: values.date,
+    preparedBy: values.preparedBy,
+    approvedBy: values.approvedBy,
+    sentBy: values.sentBy,
+    status: (values.status as QuotationStatus) || "DRAFT",
+    pricingMode: values.pricingMode,
+    singleTotalPrice: values.singleTotalPrice,
+    createdBy: values.createdBy,
+    createdAt: values.createdAt,
+    updatedBy: values.updatedBy,
+    updatedAt: values.updatedAt,
     items: detailsMap.get(quotationNo) || [],
     notation: notationsMap.get(quotationNo) || [],
     delivery: "",
@@ -173,24 +209,30 @@ function buildQuotationRow(
   items: QuotationDetail[],
   notation: QuotationNotation[],
 ): Quotation {
+  const values = parseQuotationRowValues(row);
   return {
     id: `quot_${targetIndex + 2}`,
     quotationNo,
-    customerId: String(row[1] || "") || items[0]?.customerId,
-    customer: String(row[2] || ""),
-    description: String(row[3] || ""),
-    amount: parseFloat(String(row[4])) || 0,
-    discount: parseFloat(String(row[5])) || 0,
-    shippingFee: Number(row[6]) || 0,
-    paymentTermId: String(row[7] || "") || undefined,
-    terms: String(row[8] || ""),
-    file: String(row[9] || ""),
-    date: String(row[10] || ""),
-    preparedBy: String(row[11] || ""),
-    approvedBy: String(row[12] || ""),
-    sentBy: String(row[13] || ""),
-    status: (String(row[14] || "").trim() as QuotationStatus) || "DRAFT",
-    ...parseAudit(row, 15),
+    customerId: values.customerId || items[0]?.customerId,
+    customer: values.customer,
+    description: values.description,
+    amount: values.amount,
+    discount: values.discount,
+    shippingFee: values.shippingFee,
+    paymentTermId: values.paymentTermId || undefined,
+    terms: values.paymentTerms,
+    file: values.file,
+    date: values.date,
+    preparedBy: values.preparedBy,
+    approvedBy: values.approvedBy,
+    sentBy: values.sentBy,
+    status: (values.status as QuotationStatus) || "DRAFT",
+    pricingMode: values.pricingMode,
+    singleTotalPrice: values.singleTotalPrice,
+    createdBy: values.createdBy,
+    createdAt: values.createdAt,
+    updatedBy: values.updatedBy,
+    updatedAt: values.updatedAt,
     items,
     notation,
     delivery: "",
@@ -266,26 +308,31 @@ export async function addQuotation(
     payload = { ...payload, quotationNo: reference };
     const nextIndex = quotRows.length + 2;
     const timestamp = new Date().toISOString();
+    // Child rows (details/notations) are new here; the header row keeps the
+    // shared R..U audit layout.
     const audit = auditValues(actor, timestamp);
+    const auditCells = quotationAuditCells(actor, timestamp);
 
-    const headerValues = [
-      payload.quotationNo || "",
-      payload.customerId || "",
-      payload.customer || "",
-      payload.description || "",
-      payload.amount ?? 0,
-      payload.discount ?? 0,
-      payload.shippingFee || 0,
-      payload.paymentTermId || "",
-      payload.terms || "",
-      payload.file || "",
-      payload.date || "",
-      payload.preparedBy || "",
-      payload.approvedBy || "",
-      payload.sentBy || "",
-      payload.status || "DRAFT",
-      ...audit,
-    ];
+    const headerValues = quotationRowValues({
+      quotationNo: payload.quotationNo || "",
+      customerId: payload.customerId || "",
+      customer: payload.customer || "",
+      description: payload.description || "",
+      amount: payload.amount ?? 0,
+      discount: payload.discount ?? 0,
+      shippingFee: payload.shippingFee || 0,
+      pricingMode: payload.pricingMode,
+      singleTotalPrice: payload.singleTotalPrice,
+      paymentTermId: payload.paymentTermId || "",
+      paymentTerms: payload.terms || "",
+      file: payload.file || "",
+      date: payload.date || "",
+      preparedBy: payload.preparedBy || "",
+      approvedBy: payload.approvedBy || "",
+      sentBy: payload.sentBy || "",
+      status: payload.status || "DRAFT",
+      ...auditCells,
+    });
 
     const detailValues = (payload.items || []).map(item => [...detailRow(payload.quotationNo, item, payload.customerId), ...audit]);
 
@@ -343,7 +390,9 @@ export async function addQuotation(
       sentBy: payload.sentBy,
       status: payload.status || "DRAFT",
       items: aggregateDetailRows(detailValues, payload.quotationNo),
-      ...parseAudit(headerValues, 15),
+      pricingMode: parseQuotationRowValues(headerValues).pricingMode,
+      singleTotalPrice: parseQuotationRowValues(headerValues).singleTotalPrice,
+      ...auditCells,
       notation: aggregateNotationRows(notationValues, payload.quotationNo),
       terms: payload.terms || "",
       delivery: payload.delivery || "",
@@ -376,11 +425,13 @@ export async function updateQuotationStatus(
       throw new Error(`Quotation ${quotationNo} not found.`);
     }
 
+    // Status lives in column Q; only T (UpdatedBy) and U (UpdatedAt) are written
+    // with it, so the created pair (R/S) and every neighbouring column stay intact.
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
       requestBody: { valueInputOption: "RAW", data: [
-        { range: `${QUOTATIONS_SHEET}!O${idx + 2}`, values: [[newStatus]] },
-        { range: `${QUOTATIONS_SHEET}!R${idx + 2}:S${idx + 2}`, values: [[actor, new Date().toISOString()]] },
+        { range: quotationCellRange(idx + 2, "status", QUOTATIONS_SHEET), values: [[newStatus]] },
+        { range: quotationCellSpanRange(idx + 2, "updatedBy", "updatedAt", QUOTATIONS_SHEET), values: [[actor, new Date().toISOString()]] },
       ] },
     });
   } catch (error) {
@@ -483,33 +534,36 @@ export async function updateQuotation(
     payload = { ...payload, quotationNo: reference };
     const quotRowNum = quotIdx + 2;
     const timestamp = new Date().toISOString();
-    const audit = auditValues(actor, timestamp, quotRows[quotIdx], 15);
+    const auditCells = quotationAuditCells(actor, timestamp, quotRows[quotIdx]);
+    const pricing = pricingCellsForWrite(payload, quotRows[quotIdx]);
 
-    // 1. Update main row
+    // 1. Update the main row (all 21 columns A..U, in sheet order).
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `${QUOTATIONS_SHEET}!A${quotRowNum}`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
         values: [
-          [
-            payload.quotationNo || quotationNo,
-            payload.customerId || "",
-            payload.customer || "",
-            payload.description || "",
-            payload.amount ?? 0,
-            payload.discount ?? 0,
-            payload.shippingFee || 0,
-            payload.paymentTermId || "",
-            payload.terms || "",
-            payload.file || "",
-            payload.date || "",
-            payload.preparedBy || "",
-            payload.approvedBy || "",
-            payload.sentBy || "",
-            payload.status || "DRAFT",
-            ...audit,
-          ],
+          quotationRowValues({
+            quotationNo: payload.quotationNo || quotationNo,
+            customerId: payload.customerId || "",
+            customer: payload.customer || "",
+            description: payload.description || "",
+            amount: payload.amount ?? 0,
+            discount: payload.discount ?? 0,
+            shippingFee: payload.shippingFee || 0,
+            pricingMode: pricing[0],
+            singleTotalPrice: pricing[1],
+            paymentTermId: payload.paymentTermId || "",
+            paymentTerms: payload.terms || "",
+            file: payload.file || "",
+            date: payload.date || "",
+            preparedBy: payload.preparedBy || "",
+            approvedBy: payload.approvedBy || "",
+            sentBy: payload.sentBy || "",
+            status: payload.status || "DRAFT",
+            ...auditCells,
+          }),
         ],
       },
     });
@@ -553,7 +607,9 @@ export async function updateQuotation(
       sentBy: payload.sentBy,
       status: payload.status || "DRAFT",
       items,
-      ...parseAudit(audit, 0),
+      pricingMode: pricing[0],
+      singleTotalPrice: pricing[1],
+      ...auditCells,
       notation,
       terms: payload.terms || "",
       delivery: payload.delivery || "",
@@ -639,6 +695,10 @@ export async function saveQuotationData(params: {
   terms?: string;
   delivery?: string;
   warranty?: string;
+  /** Pricing mode of the quotation; defaults to the historical per-line mode. */
+  pricingMode?: string;
+  /** One combined price for the whole job (single-total mode only). */
+  singleTotalPrice?: number;
 }, actor: string): Promise<{ refNumber: string; date: string }> {
   try {
     const sheets = await getSheetsClient();
@@ -649,27 +709,29 @@ export async function saveQuotationData(params: {
     const refNumber = quotationReference(quotRows, params.quotationNo, params.status);
 
     const timestamp = new Date().toISOString();
+    // Child rows keep the 4-cell audit block; the header row uses R..U.
     const audit = auditValues(actor, timestamp);
-    const logRow = [
-      refNumber,
-      params.customerId || "",
-      params.clientName,
-      params.quotationDescription,
-      params.grandTotal || 0,
-      params.discount || 0,
-      params.shippingFee || 0,
-      params.paymentTermId || "",
-      params.terms || "",
-      params.fileUrl || "",
+    const auditCells = quotationAuditCells(actor, timestamp);
+    const logRow = quotationRowValues({
+      quotationNo: refNumber,
+      customerId: params.customerId || "",
+      customer: params.clientName,
+      description: params.quotationDescription,
+      amount: params.grandTotal || 0,
+      discount: params.discount || 0,
+      shippingFee: params.shippingFee || 0,
+      pricingMode: params.pricingMode,
+      singleTotalPrice: params.singleTotalPrice,
+      paymentTermId: params.paymentTermId || "",
+      paymentTerms: params.terms || "",
+      file: params.fileUrl || "",
       date,
-      params.preparedByName,
-      params.approvedBy ||
-        (params.status === "SENT" ? "Von Jeric Carmona" : ""),
-      params.sentByName ||
-        (params.status === "SENT" ? params.preparedByName : ""),
-      params.status,
-      ...audit,
-    ];
+      preparedBy: params.preparedByName,
+      approvedBy: params.approvedBy || (params.status === "SENT" ? "Von Jeric Carmona" : ""),
+      sentBy: params.sentByName || (params.status === "SENT" ? params.preparedByName : ""),
+      status: params.status,
+      ...auditCells,
+    });
 
     const writes = [
       sheets.spreadsheets.values.append({

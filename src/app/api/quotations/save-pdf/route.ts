@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { getDatabaseSpreadsheetId, getDriveUploadClient, getSheetsClient } from "@/lib/googleSheets";
+import { parseQuotationRowValues, quotationCellRange, quotationCellSpanRange, quotationSheetRange } from "@/lib/quotationRow";
 
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
@@ -13,13 +14,14 @@ export async function POST(request: Request) {
     }
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
-    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId, range: "Quotations!A2:S" })).data.values || [];
+    const rows = (await sheets.spreadsheets.values.get({ spreadsheetId, range: quotationSheetRange() })).data.values || [];
     const index = rows.findIndex(row => String(row[0]).trim() === quotationNo.trim());
     if (index < 0) return NextResponse.json({ error: "Quotation not found." }, { status: 404 });
-    const storedLink = String(rows[index][9] || "");
-    const storedId = storedLink.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || storedLink.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
+    const storedRow = rows[index];
+    const storedFile = parseQuotationRowValues(storedRow).file;
+    const storedId = storedFile.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || storedFile.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
     const drive = await getDriveUploadClient();
-    const name = `Quotation - ${quotationNo} - ${String(rows[index][2] || "").replace(/[/\\?%*:'|"<>]/g, "_")}.pdf`;
+    const name = `Quotation - ${quotationNo} - ${String(storedRow[2] || "").replace(/[/\\?%*:'|"<>]/g, "_")}.pdf`;
     const media = { mimeType: "application/pdf", body: Readable.from(Buffer.from(pdfBase64, "base64")) };
     let fileId = storedId;
     if (fileId) {
@@ -32,8 +34,8 @@ export async function POST(request: Request) {
     if (!fileId) throw new Error("Drive did not return a file ID.");
     const fileLink = `https://drive.google.com/file/d/${fileId}/view`;
     await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "RAW", data: [
-      { range: `Quotations!J${index + 2}`, values: [[fileLink]] },
-      { range: `Quotations!R${index + 2}:S${index + 2}`, values: [[session.username, new Date().toISOString()]] },
+      { range: quotationCellRange(index + 2, "file"), values: [[fileLink]] },
+      { range: quotationCellSpanRange(index + 2, "updatedBy", "updatedAt"), values: [[session.username, new Date().toISOString()]] },
     ] } });
     return NextResponse.json({ success: true, fileLink });
   } catch (error) {

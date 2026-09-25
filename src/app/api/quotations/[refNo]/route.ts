@@ -65,6 +65,12 @@ export async function PUT(
     if (body.shippingFee !== undefined && (typeof body.shippingFee !== "number" || !Number.isFinite(body.shippingFee) || body.shippingFee < 0)) {
       return NextResponse.json({ error: "Shipping fee must be a non-negative number." }, { status: 400 });
     }
+    if (body.singleTotalPrice !== undefined && (typeof body.singleTotalPrice !== "number" || !Number.isFinite(body.singleTotalPrice) || body.singleTotalPrice < 0)) {
+      return NextResponse.json({ error: "The combined total price must be a non-negative number." }, { status: 400 });
+    }
+    if (body.pricingMode !== undefined && body.pricingMode !== "PER_LINE" && body.pricingMode !== "SINGLE_TOTAL") {
+      return NextResponse.json({ error: "Pricing mode must be PER_LINE or SINGLE_TOTAL." }, { status: 400 });
+    }
     const updated = await updateQuotation(refNo, body, session.username);
     return NextResponse.json(updated, { status: 200 });
   } catch (error) {

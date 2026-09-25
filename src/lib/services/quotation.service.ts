@@ -67,6 +67,13 @@ export interface SaveQuotationPayload {
   vat: number;
   grandTotal: number;
   status: "DRAFT" | "SAVED" | "SENT";
+  /**
+   * Pricing mode chosen in the editor (PER_LINE keeps the historical behaviour).
+   * Omitted callers keep whatever the stored row already holds.
+   */
+  pricingMode?: "PER_LINE" | "SINGLE_TOTAL";
+  /** One combined price for the whole job (SINGLE_TOTAL mode only). */
+  singleTotalPrice?: number;
 }
 
 // New: Payload for sending email separately

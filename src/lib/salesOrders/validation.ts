@@ -4,6 +4,7 @@
 
 import { badRequest, SalesOrderError } from "./errors.ts";
 import { isValidSalesOrderNo } from "./domain.ts";
+import { isSalesOrderQuotationSource, resolveSalesOrderQuotation } from "./quotationReference.ts";
 
 export const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -119,6 +120,10 @@ export { SalesOrderError, isValidSalesOrderNo };
 export interface ValidatedCreateOrder {
   commandId: string;
   sourceQuotationNo: string;
+  /** Explicit quotation mode ("INTERNAL"/"EXTERNAL"), or "" for legacy payloads. */
+  quotationSource: string;
+  /** Raw external quotation number echoed back for callers that render the form. */
+  externalQuotationNo: string;
   customerId: string;
   customerNameSnapshot: string;
   customerTINSnapshot: string;
@@ -149,9 +154,27 @@ export function parseCreateOrderInput(body: unknown): ValidatedCreateOrder {
   const linesRaw = value.lines;
   if (!Array.isArray(linesRaw)) fieldErrors.lines = "Expected an array of lines.";
   const lines = Array.isArray(linesRaw) ? linesRaw.map(parseLineInput) : [];
+  // Quotation reference: an existing quotation (default) or a manually entered
+  // external number. The modes are mutually exclusive and an external number
+  // must not be blank; legacy payloads without a mode are unchanged.
+  const quotationSourceRaw = optionalStringField("quotationSource").toUpperCase();
+  if (quotationSourceRaw && !isSalesOrderQuotationSource(quotationSourceRaw)) {
+    fieldErrors.quotationSource = "quotationSource must be INTERNAL or EXTERNAL.";
+  }
+  const externalQuotationNoRaw = optionalStringField("externalQuotationNo");
+  const quotation = resolveSalesOrderQuotation({
+    quotationSource: quotationSourceRaw,
+    quotationNo: optionalStringField("sourceQuotationNo"),
+    externalQuotationNo: externalQuotationNoRaw,
+  });
+  if (quotation.error) {
+    fieldErrors[quotationSourceRaw === "EXTERNAL" ? "externalQuotationNo" : "sourceQuotationNo"] = quotation.error;
+  }
   const result: ValidatedCreateOrder = {
     commandId,
-    sourceQuotationNo: optionalStringField("sourceQuotationNo"),
+    sourceQuotationNo: quotation.quotationNo,
+    quotationSource: quotation.source ?? "",
+    externalQuotationNo: quotation.source === "EXTERNAL" ? quotation.quotationNo : externalQuotationNoRaw,
     customerId: requiredStringField("customerId"),
     customerNameSnapshot: optionalStringField("customerNameSnapshot"),
     customerTINSnapshot: optionalStringField("customerTINSnapshot"),

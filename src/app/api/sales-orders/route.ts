@@ -40,6 +40,8 @@ export async function POST(request: Request) {
     const detail = await createDraft(toActor(session), {
       commandId: input.commandId,
       sourceQuotationNo: input.sourceQuotationNo,
+      quotationSource: input.quotationSource,
+      externalQuotationNo: input.externalQuotationNo,
       customerId: input.customerId,
       customerNameSnapshot: input.customerNameSnapshot,
       customerTINSnapshot: input.customerTINSnapshot,

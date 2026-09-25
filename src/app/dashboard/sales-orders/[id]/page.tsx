@@ -9,7 +9,19 @@ import { Input } from "@/components/ui/input";
 import { PageLoader } from "@/components/ui/logo-loader";
 import { ArrowLeft, CheckCircle2, CirclePause, CirclePlay, Pencil, RefreshCw, XCircle } from "lucide-react";
 import salesOrderService, { type SalesOrderDetail } from "@/lib/services/sales-order.service";
+import type { SalesOrderItem } from "@/types/salesOrder";
+import { salesOrderQuotationDisplay } from "@/lib/salesOrders/quotationReference";
+import { isNotPricedLine, priceSourceLabel } from "@/lib/salesOrders/domain";
 import { money, formatDate, orderStatusBadge, fulfillmentBadge, syncBadge } from "@/components/sales-orders/badges";
+/**
+ * A descriptive line of a single-total quotation carries no price of its own:
+ * show that clearly instead of a misleading zero.
+ */
+function lineAmount(item: Pick<SalesOrderItem, "priceSource" | "lineTotal" | "unitPrice">): React.ReactNode {
+  if (isNotPricedLine(item)) return <span className="text-sm font-normal text-muted-foreground">Included in combined total</span>;
+  return item.unitPrice === null && item.lineTotal === 0 ? "unknown" : money(item.lineTotal);
+}
+
 
 export default function SalesOrderDetailPage() {
   const params = useParams<{ id: string }>();
@@ -93,6 +105,7 @@ function DetailInner({ orderId }: { orderId: string }) {
           <div><span className="text-muted-foreground">Received: </span>{formatDate(order.receivedDate)}</div>
           <div><span className="text-muted-foreground">Required: </span>{formatDate(order.requiredDate)}</div>
           <div><span className="text-muted-foreground">Customer PO: </span>{order.customerPONo || "—"}</div>
+          <div><span className="text-muted-foreground">Quotation No.: </span>{salesOrderQuotationDisplay(order) || "—"}</div>
           <div><span className="text-muted-foreground">Terms: </span>{order.paymentTermsSnapshot || "—"}</div>
           <div><span className="text-muted-foreground">Category: </span>{detail.category || "—"}</div>
           {order.cancelReason ? <div><span className="text-muted-foreground">Cancel reason: </span>{order.cancelReason}</div> : null}
@@ -140,10 +153,10 @@ function ItemsSection(props: { detail: SalesOrderDetail; orderId: string; expect
               <tr key={item.salesOrderItemId} className="border-b">
                 <td>{item.lineNo}</td>
                 <td>{item.description}{item.productCodeSnapshot ? <span className="block text-xs text-muted-foreground">{item.productCodeSnapshot}</span> : null}</td>
-                <td>{item.lineType} · <span className="text-xs text-muted-foreground">{item.priceSource}</span></td>
+                <td>{item.lineType} · <span className="text-xs text-muted-foreground">{priceSourceLabel(item.priceSource)}</span></td>
                 <td className="text-right">{item.quantity ?? "unknown"}</td>
-                <td className="text-right">{item.unitPrice === null ? "unknown" : money(item.unitPrice)}</td>
-                <td className="text-right">{money(item.lineTotal)}</td>
+                <td className="text-right">{isNotPricedLine(item) ? "Included" : item.unitPrice === null ? "unknown" : money(item.unitPrice)}</td>
+                <td className="text-right">{isNotPricedLine(item) ? <span className="text-xs text-muted-foreground">Included in combined total</span> : money(item.lineTotal)}</td>
                 <td className="text-right">{item.fulfilledQty}</td>
                 <td className="text-right">{item.cancelledQty}</td>
               </tr>
@@ -151,7 +164,7 @@ function ItemsSection(props: { detail: SalesOrderDetail; orderId: string; expect
           </tbody>
         </table></div>
         <div className="space-y-3 md:hidden">
-          {props.detail.items.map((item) => <article key={item.salesOrderItemId} className="rounded-lg border bg-background p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.description}</p><p className="text-xs text-muted-foreground">Line {item.lineNo} · {item.productCodeSnapshot || item.lineType}</p></div><strong className="tabular-nums">{money(item.lineTotal)}</strong></div><dl className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-xs text-muted-foreground">Quantity</dt><dd>{item.quantity ?? "Unknown"} {item.unitSnapshot}</dd></div><div><dt className="text-xs text-muted-foreground">Unit price</dt><dd>{item.unitPrice === null ? "Unknown" : money(item.unitPrice)}</dd></div><div><dt className="text-xs text-muted-foreground">Fulfilled</dt><dd>{item.fulfilledQty}</dd></div><div><dt className="text-xs text-muted-foreground">Cancelled</dt><dd>{item.cancelledQty}</dd></div></dl></article>)}
+          {props.detail.items.map((item) => <article key={item.salesOrderItemId} className="rounded-lg border bg-background p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.description}</p><p className="text-xs text-muted-foreground">Line {item.lineNo} · {item.productCodeSnapshot || item.lineType}</p></div><strong className="tabular-nums">{lineAmount(item)}</strong></div><dl className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-xs text-muted-foreground">Quantity</dt><dd>{item.quantity ?? "Unknown"} {item.unitSnapshot}</dd></div><div><dt className="text-xs text-muted-foreground">Unit price</dt><dd>{lineAmount(item)}</dd></div><div><dt className="text-xs text-muted-foreground">Fulfilled</dt><dd>{item.fulfilledQty}</dd></div><div><dt className="text-xs text-muted-foreground">Cancelled</dt><dd>{item.cancelledQty}</dd></div></dl></article>)}
         </div>
         <FulfillmentEvidenceGuidance detail={props.detail} />
       </CardContent>

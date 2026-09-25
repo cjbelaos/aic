@@ -1,9 +1,22 @@
 "use client";
 
-import { isDraftQuotationReference, quotationNumberLabel } from "@/lib/quotationReference";
+import {
+  isDraftQuotationReference,
+  quotationNumberLabel,
+} from "@/lib/quotationReference";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Plus, Trash2, Loader2, Send, Eye, Pencil } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Loader2,
+  Send,
+  Eye,
+  ChevronUp,
+  ChevronDown,
+  Package,
+  Wrench,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +53,22 @@ import { CustomerPrice } from "@/types/customer-price";
 import type { PublicUser } from "@/types/user";
 import type { Position } from "@/types/position";
 import { QuotationDetail, QuotationNotation } from "@/types/quotation";
+import {
+  PER_LINE_PRICING_LABEL,
+  SINGLE_TOTAL_PRICING_LABEL,
+  SINGLE_TOTAL_PRICE_LABEL,
+  isSingleTotalPricing,
+  normalizeQuotationPricingMode,
+  planPricingModeSwitch,
+  quotationLineKind,
+  quotationTotals,
+  singleTotalPriceFromRecord,
+} from "@/lib/quotationPricing";
+import type {
+  QuotationLineKind,
+  QuotationPricingMode,
+} from "@/types/quotation";
+import { upperText, upperTextList } from "@/lib/quotationText";
 import { getDriveImageUrl } from "@/lib/signatureUpload";
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -99,6 +128,8 @@ const WARRANTY_TERMS = [
 
 export type LineItem = {
   id: string;
+  /** Product lines reference the catalog; service lines are described manually. */
+  kind: QuotationLineKind;
   productId: string;
   description: string;
   quantity: number;
@@ -106,14 +137,22 @@ export type LineItem = {
   unitPrice: number;
 };
 
-const emptyLine = (): LineItem => ({
+const emptyLine = (kind: QuotationLineKind = "PRODUCT"): LineItem => ({
   id: generateId(),
+  kind,
   productId: "",
   description: "",
   quantity: 1,
   unit: "",
   unitPrice: 0,
 });
+
+/** A line is complete when a product line has a product and a service line a description. */
+function lineIsComplete(row: LineItem): boolean {
+  return row.kind === "PRODUCT"
+    ? Boolean(row.productId)
+    : Boolean(row.description.trim());
+}
 
 export type QuotationFormPayload = {
   quotationNo: string;
@@ -136,6 +175,10 @@ export type QuotationFormPayload = {
   vat: number;
   vatableAmount: number;
   grandTotal: number;
+  /** Pricing mode of the quotation ("PER_LINE" when the record predates it). */
+  pricingMode: QuotationPricingMode;
+  /** One combined price for the whole job (SINGLE_TOTAL mode only). */
+  singleTotalPrice?: number;
 };
 
 export function QuotationForm({
@@ -166,38 +209,46 @@ export function QuotationForm({
     [today, initialData],
   );
 
-  const [quotationNo] = useState(
-    initialData?.quotationNo || "",
-  );
+  const [quotationNo] = useState(initialData?.quotationNo || "");
 
   const [loading, setLoading] = useState(true);
   const [customers, setCustomers] = useState<QuotationCustomer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customerPrices, setCustomerPrices] = useState<CustomerPrice[]>([]);
-  const [paymentTermOptions, setPaymentTermOptions] = useState<PaymentTerm[]>([]);
+  const [paymentTermOptions, setPaymentTermOptions] = useState<PaymentTerm[]>(
+    [],
+  );
 
   const [customerId, setCustomerId] = useState("");
+  // Free-text quotation fields are always uppercase (typed or pasted).
   const [projectDescription, setProjectDescription] = useState(
-    initialData?.quotationDescription || "",
+    upperText(initialData?.quotationDescription ?? ""),
   );
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
 
-  /* Manual-entry toggle: Set<rowId> for rows in free-text mode */
-  const [manualRowIds, setManualRowIds] = useState<Set<string>>(new Set());
+  /**
+   * Pricing mode + the single combined price. Both are explicit user choices;
+   * the mode defaults to the historical per-line pricing for older records.
+   */
+  const [pricingMode, setPricingMode] = useState<QuotationPricingMode>(
+    normalizeQuotationPricingMode(initialData?.pricingMode),
+  );
+  const [singleTotalPrice, setSingleTotalPrice] = useState(
+    initialData ? singleTotalPriceFromRecord(initialData) : 0,
+  );
+  const [pricingNotice, setPricingNotice] = useState("");
 
   // Fix: Convert QuotationNotation[] to string[] for internal state
   const [notations, setNotations] = useState<string[]>(
     initialData?.notations && initialData.notations.length > 0
-      ? initialData.notations.map((n) => n.notation || "").flat()
+      ? upperTextList(initialData.notations.map((n) => n.notation || ""))
       : [""],
   );
 
   const [shippingFee, setShippingFee] = useState(initialData?.shippingFee || 0);
   const [discount, setDiscount] = useState(initialData?.discount || 0);
 
-  const [paymentTerms, setPaymentTerms] = useState(
-    initialData?.terms || "",
-  );
+  const [paymentTerms, setPaymentTerms] = useState(initialData?.terms || "");
   const [deliveryTerms, setDeliveryTerms] = useState(
     initialData?.delivery || DELIVERY_TERMS[0],
   );
@@ -268,13 +319,17 @@ export function QuotationForm({
     return list;
   }, [sameDeptUsers, allUsers, executiveUsernames]);
 
-  const subTotal = lineItems.reduce(
-    (sum, row) => sum + row.quantity * row.unitPrice,
-    0,
-  );
-  const grandTotal = Math.max(subTotal - (discount || 0), 0) + shippingFee;
-  const vat = grandTotal * (12 / 112);
-  const vatableAmount = grandTotal - vat;
+  const singleTotalMode = isSingleTotalPricing(pricingMode);
+  const totals = quotationTotals(pricingMode, {
+    lineItems,
+    singleTotalPrice,
+    discount,
+    shippingFee,
+  });
+  const subTotal = totals.subtotal;
+  const grandTotal = totals.grandTotal;
+  const vat = totals.vat;
+  const vatableAmount = totals.vatableAmount;
 
   const selectedProductIds = useMemo(() => {
     return lineItems.map((item) => item.productId).filter(Boolean);
@@ -284,15 +339,16 @@ export function QuotationForm({
     (async () => {
       try {
         // Generate quotation number if not already set
-        const [cRes, pRes, cpRes, uRes, posRes, contactRes, termsRes] = await Promise.all([
-          companyService.getAll(),
-          productService.getAll(),
-          customerPriceService.getAll(),
-          userService.getAllUsers(),
-          positionService.getAll(),
-          companyContactService.getAll(),
-          paymentTermService.getAll(),
-        ]);
+        const [cRes, pRes, cpRes, uRes, posRes, contactRes, termsRes] =
+          await Promise.all([
+            companyService.getAll(),
+            productService.getAll(),
+            customerPriceService.getAll(),
+            userService.getAllUsers(),
+            positionService.getAll(),
+            companyContactService.getAll(),
+            paymentTermService.getAll(),
+          ]);
 
         const customerCompanies = (cRes ?? []).filter(
           (c) => c.companyType === "Customer" || c.companyType === "Both",
@@ -315,7 +371,9 @@ export function QuotationForm({
         setCustomers(mappedCustomers);
         setProducts(pRes ?? []);
         setCustomerPrices(cpRes ?? []);
-        setPaymentTermOptions((termsRes ?? []).filter((term) => term.status === "Active"));
+        setPaymentTermOptions(
+          (termsRes ?? []).filter((term) => term.status === "Active"),
+        );
         setAllUsers(uRes ?? []);
         setPositions(posRes ?? []);
 
@@ -365,8 +423,8 @@ export function QuotationForm({
         if (initialData && cRes) {
           const initialCustomer = cRes.find(
             (c) =>
-              c.companyName ?.trim() ===
-              initialData.customer?.companyName ?.trim(),
+              c.companyName?.trim() ===
+              initialData.customer?.companyName?.trim(),
           );
           if (initialCustomer) {
             setCustomerId(String(initialCustomer.id));
@@ -379,12 +437,20 @@ export function QuotationForm({
               const matchedProduct = pRes.find(
                 (p) => p.name?.trim() === item.description?.trim(),
               );
+              const productId =
+                item.productId ||
+                (matchedProduct
+                  ? String(matchedProduct.productId || matchedProduct.id)
+                  : "");
               return {
                 id: generateId(),
-                productId: item.productId || (matchedProduct ? String(matchedProduct.productId || matchedProduct.id) : ""),
-                description: matchedProduct ? "" : (item.description || ""),
+                kind: quotationLineKind({ productId }),
+                productId,
+                description: matchedProduct
+                  ? ""
+                  : upperText(item.description || ""),
                 quantity: item.quantity,
-                unit: item.unit,
+                unit: upperText(item.unit || ""),
                 unitPrice: item.unitPrice,
               };
             }),
@@ -439,7 +505,8 @@ export function QuotationForm({
     [products, customers, customerPrices],
   );
 
-  // Recalculate price matrix rows correctly upon customer adjustments
+  // Recalculate price matrix rows correctly upon customer adjustments. This is
+  // the historical behaviour and never changes a total in single-total mode.
   useEffect(() => {
     if (!customerId || lineItems.length === 0) return;
     setLineItems((prevRows) =>
@@ -460,6 +527,46 @@ export function QuotationForm({
     );
   };
 
+  /**
+   * Switches one line between a catalog product and a manually described service
+   * (service and repair work share the Service kind). The catalog reference is
+   * dropped when the line becomes a service; the description, quantity, unit and
+   * price the user already entered are retained in both directions.
+   */
+  const switchLineKind = (rowId: string, kind: QuotationLineKind) => {
+    if (readOnly) return;
+    setLineItems((rows) =>
+      rows.map((row) => {
+        if (row.id !== rowId || row.kind === kind) return row;
+        if (kind === "SERVICE") {
+          const product = products.find((p) => String(p.id) === row.productId);
+          return {
+            ...row,
+            kind,
+            productId: "",
+            // Keep a useful starting description instead of losing the product name.
+            description:
+              row.description.trim() || upperText(product?.name?.trim() || ""),
+          };
+        }
+        return { ...row, kind };
+      }),
+    );
+  };
+
+  /** Reorders a line with the arrow controls (mixed product/service lists). */
+  const moveLine = (index: number, direction: -1 | 1) => {
+    if (readOnly) return;
+    setLineItems((rows) => {
+      const target = index + direction;
+      if (target < 0 || target >= rows.length) return rows;
+      const next = [...rows];
+      const [moved] = next.splice(index, 1);
+      next.splice(target, 0, moved);
+      return next;
+    });
+  };
+
   const onProductSelect = (rowId: string, productId: string) => {
     if (readOnly) return;
     const product = products.find((p) => String(p.id) === productId);
@@ -477,27 +584,48 @@ export function QuotationForm({
     }
 
     updateLine(rowId, {
+      kind: "PRODUCT",
       productId,
       unit: derivedUnit,
       unitPrice: calculateUnitPrice(productId, customerId),
     });
   };
 
-  const addNewLineItem = () => {
+  const addNewLineItem = (kind: QuotationLineKind) => {
     if (readOnly) return;
-    const hasEmptyFields = lineItems.some((item) => !item.productId && !item.description.trim());
+    const hasEmptyFields = lineItems.some((item) => !lineIsComplete(item));
     if (hasEmptyFields) {
       toast.error(
-        "Please fill out the existing line items before creating a new row.",
+        "Please complete the existing line items before creating a new row.",
       );
       return;
     }
-    setLineItems((rows) => [...rows, emptyLine()]);
+    setLineItems((rows) => [...rows, emptyLine(kind)]);
+  };
+
+  /**
+   * Safe pricing-mode switching: descriptions and per-line prices stay in state
+   * (and stay persisted on the lines), the combined price is seeded from the line
+   * sum only when none was entered, and the reason is explained to the user.
+   */
+  const changePricingMode = (next: QuotationPricingMode) => {
+    if (readOnly) return;
+    const result = planPricingModeSwitch({
+      from: pricingMode,
+      to: next,
+      lineItems,
+      singleTotalPrice,
+    });
+    setPricingMode(result.mode);
+    setSingleTotalPrice(result.singleTotalPrice);
+    setPricingNotice(result.note);
   };
 
   const handleNotationChange = (index: number, value: string) => {
     if (readOnly) return;
-    setNotations((prev) => prev.map((note, i) => (i === index ? value : note)));
+    setNotations((prev) =>
+      prev.map((note, i) => (i === index ? upperText(value) : note)),
+    );
   };
 
   const addNotationRow = () => {
@@ -512,6 +640,26 @@ export function QuotationForm({
     );
   };
 
+  /**
+   * Line and pricing validation shared by preview, draft save and numbered save.
+   * Product lines need a catalog product; service lines need a description; a
+   * single-total quotation needs its one combined price.
+   */
+  const quotationValidationError = (): string => {
+    const incompleteIndex = lineItems.findIndex(
+      (item) => !lineIsComplete(item),
+    );
+    if (incompleteIndex >= 0) {
+      return lineItems[incompleteIndex].kind === "PRODUCT"
+        ? `Line ${incompleteIndex + 1} needs a catalog product, or switch that line to Service and describe the work.`
+        : `Line ${incompleteIndex + 1} needs a description of the service or repair work.`;
+    }
+    if (isSingleTotalPricing(pricingMode) && singleTotalPrice <= 0) {
+      return "Enter the total price for the whole job before saving a single total price quotation.";
+    }
+    return "";
+  };
+
   const handleSaveAndPreview = () => {
     if (!selectedCustomer) {
       toast.error("Please select a customer before previewing.");
@@ -523,11 +671,9 @@ export function QuotationForm({
       return;
     }
 
-    const hasEmptyFields2 = lineItems.some((item) => !item.productId && !item.description.trim());
-    if (hasEmptyFields2) {
-      toast.error(
-        "Please complete or remove unselected product lines before previewing.",
-      );
+    const validationError = quotationValidationError();
+    if (validationError) {
+      toast.error(validationError);
       return;
     }
 
@@ -557,33 +703,46 @@ export function QuotationForm({
       return;
     }
 
-    const hasEmptyFields3 = lineItems.some((item) => !item.productId && !item.description.trim());
-    if (hasEmptyFields3) {
-      toast.error(
-        "Please complete or remove unselected product lines before saving draft.",
-      );
+    const validationError = quotationValidationError();
+    if (validationError) {
+      toast.error(validationError);
       scrollToField(itemsRef);
       return;
     }
 
     // Create payload with DRAFT status
-    const payload = getPayload(numbered || !isDraftQuotationReference(quotationNo) ? "SAVED" : "DRAFT");
+    const payload = getPayload(
+      numbered || !isDraftQuotationReference(quotationNo) ? "SAVED" : "DRAFT",
+    );
     // For draft, we don't need a PDF blob
     onSubmit(payload);
   };
 
-  const getPayload = (finalStatus: "DRAFT" | "SAVED" | "SENT"): QuotationFormPayload => {
+  const getPayload = (
+    finalStatus: "DRAFT" | "SAVED" | "SENT",
+  ): QuotationFormPayload => {
     // Fix: Create QuotationDetail[] with proper structure
     const itemsPayload: QuotationDetail[] = lineItems.map((item) => {
       const matchedProd = products.find((p) => String(p.id) === item.productId);
-      const description = item.description.trim() || matchedProd?.name || "Manual Entry Item";
+      const isProductLine = item.kind === "PRODUCT" && Boolean(matchedProd);
+      // User-entered text is uppercased; a catalogue product name snapshot is
+      // kept exactly as the catalogue stores it (it is not a typed input).
+      const description = item.description.trim()
+        ? upperText(item.description.trim())
+        : matchedProd?.name || "";
       return {
         quotationNo: quotationNo,
-        productId: item.productId || undefined,
-        productCodeSnapshot: matchedProd?.code || undefined,
+        // Service lines persist without a product reference; the description is
+        // the line's identity, so no product record is required for them.
+        productId: isProductLine
+          ? matchedProd?.productId || item.productId
+          : undefined,
+        productCodeSnapshot: isProductLine
+          ? matchedProd?.code || undefined
+          : undefined,
         description,
         quantity: item.quantity,
-        unit: item.unit,
+        unit: upperText(item.unit),
         unitPrice: item.unitPrice,
       };
     });
@@ -592,7 +751,7 @@ export function QuotationForm({
       .filter((n) => n.trim() !== "")
       .map((note) => ({
         quotationNo: quotationNo,
-        notation: note,
+        notation: upperText(note),
       }));
 
     return {
@@ -605,7 +764,11 @@ export function QuotationForm({
       subTotal,
       discount,
       shippingFee,
-      paymentTermId: paymentTermOptions.find((term) => term.name === paymentTerms)?.paymentTermId || initialData?.paymentTermId || "",
+      paymentTermId:
+        paymentTermOptions.find((term) => term.name === paymentTerms)
+          ?.paymentTermId ||
+        initialData?.paymentTermId ||
+        "",
       terms: paymentTerms,
       delivery: deliveryTerms,
       warranty: warrantyTerms,
@@ -616,6 +779,10 @@ export function QuotationForm({
       vat,
       vatableAmount,
       grandTotal,
+      pricingMode,
+      singleTotalPrice: isSingleTotalPricing(pricingMode)
+        ? singleTotalPrice
+        : 0,
     };
   };
 
@@ -719,43 +886,68 @@ export function QuotationForm({
         {/* Line Items Block - Read Only */}
         <div className="rounded-lg border bg-card p-6 shadow-sm">
           <h2 className="text-xl font-semibold mb-4">Line Items</h2>
-          <Table className="border text-xs">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[40%]">Product Description</TableHead>
-                <TableHead className="w-[15%] text-center">Qty</TableHead>
-                <TableHead className="w-[15%] text-center">Unit</TableHead>
-                <TableHead className="w-[15%] text-right">Price/Unit</TableHead>
-                <TableHead className="w-[15%] text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {lineItems.map((row) => {
-                const matchedProd = products.find(
-                  (p) => String(p.id) === row.productId,
-                );
-                return (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium">
-                      {matchedProd?.name || "Manual Entry Item"}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {row.quantity}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {row.unit || "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(row.unitPrice)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(row.quantity * row.unitPrice)}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <p className="mb-3 text-xs text-muted-foreground">
+            {singleTotalMode
+              ? `${SINGLE_TOTAL_PRICING_LABEL} · all lines are shown by description; the job is quoted as one combined total.`
+              : PER_LINE_PRICING_LABEL}
+          </p>
+          <div className="overflow-x-auto">
+            <Table className="border text-xs min-w-[640px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[12%]">Type</TableHead>
+                  <TableHead className="w-[48%]">Description</TableHead>
+                  <TableHead className="w-[12%] text-center">Qty</TableHead>
+                  <TableHead className="w-[12%] text-center">Unit</TableHead>
+                  {singleTotalMode ? null : (
+                    <TableHead className="w-[16%] text-right">
+                      Price/Unit
+                    </TableHead>
+                  )}
+                  {singleTotalMode ? null : (
+                    <TableHead className="w-[16%] text-right">Amount</TableHead>
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lineItems.map((row) => {
+                  const matchedProd = products.find(
+                    (p) => String(p.id) === row.productId,
+                  );
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell>
+                        {row.kind === "PRODUCT" ? "Product" : "Service"}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {row.kind === "PRODUCT"
+                          ? matchedProd?.name ||
+                            row.description ||
+                            "Unnamed product"
+                          : row.description}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.quantity}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.unit || "—"}
+                      </TableCell>
+                      {singleTotalMode ? null : (
+                        <TableCell className="text-right">
+                          {formatCurrency(row.unitPrice)}
+                        </TableCell>
+                      )}
+                      {singleTotalMode ? null : (
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(row.quantity * row.unitPrice)}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
         </div>
 
         {/* Notations Block - Read Only */}
@@ -823,8 +1015,23 @@ export function QuotationForm({
             <div>
               <h2 className="text-xl font-semibold mb-4">Summary</h2>
               <div className="space-y-3 text-sm">
-                <TotalRow label="Sub Total" value={formatCurrency(subTotal)} />
-                {shippingFee > 0 && <TotalRow label="Shipping Fee" value={formatCurrency(shippingFee)} />}
+                {singleTotalMode ? (
+                  <TotalRow
+                    label={SINGLE_TOTAL_PRICE_LABEL}
+                    value={formatCurrency(singleTotalPrice)}
+                  />
+                ) : (
+                  <TotalRow
+                    label="Sub Total"
+                    value={formatCurrency(subTotal)}
+                  />
+                )}
+                {shippingFee > 0 && (
+                  <TotalRow
+                    label="Shipping Fee"
+                    value={formatCurrency(shippingFee)}
+                  />
+                )}
                 {discount > 0 && (
                   <TotalRow
                     label="Discount"
@@ -953,7 +1160,7 @@ export function QuotationForm({
           <RequiredLabel>Description</RequiredLabel>
           <Input
             value={projectDescription}
-            onChange={(e) => setProjectDescription(e.target.value)}
+            onChange={(e) => setProjectDescription(upperText(e.target.value))}
             placeholder="PORTABLE RO PARTS"
             className="font-semibold uppercase"
             disabled={isSaving || readOnly}
@@ -966,164 +1173,298 @@ export function QuotationForm({
         <h2 className="text-xl font-semibold mb-4">
           Line Items <span className="text-red-500">*</span>
         </h2>
-        <Table className="border text-xs">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[50%]">Product Description</TableHead>
-              <TableHead className="w-[15%] text-center">Qty</TableHead>
-              <TableHead className="w-[15%] text-center">Unit</TableHead>
-              <TableHead className="w-[15%] text-right">Price/Unit</TableHead>
-              <TableHead className="w-[5%]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {lineItems.map((row) => {
-              const individualProductOptions = products
-                .filter(
-                  (p) =>
-                    String(p.id) === row.productId ||
-                    !selectedProductIds.includes(String(p.id)),
-                )
-                .map((p) => ({
-                  value: String(p.id),
-                  label: p.name?.trim() || "Unnamed Product",
-                }));
 
-              return (
-                <TableRow key={row.id}>
-                  <TableCell className="p-1 align-top">
-                    {manualRowIds.has(row.id) ? (
-                      <Input
-                        value={row.description}
-                        onChange={(e) =>
-                          updateLine(row.id, { description: e.target.value })
+        {/* Pricing mode: explicit, and switching never discards descriptions or prices. */}
+        <div className="mb-4 flex flex-col gap-3 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Pricing mode</p>
+            <p className="text-xs text-muted-foreground">
+              {singleTotalMode
+                ? "Every product and service is listed by description; one combined price is entered once and shown as a single total."
+                : "Every line is priced individually, exactly as before."}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={pricingMode === "PER_LINE" ? "default" : "outline"}
+              aria-pressed={pricingMode === "PER_LINE"}
+              onClick={() => changePricingMode("PER_LINE")}
+              disabled={isSaving || readOnly}
+            >
+              {PER_LINE_PRICING_LABEL}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={pricingMode === "SINGLE_TOTAL" ? "default" : "outline"}
+              aria-pressed={pricingMode === "SINGLE_TOTAL"}
+              onClick={() => changePricingMode("SINGLE_TOTAL")}
+              disabled={isSaving || readOnly}
+            >
+              {SINGLE_TOTAL_PRICING_LABEL}
+            </Button>
+          </div>
+        </div>
+        {pricingNotice ? (
+          <p
+            role="status"
+            className="mb-3 rounded-md border border-blue-300 bg-blue-50 p-2 text-xs text-blue-900"
+          >
+            {pricingNotice}
+          </p>
+        ) : null}
+        {singleTotalMode ? (
+          <div className="mb-4 rounded-lg border bg-background p-3">
+            <Label htmlFor="quotation-single-total">
+              {SINGLE_TOTAL_PRICE_LABEL} (PHP)
+            </Label>
+            <Input
+              id="quotation-single-total"
+              type="number"
+              min="0"
+              step="0.01"
+              value={singleTotalPrice || ""}
+              placeholder="0.00"
+              className="mt-2 sm:max-w-xs"
+              disabled={isSaving || readOnly}
+              onChange={(e) =>
+                setSingleTotalPrice(Math.max(0, Number(e.target.value) || 0))
+              }
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Entered once for the whole job. No per-line price is displayed or
+              derived from this total.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="overflow-x-auto">
+          <Table className="border text-xs min-w-[720px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[12%]">Type</TableHead>
+                <TableHead className="w-[38%]">Description</TableHead>
+                <TableHead className="w-[10%] text-center">Qty</TableHead>
+                <TableHead className="w-[10%] text-center">Unit</TableHead>
+                {singleTotalMode ? null : (
+                  <TableHead className="w-[14%] text-right">
+                    Price/Unit
+                  </TableHead>
+                )}
+                <TableHead className="w-[16%] text-center">Order</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lineItems.map((row, index) => {
+                const individualProductOptions = products
+                  .filter(
+                    (p) =>
+                      String(p.id) === row.productId ||
+                      !selectedProductIds.includes(String(p.id)),
+                  )
+                  .map((p) => ({
+                    value: String(p.id),
+                    label: p.name?.trim() || "Unnamed Product",
+                  }));
+
+                return (
+                  <TableRow key={row.id}>
+                    <TableCell className="p-1 align-top">
+                      <Select
+                        value={row.kind}
+                        onValueChange={(value) =>
+                          switchLineKind(
+                            row.id,
+                            value === "SERVICE" ? "SERVICE" : "PRODUCT",
+                          )
                         }
-                        placeholder="Type item description…"
-                        className="h-8 border-0 text-xs shadow-none"
+                        disabled={isSaving || readOnly}
+                      >
+                        <SelectTrigger className="h-8 w-full text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PRODUCT">Product</SelectItem>
+                          <SelectItem value="SERVICE">Service</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="p-1 align-top">
+                      {row.kind === "PRODUCT" ? (
+                        <SearchableSelect
+                          value={row.productId}
+                          onValueChange={(v) => onProductSelect(row.id, v)}
+                          options={individualProductOptions}
+                          placeholder="Select product"
+                          searchPlaceholder="Search products..."
+                          className="h-8 border-0 text-xs shadow-none"
+                          disabled={isSaving || readOnly}
+                        />
+                      ) : (
+                        <Input
+                          value={row.description}
+                          onChange={(e) =>
+                            updateLine(row.id, {
+                              description: upperText(e.target.value),
+                            })
+                          }
+                          placeholder="Describe the service or repair work…"
+                          className="h-8 text-xs uppercase"
+                          aria-label={`Service description line ${index + 1}`}
+                          disabled={isSaving || readOnly}
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell className="p-1 text-center">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={row.quantity}
+                        onChange={(e) =>
+                          updateLine(row.id, {
+                            quantity: Number(e.target.value) || 0,
+                          })
+                        }
+                        className="h-8 w-16 border-0 text-center text-xs shadow-none mx-auto"
                         disabled={isSaving || readOnly}
                       />
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <div className="flex-1">
-                          <SearchableSelect
-                            value={row.productId}
-                            onValueChange={(v) => onProductSelect(row.id, v)}
-                            options={individualProductOptions}
-                            placeholder="Select product"
-                            searchPlaceholder="Search products..."
-                            className="h-8 border-0 text-xs shadow-none"
-                            disabled={isSaving || readOnly}
-                          />
-                        </div>
+                    </TableCell>
+                    <TableCell className="p-1 text-center">
+                      <Input
+                        value={row.unit}
+                        onChange={(e) =>
+                          updateLine(row.id, {
+                            unit: upperText(e.target.value),
+                          })
+                        }
+                        placeholder="unit"
+                        className="h-8 w-20 border-0 text-center text-xs uppercase shadow-none mx-auto"
+                        disabled={isSaving || readOnly}
+                      />
+                    </TableCell>
+                    {singleTotalMode ? null : (
+                      <TableCell className="p-1 text-right">
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.unitPrice || ""}
+                          onChange={(e) =>
+                            updateLine(row.id, {
+                              unitPrice: Math.max(
+                                0,
+                                Number(e.target.value) || 0,
+                              ),
+                            })
+                          }
+                          placeholder="0.00"
+                          aria-label={`Unit price line ${index + 1}`}
+                          className="h-8 w-24 border-0 text-right text-xs shadow-none ml-auto"
+                          disabled={isSaving || readOnly}
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell className="p-1">
+                      <div className="flex items-center justify-center gap-0.5">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 shrink-0"
-                          title="Type manually"
+                          className="h-7 w-7"
+                          title="Move line up"
+                          aria-label={`Move line ${index + 1} up`}
+                          onClick={() => moveLine(index, -1)}
+                          disabled={index === 0 || isSaving || readOnly}
+                        >
+                          <ChevronUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Move line down"
+                          aria-label={`Move line ${index + 1} down`}
+                          onClick={() => moveLine(index, 1)}
+                          disabled={
+                            index === lineItems.length - 1 ||
+                            isSaving ||
+                            readOnly
+                          }
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          title="Remove line"
+                          aria-label={`Remove line ${index + 1}`}
                           onClick={() =>
-                            setManualRowIds((prev) => new Set(prev).add(row.id))
+                            setLineItems((rows) =>
+                              rows.length > 1
+                                ? rows.filter((r) => r.id !== row.id)
+                                : rows,
+                            )
                           }
                           disabled={isSaving || readOnly}
                         >
-                          <Pencil className="h-3 w-3" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    )}
-                    {manualRowIds.has(row.id) && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs text-muted-foreground mt-0.5"
-                        onClick={() =>
-                          setManualRowIds((prev) => {
-                            const next = new Set(prev);
-                            next.delete(row.id);
-                            return next;
-                          })
-                        }
-                        disabled={isSaving || readOnly}
-                      >
-                        Switch to product
-                      </Button>
-                    )}
-                  </TableCell>
-                  <TableCell className="p-1 text-center">
-                    <Input
-                      type="number"
-                      min={1}
-                      value={row.quantity}
-                      onChange={(e) =>
-                        updateLine(row.id, {
-                          quantity: Number(e.target.value) || 0,
-                        })
-                      }
-                      className="h-8 w-16 border-0 text-center text-xs shadow-none mx-auto"
-                      disabled={isSaving || readOnly}
-                    />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {manualRowIds.has(row.id) ? (
-                      <Input
-                        value={row.unit}
-                        onChange={(e) =>
-                          updateLine(row.id, { unit: e.target.value })
-                        }
-                        placeholder="unit"
-                        className="h-8 w-16 border-0 text-center text-xs shadow-none mx-auto"
-                        disabled={isSaving || readOnly}
-                      />
-                    ) : (
-                      row.unit || "—"
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right px-2 font-medium">
-                    {formatCurrency(row.unitPrice)}
-                  </TableCell>
-                  <TableCell className="p-1 text-center">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive"
-                      onClick={() =>
-                        setLineItems((rows) =>
-                          rows.length > 1
-                            ? rows.filter((r) => r.id !== row.id)
-                            : rows,
-                        )
-                      }
-                      disabled={isSaving || readOnly}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="mt-4"
-          onClick={addNewLineItem}
-          disabled={isSaving || readOnly}
-        >
-          <Plus className="mr-1 h-4 w-4" />
-          Add New Line Item Row
-        </Button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => addNewLineItem("PRODUCT")}
+            disabled={isSaving || readOnly}
+          >
+            <Package className="mr-1 h-4 w-4" />
+            Add product line
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => addNewLineItem("SERVICE")}
+            disabled={isSaving || readOnly}
+          >
+            <Wrench className="mr-1 h-4 w-4" />
+            Add service line
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-lg border bg-card p-6 shadow-sm">
-        <Label htmlFor="quotation-shipping-fee">Shipping Fee (PHP, optional)</Label>
-        <Input id="quotation-shipping-fee" type="number" min="0" step="0.01" value={shippingFee || ""} placeholder="0.00" className="mt-2 sm:max-w-xs" disabled={isSaving || readOnly} onChange={e => setShippingFee(Math.max(0, Number(e.target.value) || 0))} />
+        <Label htmlFor="quotation-shipping-fee">
+          Shipping Fee (PHP, optional)
+        </Label>
+        <Input
+          id="quotation-shipping-fee"
+          type="number"
+          min="0"
+          step="0.01"
+          value={shippingFee || ""}
+          placeholder="0.00"
+          className="mt-2 sm:max-w-xs"
+          disabled={isSaving || readOnly}
+          onChange={(e) =>
+            setShippingFee(Math.max(0, Number(e.target.value) || 0))
+          }
+        />
       </div>
-
-
 
       {/* Notations Block */}
       <div className="rounded-lg border bg-card p-6 shadow-sm">
@@ -1138,7 +1479,7 @@ export function QuotationForm({
                 value={note}
                 onChange={(e) => handleNotationChange(index, e.target.value)}
                 placeholder="Enter additional notification details or contract parameters..."
-                className="h-9 text-xs"
+                className="h-9 text-xs uppercase"
                 disabled={isSaving || readOnly}
               />
               <Button
@@ -1176,7 +1517,12 @@ export function QuotationForm({
             label="Terms of Payment"
             value={paymentTerms}
             onChange={setPaymentTerms}
-            options={[...new Set([paymentTerms, ...paymentTermOptions.map((term) => term.name)])].filter(Boolean)}
+            options={[
+              ...new Set([
+                paymentTerms,
+                ...paymentTermOptions.map((term) => term.name),
+              ]),
+            ].filter(Boolean)}
             disabled={isSaving || readOnly}
           />
           <TermsSelect
@@ -1236,8 +1582,33 @@ export function QuotationForm({
           <div>
             <h2 className="text-xl font-semibold mb-4">Summary</h2>
             <div className="space-y-3 text-sm">
-              <TotalRow label="Sub Total" value={formatCurrency(subTotal)} />
-              {shippingFee > 0 && <TotalRow label="Shipping Fee" value={formatCurrency(shippingFee)} />}
+              {singleTotalMode ? (
+                <div className="flex items-center justify-between gap-4">
+                  <span>{SINGLE_TOTAL_PRICE_LABEL}</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={singleTotalPrice || ""}
+                    onChange={(e) =>
+                      setSingleTotalPrice(
+                        Math.max(0, Number(e.target.value) || 0),
+                      )
+                    }
+                    aria-label={SINGLE_TOTAL_PRICE_LABEL}
+                    className="h-8 w-36 text-right"
+                    disabled={isSaving || readOnly}
+                  />
+                </div>
+              ) : (
+                <TotalRow label="Sub Total" value={formatCurrency(subTotal)} />
+              )}
+              {shippingFee > 0 && (
+                <TotalRow
+                  label="Shipping Fee"
+                  value={formatCurrency(shippingFee)}
+                />
+              )}
               <div className="flex items-center justify-between gap-4">
                 <span>Discount</span>
                 <Input
@@ -1264,36 +1635,58 @@ export function QuotationForm({
           </div>
 
           {!readOnly && (
-            <div className="flex justify-end gap-2 mt-6">
-              <Button variant="outline" onClick={onCancel} disabled={isSaving}>
-                Cancel
-              </Button>
+            <div className="mt-6 space-y-3">
+              <p className="text-xs text-muted-foreground text-right">
+                Save assigns a quotation number. Save Draft keeps it unnumbered.
+                Download PDF from the saved quotation's printable preview.
+              </p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={onCancel}
+                  disabled={isSaving}
+                >
+                  Cancel
+                </Button>
 
-              {/* Save Draft button - Green outline */}
-              <Button
-                onClick={() => handleSaveDraft(false)}
-                disabled={isSaving}
-                variant="outline"
-                className="gap-2 border-emerald-600 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
-              >
-                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <Plus className="h-4 w-4" />
-                {isDraftQuotationReference(quotationNo) ? "Save Draft" : "Save"}
-              </Button>
+                {/* Save Draft button - Green outline */}
+                <Button
+                  onClick={() => handleSaveDraft(false)}
+                  disabled={isSaving}
+                  variant="outline"
+                  className="gap-2 border-emerald-600 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                >
+                  {isSaving && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  <Plus className="h-4 w-4" />
+                  {isDraftQuotationReference(quotationNo)
+                    ? "Save Draft"
+                    : "Save"}
+                </Button>
 
-              {isDraftQuotationReference(quotationNo) && <Button onClick={() => handleSaveDraft(true)} disabled={isSaving}>Save</Button>}
-              <p className="text-xs text-muted-foreground">Save assigns a quotation number. Save Draft keeps it unnumbered. Download PDF from the saved quotation?s printable preview.</p>
+                {isDraftQuotationReference(quotationNo) && (
+                  <Button
+                    onClick={() => handleSaveDraft(true)}
+                    disabled={isSaving}
+                  >
+                    Save
+                  </Button>
+                )}
 
-              {/* Save & Preview button - Green solid */}
-              <Button
-                onClick={handleSaveAndPreview}
-                disabled={isSaving}
-                className="gap-2 text-white bg-emerald-600 hover:bg-emerald-700"
-              >
-                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <Eye className="h-4 w-4" />
-                Save & Preview
-              </Button>
+                {/* Save & Preview button - Green solid */}
+                <Button
+                  onClick={handleSaveAndPreview}
+                  disabled={isSaving}
+                  className="gap-2 text-white bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {isSaving && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  <Eye className="h-4 w-4" />
+                  Save & Preview
+                </Button>
+              </div>
             </div>
           )}
         </div>

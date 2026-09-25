@@ -40,6 +40,22 @@ assert.equal(draftLine.lines[0].unitPrice, null);
 const withPo = parseCreateOrderInput({ ...base, customerPONo: "00042" });
 assert.equal(withPo.customerPONo, "00042");
 
+// Quotation reference: selecting an existing quotation is still the default.
+const withInternalQuotation = parseCreateOrderInput({ ...base, quotationSource: "INTERNAL", sourceQuotationNo: "QT-001" });
+assert.equal(withInternalQuotation.sourceQuotationNo, "QT-001");
+assert.equal(withInternalQuotation.quotationSource, "INTERNAL");
+// An external quotation number is saved as the order's reference without an internal record.
+const withExternalQuotation = parseCreateOrderInput({ ...base, quotationSource: "EXTERNAL", externalQuotationNo: "  EXT-8891 " });
+assert.equal(withExternalQuotation.sourceQuotationNo, "EXT-8891");
+assert.equal(withExternalQuotation.externalQuotationNo, "EXT-8891");
+assert.equal(withExternalQuotation.quotationSource, "EXTERNAL");
+// An external number must not be blank, and the mode must be known.
+expect400(() => parseCreateOrderInput({ ...base, quotationSource: "EXTERNAL", externalQuotationNo: "   " }), /external quotation number/i);
+expect400(() => parseCreateOrderInput({ ...base, quotationSource: "SURPRISE" }), /INTERNAL or EXTERNAL/);
+// Legacy payloads (no quotationSource) are unchanged.
+assert.equal(parseCreateOrderInput({ ...base, sourceQuotationNo: "QT-9" }).sourceQuotationNo, "QT-9");
+assert.equal(parseCreateOrderInput({ ...base, sourceQuotationNo: "QT-9" }).quotationSource, "");
+
 // Update: expectedVersion is required and integer non-negative.
 const update = parseUpdateOrderInput({ commandId: uuid, expectedVersion: 1, requiredDate: "2026-10-01", lines: base.lines });
 assert.equal(update.expectedVersion, 1);

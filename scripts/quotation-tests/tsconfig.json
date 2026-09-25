@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "rootDir": "../..",
+    "outDir": "../../tmp/quotation-tests/out"
+  },
+  "include": [
+    "*.ts",
+    "../../src/lib/quotationPricing.ts",
+    "../../src/lib/quotationRow.ts",
+    "../../src/lib/quotationText.ts",
+    "../../src/types/quotation.ts"
+  ]
+}

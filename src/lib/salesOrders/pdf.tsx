@@ -7,6 +7,7 @@
 import React from "react";
 import { Document, Page, Text, View, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
 import type { SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument } from "@/types/salesOrder";
+import { isNotPricedLine } from "@/lib/salesOrders/domain";
 
 export interface SalesOrderPdfInput {
   order: SalesOrder;
@@ -90,8 +91,8 @@ function SalesOrderPdfDocument(input: SalesOrderPdfInput) {
               <Text style={styles.cellWide}>{item.productCodeSnapshot || item.productNameSnapshot || "—"}</Text>
               <Text style={styles.cellWide}>{item.description}</Text>
               <Text style={styles.cell}>{item.quantity === null ? "—" : String(item.quantity)} {item.unitSnapshot}</Text>
-              <Text style={styles.cell}>{money(item.unitPrice)}</Text>
-              <Text style={styles.cell}>{money(item.lineTotal)}</Text>
+              <Text style={styles.cell}>{isNotPricedLine(item) ? "Included" : money(item.unitPrice)}</Text>
+              <Text style={styles.cell}>{isNotPricedLine(item) ? "Included in combined total" : money(item.lineTotal)}</Text>
             </View>
           ))}
         </View>

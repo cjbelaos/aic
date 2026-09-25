@@ -10,6 +10,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { LineEditor } from "@/components/sales-orders/line-editor";
 import { money } from "@/components/sales-orders/badges";
+import {
+  EXTERNAL_QUOTATION_FIELD_LABEL,
+  EXTERNAL_QUOTATION_REQUIRED_ERROR,
+  INPUT_EXTERNAL_QUOTATION_LABEL,
+  INTERNAL_QUOTATION_FIELD_LABEL,
+  SELECT_EXISTING_QUOTATION_LABEL,
+} from "@/lib/salesOrders/quotationReference";
 import type { OptionsResponse, OrderInput, OrderLineInput } from "@/lib/services/sales-order.service";
 
 export interface OrderFormProps {
@@ -43,6 +50,8 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
     paymentTermId: initial.paymentTermId ?? "",
     remarks: initial.remarks ?? "",
     sourceQuotationNo: initial.sourceQuotationNo ?? "",
+    quotationSource: initial.quotationSource ?? (initial.externalQuotationNo ? "EXTERNAL" : "INTERNAL"),
+    externalQuotationNo: initial.externalQuotationNo ?? "",
   });
   const [lines, setLines] = React.useState<OrderLineInput[]>(initial.lines);
   const [submitting, setSubmitting] = React.useState(false);
@@ -71,6 +80,10 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
       setError(`${invalidFile.name} must be a PDF, JPG, PNG, WebP, DOC, or DOCX file that is 10 MB or smaller.`);
       return;
     }
+    if (header.quotationSource === "EXTERNAL" && !header.externalQuotationNo.trim()) {
+      setError(EXTERNAL_QUOTATION_REQUIRED_ERROR);
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -89,8 +102,14 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
     }
   };
 
+  const switchQuotationSource = (source: "INTERNAL" | "EXTERNAL"): void => {
+    markDirty(() => setHeader((current) => source === "EXTERNAL"
+      ? { ...current, quotationSource: "EXTERNAL", sourceQuotationNo: "" }
+      : { ...current, quotationSource: "INTERNAL", externalQuotationNo: "" }));
+  };
+
   const convertQuotation = async (): Promise<void> => {
-    if (!onCreateFromQuotation || !header.sourceQuotationNo || converting) return;
+    if (!onCreateFromQuotation || header.quotationSource === "EXTERNAL" || !header.sourceQuotationNo || converting) return;
     setConverting(true);
     setError("");
     try {
@@ -108,10 +127,30 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
 
       {onCreateFromQuotation ? (
         <Card className="gap-4">
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-blue-600" />Create from quotation</CardTitle><p className="text-sm text-muted-foreground">Each quotation has one active Sales Order. Selecting it again opens the existing order instead of creating a duplicate.</p></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-blue-600" />Quotation Number</CardTitle><p className="text-sm text-muted-foreground">Select an existing quotation, or enter an external quotation number that has no internal record. Each selected quotation has one active Sales Order; selecting it again opens the existing order instead of creating a duplicate.</p></CardHeader>
           <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <Field label="Approved quotation" className="min-w-0 flex-1"><SearchableSelect value={header.sourceQuotationNo} onValueChange={(value) => patchHeader({ sourceQuotationNo: value })} options={options.quotations.map((quotation) => ({ value: quotation.quotationNo, label: `${quotation.quotationNo} — ${quotation.customer} — ${money(quotation.amount)}` }))} placeholder="Select quotation…" searchPlaceholder="Search quotation or customer…" /></Field>
-            <Button type="button" variant="outline" disabled={!header.sourceQuotationNo || converting} onClick={() => void convertQuotation()}>{converting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}Create from Quotation</Button>
+            {header.quotationSource === "EXTERNAL" ? (
+              <Field label={EXTERNAL_QUOTATION_FIELD_LABEL} required className="min-w-0 flex-1">
+                <Input
+                  value={header.externalQuotationNo}
+                  onChange={(event) => patchHeader({ externalQuotationNo: event.target.value })}
+                  placeholder="Enter the external quotation number"
+                  aria-label={EXTERNAL_QUOTATION_FIELD_LABEL}
+                />
+              </Field>
+            ) : (
+              <Field label={INTERNAL_QUOTATION_FIELD_LABEL} className="min-w-0 flex-1">
+                <SearchableSelect value={header.sourceQuotationNo} onValueChange={(value) => patchHeader({ sourceQuotationNo: value })} options={options.quotations.map((quotation) => ({ value: quotation.quotationNo, label: `${quotation.quotationNo} — ${quotation.customer} — ${money(quotation.amount)}` }))} placeholder="Select quotation…" searchPlaceholder="Search quotation or customer…" />
+              </Field>
+            )}
+            {header.quotationSource === "EXTERNAL" ? (
+              <Button type="button" variant="outline" onClick={() => switchQuotationSource("INTERNAL")}><FileText className="mr-2 h-4 w-4" />{SELECT_EXISTING_QUOTATION_LABEL}</Button>
+            ) : (
+              <Button type="button" variant="outline" onClick={() => switchQuotationSource("EXTERNAL")}><FileText className="mr-2 h-4 w-4" />{INPUT_EXTERNAL_QUOTATION_LABEL}</Button>
+            )}
+            {header.quotationSource === "EXTERNAL" ? null : (
+              <Button type="button" variant="outline" disabled={!header.sourceQuotationNo || converting} onClick={() => void convertQuotation()}>{converting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}Create from Quotation</Button>
+            )}
           </CardContent>
         </Card>
       ) : null}

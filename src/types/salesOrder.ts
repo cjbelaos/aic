@@ -11,7 +11,15 @@ export type FulfillmentStatus = "UNFULFILLED" | "PARTIAL" | "FULFILLED" | "NOT_A
 export type TaxMode = "VAT_INCLUSIVE" | "VAT_EXCLUSIVE" | "VAT_EXEMPT" | "ZERO_RATED";
 export type LineType = "PRODUCT" | "SERVICE";
 export type LineStatus = "ACTIVE" | "CANCELLED" | "INACTIVE";
-export type PriceSource = "QUOTATION" | "CUSTOMER_PRICE" | "DEFAULT_PRICE" | "MANUAL" | "LEGACY";
+/**
+ * Where a line's price came from. `NOT_PRICED` is a descriptive line that has no
+ * price of its own because the source quotation was quoted as one combined total
+ * (single total price mode): quantity/unit still describe the work, `unitPrice`
+ * stays blank, and the line contributes zero to the order totals instead of
+ * inventing a divided share of the combined charge.
+ */
+export type PriceSource = "QUOTATION" | "CUSTOMER_PRICE" | "DEFAULT_PRICE" | "MANUAL" | "LEGACY" | "NOT_PRICED";
+
 export type OrderCategory =
   | "Consumables"
   | "Services/ Repair"
@@ -264,3 +272,32 @@ export const SALES_ORDER_CATEGORIES: readonly OrderCategory[] = [
 ];
 
 export const SALES_ORDER_SO_NUMBER_PATTERN = /^AIC-SO-(\d{4})-(\d{4})$/;
+
+/**
+ * PriceSource value for a descriptive line covered by one combined quotation
+ * charge. Value-level only — the SalesOrderItems column contract is unchanged.
+ */
+export const PRICE_SOURCE_NOT_PRICED: PriceSource = "NOT_PRICED";
+
+/**
+ * Application-layer category defaults. Service (including repair) lines always
+ * belong to "Services/ Repair" and never ask the user for a category; product
+ * lines default to "Parts". The Services/ Repair reporting view filters on this
+ * value, so it must be assigned consistently for every service line.
+ */
+export const SALES_ORDER_SERVICE_CATEGORY = "Services/ Repair";
+export const SALES_ORDER_PRODUCT_CATEGORY = "Parts";
+export const SALES_ORDER_SHIPPING_CATEGORY = "Supplies";
+/**
+ * Category for the single combined charge line of a single-total quotation. It is
+ * deliberately distinct so the charge is auditable and does not inflate the
+ * Services/ Repair reporting view with a lump sum.
+ */
+export const SALES_ORDER_COMBINED_CATEGORY = "Project";
+
+/** Line description used for the combined charge of a single-total quotation. */
+export const COMBINED_CHARGE_DESCRIPTION = "Combined total as quoted";
+
+/** Line description used for a quotation shipping fee carried into an order. */
+export const SHIPPING_LINE_DESCRIPTION = "Shipping Fee";
+

@@ -3,8 +3,16 @@
 // Pure functions only — no Sheets or session access.
 
 import type { FulfillmentStatus, OrderStatus, PriceSource, SalesOrder, SalesOrderItem, TaxMode } from "../../types/salesOrder.ts";
-import { SALES_ORDER_SO_NUMBER_PATTERN } from "../../types/salesOrder.ts";
+import {
+  COMBINED_CHARGE_DESCRIPTION,
+  PRICE_SOURCE_NOT_PRICED,
+  SALES_ORDER_PRODUCT_CATEGORY,
+  SALES_ORDER_SERVICE_CATEGORY,
+  SALES_ORDER_SO_NUMBER_PATTERN,
+  SHIPPING_LINE_DESCRIPTION,
+} from "../../types/salesOrder.ts";
 import { computeLineMoney, roundMoney, sumOrderTotals } from "./money.ts";
+
 
 export const SO_NUMBER_PREFIX = "AIC-SO";
 
@@ -109,6 +117,24 @@ export function recalculateItemMoney(item: Pick<SalesOrderItem, "quantity" | "un
   });
   return { subtotalExTax: money.baseAmount, taxAmount: money.taxAmount, lineTotal: money.lineTotal };
 }
+/**
+ * A descriptive line covered by one combined quotation charge: it has no price
+ * of its own (unitPrice blank) and therefore contributes nothing to the totals.
+ * Unknown blank prices on other sources stay distinguishable because they keep
+ * their own PriceSource.
+ */
+export function isNotPricedLine(item: { priceSource?: string | null }): boolean {
+  return String(item.priceSource ?? "").trim().toUpperCase() === PRICE_SOURCE_NOT_PRICED;
+}
+
+/** Money projection for any line, including non-priced descriptive lines. */
+export function recalculateItemMoneyForLine(
+  item: Pick<SalesOrderItem, "quantity" | "unitPrice" | "discountAmount" | "taxMode" | "taxRate"> & { priceSource?: string | null },
+): Pick<SalesOrderItem, "subtotalExTax" | "taxAmount" | "lineTotal"> {
+  if (isNotPricedLine(item)) return { subtotalExTax: 0, taxAmount: 0, lineTotal: 0 };
+  return recalculateItemMoney(item);
+}
+
 export function recalculateOrderTotals(items: readonly Pick<SalesOrderItem, "subtotalExTax" | "discountAmount" | "taxAmount" | "lineTotal" | "lineStatus">[]) {
   const active = items.filter((item) => item.lineStatus === "ACTIVE");
   const totals = sumOrderTotals(
@@ -128,7 +154,7 @@ export function recalculateOrderTotals(items: readonly Pick<SalesOrderItem, "sub
 }
 export interface ConfirmReadinessInput {
   order: Pick<SalesOrder, "customerId" | "receivedDate" | "currency" | "orderStatus" | "assignedToUserId">;
-  items: Array<Pick<SalesOrderItem, "lineStatus" | "lineType" | "productId" | "description" | "unitId" | "quantity" | "unitPrice">>;
+  items: Array<Pick<SalesOrderItem, "lineStatus" | "lineType" | "productId" | "description" | "unitId" | "quantity" | "unitPrice"> & { priceSource?: string | null }>;
   assignmentOptional: boolean;
 }
 
@@ -148,11 +174,14 @@ export function collectConfirmationIssues(input: ConfirmReadinessInput): string[
   return issues;
 }
 
-export function isLineConfirmationReady(item: Pick<SalesOrderItem, "lineType" | "productId" | "description" | "unitId" | "quantity" | "unitPrice">): boolean {
+export function isLineConfirmationReady(item: Pick<SalesOrderItem, "lineType" | "productId" | "description" | "unitId" | "quantity" | "unitPrice"> & { priceSource?: string | null }): boolean {
   if (item.lineType === "PRODUCT" && !item.productId?.trim()) return false;
   if (!item.description?.trim()) return false;
   if (!item.unitId?.trim()) return false;
   if (item.quantity === null || item.quantity === undefined || !(item.quantity > 0)) return false;
+  // A descriptive line of a single-total quotation carries no price of its own;
+  // its share lives once on the combined charge line, so no price is required.
+  if (isNotPricedLine(item)) return true;
   if (item.unitPrice === null || item.unitPrice === undefined || item.unitPrice < 0) return false;
   return true;
 }
@@ -163,13 +192,30 @@ export function priceSourceLabel(source: PriceSource | string): string {
     case "DEFAULT_PRICE": return "Default price";
     case "MANUAL": return "Manual";
     case "LEGACY": return "Legacy";
+    case PRICE_SOURCE_NOT_PRICED: return "Included in combined total";
     default: return source;
   }
 }
 
 export interface QuotationConversionPlan {
   sourceNo: string;
+  /** Pricing mode copied from the quotation (PER_LINE keeps historical behaviour). */
+  pricingMode: QuotationConversionMode;
+  /**
+   * The exact combined charge carried onto its own Sales Order line in
+   * SINGLE_TOTAL mode (0 in per-line mode). No per-line price is derived from it.
+   */
+  combinedTotal: number;
+  /** Quotation-level discount applied to the combined charge line. */
+  combinedDiscount: number;
   lines: Array<Pick<SalesOrderItem, "lineNo" | "lineType" | "productId" | "productCodeSnapshot" | "description" | "unitId" | "unitSnapshot" | "quantity" | "unitPrice" | "priceSource" | "discountAmount" | "taxMode" | "taxRate" | "customerProductNameSnapshot">>;
+}
+
+export type QuotationConversionMode = "PER_LINE" | "SINGLE_TOTAL";
+
+/** Application-layer category for a converted line (services never ask the user). */
+export function convertedLineCategory(line: { lineType: string }): string {
+  return line.lineType === "SERVICE" ? SALES_ORDER_SERVICE_CATEGORY : SALES_ORDER_PRODUCT_CATEGORY;
 }
 
 export function conversionPlanFromQuotation(quotation: {
@@ -178,7 +224,82 @@ export function conversionPlanFromQuotation(quotation: {
   shippingFee?: number;
   defaultTaxMode: TaxMode;
   defaultTaxRate: number;
+  /** Pricing mode of the source quotation; omitted means the historical mode. */
+  pricingMode?: string | null;
+  /** The one combined price quoted for the whole job (single-total mode). */
+  singleTotalPrice?: number | null;
+  /** Quotation-level discount, carried as the combined charge line discount. */
+  discount?: number | null;
 }): QuotationConversionPlan {
+  const pricingMode: QuotationConversionMode =
+    String(quotation.pricingMode ?? "").trim().toUpperCase() === "SINGLE_TOTAL" ? "SINGLE_TOTAL" : "PER_LINE";
+  const tax = { taxMode: quotation.defaultTaxMode, taxRate: quotation.defaultTaxRate };
+  const shippingFee = Number(quotation.shippingFee ?? 0);
+
+  if (pricingMode === "SINGLE_TOTAL") {
+    // Every described product/service keeps its own visible, priced-free line so
+    // the order matches the quotation line for line; the money lives once on the
+    // combined charge line below.
+    const descriptive: QuotationConversionPlan["lines"] = quotation.items.map((item, index) => ({
+      lineNo: index + 1,
+      lineType: item.productId ? "PRODUCT" : "SERVICE",
+      productId: item.productId ?? "",
+      productCodeSnapshot: item.productCodeSnapshot ?? "",
+      description: item.description,
+      unitId: item.unit,
+      unitSnapshot: item.unit,
+      quantity: item.quantity > 0 ? item.quantity : null,
+      unitPrice: null,
+      priceSource: PRICE_SOURCE_NOT_PRICED,
+      discountAmount: 0,
+      ...tax,
+      customerProductNameSnapshot: "",
+    }));
+    const combinedTotal = Math.max(0, Number(quotation.singleTotalPrice ?? 0) || 0);
+    if (combinedTotal > 0) {
+      const discount = Math.max(0, Number(quotation.discount ?? 0) || 0);
+      descriptive.push({
+        lineNo: descriptive.length + 1,
+        lineType: "SERVICE",
+        productId: "",
+        productCodeSnapshot: "",
+        description: COMBINED_CHARGE_DESCRIPTION,
+        unitId: "LOT",
+        unitSnapshot: "LOT",
+        quantity: 1,
+        unitPrice: combinedTotal,
+        priceSource: "QUOTATION",
+        discountAmount: Math.min(discount, combinedTotal),
+        ...tax,
+        customerProductNameSnapshot: "",
+      });
+    }
+    if (shippingFee > 0) {
+      descriptive.push({
+        lineNo: descriptive.length + 1,
+        lineType: "SERVICE",
+        productId: "",
+        productCodeSnapshot: "",
+        description: SHIPPING_LINE_DESCRIPTION,
+        unitId: "LOT",
+        unitSnapshot: "LOT",
+        quantity: 1,
+        unitPrice: shippingFee,
+        priceSource: "QUOTATION",
+        discountAmount: 0,
+        ...tax,
+        customerProductNameSnapshot: SHIPPING_LINE_DESCRIPTION,
+      });
+    }
+    return {
+      sourceNo: quotation.quotationNo,
+      pricingMode,
+      combinedTotal,
+      combinedDiscount: Math.min(Math.max(0, Number(quotation.discount ?? 0) || 0), combinedTotal),
+      lines: descriptive,
+    };
+  }
+
   const itemLines: QuotationConversionPlan["lines"] = quotation.items.map((item, index) => ({
     lineNo: index + 1,
     lineType: item.productId ? "PRODUCT" : "SERVICE",
@@ -191,31 +312,31 @@ export function conversionPlanFromQuotation(quotation: {
     unitPrice: item.unitPrice,
     priceSource: "QUOTATION",
     discountAmount: 0,
-    taxMode: quotation.defaultTaxMode,
-    taxRate: quotation.defaultTaxRate,
+    ...tax,
     customerProductNameSnapshot: "",
   }));
-  const shippingFee = Number(quotation.shippingFee ?? 0);
   if (shippingFee > 0) {
     itemLines.push({
       lineNo: itemLines.length + 1,
       lineType: "SERVICE",
       productId: "",
       productCodeSnapshot: "",
-      description: "Shipping Fee",
+      description: SHIPPING_LINE_DESCRIPTION,
       unitId: "LOT",
       unitSnapshot: "LOT",
       quantity: 1,
       unitPrice: shippingFee,
       priceSource: "QUOTATION",
       discountAmount: 0,
-      taxMode: quotation.defaultTaxMode,
-      taxRate: quotation.defaultTaxRate,
-      customerProductNameSnapshot: "Shipping Fee",
+      ...tax,
+      customerProductNameSnapshot: SHIPPING_LINE_DESCRIPTION,
     });
   }
   return {
     sourceNo: quotation.quotationNo,
+    pricingMode,
+    combinedTotal: 0,
+    combinedDiscount: 0,
     lines: itemLines,
   };
 }
