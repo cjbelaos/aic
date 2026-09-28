@@ -318,7 +318,19 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           companyName: company?.companyName || data.customerId,
         } as ServiceInvoiceSummary;
       })
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      .sort((a, b) => {
+        const aNumber = Number(a.invoiceNo);
+        const bNumber = Number(b.invoiceNo);
+        const aIsNumeric = Number.isFinite(aNumber);
+        const bIsNumeric = Number.isFinite(bNumber);
+
+        // Paper invoice numbers are numeric. Keep draft placeholders after
+        // finalized invoices while preserving a predictable order among them.
+        if (aIsNumeric && bIsNumeric) return bNumber - aNumber;
+        if (aIsNumeric) return -1;
+        if (bIsNumeric) return 1;
+        return b.invoiceNo.localeCompare(a.invoiceNo);
+      });
   } catch (error) {
     console.error("Failed to fetch service invoices:", error);
     throw error;
