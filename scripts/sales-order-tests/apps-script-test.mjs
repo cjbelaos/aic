@@ -86,6 +86,9 @@ assert.equal(command('so.receipt', { requestHash: 'stable-create-intent' }, id).
 assert.equal(command('so.receipt', { requestHash: 'new' }).result, null);
 const confirm = command('so.confirm', { ...payload, requestHash: 'confirm', order: { ...order, orderStatus: 'CONFIRMED' } }, randomUUID(), 1);
 assert.equal(confirm.result.salesOrderNo, 'AIC-SO-2026-0001');
+assert.equal(context.trackerDisplayNumber_('', confirm.result.salesOrderNo), '0001', 'new orders publish their padded numeric suffix');
+assert.equal(context.trackerDisplayNumber_('1297', confirm.result.salesOrderNo), '1297', 'migrated rows preserve their legacy tracker number');
+assert.equal(context.trackerDisplayNumber_('', 'AIC-SO-2026-10000'), '10000', 'tracker numbers continue past four digits without truncation');
 assert.equal(books.get('source').SalesOrderSyncJobs.rows.length, 2);
 assert.equal(command('so.confirm', { ...payload, requestHash: 'stale' }, randomUUID(), 1).status, 409);
 const confirmed = { ...order, orderStatus: 'CONFIRMED', salesOrderNo: confirm.result.salesOrderNo, version: 2 };
@@ -94,6 +97,7 @@ assert.equal(books.get('source').SalesOrderSyncJobs.rows.length, 3, 'confirmed e
 let result = context.processDueJobs_();
 assert.equal(result.processed, 2);
 let dest = books.get('destination').tracker;
+assert.equal(dest.rows[1][0], '0001', 'destination tracker uses the short padded sales order number');
 assert.equal(dest.rows[1][16], '', 'Q untouched');
 assert.equal(dest.rows[1][23], 'order-1');
 assert.equal(dest.rows[1][24], 'line-1');

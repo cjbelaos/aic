@@ -3,9 +3,10 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageLoader } from "@/components/ui/logo-loader";
-import { OrderForm } from "@/components/sales-orders/order-form";
+import { OrderForm, type SalesOrderReferenceFiles } from "@/components/sales-orders/order-form";
 import salesOrderService, {
   type OptionsResponse,
   type OrderInput,
@@ -36,12 +37,43 @@ export default function EditSalesOrderPage(): React.ReactNode {
       );
   }, [orderId]);
 
-  const submit = async (payload: OrderInput): Promise<void> => {
+  const submit = async (payload: OrderInput, referenceFiles?: SalesOrderReferenceFiles): Promise<void> => {
     if (!detail) return;
-    await salesOrderService.updateDraft(orderId, {
+    const result = await salesOrderService.updateDraft(orderId, {
       ...payload,
       expectedVersion: detail.order.version,
     });
+    let orderVersion = result.order.order.version;
+    const uploads: Array<{
+      documentType: "QUOTATION" | "CUSTOMER_PO";
+      file?: File;
+    }> = [
+      { documentType: "QUOTATION", file: referenceFiles?.quotation },
+      { documentType: "CUSTOMER_PO", file: referenceFiles?.customerPO },
+    ];
+    const failedUploads: string[] = [];
+
+    for (const upload of uploads) {
+      if (!upload.file) continue;
+      try {
+        await salesOrderService.uploadDocument(orderId, {
+          documentType: upload.documentType,
+          file: upload.file,
+          orderVersion,
+        });
+        orderVersion = (await salesOrderService.get(orderId)).order.version;
+      } catch {
+        failedUploads.push(upload.file.name);
+      }
+    }
+
+    if (failedUploads.length > 0) {
+      toast.error(
+        `Sales Order saved, but ${failedUploads.join(", ")} could not be uploaded. Retry it in Documents.`,
+      );
+    } else if (uploads.some((upload) => upload.file)) {
+      toast.success("Sales Order saved and reference documents uploaded.");
+    }
     router.push(`/dashboard/sales-orders/${orderId}`);
   };
 
@@ -126,6 +158,7 @@ export default function EditSalesOrderPage(): React.ReactNode {
         submitLabel="Save Changes"
         onSubmit={submit}
         onCancel={() => router.push(`/dashboard/sales-orders/${orderId}`)}
+        enableReferenceUploads
       />
     </div>
   );

@@ -868,7 +868,7 @@ function buildDestinationRowsFromSource_(sheets, salesOrderId) {
     var lineTotal = item[22] === null || item[22] === undefined ? 0 : Number(item[22]);
     rows.push({
       row: [
-        String(order[2] || "") || String(order[1] || ""), // A tracker no or sales order no
+        trackerDisplayNumber_(order[2], order[1]),          // A legacy tracker no or short SO number
         String(order[3] || ""),                           // B received date
         String(item[3] || ""),                            // C category
         String(order[12] || ""),                          // D customer PO
@@ -893,6 +893,20 @@ function buildDestinationRowsFromSource_(sheets, salesOrderId) {
     });
   }
   return rows;
+}
+
+/**
+ * The legacy tracker is a reporting projection, not a second numbering
+ * authority. Migrated rows keep their existing legacy tracker number; newly
+ * confirmed app orders publish only the padded numeric suffix of their
+ * authoritative AIC-SO-YYYY-NNNN reference.
+ */
+function trackerDisplayNumber_(legacyTrackerNo, salesOrderNo) {
+  var legacy = String(legacyTrackerNo || "").trim();
+  if (legacy) return legacy;
+  var salesOrder = String(salesOrderNo || "").trim();
+  var match = /^AIC-SO-\d{4}-(\d{4,})$/i.exec(salesOrder);
+  return match ? match[1] : salesOrder;
 }
 /**
  * Time-triggered durable worker — claims due jobs inside the same lock that

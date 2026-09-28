@@ -271,7 +271,12 @@ export const SALES_ORDER_CATEGORIES: readonly OrderCategory[] = [
   "PMS",
 ];
 
-export const SALES_ORDER_SO_NUMBER_PATTERN = /^AIC-SO-(\d{4})-(\d{4})$/;
+/**
+ * The sequence is padded to at least four digits. It is deliberately not
+ * capped at four digits so a mature sequence can continue past 9999 without
+ * changing its prefix or silently truncating a number.
+ */
+export const SALES_ORDER_SO_NUMBER_PATTERN = /^AIC-SO-(\d{4})-(\d{4,})$/;
 
 /**
  * PriceSource value for a descriptive line covered by one combined quotation
@@ -300,4 +305,3 @@ export const COMBINED_CHARGE_DESCRIPTION = "Combined total as quoted";
 
 /** Line description used for a quotation shipping fee carried into an order. */
 export const SHIPPING_LINE_DESCRIPTION = "Shipping Fee";
-

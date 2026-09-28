@@ -175,7 +175,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
         <Card className="gap-4">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-blue-600" />Reference documents</CardTitle>
-            <p className="text-sm text-muted-foreground">Optional. Select a current or external quotation and/or the customer&apos;s external PO. They upload automatically when this Sales Order is created.</p>
+            <p className="text-sm text-muted-foreground">Optional. Select a current or external quotation and/or the customer&apos;s external PO. They upload automatically after the Sales Order is saved.</p>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <ReferenceFileInput label="Current / external quotation" file={referenceFiles.quotation} onChange={(file) => { setReferenceFiles((current) => ({ ...current, quotation: file })); dirty.current = true; }} />

@@ -21,6 +21,8 @@ assert.equal(formatSalesOrderNo("2026", 1), "AIC-SO-2026-0001");
 assert.equal(nextSalesOrderNo({ businessYear: "2026", lastNumber: 1297 }), "AIC-SO-2026-1298");
 assert.equal(nextSalesOrderNo({ businessYear: "2027", lastNumber: 0 }), "AIC-SO-2027-0001");
 assert.equal(isValidSalesOrderNo("AIC-SO-2026-0001"), true);
+assert.equal(formatSalesOrderNo("2026", 10000), "AIC-SO-2026-10000");
+assert.equal(isValidSalesOrderNo("AIC-SO-2026-10000"), true);
 assert.equal(isValidSalesOrderNo("AIC-SO-2026-0000"), false);
 assert.equal(isValidSalesOrderNo("1297"), false);
 
