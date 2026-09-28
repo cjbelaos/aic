@@ -1,6 +1,6 @@
 // Direct Sales Order Tracker projection. The authoritative order is written
-// through the Apps Script gateway; this module reconciles its Tracker rows
-// directly through the Sheets API.
+// directly by the Next.js server; this module reconciles its Tracker rows
+// through the same authenticated Sheets API client.
 
 import { getSheetsClient } from "@/lib/googleSheets";
 import type { SalesOrder, SalesOrderItem } from "@/types/salesOrder";

@@ -60,6 +60,8 @@ export interface OrderLineInput {
 
 export interface OrderInput {
   commandId?: string;
+  /** Explicit choice on creation. Older callers continue to create confirmed orders. */
+  initialStatus?: "DRAFT" | "CONFIRMED";
   sourceQuotationNo?: string;
   /**
    * Quotation reference mode. `INTERNAL` (default) selects an existing
@@ -183,8 +185,8 @@ const salesOrderService = {
     storage?: string;
   }> => mutate("post", `${BASE}/${id}/pdf`, {}),
 
-  fromQuotation: (quotationNo: string): Promise<{ success: boolean; order: SalesOrderDetail & { reusedExisting?: boolean } }> =>
-    mutate("post", `${BASE}/from-quotation`, { quotationNo }),
+  fromQuotation: (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED" = "CONFIRMED"): Promise<{ success: boolean; order: SalesOrderDetail & { reusedExisting?: boolean } }> =>
+    mutate("post", `${BASE}/from-quotation`, { quotationNo, initialStatus }),
 
   history: (id: string): Promise<{ success: boolean; history: SalesOrderHistory[] }> =>
     api.get(`${BASE}/${id}/history`),

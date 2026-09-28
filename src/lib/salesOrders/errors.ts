@@ -12,10 +12,8 @@ export type SalesOrderErrorCode =
   | "VERSION_CONFLICT"
   | "COMMAND_REPLAY"
   | "VALIDATION"
-  | "GATEWAY_BUSY"
   | "DEPENDENCY_UNAVAILABLE"
-  | "PERMISSION_DENIED"
-  | "GATEWAY_NOT_CONFIGURED";
+  | "PERMISSION_DENIED";
 
 export interface SalesOrderErrorBody {
   code: SalesOrderErrorCode;
@@ -79,8 +77,4 @@ export function forbidden(message: string): SalesOrderError {
 
 export function dependencyUnavailable(message: string): SalesOrderError {
   return new SalesOrderError({ code: "DEPENDENCY_UNAVAILABLE", message, retryable: true }, 503);
-}
-
-export function gatewayBusy(message: string): SalesOrderError {
-  return new SalesOrderError({ code: "GATEWAY_BUSY", message, retryable: true }, 503);
 }

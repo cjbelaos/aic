@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { SalesOrderError } from "../../src/lib/salesOrders/errors.ts";
-import { parseCancelOrderInput, parseCreateOrderInput, parseDocumentInput, parseExpectedVersion, parseFulfillmentInput, parseRetrySyncInput, parseUpdateOrderInput } from "../../src/lib/salesOrders/validation.ts";
+import { parseCancelOrderInput, parseCreateOrderInput, parseDocumentInput, parseExpectedVersion, parseFulfillmentInput, parseUpdateOrderInput } from "../../src/lib/salesOrders/validation.ts";
 
 function expect400(fn: () => void, messagePattern: RegExp): SalesOrderError {
   let caught: SalesOrderError | null = null;
@@ -25,6 +25,10 @@ const base = {
 };
 const created = parseCreateOrderInput(base);
 assert.equal(created.currency, "PHP");
+assert.equal(created.initialStatus, "CONFIRMED");
+assert.equal(parseCreateOrderInput({ ...base, initialStatus: "DRAFT" }).initialStatus, "DRAFT");
+assert.equal(parseCreateOrderInput({ ...base, initialStatus: "CONFIRMED" }).initialStatus, "CONFIRMED");
+expect400(() => parseCreateOrderInput({ ...base, initialStatus: "CANCELLED" }), /initialStatus/);
 assert.equal(created.lines[0].lineType, "PRODUCT");
 assert.equal(created.lines[0].taxMode, "VAT_INCLUSIVE");
 expect400(() => parseCreateOrderInput({ ...base, commandId: "not-a-uuid" }), /commandId/);
@@ -91,6 +95,5 @@ expect400(() => parseDocumentInput({ commandId: uuid, documentType: "OTHER" }), 
 expect400(() => parseDocumentInput({ commandId: uuid, documentType: "OTHER", externalUrl: "javascript:alert(1)" }), /http\(s\)/);
 
 // Sync retry: commandId must be a UUID.
-assert.equal(parseRetrySyncInput({ commandId: uuid }).commandId, uuid);
 
 console.log("validation-test passed: runtime request safety, UUID commands, unknown-blank preservation, PO leading zeros, field errors.");

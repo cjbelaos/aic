@@ -12,7 +12,7 @@ const DEFAULT_SALES_ORDER_DRIVE_FOLDER_ID = "19919wVs7xuxSr1CCxPQjPU6xslnulWd9";
  *
  * The PDF is uploaded to the configured Sales Orders Drive folder (or the
  * approved default folder) using real-user OAuth, then recorded as a
- * SALES_ORDER_PDF document through the locked gateway. The order is never
+ * SALES_ORDER_PDF document through the Sales Order writer. The order is never
  * touched by a failed render or upload.
  */
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {

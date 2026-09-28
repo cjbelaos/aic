@@ -13,6 +13,7 @@ export async function POST(request: Request) {
     const detail = await createOrderFromQuotation(toActor(auth.session), {
       commandId: input.commandId,
       quotationNo: input.quotationNo,
+      initialStatus: input.initialStatus,
     });
     await syncSalesOrderToTracker(detail.order, detail.items);
     return NextResponse.json({ success: true, order: detail }, { status: 201 });

@@ -25,7 +25,9 @@ export interface OrderFormProps {
   submitLabel: string;
   onSubmit: (payload: OrderInput, referenceFiles?: SalesOrderReferenceFiles) => Promise<void>;
   onCancel?: () => void;
-  onCreateFromQuotation?: (quotationNo: string) => Promise<void>;
+  /** New-order screens choose explicitly; edit screens retain one save action. */
+  creationChoices?: boolean;
+  onCreateFromQuotation?: (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED") => Promise<void>;
   enableReferenceUploads?: boolean;
 }
 
@@ -40,7 +42,7 @@ function estimatedTotal(line: OrderLineInput): number {
   return line.taxMode === "VAT_EXCLUSIVE" ? payable * (1 + (line.taxRate ?? 0)) : payable;
 }
 
-export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, onCreateFromQuotation, enableReferenceUploads = false }: OrderFormProps): React.ReactNode {
+export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, creationChoices = false, onCreateFromQuotation, enableReferenceUploads = false }: OrderFormProps): React.ReactNode {
   const [header, setHeader] = React.useState({
     customerId: initial.customerId,
     receivedDate: initial.receivedDate,
@@ -72,7 +74,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
   const selectedCustomer = options.customers.find((customer) => customer.customerId === header.customerId);
   const grandTotal = lines.reduce((sum, line) => sum + estimatedTotal(line), 0);
 
-  const submit = async (): Promise<void> => {
+  const submit = async (initialStatus: "DRAFT" | "CONFIRMED" = "DRAFT"): Promise<void> => {
     if (submitting) return;
     const selectedFiles = Object.values(referenceFiles).filter((file): file is File => Boolean(file));
     const invalidFile = selectedFiles.find((file) => file.size > 10 * 1024 * 1024 || !/\.(pdf|jpe?g|png|webp|docx?)$/i.test(file.name));
@@ -90,6 +92,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
       await onSubmit({
         ...initial,
         ...header,
+        initialStatus,
         customerNameSnapshot: selectedCustomer?.companyName ?? initial.customerNameSnapshot,
         customerTINSnapshot: selectedCustomer?.tin ?? initial.customerTINSnapshot,
         billingAddressSnapshot: selectedCustomer?.address ?? initial.billingAddressSnapshot,
@@ -108,12 +111,12 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
       : { ...current, quotationSource: "INTERNAL", externalQuotationNo: "" }));
   };
 
-  const convertQuotation = async (): Promise<void> => {
+  const convertQuotation = async (initialStatus: "DRAFT" | "CONFIRMED"): Promise<void> => {
     if (!onCreateFromQuotation || header.quotationSource === "EXTERNAL" || !header.sourceQuotationNo || converting) return;
     setConverting(true);
     setError("");
     try {
-      await onCreateFromQuotation(header.sourceQuotationNo);
+      await onCreateFromQuotation(header.sourceQuotationNo, initialStatus);
       dirty.current = false;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to create the Sales Order from the quotation.");
@@ -122,7 +125,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
   };
 
   return (
-    <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); void submit(creationChoices ? "DRAFT" : (initial.initialStatus ?? "DRAFT")); }}>
       {error ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
 
       {onCreateFromQuotation ? (
@@ -148,8 +151,13 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
             ) : (
               <Button type="button" variant="outline" onClick={() => switchQuotationSource("EXTERNAL")}><FileText className="mr-2 h-4 w-4" />{INPUT_EXTERNAL_QUOTATION_LABEL}</Button>
             )}
-            {header.quotationSource === "EXTERNAL" ? null : (
-              <Button type="button" variant="outline" disabled={!header.sourceQuotationNo || converting} onClick={() => void convertQuotation()}>{converting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}Create from Quotation</Button>
+            {header.quotationSource === "EXTERNAL" ? null : creationChoices ? (
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" disabled={!header.sourceQuotationNo || converting} onClick={() => void convertQuotation("DRAFT")}>{converting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}Draft from Quotation</Button>
+                <Button type="button" disabled={!header.sourceQuotationNo || converting} onClick={() => void convertQuotation("CONFIRMED")}>{converting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}Confirmed from Quotation</Button>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" disabled={!header.sourceQuotationNo || converting} onClick={() => void convertQuotation("DRAFT")}>{converting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}Create from Quotation</Button>
             )}
           </CardContent>
         </Card>
@@ -198,7 +206,12 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, o
 
       <div className="sticky bottom-0 z-10 -mx-1 flex flex-col-reverse gap-2 border-t bg-background/95 p-3 backdrop-blur sm:flex-row sm:justify-end">
         {onCancel ? <Button type="button" variant="outline" onClick={onCancel}><X className="mr-2 h-4 w-4" />Cancel</Button> : null}
-        <Button type="submit" className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600" disabled={submitting || lines.length === 0}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{submitting ? "Saving…" : submitLabel}</Button>
+        {creationChoices ? (
+          <>
+            <Button type="button" variant="outline" disabled={submitting || lines.length === 0} onClick={() => void submit("DRAFT")}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Draft</Button>
+            <Button type="button" className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600" disabled={submitting || lines.length === 0} onClick={() => void submit("CONFIRMED")}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Create Confirmed Order</Button>
+          </>
+        ) : <Button type="submit" className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600" disabled={submitting || lines.length === 0}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{submitting ? "Saving…" : submitLabel}</Button>}
       </div>
     </form>
   );

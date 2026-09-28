@@ -137,7 +137,7 @@ export default function EditSalesOrderPage(): React.ReactNode {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Edit {order.salesOrderNo || "Sales Order Draft"}
+            Edit {order.salesOrderNo || (order.orderStatus === "DRAFT" ? "Sales Order Draft" : "Sales Order number pending")}
           </h1>
           <p className="text-sm text-muted-foreground">
             Version {order.version}. Your edits are checked for conflicts when

@@ -72,7 +72,7 @@ function DetailInner({ orderId }: { orderId: string }) {
     <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{order.salesOrderNo || "Sales Order Draft"}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{order.salesOrderNo || (order.orderStatus === "DRAFT" ? "Sales Order Draft" : "Sales Order number pending")}</h1>
           <p className="text-sm text-muted-foreground">
             {order.orderStatus === "DRAFT" ? "Not yet numbered" : `Version ${version}`}
             {order.legacyTrackerNo ? ` · Legacy #${order.legacyTrackerNo}` : ""}
@@ -181,27 +181,6 @@ function FulfillmentEvidenceGuidance(props: { detail: SalesOrderDetail }): React
   );
 }
 
-/* Legacy sync UI removed.
-function SyncSection({ detail }: { detail: SalesOrderDetail & { syncJobs: Array<{ status: string; orderVersion: number; attemptCount: number; lastAttemptAt: string; lastErrorCode: string; lastErrorMessage: string }> } }): React.ReactNode {
-  const latest = detail.syncJobs.length > 0 ? detail.syncJobs[detail.syncJobs.length - 1] : null;
-  return (
-    <Card className="gap-3">
-      <CardHeader><CardTitle>Synchronization</CardTitle></CardHeader>
-      <CardContent className="text-sm">
-        {latest ? (
-          <div className="flex flex-col gap-1">
-            <span>Status: {syncBadge(latest.status)}</span>
-            <span>Order version {latest.orderVersion} · attempts {latest.attemptCount} · last attempt {formatDate(latest.lastAttemptAt)}</span>
-            {latest.lastErrorCode ? <span className="text-muted-foreground">{latest.lastErrorCode}: {latest.lastErrorMessage}</span> : null}
-          </div>
-        ) : (
-          <p className="text-muted-foreground">No outbound synchronization job yet — sync is enabled only after Phase 1 gates pass and a staging destination is authorized.</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-*/
 function DocumentsSection(props: { detail: SalesOrderDetail; orderId: string; expectedVersion: number; run: (label: string, fn: () => Promise<unknown>) => Promise<void>; busy: boolean }): React.ReactNode {
   return (
     <Card className="gap-3">

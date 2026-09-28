@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { payloadHash } from "./crypto-hash.ts";
 // Sales Orders — server-side orchestration. Route handlers stay thin and call
-// this module. Server owns: actor identity, timestamps, sequence state (via the
-// gateway), status transitions, calculated amounts, fulfillment totals, audit
+// this module. Server owns: actor identity, timestamps, sequence state, status
+// transitions, calculated amounts, fulfillment totals, audit
 // history and authorization checks.
 
 import type { SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument, SalesOrderFulfillment, SalesOrderDocumentLink, OrderStatus } from "@/types/salesOrder";
@@ -18,6 +18,7 @@ import {
 import {
   readSalesOrders, readSalesOrderById, readSalesOrderItems,
   readSalesOrderListSnapshot, readSalesOrderDetailSnapshot,
+  readSalesOrderCommandResult, writeSalesOrderCommand,
 } from "./repository.ts";
 import { nowIso, newUuid, manilaBusinessDate, businessDateYear } from "./ids.ts";
 import {
@@ -25,7 +26,6 @@ import {
   postFulfillment, applyReversalToItem, applyCancellationToItem, recalculateItemMoneyForLine,
   recalculateOrderTotals, remainingDemand, conversionPlanFromQuotation, convertedLineCategory,
 } from "./domain.ts";
-import { sendGatewayCommand, verifyEnvironment } from "./gateway.ts";
 import { notFound, validationError } from "./errors.ts";
 import { TAX_RATE_LEGACY_PHI } from "./money.ts";
 import { resolveSalesOrderQuotation } from "./quotationReference.ts";
@@ -163,7 +163,7 @@ function baseOrder(input: {
   customerNameSnapshot: string; customerTINSnapshot: string; billingAddressSnapshot: string;
   contactId: string; contactNameSnapshot: string; contactPhoneSnapshot: string;
   deliveryAddressSnapshot: string; customerPONo: string; quotationNo: string; paymentTermId: string;
-  paymentTermsSnapshot: string; requiredDate: string; remarks: string;
+  paymentTermsSnapshot: string; requiredDate: string; remarks: string; initialStatus: "DRAFT" | "CONFIRMED";
 }, actor: Actor): SalesOrder {
   const now = nowIso();
   return {
@@ -174,9 +174,9 @@ function baseOrder(input: {
     contactPhoneSnapshot: input.contactPhoneSnapshot, deliveryAddressSnapshot: input.deliveryAddressSnapshot,
     customerPONo: input.customerPONo, quotationNo: input.quotationNo, paymentTermId: input.paymentTermId,
     paymentTermsSnapshot: input.paymentTermsSnapshot, requiredDate: input.requiredDate,
-    assignedToUserId: input.assignedToUserId, currency: input.currency as SalesOrder["currency"], orderStatus: "CONFIRMED",
+    assignedToUserId: input.assignedToUserId, currency: input.currency as SalesOrder["currency"], orderStatus: input.initialStatus,
     fulfillmentStatus: "UNFULFILLED", subtotalExTax: 0, discountTotal: 0, taxTotal: 0, grandTotal: 0,
-    remarks: input.remarks, version: 1, confirmedAt: now, closedAt: "", cancelReason: "",
+    remarks: input.remarks, version: 1, confirmedAt: input.initialStatus === "CONFIRMED" ? now : "", closedAt: "", cancelReason: "",
     importQuality: "", createdAt: now, createdBy: actor.userId, updatedAt: now, updatedBy: actor.userId,
   };
 }
@@ -229,12 +229,13 @@ async function runWrite<T>(
   commandType: string,
   input: { commandId: string; salesOrderId: string | null; expectedVersion: number | null; payload: unknown; actor: Actor },
 ): Promise<{ ok: boolean; replayed: boolean; result: T }> {
-  const command = {
-    commandId: input.commandId, commandType,
-    salesOrderId: input.salesOrderId, expectedVersion: input.expectedVersion,
-    actorUserId: input.actor.userId, issuedAt: nowIso(), payload: { ...(input.payload as object), requestHash: requestContext.getStore() },
-  };
-  return sendGatewayCommand<T>({ command, payload: command.payload });
+  const requestHash = requestContext.getStore();
+  if (!requestHash) throw new Error("Missing Sales Order command context.");
+  return writeSalesOrderCommand<T>({
+    commandId: input.commandId, commandType, salesOrderId: input.salesOrderId,
+    expectedVersion: input.expectedVersion, actorUserId: input.actor.userId,
+    requestHash, payload: input.payload as Parameters<typeof writeSalesOrderCommand>[0]["payload"],
+  });
 }
 async function createOrderImpl(actor: Actor, input: {
   commandId: string;
@@ -243,13 +244,13 @@ async function createOrderImpl(actor: Actor, input: {
   billingAddressSnapshot: string; contactId: string; contactNameSnapshot: string; contactPhoneSnapshot: string;
   deliveryAddressSnapshot: string; customerPONo: string; paymentTermId: string; paymentTermsSnapshot: string;
   receivedDate: string; requiredDate: string; assignedToUserId: string; currency: string; remarks: string;
+  initialStatus?: "DRAFT" | "CONFIRMED";
   lines: Array<{ lineType: "PRODUCT" | "SERVICE"; productId: string; description: string; unitId: string;
     unitSnapshot: string; customerProductName: string; productCodeSnapshot: string; productNameSnapshot: string;
     quantity: number | null; unitPrice: number | null; priceSource: string; priceOverrideReason: string;
     customerProductPriceId: string; quotationLineReference: string; discountAmount: number; taxMode: string;
     taxRate: number; orderCategory: string; }>;
 }): Promise<SalesOrderDetail> {
-  verifyEnvironment();
   // An existing quotation (default) and a manually entered external quotation
   // number are mutually exclusive; both persist in the `QuotationNo` column.
   const quotation = resolveSalesOrderQuotation({
@@ -258,7 +259,8 @@ async function createOrderImpl(actor: Actor, input: {
     externalQuotationNo: input.externalQuotationNo,
   });
   if (quotation.error) throw validationError(quotation.error, { quotationNo: quotation.error });
-  const order = baseOrder({ ...input, quotationNo: quotation.quotationNo }, actor);
+  const initialStatus = input.initialStatus ?? "CONFIRMED";
+  const order = baseOrder({ ...input, initialStatus, quotationNo: quotation.quotationNo }, actor);
   const items = buildItems(order.salesOrderId, input.lines, actor);
   const totals = recalculateOrderTotals(items);
   order.subtotalExTax = totals.subtotalExTax;
@@ -268,12 +270,14 @@ async function createOrderImpl(actor: Actor, input: {
   order.fulfillmentStatus = deriveFulfillmentStatus(items);
 
   const commandId = input.commandId;
-  const issues = collectConfirmationIssues({ order, items, assignmentOptional: true });
-  if (issues.length > 0) {
-    throw validationError("This Sales Order is incomplete.", Object.fromEntries(issues.map((issue, i) => [`issue.${i + 1}`, issue])));
+  if (order.orderStatus === "CONFIRMED") {
+    const issues = collectConfirmationIssues({ order, items, assignmentOptional: true });
+    if (issues.length > 0) {
+      throw validationError("This Sales Order is incomplete.", Object.fromEntries(issues.map((issue, i) => [`issue.${i + 1}`, issue])));
+    }
   }
   const history = [historyEvent({
-    orderId: order.salesOrderId, eventType: "ORDER_CREATED", toStatus: "CONFIRMED", commandId, actor,
+    orderId: order.salesOrderId, eventType: "ORDER_CREATED", toStatus: order.orderStatus, commandId, actor,
   })];
   const payload = { salesOrderId: order.salesOrderId, receivedDate: order.receivedDate, order, items, history };
   const saved = await runWrite<{ version: number; salesOrderId: string; salesOrderNo: string }>("so.create", {
@@ -292,7 +296,6 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
     customerProductPriceId: string; quotationLineReference: string; discountAmount: number; taxMode: string;
     taxRate: number; orderCategory: string; }>;
 }): Promise<SalesOrderDetail> {
-  verifyEnvironment();
   const current = await readSalesOrderById(id);
   assertFound(current, id);
   const now = nowIso();
@@ -366,7 +369,6 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
   return getOrderDetail(id);
 }
 async function confirmOrderImpl(actor: Actor, id: string, input: { commandId: string; expectedVersion: number }): Promise<SalesOrderDetail> {
-  verifyEnvironment();
   const current = await readSalesOrderById(id);
   assertFound(current, id);
   if (current.orderStatus !== "DRAFT") {
@@ -397,7 +399,6 @@ async function transitionOrderImpl(
   id: string,
   input: { commandId: string; expectedVersion: number; target: "ON_HOLD" | "CONFIRMED"; reason?: string },
 ): Promise<SalesOrderDetail> {
-  verifyEnvironment();
   const current = await readSalesOrderById(id);
   assertFound(current, id);
   if (!canTransition(current.orderStatus, input.target)) {
@@ -424,7 +425,6 @@ async function cancelOrderImpl(
   id: string,
   input: { commandId: string; expectedVersion: number; reason: string; cancelAllLines: boolean; lines: Array<{ salesOrderItemId: string; quantity: number }> },
 ): Promise<SalesOrderDetail> {
-  verifyEnvironment();
   const current = await readSalesOrderById(id);
   assertFound(current, id);
   if (!canTransition(current.orderStatus, "CANCELLED")) {
@@ -467,7 +467,6 @@ async function postFulfillmentsImpl(actor: Actor, id: string, input: { commandId
     effectiveDate: string; sourceDocumentType: string; sourceDocumentId: string; sourceLineId: string;
     evidenceDriveFileId: string; reversesFulfillmentId: string }>;
 }): Promise<SalesOrderDetail> {
-  verifyEnvironment();
   const current = await readSalesOrderById(id);
   assertFound(current, id);
   const items = await readSalesOrderItems(id);
@@ -508,7 +507,6 @@ async function postFulfillmentsImpl(actor: Actor, id: string, input: { commandId
   return getOrderDetail(id);
 }
 async function closeOrderImpl(actor: Actor, id: string, input: { commandId: string; expectedVersion: number; reason: string }): Promise<SalesOrderDetail> {
-  verifyEnvironment();
   const current = await readSalesOrderById(id);
   assertFound(current, id);
   if (!canTransition(current.orderStatus, "CLOSED")) {
@@ -540,7 +538,6 @@ async function attachDocumentImpl(actor: Actor, id: string, input: { commandId: 
   documentType: string; externalDocumentNo: string; driveFileId: string; externalUrl: string;
   fileName: string; mimeType: string; orderVersion: number;
 }): Promise<SalesOrderDocument> {
-  verifyEnvironment();
   const current = await readSalesOrderById(id);
   assertFound(current, id);
   const now = nowIso();
@@ -558,10 +555,10 @@ async function attachDocumentImpl(actor: Actor, id: string, input: { commandId: 
     changedFields: { documentType: { from: "", to: document.documentType } }, commandId, actor,
   })];
   const payload = { salesOrderId: current.salesOrderId, receivedDate: current.receivedDate, document, history };
-  await runWrite<{ version: number }>("so.attach", {
+  const saved = await runWrite<{ version: number; document?: SalesOrderDocument }>("so.attach", {
     salesOrderId: current.salesOrderId, expectedVersion: input.orderVersion || current.version, commandId, payload, actor,
   });
-  return document;
+  return saved.replayed && saved.result.document ? saved.result.document : document;
 }
 
 export interface DocumentLinkInput {
@@ -579,7 +576,6 @@ export interface DocumentLinkInput {
  * capped at the line's remaining demand, evaluated server-side.
  */
 async function createDocumentLinksImpl(actor: Actor, id: string, input: { commandId: string; expectedVersion: number } & DocumentLinkInput): Promise<SalesOrderDocumentLink[]> {
-  verifyEnvironment();
   const current = await readSalesOrderById(id);
   assertFound(current, id);
   if (current.orderStatus !== "CONFIRMED" && current.orderStatus !== "ON_HOLD") {
@@ -614,22 +610,39 @@ async function createDocumentLinksImpl(actor: Actor, id: string, input: { comman
     commandId: input.commandId, actor,
   })];
   const payload = { salesOrderId: current.salesOrderId, receivedDate: current.receivedDate, links, history };
-  const result = await runWrite<{ linkCount: number }>("so.documents.link", {
+  const result = await runWrite<{ linkCount: number; links?: SalesOrderDocumentLink[] }>("so.documents.link", {
     commandId: input.commandId, salesOrderId: current.salesOrderId,
     expectedVersion: input.expectedVersion ?? current.version, payload, actor,
   });
   if (links.length > 0 && result.result.linkCount !== links.length) {
-    throw new Error("The gateway persisted a different number of links than were submitted.");
+    throw new Error("The Sales Order writer persisted a different number of links than were submitted.");
   }
-  return links;
+  return result.replayed && result.result.links ? result.result.links : links;
 }
 
-async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: string; quotationNo: string }): Promise<SalesOrderDetail> {
+async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: string; quotationNo: string; initialStatus?: "DRAFT" | "CONFIRMED" }): Promise<SalesOrderDetail> {
   const existing = (await readSalesOrders()).find((order) =>
     order.quotationNo.trim().toLowerCase() === input.quotationNo.trim().toLowerCase()
     && order.orderStatus !== "CANCELLED",
   );
   if (existing) {
+    // Orders created by the retired gateway could be confirmed without a
+    // display number if that old deployment was behind the local source. A
+    // repeat conversion repairs only that app-created anomaly; migrated rows
+    // keep their legacy tracker identity unchanged.
+    if (existing.orderStatus === "CONFIRMED" && !existing.salesOrderNo && !existing.legacyTrackerNo) {
+      const now = nowIso();
+      const order = { ...existing, updatedAt: now, updatedBy: actor.userId };
+      const history = [historyEvent({
+        orderId: existing.salesOrderId, eventType: "ORDER_NUMBER_REPAIRED",
+        fromStatus: "CONFIRMED", toStatus: "CONFIRMED", commandId: input.commandId, actor,
+      })];
+      await runWrite<{ version: number; salesOrderNo: string }>("so.update", {
+        commandId: input.commandId, salesOrderId: existing.salesOrderId, expectedVersion: existing.version,
+        payload: { salesOrderId: existing.salesOrderId, receivedDate: existing.receivedDate, order,
+          items: await readSalesOrderItems(existing.salesOrderId), history, hadItems: false }, actor,
+      });
+    }
     return Object.assign(await getOrderDetail(existing.salesOrderId), { reusedExisting: true });
   }
   const quotation = await getQuotationByRefNo(input.quotationNo);
@@ -671,6 +684,7 @@ async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: st
     requiredDate: "",
     assignedToUserId: "",
     currency: "PHP",
+    initialStatus: input.initialStatus ?? "CONFIRMED",
     remarks: `Converted from quotation ${quotation.quotationNo}; original total ${quotation.amount}.${pricingNote}`,
     lines: plan.lines.map((line) => ({
       orderCategory: categoryFor(line),
@@ -692,21 +706,14 @@ const requestContext = new AsyncLocalStorage<string>();
 async function replayable<T>(operation: string, actor: Actor, id: string | null,
   input: { commandId: string }, execute: () => Promise<T>, restore: (result: Record<string, unknown>) => Promise<T>): Promise<T> {
   const requestHash = payloadHash(JSON.parse(JSON.stringify({ operation, actorUserId: actor.userId, id, input })));
-  const payload = { requestHash };
-  const receipt = await sendGatewayCommand<Record<string, unknown> | null>({
-    command: { commandId: input.commandId, commandType: "so.receipt", salesOrderId: id,
-      expectedVersion: null, actorUserId: actor.userId, issuedAt: nowIso(), payload }, payload,
-  });
-  if (receipt.replayed && receipt.result) return restore(receipt.result);
+  const receipt = await readSalesOrderCommandResult<Record<string, unknown>>(input.commandId, requestHash, actor.userId);
+  if (receipt) return restore(receipt);
   try { return await requestContext.run(requestHash, execute); }
   catch (error) {
-    // Another invocation of this same intent may have committed while this
-    // invocation was reading state. Reconcile before reporting a stale error.
-    const retry = await sendGatewayCommand<Record<string, unknown> | null>({
-      command: { commandId: input.commandId, commandType: "so.receipt", salesOrderId: id,
-        expectedVersion: null, actorUserId: actor.userId, issuedAt: nowIso(), payload }, payload,
-    });
-    if (retry.replayed && retry.result) return restore(retry.result);
+    // A write can reach Google Sheets just before an HTTP/network failure.
+    // Reconcile the durable receipt before reporting an unknown outcome.
+    const retry = await readSalesOrderCommandResult<Record<string, unknown>>(input.commandId, requestHash, actor.userId);
+    if (retry) return restore(retry);
     throw error;
   }
 }

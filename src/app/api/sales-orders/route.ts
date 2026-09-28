@@ -39,6 +39,7 @@ export async function POST(request: Request) {
     const session = auth.session;
     const detail = await createOrder(toActor(session), {
       commandId: input.commandId,
+      initialStatus: input.initialStatus,
       sourceQuotationNo: input.sourceQuotationNo,
       quotationSource: input.quotationSource,
       externalQuotationNo: input.externalQuotationNo,

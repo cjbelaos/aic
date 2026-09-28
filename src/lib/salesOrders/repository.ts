@@ -1,11 +1,11 @@
-// Sales Orders — Sheets repository (READ layer + column contract).
-// Writes NEVER execute here: every mutation is serialized by the Apps Script
-// gateway (src/lib/salesOrders/gateway.ts) so concurrency is enforced. This
-// module owns the authoritative-tab column mapping and row <-> entity mappers
-// shared with the gateway/writer and migration tooling.
+// Sales Orders — Google Sheets repository and column contract.
+// The Next.js server writes the authoritative tabs directly through the same
+// authenticated Sheets client used by the rest of the application. This module
+// owns both the row mapping and the small, constrained write boundary.
 
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { parseSheetNumber } from "@/lib/sheets.utils";
+import { commandReplay, versionConflict } from "./errors.ts";
 import type {
   SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument,
   SalesOrderFulfillment, SalesOrderDocumentLink, SalesOrderSequence,
@@ -429,4 +429,187 @@ export async function assertSalesOrderHeadersReady(): Promise<void> {
     const detail = problems.map((p) => `${p.tab}: missing=[${p.missing.join(",")}]`).join("; ");
     throw new Error(`Sales Order tabs are not provisioned: ${detail}`);
   }
+}
+
+type DirectWritePayload = {
+  salesOrderId?: string;
+  receivedDate?: string;
+  order?: SalesOrder;
+  items?: SalesOrderItem[];
+  history?: SalesOrderHistory[];
+  fulfillments?: SalesOrderFulfillment[];
+  document?: SalesOrderDocument;
+  links?: SalesOrderDocumentLink[];
+  hadItems?: boolean;
+};
+
+export interface DirectWriteCommand {
+  commandId: string;
+  commandType: string;
+  salesOrderId: string | null;
+  expectedVersion: number | null;
+  actorUserId: string;
+  requestHash: string;
+  payload: DirectWritePayload;
+}
+
+export interface DirectWriteResult<T> {
+  ok: true;
+  replayed: boolean;
+  result: T;
+}
+
+// A Google Sheet is not a relational database. This queue serializes requests
+// handled by the same Next.js instance, while version checks reject a stale
+// request if another instance or a human changed the order in the meantime.
+let writeQueue: Promise<void> = Promise.resolve();
+
+async function withDirectWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = writeQueue;
+  let release!: () => void;
+  writeQueue = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+function lastDataRow(values: unknown[][]): number {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (values[index].some((value) => value !== "" && value !== null && value !== undefined)) return index + 2;
+  }
+  return 1;
+}
+
+function normalizeRow(row: readonly unknown[], width: number): unknown[] {
+  return [...row.slice(0, width), ...Array(Math.max(0, width - row.length)).fill("")];
+}
+
+function commandResult(commandType: string, payload: DirectWritePayload, order: SalesOrder | undefined): Record<string, unknown> {
+  if (commandType === "so.attach") {
+    return { salesOrderId: payload.salesOrderId ?? payload.document?.salesOrderId ?? "", version: order?.version ?? 0,
+      documentId: payload.document?.documentId ?? "", document: payload.document, applied: true };
+  }
+  if (commandType === "so.documents.link") {
+    return { salesOrderId: payload.salesOrderId ?? "", version: order?.version ?? 0,
+      linkCount: payload.links?.length ?? 0, links: payload.links ?? [], applied: true };
+  }
+  return { salesOrderId: order?.salesOrderId ?? payload.salesOrderId ?? "", version: order?.version ?? 0,
+    salesOrderNo: order?.salesOrderNo ?? "", applied: true };
+}
+
+/**
+ * Applies one constrained Sales Order command directly to its canonical tabs.
+ * All source ranges and its idempotency receipt are sent in one Sheets values
+ * batch. There is deliberately no arbitrary-range API exposed to callers.
+ */
+export async function writeSalesOrderCommand<T = Record<string, unknown>>(
+  command: DirectWriteCommand,
+): Promise<DirectWriteResult<T>> {
+  return withDirectWriteLock(async () => {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const tabs = [TAB_ORDERS, TAB_ITEMS, TAB_HISTORY, TAB_DOCUMENTS, TAB_FULFILLMENTS, TAB_DOCUMENT_LINKS, TAB_SEQUENCES, TAB_COMMANDS] as const;
+    const ranges = tabs.map((tab) => `${tab}!A2:${headerEndColumn(TAB_HEADERS[tab].length)}`);
+    const read = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
+    const source = new Map<string, unknown[][]>();
+    tabs.forEach((tab, index) => source.set(tab, read.data.valueRanges?.[index]?.values ?? []));
+
+    const commands = source.get(TAB_COMMANDS) ?? [];
+    const prior = commands.find((row) => text(row[0]) === command.commandId);
+    if (prior) {
+      if (text(prior[1]) !== command.requestHash || text(prior[7]) !== command.actorUserId) {
+        throw commandReplay("Command ID was already used with different content.");
+      }
+      return { ok: true, replayed: true, result: JSON.parse(text(prior[5])) as T };
+    }
+
+    const payload = command.payload;
+    const orderId = payload.order?.salesOrderId ?? payload.salesOrderId ?? command.salesOrderId ?? "";
+    const orders = source.get(TAB_ORDERS) ?? [];
+    const existingIndex = orders.findIndex((row) => text(row[0]) === orderId);
+    const existing = existingIndex >= 0 ? orderFromRow(orders[existingIndex]) : null;
+    const isCreate = command.commandType === "so.create";
+    if (isCreate && existing) throw commandReplay("Sales Order already exists; create cannot target an existing order.");
+    if (!isCreate) {
+      if (!existing) throw new Error(`Sales Order ${orderId} was not found.`);
+      if (command.expectedVersion !== null && command.expectedVersion !== existing.version) {
+        throw versionConflict("Version conflict: the order changed since it was loaded.", existing.version);
+      }
+    }
+
+    let nextOrder = payload.order ? { ...payload.order } : existing ?? undefined;
+    let sequenceUpdate: { rowNumber: number; row: unknown[] } | undefined;
+    if (nextOrder && (isCreate || ["so.update", "so.confirm", "so.hold", "so.resume", "so.cancel", "so.close", "so.fulfill"].includes(command.commandType))) {
+      nextOrder.version = isCreate ? Math.max(1, nextOrder.version || 1) : (existing?.version ?? 0) + 1;
+      if (nextOrder.orderStatus === "CONFIRMED" && !nextOrder.salesOrderNo) {
+        const businessYear = String(payload.receivedDate ?? nextOrder.receivedDate).slice(0, 4);
+        if (!/^\d{4}$/.test(businessYear)) throw new Error("Confirmed Sales Orders require a valid received date.");
+        const sequenceKey = `AIC-SO-${businessYear}`;
+        const sequences = source.get(TAB_SEQUENCES) ?? [];
+        const sequenceIndex = sequences.findIndex((row) => text(row[0]) === sequenceKey);
+        const lastNumber = sequenceIndex >= 0 ? num(sequences[sequenceIndex][3]) : 0;
+        const nextNumber = lastNumber + 1;
+        nextOrder.salesOrderNo = `${sequenceKey}-${String(nextNumber).padStart(4, "0")}`;
+        const sequenceRow: SalesOrderSequence = { sequenceKey, prefix: "AIC-SO", businessYear, lastNumber: nextNumber, updatedAt: new Date().toISOString() };
+        const rowNumber = sequenceIndex >= 0 ? sequenceIndex + 2 : lastDataRow(sequences) + 1;
+        sequenceUpdate = { rowNumber, row: sequenceToRow(sequenceRow) };
+      }
+    }
+
+    const updates: Array<{ range: string; values: unknown[][] }> = [];
+    if (nextOrder && (isCreate || payload.order && command.commandType !== "so.attach" && command.commandType !== "so.documents.link")) {
+      const rowNumber = isCreate ? lastDataRow(orders) + 1 : existingIndex + 2;
+      updates.push({ range: `${TAB_ORDERS}!A${rowNumber}:${headerEndColumn(ORDERS_HEADERS.length)}${rowNumber}`, values: [orderToRow(nextOrder)] });
+    }
+    const shouldWriteItems = isCreate || command.commandType !== "so.update" || payload.hadItems === true;
+    if (shouldWriteItems && payload.items) {
+      const itemRows = source.get(TAB_ITEMS) ?? [];
+      const byId = new Map(itemRows.map((row, index) => [text(row[0]), index + 2]));
+      let nextRow = lastDataRow(itemRows) + 1;
+      for (const item of payload.items) {
+        const rowNumber = byId.get(item.salesOrderItemId) ?? nextRow++;
+        updates.push({ range: `${TAB_ITEMS}!A${rowNumber}:${headerEndColumn(ITEMS_HEADERS.length)}${rowNumber}`, values: [itemToRow(item)] });
+      }
+    }
+    const append = (tab: string, rows: unknown[][], width: number) => {
+      if (!rows.length) return;
+      const current = source.get(tab) ?? [];
+      const start = lastDataRow(current) + 1;
+      updates.push({ range: `${tab}!A${start}:${headerEndColumn(width)}${start + rows.length - 1}`, values: rows.map((row) => normalizeRow(row, width)) });
+    };
+    append(TAB_HISTORY, (payload.history ?? []).map(historyToRow), HISTORY_HEADERS.length);
+    append(TAB_FULFILLMENTS, (payload.fulfillments ?? []).map(fulfillmentToRow), FULFILLMENTS_HEADERS.length);
+    if (payload.document) append(TAB_DOCUMENTS, [documentToRow(payload.document)], DOCUMENTS_HEADERS.length);
+    append(TAB_DOCUMENT_LINKS, (payload.links ?? []).map(documentLinkToRow), DOCUMENT_LINKS_HEADERS.length);
+
+    if (sequenceUpdate) {
+      updates.push({ range: `${TAB_SEQUENCES}!A${sequenceUpdate.rowNumber}:E${sequenceUpdate.rowNumber}`, values: [sequenceUpdate.row] });
+    }
+    const result = commandResult(command.commandType, payload, nextOrder);
+    const receipt: SalesOrderCommandReceipt = {
+      commandId: command.commandId, payloadHash: command.requestHash, commandType: command.commandType,
+      salesOrderId: orderId, resultVersion: Number(result.version ?? 0), resultJson: JSON.stringify(result),
+      committedAt: new Date().toISOString(), actorUserId: command.actorUserId,
+    };
+    append(TAB_COMMANDS, [commandReceiptToRow(receipt)], COMMANDS_HEADERS.length);
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: { valueInputOption: "RAW", data: updates },
+    });
+    return { ok: true, replayed: false, result: result as T };
+  });
+}
+
+/** Used by the service to restore a response after a lost HTTP response. */
+export async function readSalesOrderCommandResult<T>(commandId: string, requestHash: string, actorUserId: string): Promise<T | null> {
+  const rows = await readTabValues(TAB_COMMANDS);
+  const prior = rows.find((row) => text(row[0]) === commandId);
+  if (!prior) return null;
+  if (text(prior[1]) !== requestHash || text(prior[7]) !== actorUserId) {
+    throw commandReplay("Command ID was already used with different content.");
+  }
+  return JSON.parse(text(prior[5])) as T;
 }

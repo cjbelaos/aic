@@ -8,7 +8,7 @@ function stableCommandId(value: string): string {
   const bytes = createHash("sha256").update(value).digest();
   // Format the first 16 digest bytes as an RFC 4122 v4-shaped UUID. The input
   // determines the result; the version bits only make it acceptable to the
-  // gateway's UUID validator.
+  // Sales Order UUID validator.
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = bytes.subarray(0, 16).toString("hex");

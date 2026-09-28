@@ -119,6 +119,7 @@ function numericOr(
 export { SalesOrderError, isValidSalesOrderNo };
 export interface ValidatedCreateOrder {
   commandId: string;
+  initialStatus: "DRAFT" | "CONFIRMED";
   sourceQuotationNo: string;
   /** Explicit quotation mode ("INTERNAL"/"EXTERNAL"), or "" for legacy payloads. */
   quotationSource: string;
@@ -149,6 +150,10 @@ export function parseCreateOrderInput(body: unknown): ValidatedCreateOrder {
   const value = body as Record<string, unknown>;
   const commandId = requiredString(value.commandId, "commandId", fieldErrors) ?? "";
   if (commandId && !isUuid(commandId)) fieldErrors.commandId = "commandId must be a UUID.";
+  const initialStatusRaw = typeof value.initialStatus === "string" ? value.initialStatus.trim().toUpperCase() : "";
+  if (initialStatusRaw && initialStatusRaw !== "DRAFT" && initialStatusRaw !== "CONFIRMED") {
+    fieldErrors.initialStatus = "initialStatus must be DRAFT or CONFIRMED.";
+  }
   const requiredStringField = (key: string): string => requiredString(value[key], key, fieldErrors) ?? "";
   const optionalStringField = (key: string): string => typeof value[key] === "string" ? value[key].trim() : "";
   const linesRaw = value.lines;
@@ -172,6 +177,7 @@ export function parseCreateOrderInput(body: unknown): ValidatedCreateOrder {
   }
   const result: ValidatedCreateOrder = {
     commandId,
+    initialStatus: initialStatusRaw === "DRAFT" ? "DRAFT" : "CONFIRMED",
     sourceQuotationNo: quotation.quotationNo,
     quotationSource: quotation.source ?? "",
     externalQuotationNo: quotation.source === "EXTERNAL" ? quotation.quotationNo : externalQuotationNoRaw,
@@ -414,20 +420,6 @@ export function parseDocumentInput(body: unknown): ValidatedDocument {
   };
 }
 
-export interface ValidatedRetrySync {
-  commandId: string;
-}
-
-export function parseRetrySyncInput(body: unknown): ValidatedRetrySync {
-  if (typeof body !== "object" || body === null) throw badRequest("Request body must be a JSON object.");
-  const value = body as Record<string, unknown>;
-  const fieldErrors: Record<string, string> = {};
-  const commandId = requiredString(value.commandId, "commandId", fieldErrors) ?? "";
-  if (commandId && !isUuid(commandId)) fieldErrors.commandId = "commandId must be a UUID.";
-  if (Object.keys(fieldErrors).length > 0) throw badRequest("Invalid sync-retry payload.", fieldErrors);
-  return { commandId };
-}
-
 export interface ValidatedDocumentLink {
   commandId: string;
   expectedVersion: number;
@@ -471,6 +463,7 @@ export function parseDocumentLinkInput(body: unknown): ValidatedDocumentLink {
 export interface ValidatedFromQuotation {
   commandId: string;
   quotationNo: string;
+  initialStatus: "DRAFT" | "CONFIRMED";
 }
 
 export function parseFromQuotationInput(body: unknown): ValidatedFromQuotation {
@@ -480,6 +473,10 @@ export function parseFromQuotationInput(body: unknown): ValidatedFromQuotation {
   const commandId = requiredString(value.commandId, "commandId", fieldErrors) ?? "";
   if (commandId && !isUuid(commandId)) fieldErrors.commandId = "commandId must be a UUID.";
   const quotationNo = requiredString(value.quotationNo, "quotationNo", fieldErrors) ?? "";
+  const initialStatusRaw = typeof value.initialStatus === "string" ? value.initialStatus.trim().toUpperCase() : "";
+  if (initialStatusRaw && initialStatusRaw !== "DRAFT" && initialStatusRaw !== "CONFIRMED") {
+    fieldErrors.initialStatus = "initialStatus must be DRAFT or CONFIRMED.";
+  }
   if (Object.keys(fieldErrors).length > 0) throw badRequest("Invalid from-quotation payload.", fieldErrors);
-  return { commandId, quotationNo };
+  return { commandId, quotationNo, initialStatus: initialStatusRaw === "DRAFT" ? "DRAFT" : "CONFIRMED" };
 }

@@ -1,5 +1,9 @@
 # Sales Orders correction checkpoint
 
+> **Superseded on 28 September 2026.** The Apps Script gateway/outbox design
+> described below was removed. Sales Orders and the denormalized Tracker are
+> now written directly by the Next.js server using the Google Sheets client.
+
 Updated: 2026-09-20. Status: review blockers corrected locally; deployment and
 full module acceptance remain unverified. This supersedes earlier claims that
 all phases were complete.

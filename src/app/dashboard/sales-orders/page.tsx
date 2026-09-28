@@ -49,9 +49,9 @@ export default function SalesOrdersPage(): React.ReactNode {
   const columns = React.useMemo<ColumnDef<OrderRowView>[]>(() => [
     {
       id: "salesOrderNo",
-      accessorFn: (row) => row.order.salesOrderNo || "Draft",
+      accessorFn: (row) => row.order.salesOrderNo || (row.order.orderStatus === "DRAFT" ? "Draft" : "Number pending"),
       header: ({ column }) => <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Sales Order No.<ArrowUpDown className="ml-2 h-4 w-4" /></Button>,
-      cell: ({ row }) => <div><span className="font-semibold tabular-nums">{row.original.order.salesOrderNo || "Draft"}</span>{row.original.order.legacyTrackerNo ? <span className="block text-xs text-muted-foreground">Legacy #{row.original.order.legacyTrackerNo}</span> : null}</div>,
+      cell: ({ row }) => <div><span className="font-semibold tabular-nums">{row.original.order.salesOrderNo || (row.original.order.orderStatus === "DRAFT" ? "Draft" : "Number pending")}</span>{row.original.order.legacyTrackerNo ? <span className="block text-xs text-muted-foreground">Legacy #{row.original.order.legacyTrackerNo}</span> : null}</div>,
     },
     { id: "receivedDate", accessorFn: (row) => row.order.receivedDate, header: "Received", cell: ({ row }) => formatDate(row.original.order.receivedDate) },
     { id: "customer", accessorFn: (row) => row.order.customerNameSnapshot || row.order.customerId, header: "Customer", cell: ({ getValue }) => <span className="font-medium">{String(getValue())}</span> },

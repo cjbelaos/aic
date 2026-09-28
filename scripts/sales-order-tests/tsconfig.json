@@ -21,10 +21,8 @@
     "../../src/lib/salesOrders/domain.ts",
     "../../src/lib/salesOrders/validation.ts",
     "../../src/lib/salesOrders/quotationReference.ts",
-    "../../src/lib/salesOrders/protocol.ts",
     "../../src/lib/salesOrders/crypto-hash.ts",
     "../../src/lib/salesOrders/permissions.ts",
-    "../../src/lib/salesOrders/gateway.ts",
     "../../src/types/salesOrder.ts"
   ]
 }

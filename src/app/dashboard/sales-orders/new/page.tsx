@@ -71,11 +71,11 @@ export default function NewSalesOrderPage(): React.ReactNode {
     router.push(`/dashboard/sales-orders/${orderId}`);
   };
 
-  const createFromQuotation = async (quotationNo: string): Promise<void> => {
-    const result = await salesOrderService.fromQuotation(quotationNo);
+  const createFromQuotation = async (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED"): Promise<void> => {
+    const result = await salesOrderService.fromQuotation(quotationNo, initialStatus);
     const id = result.order.order.salesOrderId;
     router.push(
-      `/dashboard/sales-orders/${id}`,
+      result.order.order.orderStatus === "DRAFT" ? `/dashboard/sales-orders/${id}/edit` : `/dashboard/sales-orders/${id}`,
     );
   };
 
@@ -117,10 +117,11 @@ export default function NewSalesOrderPage(): React.ReactNode {
           lines: [],
         }}
         options={options}
-        submitLabel="Create Confirmed Sales Order"
+        submitLabel="Save Changes"
         onSubmit={submit}
         onCancel={() => router.push("/dashboard/sales-orders")}
         onCreateFromQuotation={createFromQuotation}
+        creationChoices
         enableReferenceUploads
       />
     </div>

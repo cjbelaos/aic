@@ -1,4 +1,10 @@
-# Sales Order Phase 1 — Rules and Synchronization Spike
+# Sales Order Phase 1 — Historical synchronization spike
+
+> **Superseded on 28 September 2026.** Sales Orders now write directly from
+> the authenticated Next.js server to the canonical Google Sheets tabs and
+> immediately reconcile the Sales Order Tracker through that same client.
+> There is no Sales Order Apps Script gateway, deployment, trigger, outbox or
+> synchronization job. This document is retained only as historical context.
 
 Status: **In progress — locally verifiable gates have evidence; deployment and
 legacy-workbook gates remain blocked on live external access.**
