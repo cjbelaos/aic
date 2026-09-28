@@ -11,37 +11,48 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-interface TechnicianEarningsAccessResponse {
+interface ReportAccessResponse {
   canAccess?: boolean;
 }
 
-export default function DashboardPage() {
-  /**
-   * Technician Earnings is restricted (After Sales Manager, executive positions
-   * or the Super Admin allow-list). The sidebar resolves this from the same
-   * endpoint, so reuse it here instead of duplicating the rule on the client.
-   */
-  const [canSeeTechnicianEarnings, setCanSeeTechnicianEarnings] =
-    useState(false);
+/**
+ * Confidential profit reports (Technician Earnings and the Monthly Summary)
+ * are restricted to the CEO, CFO, COO and the Super Admin allow-list. The
+ * server owns that rule, so the client mirrors the access endpoints instead of
+ * duplicating it.
+ */
+function useReportAccess(endpoint: string): boolean {
+  const [canAccess, setCanAccess] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    void fetch("/api/reports/technician-earnings/access")
+    void fetch(endpoint)
       .then(async (response) => {
         if (!response.ok) return false;
-        const body = (await response.json()) as TechnicianEarningsAccessResponse;
+        const body = (await response.json()) as ReportAccessResponse;
         return body.canAccess === true;
       })
-      .then((canAccess) => {
-        if (mounted) setCanSeeTechnicianEarnings(canAccess);
+      .then((allowed) => {
+        if (mounted) setCanAccess(allowed);
       })
       .catch(() => {
-        if (mounted) setCanSeeTechnicianEarnings(false);
+        if (mounted) setCanAccess(false);
       });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [endpoint]);
+
+  return canAccess;
+}
+
+export default function DashboardPage() {
+  const canSeeTechnicianEarnings = useReportAccess(
+    "/api/reports/technician-earnings/access",
+  );
+  const canSeeMonthlySummary = useReportAccess(
+    "/api/reports/monthly-summary/access",
+  );
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -85,25 +96,27 @@ export default function DashboardPage() {
           </Link>
         )}
 
-        <Link href="/dashboard/monthly-summary" className="group">
-          <Card className="h-full transition-colors group-hover:border-emerald-400/60 group-hover:bg-accent/40">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-base">Monthly Summary</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <CardDescription>
-                Monthly revenue, expenses and net profit for the company.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                Open summary
-                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
+        {canSeeMonthlySummary && (
+          <Link href="/dashboard/monthly-summary" className="group">
+            <Card className="h-full transition-colors group-hover:border-emerald-400/60 group-hover:bg-accent/40">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-base">Monthly Summary</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <CardDescription>
+                  Monthly revenue, expenses and net profit for the company.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                  Open summary
+                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
       </div>
     </div>
   );

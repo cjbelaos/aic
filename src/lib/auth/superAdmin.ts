@@ -2,9 +2,10 @@ import type { SessionUser } from "@/types/user";
 
 /**
  * Super Admin accounts bypass every role, position and department gate in the
- * application (e.g. the Technician Earnings report and the FTI fuel-price
- * settings, which are otherwise restricted to the After Sales Manager or the
- * executive positions).
+ * application (e.g. the confidential Monthly Profit Summary, restricted to the
+ * CEO/CFO/COO, the Technician Earnings report, which also allows the After
+ * Sales Manager, and the FTI fuel-price settings, owned by the After Sales
+ * Manager).
  *
  * The allow-list is keyed on `userId` — it stays valid across role, position
  * and department changes — and follows the same pattern already used for

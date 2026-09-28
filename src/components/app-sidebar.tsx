@@ -54,7 +54,7 @@ interface StoredUser {
   isSuperAdmin?: boolean;
 }
 
-interface TechnicianEarningsAccessResponse {
+interface ReportAccessResponse {
   canAccess?: boolean;
 }
 
@@ -102,6 +102,7 @@ export function AppSidebar() {
   const [superAdmin] = useState<boolean>(getStoredSuperAdmin);
   const [canSeeTechnicianEarnings, setCanSeeTechnicianEarnings] =
     useState(false);
+  const [canSeeMonthlySummary, setCanSeeMonthlySummary] = useState(false);
   const [canManageFuelPrice, setCanManageFuelPrice] = useState(false);
   const canSeeTravel = departmentId === 1 || superAdmin;
   const isAdmin = roleId === 1 || superAdmin;
@@ -117,7 +118,7 @@ export function AppSidebar() {
     void fetch("/api/reports/technician-earnings/access")
       .then(async (response) => {
         if (!response.ok) return false;
-        const body = (await response.json()) as TechnicianEarningsAccessResponse;
+        const body = (await response.json()) as ReportAccessResponse;
         return body.canAccess === true;
       })
       .then((canAccess) => {
@@ -125,6 +126,29 @@ export function AppSidebar() {
       })
       .catch(() => {
         if (mounted) setCanSeeTechnicianEarnings(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /**
+   * Monthly Summary is a confidential profit report, so it shares the same gate
+   * as Technician Earnings: CEO, CFO, COO or the Super Admin allow-list.
+   */
+  useEffect(() => {
+    let mounted = true;
+    void fetch("/api/reports/monthly-summary/access")
+      .then(async (response) => {
+        if (!response.ok) return false;
+        const body = (await response.json()) as ReportAccessResponse;
+        return body.canAccess === true;
+      })
+      .then((canAccess) => {
+        if (mounted) setCanSeeMonthlySummary(canAccess);
+      })
+      .catch(() => {
+        if (mounted) setCanSeeMonthlySummary(false);
       });
     return () => {
       mounted = false;
@@ -215,18 +239,20 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive("/dashboard/monthly-summary")}
-                  tooltip="Monthly Profit Summary"
-                >
-                  <Link href="/dashboard/monthly-summary">
-                    <TrendingUp />
-                    <span>Monthly Summary</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {canSeeMonthlySummary && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isItemActive("/dashboard/monthly-summary")}
+                    tooltip="Monthly Profit Summary"
+                  >
+                    <Link href="/dashboard/monthly-summary">
+                      <TrendingUp />
+                      <span>Monthly Summary</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

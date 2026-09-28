@@ -1,15 +1,26 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { canAccessProfitReports } from "@/lib/profitReportAccess";
 import { getServiceInvoices } from "@/lib/serviceInvoiceSheets";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 
 /**
  * GET /api/reports/monthly-summary?year=2026&month=8
  * Returns monthly profit summary: SI revenue vs liquidation expenses.
+ *
+ * Confidential: restricted to the CEO, CFO, COO and the Super Admin allow-list
+ * (see `canAccessProfitReports`).
  */
 export async function GET(request: Request) {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
+
+  if (!(await canAccessProfitReports(session))) {
+    return NextResponse.json(
+      { error: "Forbidden. You do not have access to the monthly profit summary." },
+      { status: 403 },
+    );
+  }
 
   try {
     const { searchParams } = new URL(request.url);

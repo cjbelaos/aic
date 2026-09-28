@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DollarSign, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { PageLoader } from "@/components/ui/logo-loader";
 
 type SIRow = { invoiceNo: string; date: string; companyName: string; total: number; drNumber?: number };
 type ExpRow = { liquidationId: string; controlNo: string; date: string; totalAmount: number };
@@ -21,11 +22,19 @@ type SummaryData = {
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 export default function Page() {
-  const now = new Date();
+  const now = useMemo(() => new Date(), []);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(false);
+  /**
+   * This report is confidential: only the CEO, CFO, COO and the Super Admin
+   * allow-list may open it. The server resolves the rule, so the client reads
+   * the access endpoint instead of duplicating it.
+   */
+  const [access, setAccess] = useState<"loading" | "allowed" | "denied">(
+    "loading",
+  );
 
   const years = useMemo(() => {
     const cy = now.getFullYear();
@@ -37,16 +46,55 @@ export default function Page() {
   const fmt = (v: number) => v.toLocaleString("en-PH", { style: "currency", currency: "PHP" });
 
   const load = async () => {
+    if (access !== "allowed") return;
     setLoading(true);
     try {
       const res = await fetch(`/api/reports/monthly-summary?year=${year}&month=${month}`);
       if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
       setData(await res.json());
-    } catch (err: any) { toast.error(err.message); }
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to load summary."); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let mounted = true;
+    void fetch("/api/reports/monthly-summary/access")
+      .then(async (response) => {
+        if (!response.ok) return false;
+        const body = (await response.json()) as { canAccess?: boolean };
+        return body.canAccess === true;
+      })
+      .then((canAccess) => {
+        if (mounted) setAccess(canAccess ? "allowed" : "denied");
+      })
+      .catch(() => {
+        if (mounted) setAccess("denied");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (access !== "allowed") return;
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // Loading is intentionally driven only by the access check.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access]);
+
+  if (access === "loading")
+    return <PageLoader label="Loading monthly profit summary…" />;
+
+  if (access === "denied") {
+    return (
+      <div className="py-12 text-center text-muted-foreground">
+        You do not have access to the monthly profit summary.
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 24 }}>

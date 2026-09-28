@@ -1,18 +1,17 @@
 import { getDepartments } from "@/lib/departmentSheets";
 import { getPositions } from "@/lib/positionSheets";
 import { isSuperAdmin } from "@/lib/auth/superAdmin";
+import { canAccessProfitReports } from "@/lib/profitReportAccess";
 import type { SessionUser } from "@/types/user";
-
-const EXECUTIVE_POSITIONS = new Set(["general manager", "cfo", "coo", "ceo"]);
 
 function normalizeTitle(value: string): string {
   return value.trim().toLowerCase().replace(/[\s-]+/g, " ");
 }
 
 /**
- * Determines whether a session may view the technician earnings report.
- * Position and department titles are resolved from their master sheets so this
- * rule does not depend on mutable numeric IDs.
+ * After Sales department managers own the fuel-price settings and the FTI
+ * workflow. Position and department titles are resolved from their master
+ * sheets so this rule does not depend on mutable numeric IDs.
  */
 export async function isAfterSalesManager(
   session: SessionUser,
@@ -33,14 +32,17 @@ export async function isAfterSalesManager(
   return departmentName === "after sales" && positionTitle === "manager";
 }
 
+/**
+ * Technician Earnings is a confidential profit report (CEO, CFO, COO or the
+ * Super Admin allow-list) with one extra audience: the After Sales Manager,
+ * who owns the technician workflow. The Monthly Profit Summary does NOT grant
+ * this exception — it stays restricted to the executives.
+ */
 export async function canAccessTechnicianEarnings(
   session: SessionUser,
 ): Promise<boolean> {
-  if (isSuperAdmin(session)) return true;
-  if (await isAfterSalesManager(session)) return true;
-  const positions = await getPositions();
-  const position = positions.find((item) => item.positionId === session.positionId);
-  return EXECUTIVE_POSITIONS.has(normalizeTitle(position?.positionTitle ?? ""));
+  if (await canAccessProfitReports(session)) return true;
+  return isAfterSalesManager(session);
 }
 
 /**
