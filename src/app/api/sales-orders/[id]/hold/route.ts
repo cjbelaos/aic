@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/salesOrders/http-helpers";
 import { transitionOrder } from "@/lib/salesOrders/service";
 import { parseExpectedVersion } from "@/lib/salesOrders/validation";
+import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
 
 const TARGET: "ON_HOLD" | "CONFIRMED" = "ON_HOLD";
 
@@ -12,6 +13,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id } = await params;
     const input = parseExpectedVersion(await request.json());
     const detail = await transitionOrder(toActor(auth.session), id, { commandId: input.commandId, expectedVersion: input.expectedVersion, target: TARGET });
+    await syncSalesOrderToTracker(detail.order, detail.items);
     return NextResponse.json({ success: true, order: detail }, { status: 200 });
   } catch (error) {
     return salesErrorResponse(error);

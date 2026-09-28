@@ -16,7 +16,6 @@ export type SalesCapability =
   | "so.fulfill"
   | "so.view.totals"
   | "so.attach"
-  | "so.sync.retry"
   | "so.manage.setup"
   | "so.import";
 
@@ -44,7 +43,6 @@ export function capabilitiesForRole(roleId: number): ReadonlySet<SalesCapability
       "so.fulfill",
       "so.view.totals",
       "so.attach",
-      "so.sync.retry",
       "so.manage.setup",
       "so.import",
     ]);

@@ -6,7 +6,6 @@ import type {
   SalesOrderDocument,
   SalesOrderFulfillment,
   SalesOrderDocumentLink,
-  SalesOrderSyncJob,
 } from "@/types/salesOrder";
 
 export interface SalesOrderDetail {
@@ -16,7 +15,6 @@ export interface SalesOrderDetail {
   documents: SalesOrderDocument[];
   fulfillments: SalesOrderFulfillment[];
   documentLinks: SalesOrderDocumentLink[];
-  syncJobs: SalesOrderSyncJob[];
   totals: { subtotalExTax: number; discountTotal: number; taxTotal: number; grandTotal: number };
   category: string;
 }
@@ -29,7 +27,6 @@ export interface OrderRowView {
   fulfillmentPercent: number;
   overdue: boolean;
   ageDays: number;
-  syncStatus: string;
 }
 
 export interface OrderListResponse {
@@ -127,7 +124,7 @@ const salesOrderService = {
   get: (id: string): Promise<SalesOrderDetail & { success: boolean; capabilities?: { canEdit: boolean } }> =>
     api.get(`${BASE}/${id}`),
 
-  createDraft: (payload: OrderInput): Promise<{ success: boolean; order: SalesOrderDetail }> =>
+  create: (payload: OrderInput): Promise<{ success: boolean; order: SalesOrderDetail }> =>
     mutate("post", `${BASE}`, { ...payload, commandId: payload.commandId }),
 
   updateDraft: (id: string, payload: OrderInput & { expectedVersion: number }): Promise<{ success: boolean; order: SalesOrderDetail }> =>
@@ -191,9 +188,6 @@ const salesOrderService = {
 
   history: (id: string): Promise<{ success: boolean; history: SalesOrderHistory[] }> =>
     api.get(`${BASE}/${id}/history`),
-
-  retrySync: (id: string): Promise<{ success: boolean; queued: boolean }> =>
-    mutate("post", `${BASE}/${id}/sync/retry`, {}),
 
   options: (): Promise<OptionsResponse> => api.get(`${BASE}/options`),
 

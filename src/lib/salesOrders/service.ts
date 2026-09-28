@@ -5,7 +5,7 @@ import { payloadHash } from "./crypto-hash.ts";
 // gateway), status transitions, calculated amounts, fulfillment totals, audit
 // history and authorization checks.
 
-import type { SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument, SalesOrderFulfillment, SalesOrderDocumentLink, SalesOrderSyncJob, OrderStatus } from "@/types/salesOrder";
+import type { SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument, SalesOrderFulfillment, SalesOrderDocumentLink, OrderStatus } from "@/types/salesOrder";
 import {
   COMBINED_CHARGE_DESCRIPTION,
   SALES_ORDER_COMBINED_CATEGORY,
@@ -25,7 +25,6 @@ import {
   postFulfillment, applyReversalToItem, applyCancellationToItem, recalculateItemMoneyForLine,
   recalculateOrderTotals, remainingDemand, conversionPlanFromQuotation, convertedLineCategory,
 } from "./domain.ts";
-import { createSyncJob } from "./sync.ts";
 import { sendGatewayCommand, verifyEnvironment } from "./gateway.ts";
 import { notFound, validationError } from "./errors.ts";
 import { TAX_RATE_LEGACY_PHI } from "./money.ts";
@@ -45,7 +44,6 @@ export interface SalesOrderDetail {
   documents: SalesOrderDocument[];
   fulfillments: SalesOrderFulfillment[];
   documentLinks: SalesOrderDocumentLink[];
-  syncJobs: SalesOrderSyncJob[];
   totals: { subtotalExTax: number; discountTotal: number; taxTotal: number; grandTotal: number };
   category: string;
 }
@@ -62,7 +60,6 @@ export interface ListQuery {
   dateFrom?: string;
   dateTo?: string;
   overdue?: boolean;
-  syncStatus?: string;
   view?: "all" | "services";
 }
 
@@ -74,20 +71,10 @@ export interface OrderRowView {
   fulfillmentPercent: number;
   overdue: boolean;
   ageDays: number;
-  syncStatus: string;
 }
 
 const OPEN_ORDER_STATUSES: readonly OrderStatus[] = ["DRAFT", "CONFIRMED", "ON_HOLD"];
 
-export function destinationConfig(): { spreadsheetId: string; sheetId: string } | null {
-  const mode = (process.env.SALES_ORDER_SYNC_ENABLED ?? "").trim().toLowerCase();
-  const spreadsheetId = process.env.SALES_ORDER_DESTINATION_SPREADSHEET_ID;
-  const sheetId = process.env.SALES_ORDER_DESTINATION_TRACKER_SHEET_ID;
-  if (!spreadsheetId || !sheetId) return null;
-  if (mode === "off" || mode === "") return null;
-  if (mode === "live" && process.env.SALES_ORDER_SYNC_ALLOW_LIVE !== "1") return null;
-  return { spreadsheetId, sheetId };
-}
 function daysBetween(aIso: string, bIso: string): number {
   if (!aIso || !bIso) return 0;
   const a = Date.parse(`${aIso.slice(0, 10)}T00:00:00Z`);
@@ -111,7 +98,6 @@ export async function getOrderDetail(id: string, options: { historyLimit?: numbe
     documents: snapshot.documents,
     fulfillments: snapshot.fulfillments,
     documentLinks: snapshot.documentLinks,
-    syncJobs: snapshot.syncJobs,
     totals: recalculateOrderTotals(items),
     category: deriveOrderCategory(items),
   };
@@ -123,7 +109,6 @@ export async function listOrders(query: ListQuery): Promise<{ rows: OrderRowView
   const snapshot = await readSalesOrderListSnapshot();
   const orders = snapshot.orders;
   const allItems = snapshot.items;
-  const allJobs = snapshot.syncJobs;
   const today = manilaBusinessDate();
 
   const sorted = [...orders].sort(
@@ -137,9 +122,6 @@ export async function listOrders(query: ListQuery): Promise<{ rows: OrderRowView
     const fulfilled = active.reduce((sum, item) => sum + item.fulfilledQty, 0);
     const category = deriveOrderCategory(items);
     if (!matchesFilter(query, order, items, category)) continue;
-    const relevantJobs = allJobs.filter((job) => job.salesOrderId === order.salesOrderId).sort((a, b) => b.orderVersion - a.orderVersion);
-    const syncStatus = relevantJobs.length ? relevantJobs[0].status : "NONE";
-    if (query.syncStatus && query.syncStatus !== syncStatus) continue;
     const overdue = OPEN_ORDER_STATUSES.includes(order.orderStatus) && Boolean(order.requiredDate) && order.requiredDate < today;
     if (query.overdue && !overdue) continue;
     rows.push({
@@ -150,7 +132,6 @@ export async function listOrders(query: ListQuery): Promise<{ rows: OrderRowView
       fulfillmentPercent: demand === 0 ? (active.length === 0 ? 100 : 0) : Math.min(100, Math.round((fulfilled / demand) * 100)),
       overdue,
       ageDays: order.receivedDate ? daysBetween(order.receivedDate, today) : 0,
-      syncStatus,
     });
   }
   const total = rows.length;
@@ -193,9 +174,9 @@ function baseOrder(input: {
     contactPhoneSnapshot: input.contactPhoneSnapshot, deliveryAddressSnapshot: input.deliveryAddressSnapshot,
     customerPONo: input.customerPONo, quotationNo: input.quotationNo, paymentTermId: input.paymentTermId,
     paymentTermsSnapshot: input.paymentTermsSnapshot, requiredDate: input.requiredDate,
-    assignedToUserId: input.assignedToUserId, currency: input.currency as SalesOrder["currency"], orderStatus: "DRAFT",
+    assignedToUserId: input.assignedToUserId, currency: input.currency as SalesOrder["currency"], orderStatus: "CONFIRMED",
     fulfillmentStatus: "UNFULFILLED", subtotalExTax: 0, discountTotal: 0, taxTotal: 0, grandTotal: 0,
-    remarks: input.remarks, version: 1, confirmedAt: "", closedAt: "", cancelReason: "",
+    remarks: input.remarks, version: 1, confirmedAt: now, closedAt: "", cancelReason: "",
     importQuality: "", createdAt: now, createdBy: actor.userId, updatedAt: now, updatedBy: actor.userId,
   };
 }
@@ -244,15 +225,6 @@ export function historyEvent(input: {
   };
 }
 
-export function createOutboundJob(orderId: string, version: number, now = nowIso()): SalesOrderSyncJob | null {
-  const destination = destinationConfig();
-  if (!destination) return null;
-  return createSyncJob({
-    syncJobId: newUuid(), salesOrderId: orderId, orderVersion: version,
-    destinationSpreadsheetId: destination.spreadsheetId, destinationSheetId: destination.sheetId, nowIso: now,
-  });
-}
-
 async function runWrite<T>(
   commandType: string,
   input: { commandId: string; salesOrderId: string | null; expectedVersion: number | null; payload: unknown; actor: Actor },
@@ -264,7 +236,7 @@ async function runWrite<T>(
   };
   return sendGatewayCommand<T>({ command, payload: command.payload });
 }
-async function createDraftImpl(actor: Actor, input: {
+async function createOrderImpl(actor: Actor, input: {
   commandId: string;
   sourceQuotationNo?: string; quotationSource?: string; externalQuotationNo?: string;
   customerId: string; customerNameSnapshot: string; customerTINSnapshot: string;
@@ -296,11 +268,15 @@ async function createDraftImpl(actor: Actor, input: {
   order.fulfillmentStatus = deriveFulfillmentStatus(items);
 
   const commandId = input.commandId;
+  const issues = collectConfirmationIssues({ order, items, assignmentOptional: true });
+  if (issues.length > 0) {
+    throw validationError("This Sales Order is incomplete.", Object.fromEntries(issues.map((issue, i) => [`issue.${i + 1}`, issue])));
+  }
   const history = [historyEvent({
-    orderId: order.salesOrderId, eventType: "ORDER_CREATED", toStatus: "DRAFT", commandId, actor,
+    orderId: order.salesOrderId, eventType: "ORDER_CREATED", toStatus: "CONFIRMED", commandId, actor,
   })];
   const payload = { salesOrderId: order.salesOrderId, receivedDate: order.receivedDate, order, items, history };
-  const saved = await runWrite<{ version: number; salesOrderId: string }>("so.create", {
+  const saved = await runWrite<{ version: number; salesOrderId: string; salesOrderNo: string }>("so.create", {
     salesOrderId: order.salesOrderId, expectedVersion: null, commandId, payload, actor,
   });
   return getOrderDetail(saved.result.salesOrderId);
@@ -408,7 +384,6 @@ async function confirmOrderImpl(actor: Actor, id: string, input: { commandId: st
   })];
   const payload = {
     salesOrderId: current.salesOrderId, receivedDate: order.receivedDate, order, items, history,
-    syncJob: createOutboundJob(current.salesOrderId, current.version + 1, now),
   };
   const result = await runWrite<{ version: number; salesOrderNo: string }>("so.confirm", {
     salesOrderId: current.salesOrderId, expectedVersion: input.expectedVersion, commandId, payload, actor,
@@ -437,7 +412,7 @@ async function transitionOrderImpl(
   })];
   const payload = {
     salesOrderId: current.salesOrderId, receivedDate: order.receivedDate, order, items: await readSalesOrderItems(id),
-    history, syncJob: createOutboundJob(current.salesOrderId, current.version + 1, now),
+    history,
   };
   await runWrite<{ version: number }>(`so.${input.target === "ON_HOLD" ? "hold" : "resume"}`, {
     salesOrderId: current.salesOrderId, expectedVersion: input.expectedVersion, commandId, payload, actor,
@@ -478,7 +453,7 @@ async function cancelOrderImpl(
   })];
   const payload = {
     salesOrderId: current.salesOrderId, receivedDate: order.receivedDate, order, items: nextItems,
-    history, syncJob: createOutboundJob(current.salesOrderId, current.version + 1, now),
+    history,
   };
   await runWrite<{ version: number }>("so.cancel", {
     salesOrderId: current.salesOrderId, expectedVersion: input.expectedVersion, commandId, payload, actor,
@@ -525,7 +500,7 @@ async function postFulfillmentsImpl(actor: Actor, id: string, input: { commandId
   })];
   const payload = {
     salesOrderId: current.salesOrderId, receivedDate: order.receivedDate, order, items: nextItems,
-    fulfillments, history, syncJob: createOutboundJob(current.salesOrderId, current.version + 1, now),
+    fulfillments, history,
   };
   await runWrite<{ version: number }>("so.fulfill", {
     salesOrderId: current.salesOrderId, expectedVersion: input.expectedVersion, commandId, payload, actor,
@@ -553,7 +528,7 @@ async function closeOrderImpl(actor: Actor, id: string, input: { commandId: stri
   })];
   const payload = {
     salesOrderId: current.salesOrderId, receivedDate: order.receivedDate, order, items,
-    history, syncJob: createOutboundJob(current.salesOrderId, current.version + 1, now),
+    history,
   };
   await runWrite<{ version: number }>("so.close", {
     salesOrderId: current.salesOrderId, expectedVersion: input.expectedVersion, commandId, payload, actor,
@@ -587,17 +562,6 @@ async function attachDocumentImpl(actor: Actor, id: string, input: { commandId: 
     salesOrderId: current.salesOrderId, expectedVersion: input.orderVersion || current.version, commandId, payload, actor,
   });
   return document;
-}
-
-async function authorizedSyncRetryImpl(actor: Actor, id: string, commandId: string): Promise<{ queued: boolean }> {
-  verifyEnvironment();
-  const current = await readSalesOrderById(id);
-  assertFound(current, id);
-  const payload = { salesOrderId: current.salesOrderId, reason: "manual-retry", actorUserId: actor.userId };
-  const result = await runWrite<{ queued: boolean }>("so.sync.retry", {
-    commandId, salesOrderId: current.salesOrderId, expectedVersion: current.version, payload, actor,
-  });
-  return { queued: result.result.queued === true };
 }
 
 export interface DocumentLinkInput {
@@ -660,7 +624,7 @@ async function createDocumentLinksImpl(actor: Actor, id: string, input: { comman
   return links;
 }
 
-async function createDraftFromQuotationImpl(actor: Actor, input: { commandId: string; quotationNo: string }): Promise<SalesOrderDetail> {
+async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: string; quotationNo: string }): Promise<SalesOrderDetail> {
   const existing = (await readSalesOrders()).find((order) =>
     order.quotationNo.trim().toLowerCase() === input.quotationNo.trim().toLowerCase()
     && order.orderStatus !== "CANCELLED",
@@ -689,7 +653,7 @@ async function createDraftFromQuotationImpl(actor: Actor, input: { commandId: st
     ? ` Quoted as one total price of ${plan.combinedTotal.toFixed(2)}; the combined charge is carried on its own line and no per-line price was derived.`
     : "";
 
-  return createDraftImpl(actor, {
+  return createOrderImpl(actor, {
     commandId: input.commandId,
     sourceQuotationNo: quotation.quotationNo,
     customerId: quotation.customerId ?? "",
@@ -746,9 +710,9 @@ async function replayable<T>(operation: string, actor: Actor, id: string | null,
     throw error;
   }
 }
-export async function createDraft(...args: Parameters<typeof createDraftImpl>): ReturnType<typeof createDraftImpl> {
+export async function createOrder(...args: Parameters<typeof createOrderImpl>): ReturnType<typeof createOrderImpl> {
   const [actor, input] = args;
-  return replayable("createDraft", actor, null, input, () => createDraftImpl(...args), result => getOrderDetail(String(result.salesOrderId)));
+  return replayable("createOrder", actor, null, input, () => createOrderImpl(...args), result => getOrderDetail(String(result.salesOrderId)));
 }
 export async function updateOrder(...args: Parameters<typeof updateOrderImpl>): ReturnType<typeof updateOrderImpl> {
   const [actor, id, input] = args;
@@ -778,15 +742,11 @@ export async function attachDocument(...args: Parameters<typeof attachDocumentIm
   const [actor, id, input] = args;
   return replayable("attachDocument", actor, id, input, () => attachDocumentImpl(...args), async result => result.document as unknown as SalesOrderDocument);
 }
-export async function authorizedSyncRetry(...args: Parameters<typeof authorizedSyncRetryImpl>): ReturnType<typeof authorizedSyncRetryImpl> {
-  const [actor, id, commandId] = args;
-  return replayable("authorizedSyncRetry", actor, id, { commandId }, () => authorizedSyncRetryImpl(...args), async () => ({ queued: true }));
-}
 export async function createDocumentLinks(...args: Parameters<typeof createDocumentLinksImpl>): ReturnType<typeof createDocumentLinksImpl> {
   const [actor, id, input] = args;
   return replayable("createDocumentLinks", actor, id, input, () => createDocumentLinksImpl(...args), async result => result.links as unknown as SalesOrderDocumentLink[]);
 }
-export async function createDraftFromQuotation(...args: Parameters<typeof createDraftFromQuotationImpl>): ReturnType<typeof createDraftFromQuotationImpl> {
+export async function createOrderFromQuotation(...args: Parameters<typeof createOrderFromQuotationImpl>): ReturnType<typeof createOrderFromQuotationImpl> {
   const [actor, input] = args;
-  return replayable("createDraftFromQuotation", actor, null, input, () => createDraftFromQuotationImpl(...args), result => getOrderDetail(String(result.salesOrderId)));
+  return replayable("createOrderFromQuotation", actor, null, input, () => createOrderFromQuotationImpl(...args), result => getOrderDetail(String(result.salesOrderId)));
 }

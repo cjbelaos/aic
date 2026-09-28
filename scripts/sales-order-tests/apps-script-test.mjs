@@ -8,7 +8,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const books = new Map();
-const properties = { SOURCE_SPREADSHEET_ID: 'source', DESTINATION_SPREADSHEET_ID: 'destination', DESTINATION_SHEET_ID: '99', GATEWAY_SHARED_SECRET: 'test-secret', SYNC_ENV: 'staging' };
+const properties = { SOURCE_SPREADSHEET_ID: 'source', DESTINATION_SPREADSHEET_ID: 'destination', DESTINATION_SHEET_ID: '99', GATEWAY_SHARED_SECRET: 'test-secret', SYNC_ENV: 'staging', ENABLE_LEGACY_OUTBOUND_SYNC: '1' };
 let failCommit = false, batches = 0, locked = false;
 function rawSheet(sheet) {
   return { getSheetId: () => sheet.id, getMaxRows: () => sheet.maxRows, getMaxColumns: () => sheet.width,
@@ -89,32 +89,11 @@ assert.equal(confirm.result.salesOrderNo, 'AIC-SO-2026-0001');
 assert.equal(context.trackerDisplayNumber_('', confirm.result.salesOrderNo), '0001', 'new orders publish their padded numeric suffix');
 assert.equal(context.trackerDisplayNumber_('1297', confirm.result.salesOrderNo), '1297', 'migrated rows preserve their legacy tracker number');
 assert.equal(context.trackerDisplayNumber_('', 'AIC-SO-2026-10000'), '10000', 'tracker numbers continue past four digits without truncation');
-assert.equal(books.get('source').SalesOrderSyncJobs.rows.length, 2);
 assert.equal(command('so.confirm', { ...payload, requestHash: 'stale' }, randomUUID(), 1).status, 409);
 const confirmed = { ...order, orderStatus: 'CONFIRMED', salesOrderNo: confirm.result.salesOrderNo, version: 2 };
 assert.equal(command('so.update', { ...payload, order: confirmed, hadItems: true, requestHash: 'edit' }, randomUUID(), 2).ok, true);
-assert.equal(books.get('source').SalesOrderSyncJobs.rows.length, 3, 'confirmed edit enqueues job even with worker disabled');
-let result = context.processDueJobs_();
-assert.equal(result.processed, 2);
-let dest = books.get('destination').tracker;
-assert.equal(dest.rows[1][0], '0001', 'destination tracker uses the short padded sales order number');
-assert.equal(dest.rows[1][16], '', 'Q untouched');
-assert.equal(dest.rows[1][23], 'order-1');
-assert.equal(dest.rows[1][24], 'line-1');
-assert.equal(dest.rows[1][12], 21.43, 'VAT snapshot published');
-dest.rows[1][16] = '=INVENTORY()'; dest.rows[1][19] = '=DELIVERY()'; dest.rows[1][22] = '=AGE()';
-const edited = { ...confirmed, version: 3 };
-command('so.update', { ...payload, order: edited, items: [{ ...item, lineStatus: 'INACTIVE' }], hadItems: true, requestHash: 'inactive' }, randomUUID(), 3);
-context.processDueJobs_();
-dest = books.get('destination').tracker;
-assert.equal(dest.rows[1][16], '=INVENTORY()'); assert.equal(dest.rows[1][19], '=DELIVERY()'); assert.equal(dest.rows[1][22], '=AGE()');
-assert.equal(dest.rows[1][27], 'INACTIVE', 'inactive row retained with status');
-dest.rows[1][5] = 'manual edit';
-command('so.update', { ...payload, order: { ...edited, version: 4 }, hadItems: true, requestHash: 'conflict' }, randomUUID(), 4);
-result = context.processDueJobs_();
-assert.ok(result.blocked.length > 0, 'manual edit blocks publication');
-assert.equal(books.get('destination').tracker.rows[1][5], 'manual edit');
-console.log('apps-script-test passed: actual Code.gs protocol, atomic failure, replay, numbering, outbox, publication, formulas, inactive lines, conflicts.');
+assert.equal(context.processDueJobs_().processed, 0, 'Apps Script no longer publishes Tracker rows.');
+console.log('apps-script-test passed: actual Code.gs protocol, atomic failure, replay, and numbering.');
 
 // Load actual TypeScript service/client/repository code. Only Sheets reads and
 // HTTP delivery are replaced, so generated IDs and state-validation ordering
@@ -160,35 +139,17 @@ const actor = { userId: 'admin', displayName: 'Admin' };
 const input = validation.parseCreateOrderInput({ commandId: randomUUID(), customerId: 'c1', customerPONo: '0005', receivedDate: '2026-09-20',
   lines: [{ lineType: 'PRODUCT', productId: 'p1', description: 'Part', unitId: 'pc', quantity: 2, unitPrice: 100 }] });
 loseResponse = true;
-const created = await service.createDraft(actor, input);
-const replayed = await service.createDraft(actor, input);
+const created = await service.createOrder(actor, input);
+const replayed = await service.createOrder(actor, input);
 assert.equal(replayed.order.salesOrderId, created.order.salesOrderId, 'service retry reuses persisted UUID');
 assert.equal(replayed.items[0].salesOrderItemId, created.items[0].salesOrderItemId);
-await assert.rejects(service.createDraft(actor, { ...input, customerPONo: 'DIFFERENT' }), /different content/);
-const confirmation = { commandId: randomUUID(), expectedVersion: 1 };
-loseResponse = true;
-const confirmedService = await service.confirmOrder(actor, created.order.salesOrderId, confirmation);
-const confirmationReplay = await service.confirmOrder(actor, created.order.salesOrderId, confirmation);
-assert.equal(confirmationReplay.order.salesOrderNo, confirmedService.order.salesOrderNo, 'confirmed-state retry replays before DRAFT validation');
-const edit = { commandId: randomUUID(), expectedVersion: 2, lines: [{ ...input.lines[0], salesOrderItemId: created.items[0].salesOrderItemId, quantity: 3 }] };
+assert.equal(created.order.orderStatus, 'CONFIRMED');
+assert.match(created.order.salesOrderNo, /^AIC-SO-2026-\d{4,}$/);
+await assert.rejects(service.createOrder(actor, { ...input, customerPONo: 'DIFFERENT' }), /different content/);
+const edit = { commandId: randomUUID(), expectedVersion: 1, lines: [{ ...input.lines[0], salesOrderItemId: created.items[0].salesOrderItemId, quantity: 3 }] };
 const updated = await service.updateOrder(actor, created.order.salesOrderId, edit);
 assert.equal(updated.items[0].salesOrderItemId, created.items[0].salesOrderItemId, 'edit preserves stable line identity');
 assert.equal((await service.updateOrder(actor, created.order.salesOrderId, edit)).order.version, updated.order.version);
-const parallelDrafts = await Promise.all([1, 2].map(() => service.createDraft(actor, { ...input, commandId: randomUUID() })));
-const parallelConfirm = await Promise.all(parallelDrafts.map(d => service.confirmOrder(actor, d.order.salesOrderId, { commandId: randomUUID(), expectedVersion: 1 })));
-assert.notEqual(parallelConfirm[0].order.salesOrderNo, parallelConfirm[1].order.salesOrderNo);
-
-// Real claim: durable destination commit, lost acknowledgment, expired lease,
-// new worker retry and old worker rejection. The row must not be appended twice.
-const pendingJob = books.get('source').SalesOrderSyncJobs.rows.find(r => r[1] === parallelDrafts[0].order.salesOrderId);
-const claimInput = { job: { syncJobId: pendingJob[0] }, destination: { spreadsheetId: 'destination', sheetId: '99' }, leaseToken: randomUUID(), leaseOwner: 'first' };
-const claimed = command('so.sync.claim', claimInput);
-assert.equal(claimed.result.published, true);
-const count = books.get('destination').tracker.rows.length;
-books.get('source').SalesOrderSyncJobs.rows.find(r => r[0] === pendingJob[0])[12] = '2000-01-01T00:00:00.000Z';
-const newClaim = command('so.sync.claim', { ...claimInput, leaseToken: randomUUID(), leaseOwner: 'second' });
-assert.equal(newClaim.result.published, true);
-assert.equal(books.get('destination').tracker.rows.length, count, 'lost acknowledgment does not duplicate destination');
-assert.equal(command('so.sync.complete', { job: claimInput.job, leaseToken: claimInput.leaseToken }).ok, false);
-assert.equal(command('so.sync.complete', { job: claimInput.job, leaseToken: newClaim.result.leaseToken }).result.synced, true);
-console.log('service-to-apps-script tests passed: actual service/repository/protocol, lost responses, repeated create/confirm/edit, changed intent rejection, stable line IDs.');
+const parallelOrders = await Promise.all([1, 2].map(() => service.createOrder(actor, { ...input, commandId: randomUUID() })));
+assert.notEqual(parallelOrders[0].order.salesOrderNo, parallelOrders[1].order.salesOrderNo);
+console.log('service-to-apps-script tests passed: actual service/repository/protocol, lost responses, repeated confirmed creation, edits, changed intent rejection, stable line IDs.');

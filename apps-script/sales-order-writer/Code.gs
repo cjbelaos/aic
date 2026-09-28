@@ -1,5 +1,5 @@
 /**
- * Sales Order Writer — Apps Script command gateway (DRAFT / NOT DEPLOYED).
+ * Sales Order Writer — Apps Script command gateway.
  *
  * This deployment is the SINGLE serialization boundary for authoritative
  * sales-order writes:
@@ -10,10 +10,10 @@
  *      LockService lock, and inside the lock checks the idempotency receipt
  *      (same CommandId + same hash → replay; same CommandId + different hash
  *      → 409 reject), reads the current order version, validates
- *      expectedVersion, allocates the AIC-SO-YYYY-NNNN display number from
+ *      expectedVersion, allocates the AIC-SO-YYYY-NNNN display number during
+ *      order creation from
  *      SalesOrderSequences, and writes order header, items, history, sequence,
- *      command receipt and (for confirmed-order mutations) the outbound
- *      sync-job row as ONE transactional unit.
+ *      command receipt as ONE transactional unit.
  *   3. Source mutations are staged in memory and committed by one Sheets API
  *      spreadsheets.batchUpdate, including the receipt. No SpreadsheetApp
  *      write or flush is used as a substitute for a transaction.
@@ -22,21 +22,17 @@
  * Column layouts BELOW MUST match src/lib/salesOrders/repository.ts (the
  * authoritative application-side contract). Change them together.
  *
- * Secrets live in Script Properties only (GATEWAY_SHARED_SECRET,
- * SOURCE_SPREADSHEET_ID, DESTINATION_SPREADSHEET_ID, DESTINATION_SHEET_ID,
- * SYNC_ENV=[staging|live], SYNC_ALLOW_LIVE=1). Never expose a generic
- * arbitrary-range writer through this endpoint.
+ * Secrets live in Script Properties only (GATEWAY_SHARED_SECRET and
+ * SOURCE_SPREADSHEET_ID). Never expose a generic arbitrary-range writer
+ * through this endpoint.
  */
 
 var PROTOCOL_VERSION = 1;
 var LOCK_WAIT_SECONDS = 8;
-var LEASE_VALID_SECONDS = 300;     // worker claim lease (5 minutes)
-var DESTINATION_AGGREGATE_BATCH = 400; // max rows per destination batch write
 
 var ALLOWED_COMMAND_TYPES = [
   "so.create", "so.update", "so.confirm", "so.hold", "so.resume",
-  "so.cancel", "so.close", "so.fulfill", "so.attach", "so.documents.link",
-  "so.sync.claim", "so.sync.complete", "so.sync.retry", "so.receipt",
+  "so.cancel", "so.close", "so.fulfill", "so.attach", "so.documents.link", "so.receipt",
 ];
 
 /** Tab names — MUST match repository.ts. */
@@ -44,13 +40,12 @@ var TABS = {
   orders: "SalesOrders", items: "SalesOrderItems", history: "SalesOrderHistory",
   documents: "SalesOrderDocuments", fulfillments: "SalesOrderFulfillments",
   documentLinks: "SalesOrderDocumentLinks", sequences: "SalesOrderSequences",
-  commands: "SalesOrderCommands", syncJobs: "SalesOrderSyncJobs",
-  syncMap: "SalesOrderSyncMap", importMap: "SalesOrderImportMap",
+  commands: "SalesOrderCommands", importMap: "SalesOrderImportMap",
 };
 
 /** Column counts per tab — MUST match repository.ts header arrays. */
 var WIDTHS = { orders: 35, items: 31, history: 11, documents: 13, fulfillments: 15,
-  documentLinks: 11, sequences: 5, commands: 8, syncJobs: 16, syncMap: 8, importMap: 12 };
+  documentLinks: 11, sequences: 5, commands: 8, importMap: 12 };
 
 /** Stage all source changes, then atomically submit their explicit cell values.
  * StringValue is deliberate: customer text must never become a formula.
@@ -111,18 +106,6 @@ function transaction_(spreadsheetId) {
     getSheetById: function (id) { return wrap(book.getSheetById(id)); },
     commit: function () { if (!requests.length) return; Sheets.Spreadsheets.batchUpdate({ requests: requests }, spreadsheetId); requests = []; }
   };
-}
-
-function enqueueOrder_(sheets, order) {
-  if (!order.salesOrderNo || order.orderStatus === "DRAFT") return;
-  var props = properties_(), destination = props.getProperty("DESTINATION_SPREADSHEET_ID"), sheetId = props.getProperty("DESTINATION_SHEET_ID");
-  // Outbox is independent of worker enablement: turning sync off cannot lose jobs.
-  if (!destination || !sheetId) throw new Error("Configure the reporting destination before confirming orders.");
-  var id = order.salesOrderId + ":" + order.version + ":" + destination + ":" + sheetId;
-  if (findRows_(sheets, TABS.syncJobs, 0, id).length) return;
-  var now = new Date().toISOString();
-  appendRows_(sheets, TABS.syncJobs, [[id, order.salesOrderId, order.version, destination, String(sheetId),
-    "PENDING", 0, now, "", "", "", "", "", now, "", ""]], WIDTHS.syncJobs);
 }
 
 function properties_() {
@@ -298,9 +281,6 @@ function applyCommand_(sheets, envelope, payload) {
   if (commandType === "so.fulfill") return applyFulfill_(sheets, envelope, payload);
   if (commandType === "so.attach") return applyAttach_(sheets, envelope, payload);
   if (commandType === "so.documents.link") return applyDocumentLink_(sheets, envelope, payload);
-  if (commandType === "so.sync.claim") return applySyncClaim_(sheets, envelope, payload);
-  if (commandType === "so.sync.complete") return applySyncComplete_(sheets, envelope, payload);
-  if (commandType === "so.sync.retry") return applySyncRetry_(sheets, envelope, payload);
   throw new Error("Command type not implemented: " + commandType);
 }
 // ---------------------------------------------------------------------------
@@ -376,16 +356,6 @@ function linkToRow_(link) {
   ];
 }
 
-function jobToRow_(job) {
-  return [
-    job.syncJobId, job.salesOrderId, job.orderVersion, job.destinationSpreadsheetId,
-    job.destinationSheetId, job.status || "PENDING", job.attemptCount || 0,
-    job.nextAttemptAt || "", job.lastErrorCode || "", job.lastErrorMessage || "",
-    job.leaseToken || "", job.leaseOwner || "", job.leaseExpiresAt || "", job.createdAt || "",
-    job.lastAttemptAt || "", job.syncedAt || "",
-  ];
-}
-
 // ---------------------------------------------------------------------------
 // Generic persistence helpers (single-command atomic transaction).
 // ---------------------------------------------------------------------------
@@ -458,16 +428,6 @@ function allocateSequenceNumber_(sheets, businessYear, commandId) {
   return display;
 }
 
-function upsertSyncJobRow_(sheets, job) {
-  var tab = TABS.syncJobs;
-  var matches = findRows_(sheets, tab, 0, job.syncJobId);
-  if (matches.length > 0) {
-    sheets.getSheetByName(tab).getRange(matches[0].row, 1, 1, WIDTHS.syncJobs).setValues([jobToRow_(job)]);
-  } else {
-    appendRows_(sheets, tab, [jobToRow_(job)], WIDTHS.syncJobs);
-  }
-}
-
 function requireNoExistingOrder_(sheets, salesOrderId) {
   if (findRows_(sheets, TABS.orders, 0, salesOrderId).length > 0) {
     throw new Error("SalesOrder already exists; a create command cannot target an existing order.");
@@ -498,11 +458,22 @@ function applyCreate_(sheets, envelope, payload) {
   requireNoExistingOrder_(sheets, order.salesOrderId);
   var items = payload.items || [];
   if (items.length === 0) throw new Error("An order requires at least one line.");
-  var nextVersion = Number(order.version || 1);
-  upsertOrderRow_(sheets, order);
+  // Creation is the confirmation event: orders are only entered after the
+  // quotation or customer PO is accepted. Allocate the official reference in
+  // this same authoritative write.
+  var confirmed = order.orderStatus === "CONFIRMED";
+  var salesOrderNo = confirmed
+    ? allocateSequenceNumber_(sheets, String(payload.receivedDate || order.receivedDate || "").slice(0, 4), envelope.commandId)
+    : "";
+  var savedOrder = Object.assign({}, order, {
+    salesOrderNo: salesOrderNo || order.salesOrderNo || "",
+    confirmedAt: confirmed ? (order.confirmedAt || new Date().toISOString()) : order.confirmedAt,
+  });
+  var nextVersion = Number(savedOrder.version || 1);
+  upsertOrderRow_(sheets, savedOrder);
   replaceItemsForOrder_(sheets, order.salesOrderId, items);
   appendHistory_(sheets, payload.history || []);
-  return { result: { salesOrderId: order.salesOrderId, version: nextVersion, salesOrderNo: "", applied: true }, conflict: null };
+  return { result: { salesOrderId: order.salesOrderId, version: nextVersion, salesOrderNo: savedOrder.salesOrderNo, applied: true }, conflict: null };
 }
 
 function applyUpdate_(sheets, envelope, payload) {
@@ -514,7 +485,6 @@ function applyUpdate_(sheets, envelope, payload) {
   upsertOrderRow_(sheets, next);
   if (hadItems) replaceItemsForOrder_(sheets, order.salesOrderId, payload.items || []);
   appendHistory_(sheets, payload.history || []);
-  enqueueOrder_(sheets, next);
   return { result: { salesOrderId: order.salesOrderId, version: nextVersion, salesOrderNo: order.salesOrderNo || "", applied: true }, conflict: null };
 }
 
@@ -535,7 +505,6 @@ function applyHeaderMutation_(sheets, envelope, payload) {
   upsertOrderRow_(sheets, next);
   replaceItemsForOrder_(sheets, order.salesOrderId, payload.items || []);
   appendHistory_(sheets, payload.history || []);
-  enqueueOrder_(sheets, next);
   return { result: { salesOrderId: order.salesOrderId, version: nextVersion, salesOrderNo: next.salesOrderNo, applied: true }, conflict: null };
 }
 function applyFulfill_(sheets, envelope, payload) {
@@ -549,7 +518,6 @@ function applyFulfill_(sheets, envelope, payload) {
     appendRows_(sheets, TABS.fulfillments, payload.fulfillments.map(fulfillmentToRow_), WIDTHS.fulfillments);
   }
   appendHistory_(sheets, payload.history || []);
-  enqueueOrder_(sheets, next);
   return { result: { salesOrderId: order.salesOrderId, version: nextVersion, applied: true }, conflict: null };
 }
 
@@ -913,7 +881,7 @@ function trackerDisplayNumber_(legacyTrackerNo, salesOrderNo) {
  * guards all writes. Never publishes to a live destination unless the gateway
  * environment authorizes it (SYNC_ENV=staging, or live with SYNC_ALLOW_LIVE=1).
  */
-function processDueJobs_() {
+function processDueJobsLegacy_() {
   var props = properties_();
   var configuredDestination = props.getProperty("DESTINATION_SPREADSHEET_ID");
   var destinationSheetId = props.getProperty("DESTINATION_SHEET_ID");
@@ -982,6 +950,11 @@ function processDueJobs_() {
     sheets.commit();
     return { processed: processed, blocked: blocked };
   });
+}
+
+/** The Tracker is now written directly by the Next.js create route. */
+function processDueJobs_() {
+  return { processed: 0, blocked: ["Direct Tracker publishing is enabled; no Apps Script sync worker is used."] };
 }
 
 /** Trigger entry point for the Apps Script time-driven trigger. */

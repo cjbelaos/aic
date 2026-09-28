@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/salesOrders/http-helpers";
-import { createDraft, listOrders } from "@/lib/salesOrders/service";
+import { createOrder, listOrders } from "@/lib/salesOrders/service";
+import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
 import { parseCreateOrderInput } from "@/lib/salesOrders/validation";
 
 export async function GET(request: Request) {
@@ -21,7 +22,6 @@ export async function GET(request: Request) {
       dateFrom: query.get("dateFrom") ?? undefined,
       dateTo: query.get("dateTo") ?? undefined,
       overdue: query.get("overdue") === "true",
-      syncStatus: query.get("syncStatus") ?? undefined,
       view: (query.get("view") === "services" ? "services" : "all"),
     });
     return NextResponse.json(result, { status: 200 });
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const input = parseCreateOrderInput(body);
     const session = auth.session;
-    const detail = await createDraft(toActor(session), {
+    const detail = await createOrder(toActor(session), {
       commandId: input.commandId,
       sourceQuotationNo: input.sourceQuotationNo,
       quotationSource: input.quotationSource,
@@ -60,6 +60,7 @@ export async function POST(request: Request) {
       remarks: input.remarks,
       lines: input.lines,
     });
+    await syncSalesOrderToTracker(detail.order, detail.items);
     return NextResponse.json({ success: true, order: detail }, { status: 201 });
   } catch (error) {
     return salesErrorResponse(error);

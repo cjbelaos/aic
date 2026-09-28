@@ -12,8 +12,6 @@ const TAB_HEADERS = {
   SalesOrderSequences: ["SequenceKey", "Prefix", "BusinessYear", "LastNumber", "UpdatedAt"],
   SalesOrderCommands: ["CommandId", "PayloadHash", "CommandType", "SalesOrderId", "ResultVersion", "ResultJson", "CommittedAt", "ActorUserId"],
   SalesOrderImportMap: ["ImportKey", "SourceSpreadsheetId", "SourceSheetId", "SourceRow", "SourceTrackerNo", "SourceHash", "TargetSalesOrderId", "TargetSalesOrderItemId", "ImportBatchId", "ImportStatus", "IssueCodes", "ImportedAt"],
-  SalesOrderSyncJobs: ["SyncJobId", "SalesOrderId", "OrderVersion", "DestinationSpreadsheetId", "DestinationSheetId", "Status", "AttemptCount", "NextAttemptAt", "LastErrorCode", "LastErrorMessage", "LeaseToken", "LeaseOwner", "LeaseExpiresAt", "CreatedAt", "LastAttemptAt", "SyncedAt"],
-  SalesOrderSyncMap: ["DestinationSpreadsheetId", "DestinationSheetId", "SalesOrderItemId", "SalesOrderId", "DestinationRowHint", "LastSyncedVersion", "LastSyncedHash", "LastSyncedAt"],
 };
 
 function credentials() {

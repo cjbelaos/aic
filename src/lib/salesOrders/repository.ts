@@ -9,7 +9,7 @@ import { parseSheetNumber } from "@/lib/sheets.utils";
 import type {
   SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument,
   SalesOrderFulfillment, SalesOrderDocumentLink, SalesOrderSequence,
-  SalesOrderCommandReceipt, SalesOrderSyncJob, SalesOrderSyncMap, SalesOrderImportMap,
+  SalesOrderCommandReceipt, SalesOrderImportMap,
 } from "@/types/salesOrder";
 
 export const TAB_ORDERS = "SalesOrders";
@@ -20,8 +20,6 @@ export const TAB_FULFILLMENTS = "SalesOrderFulfillments";
 export const TAB_DOCUMENT_LINKS = "SalesOrderDocumentLinks";
 export const TAB_SEQUENCES = "SalesOrderSequences";
 export const TAB_COMMANDS = "SalesOrderCommands";
-export const TAB_SYNC_JOBS = "SalesOrderSyncJobs";
-export const TAB_SYNC_MAP = "SalesOrderSyncMap";
 export const TAB_IMPORT_MAP = "SalesOrderImportMap";
 
 export const ORDERS_HEADERS: readonly string[] = [
@@ -66,15 +64,6 @@ export const DOCUMENT_LINKS_HEADERS: readonly string[] = [
 
 export const SEQUENCES_HEADERS: readonly string[] = ["SequenceKey", "Prefix", "BusinessYear", "LastNumber", "UpdatedAt"];
 export const COMMANDS_HEADERS: readonly string[] = ["CommandId", "PayloadHash", "CommandType", "SalesOrderId", "ResultVersion", "ResultJson", "CommittedAt", "ActorUserId"];
-export const SYNC_JOBS_HEADERS: readonly string[] = [
-  "SyncJobId", "SalesOrderId", "OrderVersion", "DestinationSpreadsheetId", "DestinationSheetId",
-  "Status", "AttemptCount", "NextAttemptAt", "LastErrorCode", "LastErrorMessage", "LeaseToken",
-  "LeaseOwner", "LeaseExpiresAt", "CreatedAt", "LastAttemptAt", "SyncedAt",
-];
-export const SYNC_MAP_HEADERS: readonly string[] = [
-  "DestinationSpreadsheetId", "DestinationSheetId", "SalesOrderItemId", "SalesOrderId",
-  "DestinationRowHint", "LastSyncedVersion", "LastSyncedHash", "LastSyncedAt",
-];
 export const IMPORT_MAP_HEADERS: readonly string[] = [
   "ImportKey", "SourceSpreadsheetId", "SourceSheetId", "SourceRow", "SourceTrackerNo", "SourceHash",
   "TargetSalesOrderId", "TargetSalesOrderItemId", "ImportBatchId", "ImportStatus", "IssueCodes", "ImportedAt",
@@ -89,8 +78,6 @@ export const TAB_HEADERS: Record<string, readonly string[]> = {
   [TAB_DOCUMENT_LINKS]: DOCUMENT_LINKS_HEADERS,
   [TAB_SEQUENCES]: SEQUENCES_HEADERS,
   [TAB_COMMANDS]: COMMANDS_HEADERS,
-  [TAB_SYNC_JOBS]: SYNC_JOBS_HEADERS,
-  [TAB_SYNC_MAP]: SYNC_MAP_HEADERS,
   [TAB_IMPORT_MAP]: IMPORT_MAP_HEADERS,
 };
 
@@ -193,25 +180,6 @@ export function sequenceFromRow(row: unknown[]): SalesOrderSequence {
   };
 }
 
-export function syncJobFromRow(row: unknown[]): SalesOrderSyncJob {
-  return {
-    syncJobId: text(row[0]), salesOrderId: text(row[1]), orderVersion: num(row[2]),
-    destinationSpreadsheetId: text(row[3]), destinationSheetId: text(row[4]),
-    status: (text(row[5]) || "PENDING") as SalesOrderSyncJob["status"], attemptCount: num(row[6]), nextAttemptAt: text(row[7]),
-    lastErrorCode: text(row[8]), lastErrorMessage: text(row[9]), leaseToken: text(row[10]),
-    leaseOwner: text(row[11]), leaseExpiresAt: text(row[12]), createdAt: text(row[13]),
-    lastAttemptAt: text(row[14]), syncedAt: text(row[15]),
-  };
-}
-
-export function syncMapFromRow(row: unknown[]): SalesOrderSyncMap {
-  return {
-    destinationSpreadsheetId: text(row[0]), destinationSheetId: text(row[1]),
-    salesOrderItemId: text(row[2]), salesOrderId: text(row[3]), destinationRowHint: num(row[4]),
-    lastSyncedVersion: num(row[5]), lastSyncedHash: text(row[6]), lastSyncedAt: text(row[7]),
-  };
-}
-
 export function importMapFromRow(row: unknown[]): SalesOrderImportMap {
   return {
     importKey: text(row[0]), sourceSpreadsheetId: text(row[1]), sourceSheetId: text(row[2]),
@@ -283,21 +251,6 @@ export function commandReceiptToRow(receipt: SalesOrderCommandReceipt): Array<un
   ];
 }
 
-export function syncJobToRow(job: SalesOrderSyncJob): Array<unknown> {
-  return [
-    job.syncJobId, job.salesOrderId, job.orderVersion, job.destinationSpreadsheetId, job.destinationSheetId,
-    job.status, job.attemptCount, job.nextAttemptAt, job.lastErrorCode, job.lastErrorMessage, job.leaseToken,
-    job.leaseOwner, job.leaseExpiresAt, job.createdAt, job.lastAttemptAt, job.syncedAt,
-  ];
-}
-
-export function syncMapToRow(map: SalesOrderSyncMap): Array<unknown> {
-  return [
-    map.destinationSpreadsheetId, map.destinationSheetId, map.salesOrderItemId, map.salesOrderId,
-    map.destinationRowHint, map.lastSyncedVersion, map.lastSyncedHash, map.lastSyncedAt,
-  ];
-}
-
 export function importMapToRow(map: SalesOrderImportMap): Array<unknown> {
   return [
     map.importKey, map.sourceSpreadsheetId, map.sourceSheetId, map.sourceRow, map.sourceTrackerNo,
@@ -357,22 +310,21 @@ async function readTabsValues(tabs: readonly string[]): Promise<Map<string, unkn
 }
 
 export async function readSalesOrderListSnapshot(): Promise<{
-  orders: SalesOrder[]; items: SalesOrderItem[]; syncJobs: SalesOrderSyncJob[];
+  orders: SalesOrder[]; items: SalesOrderItem[];
 }> {
-  const values = await readTabsValues([TAB_ORDERS, TAB_ITEMS, TAB_SYNC_JOBS]);
+  const values = await readTabsValues([TAB_ORDERS, TAB_ITEMS]);
   return {
     orders: (values.get(TAB_ORDERS) ?? []).map(orderFromRow).filter((order) => order.salesOrderId),
     items: (values.get(TAB_ITEMS) ?? []).map(itemFromRow).filter((item) => item.salesOrderItemId),
-    syncJobs: (values.get(TAB_SYNC_JOBS) ?? []).map(syncJobFromRow).filter((job) => job.syncJobId),
   };
 }
 
 export async function readSalesOrderDetailSnapshot(salesOrderId: string): Promise<{
   order: SalesOrder | null; items: SalesOrderItem[]; history: SalesOrderHistory[];
   documents: SalesOrderDocument[]; fulfillments: SalesOrderFulfillment[];
-  documentLinks: SalesOrderDocumentLink[]; syncJobs: SalesOrderSyncJob[];
+  documentLinks: SalesOrderDocumentLink[];
 }> {
-  const tabs = [TAB_ORDERS, TAB_ITEMS, TAB_HISTORY, TAB_DOCUMENTS, TAB_FULFILLMENTS, TAB_DOCUMENT_LINKS, TAB_SYNC_JOBS] as const;
+  const tabs = [TAB_ORDERS, TAB_ITEMS, TAB_HISTORY, TAB_DOCUMENTS, TAB_FULFILLMENTS, TAB_DOCUMENT_LINKS] as const;
   const values = await readTabsValues(tabs);
   const orders = (values.get(TAB_ORDERS) ?? []).map(orderFromRow);
   return {
@@ -382,7 +334,6 @@ export async function readSalesOrderDetailSnapshot(salesOrderId: string): Promis
     documents: (values.get(TAB_DOCUMENTS) ?? []).map(documentFromRow).filter((doc) => doc.salesOrderId === salesOrderId && doc.documentId),
     fulfillments: (values.get(TAB_FULFILLMENTS) ?? []).map(fulfillmentFromRow).filter((entry) => entry.salesOrderId === salesOrderId && entry.fulfillmentId),
     documentLinks: (values.get(TAB_DOCUMENT_LINKS) ?? []).map(documentLinkFromRow).filter((link) => link.salesOrderId === salesOrderId && link.linkId),
-    syncJobs: (values.get(TAB_SYNC_JOBS) ?? []).map(syncJobFromRow).filter((job) => job.salesOrderId === salesOrderId && job.syncJobId),
   };
 }
 
@@ -436,18 +387,6 @@ export async function readSalesOrderDocumentLinks(salesOrderId: string): Promise
 
 export async function readSalesOrderSequences(): Promise<SalesOrderSequence[]> {
   return (await readTabValues(TAB_SEQUENCES)).map(sequenceFromRow).filter((seq) => seq.sequenceKey);
-}
-
-export async function readSalesOrderSyncJobs(): Promise<SalesOrderSyncJob[]> {
-  return (await readTabValues(TAB_SYNC_JOBS)).map(syncJobFromRow).filter((job) => job.syncJobId);
-}
-
-export async function readSalesOrderSyncJobsForOrder(salesOrderId: string): Promise<SalesOrderSyncJob[]> {
-  return (await readSalesOrderSyncJobs()).filter((job) => job.salesOrderId === salesOrderId);
-}
-
-export async function readSalesOrderSyncMap(): Promise<SalesOrderSyncMap[]> {
-  return (await readTabValues(TAB_SYNC_MAP)).map(syncMapFromRow).filter((map) => map.salesOrderId || map.salesOrderItemId);
 }
 
 export async function readSalesOrderImportMap(): Promise<SalesOrderImportMap[]> {

@@ -24,59 +24,42 @@ has a separate signed hash. `so.receipt` checks the original intent before
 state-dependent validation or generating UUIDs/timestamps. Receipts are bound
 to the actor. Retain receipts for the full supported retry lifetime.
 
-## Synchronization
+## Tracker projection
 
-Configure the reporting destination before confirmation. Outbox rows are
-created even while publication is disabled. `SYNC_ENV` controls publication,
-not whether changes are queued. The gateway builds the publication from the
-latest source snapshot under its lock; schedulers only identify due jobs.
-
-Transactions are separate: source mutation + outbox; durable lease claim;
-destination publication; verified source acknowledgment. An expired lease
-can be claimed again. Destination immutable keys, version and hash prevent
-blind appends and detect edits to app-owned values. Inventory/delivery/aging
-columns Q:T and W are never written. Removed lines remain as INACTIVE rows.
-
-Before enabling sync on a staging copy, append these consecutive headers
-**after the verified last occupied column, and never before X**:
-
-`AppSalesOrderId, AppSalesOrderItemId, AppOrderVersion, AppSyncedAt, AppLineStatus, AppOrderStatus, AppFulfillmentStatus, AppPayloadHash`
-
-The worker resolves their position from the headers and fails closed if the
-layout is absent or unexpected. It writes only A:P, U:V and those eight
-technical columns. Conflicts require review; retries do not overwrite them.
-For migrated orders, every line requires an import-map entry with status
-`REVIEWED` and a destination row already backfilled with IDs and a verified
-baseline payload hash. Unreviewed imports cannot publish.
+Apps Script never copies data to the Sales Order Tracker. Next.js directly
+reconciles each confirmed Sales Order after creation, edit, hold/resume,
+cancellation, fulfillment, close, and legacy confirmation. It writes only
+A:P and U:V, preserving the operational/formula columns Q:T and W. On the
+first direct write, it automatically adds and hides the technical columns
+X:AE; these hold stable order/line IDs so later changes update the existing
+Tracker row instead of appending a duplicate. A removed source line clears
+only its app-owned Tracker cells; it does not delete the Sheet row or damage
+unrelated workflow values.
 
 ## Script Properties (values stay out of source control)
 
 - `GATEWAY_SHARED_SECRET`: matches server `SALES_ORDER_GATEWAY_SECRET`.
 - `SOURCE_SPREADSHEET_ID`: authoritative configured application database.
-- `DESTINATION_SPREADSHEET_ID`, `DESTINATION_SHEET_ID`: reviewed reporting target.
-- `SYNC_ENV`: `staging`, `live`, or disabled/blank.
-- `SYNC_ALLOW_LIVE`: additionally requires `1` for live publication.
 
-Next.js uses `SALES_ORDER_GATEWAY_URL`, `SALES_ORDER_GATEWAY_SECRET` and the
-existing destination environment settings. Verify both runtimes name the
-same source/destination pair. Never redirect existing application modules.
+Next.js uses `SALES_ORDER_GATEWAY_URL`, `SALES_ORDER_GATEWAY_SECRET`,
+`SALES_ORDER_DESTINATION_SPREADSHEET_ID`, and
+`SALES_ORDER_DESTINATION_TRACKER_SHEET_ID`. The server-side Google credential
+must have Editor access to the Tracker. Never redirect existing application
+modules.
 
 ## Verification and deployment gate
 
 `npm run test:sales-orders` executes actual Code.gs and the real TypeScript
 service/client/repository with mocked Google boundaries. It tests hashes,
 semantic errors, commit failure, receipts, concurrent service calls, stable
-line identity, source outbox, formula preservation, destination conflicts,
-and lease recovery after a lost acknowledgment. This is local evidence,
+line identity, and direct confirmed-order creation. This is local evidence,
 not a claim that real Google services have been exercised.
 
 Before deployment approval: verify project authentication/access, enable the
-Advanced Sheets service, provision and inspect staging schemas, test source
-batch failure and overlapping confirmations, run the scheduled worker on a
-staging copy, simulate lost responses and acknowledgment failure, verify
-sorting/ID backfill/formulas, and record timings and quota behavior. A
-five-minute trigger cannot meet a one-minute sync target; choose and measure
-the trigger interval during the deployment spike.
+Advanced Sheets service, test source batch failure and overlapping creates,
+then verify a create, edit, cancellation, fulfillment, and removed line each
+reconcile the Tracker without changing its Q:T/W formulas or manual workflow
+columns.
 
 Production cutover, legacy write-path shutdown, business rules and ADR
 acceptance remain separate approval/evidence gates. No deployment or live

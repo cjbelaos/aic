@@ -14,24 +14,6 @@ export function formatDate(date: string | undefined): string {
   return date.slice(0, 10);
 }
 
-export function syncStatusLabel(status: string): string {
-  switch (status) {
-    case "NONE": return "Not configured";
-    case "SYNCED": return "Synced";
-    case "RETRY": return "Retry scheduled";
-    case "PENDING": return "Pending sync";
-    case "PROCESSING": return "Syncing";
-    case "SUPERSEDED": return "Superseded";
-    case "FAILED": return "Failed";
-    default: return status;
-  }
-}
-
-export function syncBadge(status: string): React.ReactNode {
-  const variant = status === "SYNCED" ? "default" : status === "FAILED" || status === "RETRY" ? "destructive" : status === "NONE" ? "outline" : "secondary";
-  return <Badge variant={variant}>{syncStatusLabel(status)}</Badge>;
-}
-
 export function orderStatusBadge(status: string): React.ReactNode {
   const variant = status === "CONFIRMED" ? "default" : status === "DRAFT" ? "secondary" : status === "ON_HOLD" ? "outline" : status === "CANCELLED" ? "destructive" : status === "CLOSED" ? "ghost" : "outline";
   return <Badge variant={variant}>{status}</Badge>;

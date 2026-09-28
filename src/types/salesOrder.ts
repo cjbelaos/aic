@@ -32,7 +32,6 @@ export type DocumentType = "CUSTOMER_PO" | "QUOTATION" | "SALES_ORDER_PDF" | "DE
 export type GenerationStatus = "PENDING" | "READY" | "ERROR" | "SUPERSEDED";
 export type FulfillmentType = "DELIVERY" | "SERVICE_COMPLETION" | "REVERSAL";
 export type FulfillmentRowStatus = "DRAFT" | "POSTED" | "REVERSED";
-export type SyncJobStatus = "PENDING" | "PROCESSING" | "RETRY" | "SYNCED" | "FAILED" | "SUPERSEDED";
 export type ImportQuality = "" | "LEGACY_UNVERIFIED" | "REVIEW_REQUIRED" | "CLEAN";
 export type DocumentLinkStatus = "LINKED" | "UNLINKED" | "REVERSED";
 export type ImportStatus = "PENDING" | "IMPORTED" | "REVIEW" | "ANOMALY" | "REPAIRED" | "SKIPPED";
@@ -41,7 +40,7 @@ export type CurrencyCode = "PHP";
 /** SalesOrders — one immutable-ID row per order. */
 export interface SalesOrder {
   salesOrderId: string;
-  /** Display reference AIC-SO-YYYY-NNNN; allocated only at confirmation. */
+  /** Display reference AIC-SO-YYYY-NNNN; allocated when the order is created. */
   salesOrderNo: string;
   /** Legacy Tracker No. kept separately searchable after migration. */
   legacyTrackerNo: string;
@@ -208,41 +207,6 @@ export interface SalesOrderCommandReceipt {
   resultJson: string;
   committedAt: string;
   actorUserId: string;
-}
-
-export type SyncJobState = SyncJobStatus;
-
-/** SalesOrderSyncJobs — durable outbound work in the authoritative workbook. */
-export interface SalesOrderSyncJob {
-  syncJobId: string;
-  salesOrderId: string;
-  orderVersion: number;
-  destinationSpreadsheetId: string;
-  destinationSheetId: string;
-  status: SyncJobStatus;
-  attemptCount: number;
-  nextAttemptAt: string;
-  lastErrorCode: string;
-  lastErrorMessage: string;
-  leaseToken: string;
-  leaseOwner: string;
-  leaseExpiresAt: string;
-  createdAt: string;
-  lastAttemptAt: string;
-  syncedAt: string;
-}
-
-/** SalesOrderSyncMap — destination reconciliation. */
-export interface SalesOrderSyncMap {
-  destinationSpreadsheetId: string;
-  destinationSheetId: string;
-  salesOrderItemId: string;
-  salesOrderId: string;
-  /** Optimization only: locate/verify the immutable line key before writing. */
-  destinationRowHint: number;
-  lastSyncedVersion: number;
-  lastSyncedHash: string;
-  lastSyncedAt: string;
 }
 
 /** SalesOrderImportMap — migration provenance (SourceRow is provenance only). */

@@ -5,7 +5,7 @@
 // and that idempotent retries never allocate duplicate numbers.
 
 import { formatSalesOrderNo, nextSalesOrderNo } from "../../src/lib/salesOrders/domain.ts";
-import { payloadHash } from "../../src/lib/salesOrders/sync.ts";
+import { payloadHash } from "../../src/lib/salesOrders/crypto-hash.ts";
 
 export class GatewayConflictError extends Error {
   readonly currentVersion: number;

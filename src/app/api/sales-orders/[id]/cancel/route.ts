@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/salesOrders/http-helpers";
 import { cancelOrder } from "@/lib/salesOrders/service";
 import { parseCancelOrderInput } from "@/lib/salesOrders/validation";
+import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireSalesPermission("so.cancel");
@@ -16,6 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       cancelAllLines: input.cancelAllLines,
       lines: input.lines,
     });
+    await syncSalesOrderToTracker(detail.order, detail.items);
     return NextResponse.json({ success: true, order: detail }, { status: 200 });
   } catch (error) {
     return salesErrorResponse(error);

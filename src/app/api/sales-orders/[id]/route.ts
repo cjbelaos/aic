@@ -3,6 +3,7 @@ import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/sales
 import { getOrderDetail, updateOrder } from "@/lib/salesOrders/service";
 import { parseUpdateOrderInput } from "@/lib/salesOrders/validation";
 import { readSalesOrderById } from "@/lib/salesOrders/repository";
+import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireSalesPermission("so.view");
@@ -56,6 +57,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       deliveryAddressSnapshot: input.deliveryAddressSnapshot,
       lines: input.lines,
     });
+    await syncSalesOrderToTracker(detail.order, detail.items);
     return NextResponse.json({ success: true, order: detail }, { status: 200 });
   } catch (error) {
     return salesErrorResponse(error);

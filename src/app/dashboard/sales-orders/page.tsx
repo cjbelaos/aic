@@ -8,11 +8,10 @@ import { Button } from "@/components/ui/button";
 import { EntityTable, ArrowUpDown } from "@/components/ui/entity-table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import salesOrderService, { type OrderRowView } from "@/lib/services/sales-order.service";
-import { money, formatDate, orderStatusBadge, fulfillmentBadge, syncBadge, SummaryCards } from "@/components/sales-orders/badges";
+import { money, formatDate, orderStatusBadge, fulfillmentBadge, SummaryCards } from "@/components/sales-orders/badges";
 
 const ORDER_STATUSES = ["DRAFT", "CONFIRMED", "ON_HOLD", "CANCELLED", "CLOSED"];
 const ORDER_CATEGORIES = ["Consumables", "Services/ Repair", "Project", "Parts", "Supplies", "Treatment Package", "PMS", "Mixed"];
-const SYNC_STATUSES = ["PENDING", "RETRY", "FAILED", "SYNCED", "SUPERSEDED"];
 
 export default function SalesOrdersPage(): React.ReactNode {
   const router = useRouter();
@@ -22,7 +21,6 @@ export default function SalesOrdersPage(): React.ReactNode {
   const [loading, setLoading] = React.useState(true);
   const [status, setStatus] = React.useState("all");
   const [category, setCategory] = React.useState("all");
-  const [syncStatus, setSyncStatus] = React.useState("all");
   const [error, setError] = React.useState("");
 
   const load = React.useCallback(async (): Promise<void> => {
@@ -34,7 +32,6 @@ export default function SalesOrdersPage(): React.ReactNode {
         view,
         status: status === "all" ? undefined : status,
         category: category === "all" ? undefined : category,
-        syncStatus: syncStatus === "all" ? undefined : syncStatus,
       };
       const result = await salesOrderService.list({ ...filters, page: 1 });
       setRows(result.rows);
@@ -43,7 +40,7 @@ export default function SalesOrdersPage(): React.ReactNode {
     } finally {
       setLoading(false);
     }
-  }, [category, status, syncStatus, view]);
+  }, [category, status, view]);
 
   React.useEffect(() => {
     void Promise.resolve().then(load);
@@ -68,7 +65,6 @@ export default function SalesOrdersPage(): React.ReactNode {
     },
     { id: "status", accessorFn: (row) => row.order.orderStatus, header: "Status", cell: ({ row }) => orderStatusBadge(row.original.order.orderStatus) },
     { id: "fulfillment", accessorFn: (row) => row.order.fulfillmentStatus, header: "Fulfillment", cell: ({ row }) => <div className="space-y-1">{fulfillmentBadge(row.original.order.fulfillmentStatus)}<span className="block text-xs text-muted-foreground">{row.original.fulfillmentPercent}%</span></div> },
-    { id: "sync", accessorFn: (row) => row.syncStatus, header: "Sync", cell: ({ row }) => syncBadge(row.original.syncStatus) },
   ], []);
 
   const grandTotal = rows.reduce((sum, row) => sum + row.order.grandTotal, 0);
@@ -79,7 +75,7 @@ export default function SalesOrdersPage(): React.ReactNode {
     <div className="flex min-w-0 flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{view === "services" ? "Services / Repair Orders" : "Sales Orders"}</h1>
-        <p className="text-sm text-muted-foreground">Create, confirm, deliver, and track customer orders from one register.</p>
+        <p className="text-sm text-muted-foreground">Create, deliver, and track customer orders from one register.</p>
       </div>
 
       <SummaryCards cards={[
@@ -101,8 +97,8 @@ export default function SalesOrdersPage(): React.ReactNode {
         onView={(row) => router.push(`/dashboard/sales-orders/${row.order.salesOrderId}`)}
         onEdit={(row) => router.push(`/dashboard/sales-orders/${row.order.salesOrderId}/edit`)}
         headerActions={<div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row"><Button variant="outline" onClick={() => router.push(view === "services" ? "/dashboard/sales-orders" : "/dashboard/sales-orders?view=services")}>{view === "services" ? <FileText className="mr-2 h-4 w-4" /> : <Wrench className="mr-2 h-4 w-4" />}{view === "services" ? "All Orders" : "Services / Repair"}</Button><Button className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600" onClick={() => router.push("/dashboard/sales-orders/new")}><Plus className="mr-2 h-4 w-4" />Create Order</Button></div>}
-        toolbarFilters={<><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-8 w-[150px]"><SelectValue placeholder="Order status" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{ORDER_STATUSES.map((item) => <SelectItem key={item} value={item}>{item.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select><Select value={category} onValueChange={setCategory}><SelectTrigger className="h-8 w-[170px]"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{ORDER_CATEGORIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select><Select value={syncStatus} onValueChange={setSyncStatus}><SelectTrigger className="h-8 w-[140px]"><SelectValue placeholder="Sync status" /></SelectTrigger><SelectContent><SelectItem value="all">All sync states</SelectItem>{SYNC_STATUSES.map((item) => <SelectItem key={item} value={item}>{item.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select></>}
-        mobileLayout={{ primary: ["salesOrderNo", "customer", "total", "status", "fulfillment"], labels: { salesOrderNo: "Sales Order", receivedDate: "Received", customer: "Customer", customerPO: "Customer PO", category: "Category", total: "Total", status: "Status", fulfillment: "Fulfillment", sync: "Sync" } }}
+        toolbarFilters={<><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-8 w-[150px]"><SelectValue placeholder="Order status" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{ORDER_STATUSES.map((item) => <SelectItem key={item} value={item}>{item.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select><Select value={category} onValueChange={setCategory}><SelectTrigger className="h-8 w-[170px]"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{ORDER_CATEGORIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></>}
+        mobileLayout={{ primary: ["salesOrderNo", "customer", "total", "status", "fulfillment"], labels: { salesOrderNo: "Sales Order", receivedDate: "Received", customer: "Customer", customerPO: "Customer PO", category: "Category", total: "Total", status: "Status", fulfillment: "Fulfillment" } }}
       />
     </div>
   );

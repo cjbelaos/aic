@@ -7,7 +7,7 @@
 import { dependencyUnavailable, gatewayBusy, commandReplay, versionConflict, badRequest } from "./errors.ts";
 import { signCommand, verifyCommand } from "./protocol.ts";
 import type { UnsignedCommand } from "./protocol.ts";
-import { payloadHash } from "./sync.ts";
+import { payloadHash } from "./crypto-hash.ts";
 
 export interface GatewayRequest {
   command: UnsignedCommand;

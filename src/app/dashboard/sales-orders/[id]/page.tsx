@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageLoader } from "@/components/ui/logo-loader";
-import { ArrowLeft, CheckCircle2, CirclePause, CirclePlay, Pencil, RefreshCw, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CirclePause, CirclePlay, Pencil, XCircle } from "lucide-react";
 import salesOrderService, { type SalesOrderDetail } from "@/lib/services/sales-order.service";
 import type { SalesOrderItem } from "@/types/salesOrder";
 import { salesOrderQuotationDisplay } from "@/lib/salesOrders/quotationReference";
 import { isNotPricedLine, priceSourceLabel } from "@/lib/salesOrders/domain";
-import { money, formatDate, orderStatusBadge, fulfillmentBadge, syncBadge } from "@/components/sales-orders/badges";
+import { money, formatDate, orderStatusBadge, fulfillmentBadge } from "@/components/sales-orders/badges";
 /**
  * A descriptive line of a single-total quotation carries no price of its own:
  * show that clearly instead of a misleading zero.
@@ -38,7 +38,7 @@ function DetailInner({ orderId }: { orderId: string }) {
     setError("");
     try {
       const result = await salesOrderService.get(orderId);
-      setDetail({ ...result, order: result.order, items: result.items, history: result.history, documents: result.documents, fulfillments: result.fulfillments, documentLinks: result.documentLinks, syncJobs: result.syncJobs, totals: result.totals, category: result.category });
+      setDetail({ ...result, order: result.order, items: result.items, history: result.history, documents: result.documents, fulfillments: result.fulfillments, documentLinks: result.documentLinks, totals: result.totals, category: result.category });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to load the sales order.");
     }
@@ -68,8 +68,6 @@ function DetailInner({ orderId }: { orderId: string }) {
   if (!detail) return <PageLoader label="Loading sales order…" />;
   const order = detail.order;
   const version = order.version;
-  const latestSync = detail.syncJobs.length > 0 ? detail.syncJobs[detail.syncJobs.length - 1] : null;
-  const syncStatus = latestSync ? latestSync.status : "NONE";
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -83,7 +81,6 @@ function DetailInner({ orderId }: { orderId: string }) {
         <div className="flex flex-wrap items-center gap-2">
           {orderStatusBadge(order.orderStatus)}
           {fulfillmentBadge(order.fulfillmentStatus)}
-          {syncBadge(syncStatus)}
           <Button asChild variant="outline"><Link href={`/dashboard/sales-orders/${orderId}/edit`}><Pencil className="mr-2 h-4 w-4" />Edit</Link></Button>
           <Button asChild variant="outline"><Link href="/dashboard/sales-orders"><ArrowLeft className="mr-2 h-4 w-4" />Back to List</Link></Button>
         </div>
@@ -96,7 +93,6 @@ function DetailInner({ orderId }: { orderId: string }) {
         {order.orderStatus === "ON_HOLD" ? <ActionButton label="Resume Order" icon={<CirclePlay />} variant="outline" busy={busy} onRun={() => run("Resume", () => salesOrderService.resume(orderId, version))} /> : null}
         {order.orderStatus === "CONFIRMED" || order.orderStatus === "ON_HOLD" ? <ActionButton label="Cancel Remaining" icon={<XCircle />} variant="destructive" busy={busy} onRun={() => run("Cancel", () => cancelWith(orderId, version))} /> : null}
         {order.orderStatus === "CONFIRMED" ? <ActionButton label="Close Order" icon={<CheckCircle2 />} variant="outline" busy={busy} onRun={() => run("Close", () => salesOrderService.close(orderId, version, "Administrative close"))} /> : null}
-        {latestSync && (syncStatus === "FAILED" || syncStatus === "RETRY") ? <ActionButton label="Retry Sync" icon={<RefreshCw />} variant="outline" busy={busy} onRun={() => run("Retry sync", () => salesOrderService.retrySync(orderId))} /> : null}
       </div>
       <Card className="gap-3">
         <CardHeader><CardTitle>Overview</CardTitle></CardHeader>
@@ -124,7 +120,6 @@ function DetailInner({ orderId }: { orderId: string }) {
         </CardContent>
       </Card>
       <ItemsSection detail={detail} orderId={orderId} expectedVersion={version} run={run} busy={busy} />
-      <SyncSection detail={detail} />
       <DocumentsSection detail={detail} orderId={orderId} expectedVersion={version} run={run} busy={busy} />
       <ActivitySection detail={detail} />
     </div>
@@ -186,7 +181,8 @@ function FulfillmentEvidenceGuidance(props: { detail: SalesOrderDetail }): React
   );
 }
 
-function SyncSection({ detail }: { detail: SalesOrderDetail }): React.ReactNode {
+/* Legacy sync UI removed.
+function SyncSection({ detail }: { detail: SalesOrderDetail & { syncJobs: Array<{ status: string; orderVersion: number; attemptCount: number; lastAttemptAt: string; lastErrorCode: string; lastErrorMessage: string }> } }): React.ReactNode {
   const latest = detail.syncJobs.length > 0 ? detail.syncJobs[detail.syncJobs.length - 1] : null;
   return (
     <Card className="gap-3">
@@ -205,6 +201,7 @@ function SyncSection({ detail }: { detail: SalesOrderDetail }): React.ReactNode 
     </Card>
   );
 }
+*/
 function DocumentsSection(props: { detail: SalesOrderDetail; orderId: string; expectedVersion: number; run: (label: string, fn: () => Promise<unknown>) => Promise<void>; busy: boolean }): React.ReactNode {
   return (
     <Card className="gap-3">

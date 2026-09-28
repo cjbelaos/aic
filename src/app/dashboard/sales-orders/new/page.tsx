@@ -35,7 +35,7 @@ export default function NewSalesOrderPage(): React.ReactNode {
     payload: OrderInput,
     referenceFiles?: SalesOrderReferenceFiles,
   ): Promise<void> => {
-    const result = await salesOrderService.createDraft(payload);
+    const result = await salesOrderService.create(payload);
     const orderId = result.order.order.salesOrderId;
     let orderVersion = result.order.order.version;
     const uploads: Array<{
@@ -75,9 +75,7 @@ export default function NewSalesOrderPage(): React.ReactNode {
     const result = await salesOrderService.fromQuotation(quotationNo);
     const id = result.order.order.salesOrderId;
     router.push(
-      result.order.reusedExisting
-        ? `/dashboard/sales-orders/${id}`
-        : `/dashboard/sales-orders/${id}/edit`,
+      `/dashboard/sales-orders/${id}`,
     );
   };
 
@@ -119,7 +117,7 @@ export default function NewSalesOrderPage(): React.ReactNode {
           lines: [],
         }}
         options={options}
-        submitLabel="Create Sales Order"
+        submitLabel="Create Confirmed Sales Order"
         onSubmit={submit}
         onCancel={() => router.push("/dashboard/sales-orders")}
         onCreateFromQuotation={createFromQuotation}
