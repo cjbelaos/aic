@@ -19,6 +19,7 @@ import {
   readSalesOrders, readSalesOrderById, readSalesOrderItems,
   readSalesOrderListSnapshot, readSalesOrderDetailSnapshot,
   readSalesOrderCommandResult, writeSalesOrderCommand,
+  deleteDraftSalesOrderRows,
 } from "./repository.ts";
 import { nowIso, newUuid, manilaBusinessDate, businessDateYear } from "./ids.ts";
 import {
@@ -744,6 +745,12 @@ export async function postFulfillments(...args: Parameters<typeof postFulfillmen
 export async function closeOrder(...args: Parameters<typeof closeOrderImpl>): ReturnType<typeof closeOrderImpl> {
   const [actor, id, input] = args;
   return replayable("closeOrder", actor, id, input, () => closeOrderImpl(...args), result => getOrderDetail(String(result.salesOrderId)));
+}
+export async function deleteDraftOrder(id: string): Promise<void> {
+  const current = await readSalesOrderById(id);
+  assertFound(current, id);
+  if (current.orderStatus !== "DRAFT") throw validationError("Only draft Sales Orders can be deleted.");
+  await deleteDraftSalesOrderRows(id);
 }
 export async function attachDocument(...args: Parameters<typeof attachDocumentImpl>): ReturnType<typeof attachDocumentImpl> {
   const [actor, id, input] = args;

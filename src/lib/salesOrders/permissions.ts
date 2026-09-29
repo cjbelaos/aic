@@ -8,6 +8,7 @@ export type SalesCapability =
   | "so.view"
   | "so.create"
   | "so.edit.draft"
+  | "so.delete.draft"
   | "so.confirm"
   | "so.confirm.override"
   | "so.hold"
@@ -35,6 +36,7 @@ export function capabilitiesForRole(roleId: number): ReadonlySet<SalesCapability
       "so.view",
       "so.create",
       "so.edit.draft",
+      "so.delete.draft",
       "so.confirm",
       "so.confirm.override",
       "so.hold",
@@ -72,7 +74,7 @@ export function can(capability: SalesCapability, context: CapabilityContext): { 
   if (caps.has(capability)) return { allowed: true };
   // Object-level rule: the assignee of a draft may edit it without the global
   // sales role mapping, matching the plan's "sales creates/edits assigned drafts".
-  if (capability === "so.edit.draft" && context.assignedToUserId && context.actorUserId === context.assignedToUserId) {
+  if ((capability === "so.edit.draft" || capability === "so.delete.draft") && context.assignedToUserId && context.actorUserId === context.assignedToUserId) {
     if (context.orderStatus === undefined || context.orderStatus === "DRAFT") return { allowed: true };
   }
   return { allowed: false, reason: `Capability ${capability} is not granted to role ${context.roleId}.` };

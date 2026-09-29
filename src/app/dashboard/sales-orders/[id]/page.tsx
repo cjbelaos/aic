@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { PageLoader } from "@/components/ui/logo-loader";
 import { ArrowLeft, CheckCircle2, CirclePause, CirclePlay, Pencil, XCircle } from "lucide-react";
 import salesOrderService, { type SalesOrderDetail } from "@/lib/services/sales-order.service";
@@ -120,7 +119,6 @@ function DetailInner({ orderId }: { orderId: string }) {
         </CardContent>
       </Card>
       <ItemsSection detail={detail} orderId={orderId} expectedVersion={version} run={run} busy={busy} />
-      <DocumentsSection detail={detail} orderId={orderId} expectedVersion={version} run={run} busy={busy} />
       <ActivitySection detail={detail} />
     </div>
   );
@@ -181,58 +179,6 @@ function FulfillmentEvidenceGuidance(props: { detail: SalesOrderDetail }): React
   );
 }
 
-function DocumentsSection(props: { detail: SalesOrderDetail; orderId: string; expectedVersion: number; run: (label: string, fn: () => Promise<unknown>) => Promise<void>; busy: boolean }): React.ReactNode {
-  return (
-    <Card className="gap-3">
-      <CardHeader><CardTitle>Documents</CardTitle></CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        {props.detail.documents.map((doc) => (
-          <p key={doc.documentId} className="text-sm">
-            {doc.documentType} · {doc.fileName || doc.externalDocumentNo || doc.driveFileId}
-            {doc.externalUrl ? <a className="ml-1 text-primary underline" href={doc.externalUrl} target="_blank" rel="noreferrer">open</a> : null}
-            <span className="text-xs text-muted-foreground"> · v{doc.orderVersion} · {doc.generationStatus}</span>
-          </p>
-        ))}
-        <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => {
-          e.preventDefault();
-          const form = e.currentTarget as HTMLFormElement;
-          const data = new FormData(form);
-          const type = String(data.get("type"));
-          const file = data.get("file");
-          if (!type || !(file instanceof File) || file.size === 0) return;
-          void props.run("Upload document", () => salesOrderService.uploadDocument(props.orderId, {
-            documentType: type, file, orderVersion: props.expectedVersion,
-          }).then((result) => { form.reset(); return result; }));
-        }}>
-          <select name="type" aria-label="Document type" className="rounded-md border border-input bg-transparent px-2 py-1.5 text-sm">
-            <option value="CUSTOMER_PO">Customer PO</option>
-            <option value="QUOTATION">Quotation</option>
-            <option value="SERVICE_REPORT">Service report</option>
-            <option value="OTHER">Other</option>
-          </select>
-          <Input name="file" type="file" required accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" aria-label="Document file" />
-          <Button type="submit" variant="outline" size="sm" disabled={props.busy}>Upload</Button>
-        </form>
-        <Button variant="outline" size="sm" disabled={props.busy} onClick={() => {
-          void props.run("Generate PDF", () => salesOrderService.generatePdf(props.orderId).then((result) => {
-            if (!result.artifact || !result.artifact.pdf) return;
-            const bytes = atob(result.artifact.pdf);
-            const data = new Uint8Array(bytes.length);
-            for (let i = 0; i < bytes.length; i++) data[i] = bytes.charCodeAt(i);
-            const blob = new Blob([data], { type: "application/pdf" });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement("a");
-            anchor.href = url;
-            anchor.download = result.artifact.fileName;
-            anchor.click();
-            URL.revokeObjectURL(url);
-          }));
-        }}>Generate PDF</Button>
-      </CardContent>
-    </Card>
-  );
-}
-
 function ActivitySection({ detail }: { detail: SalesOrderDetail }): React.ReactNode {
   const history = [...detail.history].reverse();
   return (
@@ -242,7 +188,7 @@ function ActivitySection({ detail }: { detail: SalesOrderDetail }): React.ReactN
         {history.length === 0 ? <p className="text-muted-foreground">No activity recorded.</p> : null}
         {history.map((entry) => (
           <div key={entry.eventId} className="flex flex-col gap-0.5">
-            <p className="font-medium">{entry.eventType} <span className="text-xs text-muted-foreground">{formatDate(entry.createdAt)} by {entry.actorUserId}</span></p>
+            <p className="font-medium">{entry.eventType} <span className="text-xs text-muted-foreground">{formatDate(entry.createdAt)} by {entry.actorFullName || entry.actorUserId}</span></p>
             {entry.reason ? <p className="text-xs text-muted-foreground">{entry.reason}</p> : null}
           </div>
         ))}

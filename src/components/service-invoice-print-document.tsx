@@ -266,10 +266,12 @@ export default function ServiceInvoicePrintDocument({
     return sum + (item.amount ?? (item.quantity || 0) * (item.unitPrice || 0));
   }, 0);
 
-  const vatAmount = totalAmount * 0.12;
-  const netAmount = totalAmount - vatAmount;
-  const withholdingTax = totalAmount * 0.12;
-  const totalDue = netAmount + withholdingTax;
+  // The total on a Service Invoice is VAT-inclusive. Derive the taxable base
+  // first, then calculate VAT from that base.
+  const netAmount = totalAmount / 1.12;
+  const vatAmount = netAmount * 0.12;
+  const withholdingTax = vatAmount;
+  const totalDue = totalAmount;
 
   /* ---------------------------------------------------------------------------
    * PREPARED BY

@@ -540,7 +540,7 @@ export async function writeSalesOrderCommand<T = Record<string, unknown>>(
       }
     }
 
-    let nextOrder = payload.order ? { ...payload.order } : existing ?? undefined;
+    const nextOrder = payload.order ? { ...payload.order } : existing ?? undefined;
     let sequenceUpdate: { rowNumber: number; row: unknown[] } | undefined;
     if (nextOrder && (isCreate || ["so.update", "so.confirm", "so.hold", "so.resume", "so.cancel", "so.close", "so.fulfill"].includes(command.commandType))) {
       nextOrder.version = isCreate ? Math.max(1, nextOrder.version || 1) : (existing?.version ?? 0) + 1;
@@ -600,6 +600,34 @@ export async function writeSalesOrderCommand<T = Record<string, unknown>>(
       requestBody: { valueInputOption: "RAW", data: updates },
     });
     return { ok: true, replayed: false, result: result as T };
+  });
+}
+
+/** Removes a never-confirmed draft and its dependent rows from the canonical store. */
+export async function deleteDraftSalesOrderRows(salesOrderId: string): Promise<void> {
+  await withDirectWriteLock(async () => {
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const tabs = [TAB_ORDERS, TAB_ITEMS, TAB_HISTORY, TAB_DOCUMENTS, TAB_FULFILLMENTS, TAB_DOCUMENT_LINKS] as const;
+    const ranges = tabs.map((tab) => `${tab}!A2:${headerEndColumn(TAB_HEADERS[tab].length)}`);
+    const read = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
+    const rowsByTab = new Map<string, unknown[][]>();
+    tabs.forEach((tab, index) => rowsByTab.set(tab, read.data.valueRanges?.[index]?.values ?? []));
+
+    const orderRows = rowsByTab.get(TAB_ORDERS) ?? [];
+    const orderIndex = orderRows.findIndex((row) => text(row[0]) === salesOrderId);
+    if (orderIndex < 0) throw new Error(`Sales Order ${salesOrderId} was not found.`);
+    const order = orderFromRow(orderRows[orderIndex]);
+    if (order.orderStatus !== "DRAFT") throw new Error("Only draft Sales Orders can be deleted.");
+
+    const clearRanges: string[] = [`${TAB_ORDERS}!A${orderIndex + 2}:${headerEndColumn(ORDERS_HEADERS.length)}${orderIndex + 2}`];
+    for (const tab of tabs.slice(1)) {
+      const width = TAB_HEADERS[tab].length;
+      (rowsByTab.get(tab) ?? []).forEach((row, index) => {
+        if (text(row[1]) === salesOrderId) clearRanges.push(`${tab}!A${index + 2}:${headerEndColumn(width)}${index + 2}`);
+      });
+    }
+    await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges: clearRanges } });
   });
 }
 

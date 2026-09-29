@@ -133,6 +133,8 @@ export interface SalesOrderHistory {
   reason: string;
   commandId: string;
   actorUserId: string;
+  /** Resolved at read time for display; the immutable audit value remains actorUserId. */
+  actorFullName?: string;
   createdAt: string;
 }
 

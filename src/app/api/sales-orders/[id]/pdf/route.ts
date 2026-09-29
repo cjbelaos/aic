@@ -3,6 +3,7 @@ import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/sales
 import { getOrderDetail, attachDocument } from "@/lib/salesOrders/service";
 import { renderSalesOrderPdf, salesOrderPdfFileName } from "@/lib/salesOrders/pdf";
 import { getDriveUploadClient } from "@/lib/googleSheets";
+import { Readable } from "node:stream";
 
 const DEFAULT_SALES_ORDER_DRIVE_FOLDER_ID = "19919wVs7xuxSr1CCxPQjPU6xslnulWd9";
 
@@ -43,7 +44,9 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     const drive = await getDriveUploadClient();
     const uploaded = await drive.files.create({
       requestBody: { name: fileName, parents: [driveFolderId] },
-      media: { mimeType: "application/pdf", body: buffer },
+      // googleapis streams the request body and calls `.pipe()` on it. A
+      // Buffer has no pipe method, so wrap the renderer output first.
+      media: { mimeType: "application/pdf", body: Readable.from(buffer) },
       fields: "id,name,webViewLink",
     });
     const driveFileId = uploaded.data.id;

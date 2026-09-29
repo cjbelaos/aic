@@ -147,6 +147,8 @@ const salesOrderService = {
   close: (id: string, expectedVersion: number, reason: string): Promise<{ success: boolean; order: SalesOrderDetail }> =>
     mutate("post", `${BASE}/${id}/close`, { expectedVersion, reason }),
 
+  deleteDraft: (id: string): Promise<{ success: boolean }> => api.delete(`${BASE}/${id}`),
+
   postFulfillments: (id: string, expectedVersion: number, entries: Array<{
     salesOrderItemId: string; type: "DELIVERY" | "SERVICE_COMPLETION" | "REVERSAL"; quantity: number;
     effectiveDate: string; sourceDocumentType?: string; sourceDocumentId?: string; sourceLineId?: string;
