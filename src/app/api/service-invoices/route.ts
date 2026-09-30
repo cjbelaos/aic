@@ -72,7 +72,7 @@ export async function POST(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to process service invoice.";
-    const isValidationError = /Delivered By|Delivery Receipt/i.test(message);
+    const isValidationError = /Delivered By|Delivery Receipt|Sales Order|different customer/i.test(message);
     return NextResponse.json({ error: message }, { status: isValidationError ? 400 : 500 });
   }
 }

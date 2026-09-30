@@ -129,7 +129,7 @@ export default function DeliveryReleasePage() {
   );
   const [poNo, setPoNo] = useState("");
   /* Reference: a selected Sales Order, or a manual legacy TR Number */
-  const [referenceMode, setReferenceMode] = useState<DeliveryReferenceMode>("SALES_ORDER");
+  const [referenceMode, setReferenceMode] = useState<DeliveryReferenceMode | null>(null);
   const [trNo, setTrNo] = useState("");
   const [salesOrderId, setSalesOrderId] = useState("");
   const [drNo, setDrNo] = useState("");
@@ -405,15 +405,19 @@ export default function DeliveryReleasePage() {
    */
   const changeReferenceMode = useCallback((mode: DeliveryReferenceMode, editing = false) => {
     if (editing) {
+      if (mode === editReferenceMode) return;
       setEditReferenceMode(mode);
+      setEditPoNo("");
       if (mode === "SALES_ORDER") setEditTrNo("");
       else setEditSalesOrderId("");
       return;
     }
+    if (mode === referenceMode) return;
     setReferenceMode(mode);
+    setPoNo("");
     if (mode === "SALES_ORDER") setTrNo("");
     else setSalesOrderId("");
-  }, []);
+  }, [editReferenceMode, referenceMode]);
 
   /**
    * Reference fields for a payload. A mode is only sent when the user actually
@@ -421,10 +425,11 @@ export default function DeliveryReleasePage() {
    * chosen mode is still validated on the server.
    */
   const referencePayload = (
-    mode: DeliveryReferenceMode,
+    mode: DeliveryReferenceMode | null,
     orderId: string,
     manualTr: string,
   ): { referenceMode?: "SALES_ORDER" | "TR_NUMBER"; salesOrderId?: string; trNo?: string } => {
+    if (!mode) return {};
     if (mode === "SALES_ORDER") {
       return orderId ? { referenceMode: "SALES_ORDER", salesOrderId: orderId } : {};
     }
@@ -441,24 +446,31 @@ export default function DeliveryReleasePage() {
       // Selecting a Sales Order clears the manual TR Number (mutually exclusive).
       setEditTrNo("");
       setEditPoNo(selected.order.customerPONo || "");
-      return;
+    } else {
+      setSalesOrderId(id);
+      setReferenceMode("SALES_ORDER");
+      setTrNo("");
+      setSelectedCompany(selected.order.customerId);
+      setPoNo(selected.order.customerPONo || "");
     }
-    setSalesOrderId(id);
-    setReferenceMode("SALES_ORDER");
-    setTrNo("");
-    setSelectedCompany(selected.order.customerId);
-    setPoNo(selected.order.customerPONo || "");
     try {
       const detail = await salesOrderService.get(id);
       const availableProducts = detail.items.filter((item) => item.lineType === "PRODUCT" && item.lineStatus === "ACTIVE" && item.quantity !== null && item.quantity > item.fulfilledQty + item.cancelledQty);
-      setLineItems(availableProducts.map((item) => ({
+      const populatedItems = availableProducts.map((item) => ({
         salesOrderItemId: item.salesOrderItemId,
         productId: item.productId,
         productCode: item.productCodeSnapshot,
         unit: item.unitSnapshot || "PC",
         description: item.description,
         quantity: Math.max(0, (item.quantity ?? 0) - item.fulfilledQty - item.cancelledQty),
-      })));
+      }));
+      if (editing) {
+        setEditLineItems(populatedItems);
+        setEditManualRows(new Set());
+      } else {
+        setLineItems(populatedItems);
+        setManualRows(new Set());
+      }
     } catch {
       toast.warning("Sales Order selected, but its remaining product lines could not be loaded.");
     }
@@ -850,7 +862,7 @@ export default function DeliveryReleasePage() {
     setPoNo("");
     setTrNo("");
     setSalesOrderId("");
-    setReferenceMode("SALES_ORDER");
+    setReferenceMode(null);
     setDeliveredBy("");
     setComments("");
     setLineItems([]);
@@ -892,6 +904,10 @@ export default function DeliveryReleasePage() {
   };
 
   const handleSaveAndPrint = async () => {
+    if (!referenceMode) {
+      toast.error("Choose Sales Order or Legacy TR Number first.");
+      return;
+    }
     if (!preparedBy.trim()) {
       toast.error("Prepared by is required.");
       return;
@@ -979,6 +995,10 @@ export default function DeliveryReleasePage() {
   };
 
   const handleSaveDraft = async () => {
+    if (!referenceMode) {
+      toast.error("Choose Sales Order or Legacy TR Number first.");
+      return;
+    }
     if (!selectedCompany) {
       toast.error("Please select a customer.");
       return;
@@ -1370,14 +1390,6 @@ export default function DeliveryReleasePage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>PO NO.</Label>
-                <Input
-                  value={poNo}
-                  onChange={(e) => setPoNo(e.target.value)}
-                  placeholder="e.g. PO-10293"
-                />
-              </div>
               <DeliveryReleaseReferenceField
                 mode={referenceMode}
                 onModeChange={(mode) => changeReferenceMode(mode)}
@@ -1389,6 +1401,15 @@ export default function DeliveryReleasePage() {
                 selectedSalesOrderNo={salesOrderNumberById.get(salesOrderId)}
                 disabled={printing || drafting}
               />
+              <div className="space-y-2">
+                <Label>PO NO.</Label>
+                <Input
+                  value={poNo}
+                  disabled={referenceMode !== "TR_NUMBER"}
+                  onChange={(e) => setPoNo(e.target.value)}
+                  placeholder="e.g. PO-10293"
+                />
+              </div>
             </div>
 
             {/* Products Section - Create DR */}
@@ -1655,13 +1676,6 @@ export default function DeliveryReleasePage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>PO NO.</Label>
-                <Input
-                  value={editPoNo}
-                  onChange={(e) => setEditPoNo(e.target.value)}
-                />
-              </div>
               <DeliveryReleaseReferenceField
                 mode={editReferenceMode}
                 onModeChange={(mode) => changeReferenceMode(mode, true)}
@@ -1673,6 +1687,14 @@ export default function DeliveryReleasePage() {
                 selectedSalesOrderNo={salesOrderNumberById.get(editSalesOrderId)}
                 disabled={editSubmitting}
               />
+              <div className="space-y-2">
+                <Label>PO NO.</Label>
+                <Input
+                  value={editPoNo}
+                  disabled={editReferenceMode !== "TR_NUMBER"}
+                  onChange={(e) => setEditPoNo(e.target.value)}
+                />
+              </div>
             </div>
 
             {/* Products Section - Edit DR */}

@@ -17,14 +17,15 @@ import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 import { getUserById } from "@/lib/userSheets";
 import { resolveDeliveryReceiptDeliveredBy, resolveDeliveryReceiptReferences } from "@/lib/deliverySheets";
 import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/documentHandoverSheets";
-import { getOrderDetail } from "@/lib/salesOrders/service";
+import { getOrderDetail, postFulfillments, type Actor } from "@/lib/salesOrders/service";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
-const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:S`;
+const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:Z`;
 // A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo
 // M:AssignedTechnicianUserId N:AssignedTechnicianName O:ServiceReportId P:ServiceReportStatus
-// Q:PONumber R:TRNumber S:SalesOrderId (19 columns, A:S)
+// Q:PONumber R:TRNumber S:SalesOrderId T:ManualCompletionStatus U:ManualCompletionDate
+// V:ManualCompletionTechnicianId W:ManualCompletionTechnicianName X:ManualCompletionNotes Y:ManualCompletionFulfillmentIds Z:ReferenceMode
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
@@ -126,11 +127,14 @@ type DeliveredByResolution = {
 };
 
 /** A linked DR wins, then a direct Sales Order, then manual document references. */
-async function resolveInvoiceReferences(payload: Pick<CreateServiceInvoicePayload, "drNumber" | "salesOrderId" | "poNo" | "trNo">): Promise<{ poNo: string; trNo: string; salesOrderId?: string }> {
+async function resolveInvoiceReferences(payload: Pick<CreateServiceInvoicePayload, "drNumber" | "salesOrderId" | "poNo" | "trNo" | "referenceMode">): Promise<{ poNo: string; trNo: string; salesOrderId?: string }> {
   if (payload.drNumber !== undefined && payload.drNumber !== null) {
     return resolveDeliveryReceiptReferences(payload.drNumber);
   }
   const salesOrderId = String(payload.salesOrderId ?? "").trim();
+  if (payload.referenceMode === "TR_NUMBER") {
+    return { poNo: String(payload.poNo ?? "").trim(), trNo: String(payload.trNo ?? "").trim(), salesOrderId };
+  }
   if (salesOrderId) {
     const order = await getOrderDetail(salesOrderId);
     return { poNo: order.order.customerPONo || "", trNo: order.order.salesOrderNo || "", salesOrderId };
@@ -328,6 +332,13 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           poNo: String(row[16] ?? "").trim() || undefined,
           trNo: String(row[17] ?? "").trim() || undefined,
           salesOrderId: String(row[18] ?? "").trim() || undefined,
+          referenceMode: row[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
+          manualCompletionStatus: String(row[19] ?? "").trim() === "COMPLETED" ? "COMPLETED" : String(row[19] ?? "").trim() === "REVERSED" ? "REVERSED" : undefined,
+          manualCompletionDate: String(row[20] ?? "").trim() || undefined,
+          manualCompletionTechnicianId: String(row[21] ?? "").trim() || undefined,
+          manualCompletionTechnicianName: String(row[22] ?? "").trim() || undefined,
+          manualCompletionNotes: String(row[23] ?? "").trim() || undefined,
+          manualCompletionFulfillmentIds: String(row[24] ?? "").trim() ? String(row[24]).split(",").filter(Boolean) : undefined,
           items: itemsByInvoice.get(invoiceNo) || [],
         };
       })
@@ -498,6 +509,7 @@ export async function processServiceInvoice(
       ? deliveredBy.deliveredByName || assignedTechnician.assignedTechnicianName || ""
       : assignedTechnician.assignedTechnicianName || deliveredBy.deliveredByName || "";
     const references = await resolveInvoiceReferences(payload);
+    if (!references.salesOrderId) throw new Error("A Service Invoice must be linked to a Sales Order.");
     if (references.salesOrderId) {
       const order = await getOrderDetail(references.salesOrderId);
       if (order.order.customerId !== payload.customerId) {
@@ -524,6 +536,13 @@ export async function processServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
+      "", // T: ManualCompletionStatus
+      "", // U: ManualCompletionDate
+      "", // V: ManualCompletionTechnicianId
+      "", // W: ManualCompletionTechnicianName
+      "", // X: ManualCompletionNotes
+      "", // Y: ManualCompletionFulfillmentIds
+      payload.referenceMode || "SALES_ORDER", // Z: ReferenceMode
     ];
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -622,6 +641,7 @@ export async function processServiceInvoice(
       poNo: references.poNo || undefined,
       trNo: references.trNo || undefined,
       salesOrderId: references.salesOrderId || undefined,
+      referenceMode: payload.referenceMode || "SALES_ORDER",
       assignedTechnicianUserId: technicianId || undefined,
       assignedTechnicianName: technicianName || undefined,
       trackerAssignmentOutcome,
@@ -652,7 +672,7 @@ export async function updateServiceInvoice(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:S${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:Z${rowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[8] ?? "created").trim();
@@ -676,6 +696,7 @@ export async function updateServiceInvoice(
       : undefined;
     const references = await resolveInvoiceReferences({
       drNumber: linkedDrNumber,
+      referenceMode: payload.referenceMode ?? (currentRow[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"),
       salesOrderId: linkedDrNumber === undefined
         ? (payload.salesOrderId !== undefined ? payload.salesOrderId : String(currentRow[18] ?? "").trim())
         : undefined,
@@ -689,6 +710,7 @@ export async function updateServiceInvoice(
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
+    if (!references.salesOrderId) throw new Error("A Service Invoice must be linked to a Sales Order.");
     let deliveredBy: DeliveredByResolution;
     if (linkedDrNumber !== undefined) {
       // A linked DR always wins, even if a client submits another user ID.
@@ -750,11 +772,18 @@ export async function updateServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
+      String(currentRow[19] ?? "").trim(), // T: ManualCompletionStatus
+      String(currentRow[20] ?? "").trim(), // U: ManualCompletionDate
+      String(currentRow[21] ?? "").trim(), // V: ManualCompletionTechnicianId
+      String(currentRow[22] ?? "").trim(), // W: ManualCompletionTechnicianName
+      String(currentRow[23] ?? "").trim(), // X: ManualCompletionNotes
+      String(currentRow[24] ?? "").trim(), // Y: ManualCompletionFulfillmentIds
+      payload.referenceMode ?? (currentRow[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // Z: ReferenceMode
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:S${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:Z${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -847,6 +876,13 @@ export async function updateServiceInvoice(
       poNo: references.poNo || undefined,
       trNo: references.trNo || undefined,
       salesOrderId: references.salesOrderId || undefined,
+      referenceMode: updatedRow[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
+      manualCompletionStatus: updatedRow[19] === "COMPLETED" ? "COMPLETED" : updatedRow[19] === "REVERSED" ? "REVERSED" : undefined,
+      manualCompletionDate: updatedRow[20] || undefined,
+      manualCompletionTechnicianId: updatedRow[21] || undefined,
+      manualCompletionTechnicianName: updatedRow[22] || undefined,
+      manualCompletionNotes: updatedRow[23] || undefined,
+      manualCompletionFulfillmentIds: updatedRow[24] ? String(updatedRow[24]).split(",").filter(Boolean) : undefined,
       assignedTechnicianUserId: technicianIdForRow || undefined,
       assignedTechnicianName: technicianNameForRow || undefined,
       trackerAssignmentOutcome,
@@ -936,7 +972,7 @@ export async function populateAndExportServiceInvoiceFormPdf(
 
   const invResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:S${rowNumber}`,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:Z${rowNumber}`,
   });
   const invRow = invResponse.data.values?.[0] || [];
   const date = String(invRow[1] ?? "").trim();
@@ -947,6 +983,7 @@ export async function populateAndExportServiceInvoiceFormPdf(
   const references = await resolveInvoiceReferences({
     drNumber: Number.isFinite(linkedDrNumber) ? linkedDrNumber : undefined,
     salesOrderId: String(invRow[18] ?? "").trim(),
+    referenceMode: invRow[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
     poNo: String(invRow[16] ?? "").trim(),
     trNo: String(invRow[17] ?? "").trim(),
   });
@@ -1036,14 +1073,100 @@ export async function regenerateStoredServiceInvoicePdfsForDr(drNumber: number):
   }
 }
 
+export interface ManualServiceCompletionInput {
+  completionDate: string;
+  technicianUserId: string;
+  notes: string;
+}
+
+type ManualCompletionRecord = {
+  rowNumber: number;
+  invoiceNo: string;
+  salesOrderId: string;
+  status: string;
+  fulfillmentIds: string[];
+};
+
+async function readManualCompletionRecord(invoiceNo: string): Promise<ManualCompletionRecord> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+  if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:Z${rowNumber}` });
+  const row = response.data.values?.[0] || [];
+  const salesOrderId = String(row[18] ?? "").trim();
+  if (!salesOrderId) throw new Error("A Service Invoice must be linked to a Sales Order before completing service.");
+  return { rowNumber, invoiceNo: String(row[0] ?? invoiceNo).trim(), salesOrderId, status: String(row[19] ?? "").trim(), fulfillmentIds: String(row[24] ?? "").split(",").filter(Boolean) };
+}
+
+export async function getServiceInvoiceManualCompletionRecord(invoiceNo: string): Promise<Pick<ManualCompletionRecord, "salesOrderId" | "status">> {
+  const record = await readManualCompletionRecord(invoiceNo);
+  return { salesOrderId: record.salesOrderId, status: record.status };
+}
+
+async function writeManualCompletion(record: ManualCompletionRecord, values: { status: "COMPLETED" | "REVERSED"; completionDate: string; technicianId: string; technicianName: string; notes: string; fulfillmentIds: string[] }): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SERVICE_INVOICES_SHEET}!T${record.rowNumber}:Y${record.rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[values.status, values.completionDate, values.technicianId, values.technicianName, values.notes, values.fulfillmentIds.join(",")]] },
+  });
+}
+
+/** Completes every active, unfulfilled service line for a Service Invoice. */
+export async function completeServiceInvoiceManually(invoiceNo: string, input: ManualServiceCompletionInput, actor: Actor, allowReplace: boolean): Promise<void> {
+  const record = await readManualCompletionRecord(invoiceNo);
+  const technician = await getUserById(input.technicianUserId);
+  if (!technician?.fullName.trim()) throw new Error("Technician / responsible person must be an active application user.");
+  if (!input.completionDate.trim()) throw new Error("Completion date is required.");
+  if (!input.notes.trim()) throw new Error("Completion notes are required.");
+  let detail = await getOrderDetail(record.salesOrderId);
+  if (record.status === "COMPLETED") {
+    if (!allowReplace) throw new Error("This Service Invoice is already manually completed.");
+    const prior = detail.fulfillments.filter((entry) => entry.status === "POSTED" && entry.sourceDocumentType === "SERVICE_INVOICE" && entry.sourceDocumentId === record.invoiceNo);
+    if (prior.length) {
+      detail = await postFulfillments(actor, record.salesOrderId, {
+        commandId: crypto.randomUUID(), expectedVersion: detail.order.version,
+        entries: prior.map((entry) => ({ salesOrderItemId: entry.salesOrderItemId, type: "REVERSAL", quantity: entry.quantity, effectiveDate: input.completionDate, sourceDocumentType: "SERVICE_INVOICE", sourceDocumentId: record.invoiceNo, sourceLineId: entry.sourceLineId, evidenceDriveFileId: "", reversesFulfillmentId: entry.fulfillmentId })),
+      });
+    }
+  }
+  const serviceLines = detail.items.filter((item) => item.lineStatus === "ACTIVE" && item.lineType === "SERVICE");
+  if (!serviceLines.length) throw new Error("The linked Sales Order has no active service lines to complete.");
+  if (serviceLines.some((item) => item.fulfilledQty > 0)) throw new Error("One or more service lines are already fulfilled. Reverse the existing completion before using manual completion.");
+  const commandId = crypto.randomUUID();
+  const completed = await postFulfillments(actor, record.salesOrderId, {
+    commandId, expectedVersion: detail.order.version,
+    entries: serviceLines.map((item) => ({ salesOrderItemId: item.salesOrderItemId, type: "SERVICE_COMPLETION", quantity: Math.max(0, (item.quantity ?? 0) - item.cancelledQty), effectiveDate: input.completionDate, sourceDocumentType: "SERVICE_INVOICE", sourceDocumentId: record.invoiceNo, sourceLineId: item.salesOrderItemId, evidenceDriveFileId: "", reversesFulfillmentId: "" })),
+  });
+  const fulfillmentIds = completed.fulfillments.filter((entry) => entry.commandId === commandId).map((entry) => entry.fulfillmentId);
+  await writeManualCompletion(record, { status: "COMPLETED", completionDate: input.completionDate, technicianId: technician.userId, technicianName: technician.fullName, notes: input.notes.trim(), fulfillmentIds });
+}
+
+/** Admin-only correction that reverses the manual completion posted from an invoice. */
+export async function reverseManualServiceInvoiceCompletion(invoiceNo: string, reversalDate: string, notes: string, actor: Actor): Promise<void> {
+  const record = await readManualCompletionRecord(invoiceNo);
+  if (record.status !== "COMPLETED") throw new Error("This Service Invoice has no active manual completion to reverse.");
+  const detail = await getOrderDetail(record.salesOrderId);
+  const prior = detail.fulfillments.filter((entry) => entry.status === "POSTED" && entry.sourceDocumentType === "SERVICE_INVOICE" && entry.sourceDocumentId === record.invoiceNo);
+  if (!prior.length) throw new Error("The manual completion fulfillment entries were not found.");
+  await postFulfillments(actor, record.salesOrderId, {
+    commandId: crypto.randomUUID(), expectedVersion: detail.order.version,
+    entries: prior.map((entry) => ({ salesOrderItemId: entry.salesOrderItemId, type: "REVERSAL", quantity: entry.quantity, effectiveDate: reversalDate, sourceDocumentType: "SERVICE_INVOICE", sourceDocumentId: record.invoiceNo, sourceLineId: entry.sourceLineId, evidenceDriveFileId: "", reversesFulfillmentId: entry.fulfillmentId })),
+  });
+  await writeManualCompletion(record, { status: "REVERSED", completionDate: reversalDate, technicianId: "", technicianName: actor.displayName, notes: notes.trim(), fulfillmentIds: record.fulfillmentIds });
+}
+
 /** Syncs direct service-only Sales Order invoices and overwrites their saved PDFs. */
 export async function syncSalesOrderServiceInvoiceReferences(salesOrderId: string): Promise<void> {
   const order = await getOrderDetail(salesOrderId);
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A2:S` });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A2:Z` });
   const matches = (response.data.values ?? []).map((row, index) => ({ row, rowNumber: index + 2 }))
-    .filter(({ row }) => !String(row[11] ?? "").trim() && String(row[18] ?? "").trim() === salesOrderId);
+    .filter(({ row }) => row[25] !== "TR_NUMBER" && !String(row[11] ?? "").trim() && String(row[18] ?? "").trim() === salesOrderId);
   if (!matches.length) return;
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,

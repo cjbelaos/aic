@@ -86,7 +86,8 @@ assert.equal(fulfilment.entries[0].type, "DELIVERY");
 expect400(() => parseFulfillmentInput({ commandId: uuid, expectedVersion: 2, entries: [] }), /At least one/);
 expect400(() => parseFulfillmentInput({ commandId: uuid, expectedVersion: 2, entries: [{ salesOrderItemId: uuid, type: "SURPRISE", quantity: 1, effectiveDate: "2026-09-19" }] }), /type must be/);
 expect400(() => parseFulfillmentInput({ commandId: uuid, expectedVersion: 2, entries: [{ salesOrderItemId: uuid, type: "DELIVERY", quantity: 1, effectiveDate: "2026-09-19", sourceDocumentId: "DR-1", sourceLineId: "L1" }] }), /DELIVERY_RECEIPT/);
-expect400(() => parseFulfillmentInput({ commandId: uuid, expectedVersion: 2, entries: [{ salesOrderItemId: uuid, type: "SERVICE_COMPLETION", quantity: 1, effectiveDate: "2026-09-19", sourceDocumentType: "SERVICE_INVOICE", sourceDocumentId: "SI-1", sourceLineId: "L1" }] }), /SERVICE_REPORT/);
+assert.equal(parseFulfillmentInput({ commandId: uuid, expectedVersion: 2, entries: [{ salesOrderItemId: uuid, type: "SERVICE_COMPLETION", quantity: 1, effectiveDate: "2026-09-19", sourceDocumentType: "SERVICE_INVOICE", sourceDocumentId: "SI-1", sourceLineId: "L1" }] }).entries[0].sourceDocumentType, "SERVICE_INVOICE");
+expect400(() => parseFulfillmentInput({ commandId: uuid, expectedVersion: 2, entries: [{ salesOrderItemId: uuid, type: "SERVICE_COMPLETION", quantity: 1, effectiveDate: "2026-09-19", sourceDocumentType: "OTHER", sourceDocumentId: "SI-1", sourceLineId: "L1" }] }), /SERVICE_REPORT or SERVICE_INVOICE/);
 
 // Documents: URL scheme is validated; Drive IDs are accepted without a URL.
 assert.equal(parseDocumentInput({ commandId: uuid, documentType: "CUSTOMER_PO", externalUrl: "https://drive.google.com/file/d/abc/view", fileName: "po.pdf", mimeType: "application/pdf" }).externalUrl, "https://drive.google.com/file/d/abc/view");

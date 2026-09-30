@@ -56,6 +56,14 @@ const serviceInvoiceService = {
     }
   },
 
+  completeServiceManually: async (invoiceNo: string, payload: { completionDate: string; technicianUserId: string; notes: string }): Promise<void> => {
+    await axios.post(`${API_BASE_URL}/${encodeURIComponent(invoiceNo)}/manual-completion`, payload);
+  },
+
+  reverseManualServiceCompletion: async (invoiceNo: string, payload: { reversalDate: string; notes: string }): Promise<void> => {
+    await axios.delete(`${API_BASE_URL}/${encodeURIComponent(invoiceNo)}/manual-completion`, { data: payload });
+  },
+
   getPreview: async (invoiceNo: string): Promise<ServiceInvoiceResponse> => {
     try {
       const response = await axios.get<ServiceInvoiceResponse>(

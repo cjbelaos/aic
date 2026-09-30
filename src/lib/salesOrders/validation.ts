@@ -363,9 +363,9 @@ export function parseFulfillmentInput(body: unknown): ValidatedFulfillment {
       if (!sourceLineId) fieldErrors[`entries.${index}.sourceLineId`] = "Delivery fulfillment requires an immutable Delivery Release line ID.";
     }
     if (typeRaw === "SERVICE_COMPLETION") {
-      if (sourceDocumentType !== "SERVICE_REPORT") fieldErrors[`entries.${index}.sourceDocumentType`] = "Service completion requires sourceDocumentType SERVICE_REPORT.";
-      if (!sourceDocumentId) fieldErrors[`entries.${index}.sourceDocumentId`] = "Service completion requires a finalized Service Report ID.";
-      if (!sourceLineId) fieldErrors[`entries.${index}.sourceLineId`] = "Service completion requires an immutable Service Report line ID.";
+      if (!["SERVICE_REPORT", "SERVICE_INVOICE"].includes(sourceDocumentType)) fieldErrors[`entries.${index}.sourceDocumentType`] = "Service completion requires sourceDocumentType SERVICE_REPORT or SERVICE_INVOICE.";
+      if (!sourceDocumentId) fieldErrors[`entries.${index}.sourceDocumentId`] = "Service completion requires its Service Report or Service Invoice ID.";
+      if (!sourceLineId) fieldErrors[`entries.${index}.sourceLineId`] = "Service completion requires an immutable source line ID.";
     }
     if (typeRaw === "REVERSAL" && !reversesFulfillmentId) fieldErrors[`entries.${index}.reversesFulfillmentId`] = "A reversal must identify the fulfillment it reverses.";
     entries.push({

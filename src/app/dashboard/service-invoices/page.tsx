@@ -1,11 +1,15 @@
 "use client";
 
+import { InvoiceReferenceTypeSelector } from "@/components/delivery-release-reference-field";
+import type { DeliveryReferenceMode } from "@/lib/deliveryReference";
+
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog,
@@ -32,6 +36,8 @@ import {
   ExternalLink,
   Upload,
   FileText,
+  CheckCircle2,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -117,6 +123,9 @@ export default function ServiceInvoicesPage() {
   const [drafting, setDrafting] = useState(false);
   const [printing, setPrinting] = useState(false);
 
+  const [referenceMode, setReferenceMode] = useState<DeliveryReferenceMode | null>(null);
+  const [editReferenceMode, setEditReferenceMode] = useState<DeliveryReferenceMode>("SALES_ORDER");
+
   /* Linked DR */
   const [linkedDrNumber, setLinkedDrNumber] = useState("");
   const [linkedSalesOrderId, setLinkedSalesOrderId] = useState("");
@@ -154,6 +163,14 @@ export default function ServiceInvoicesPage() {
   const [editTechnicianName, setEditTechnicianName] = useState("");
   const [editPoNo, setEditPoNo] = useState("");
   const [editTrNo, setEditTrNo] = useState("");
+  const [completionTarget, setCompletionTarget] = useState<ServiceInvoiceSummary | null>(null);
+  const [completionDate, setCompletionDate] = useState("");
+  const [completionTechnicianId, setCompletionTechnicianId] = useState("");
+  const [completionNotes, setCompletionNotes] = useState("");
+  const [completingService, setCompletingService] = useState(false);
+  const [reversalTarget, setReversalTarget] = useState<ServiceInvoiceSummary | null>(null);
+  const [reversalDate, setReversalDate] = useState("");
+  const [reversalNotes, setReversalNotes] = useState("");
 
   /* Delete */
   const [deleteTarget, setDeleteTarget] =
@@ -541,9 +558,10 @@ export default function ServiceInvoicesPage() {
     const order = salesOrdersById[linkedSalesOrderId];
     if (!order) return;
     setSelectedCustomer(order.customerId);
+    if (referenceMode !== "SALES_ORDER") return;
     setPoNo(order.customerPONo || "");
     setTrNo(order.salesOrderNo || "");
-  }, [linkedSalesOrderId, linkedDrNumber, salesOrdersById]);
+  }, [linkedSalesOrderId, linkedDrNumber, salesOrdersById, referenceMode]);
 
   useEffect(() => {
     if (!editDrNumber) return;
@@ -562,12 +580,12 @@ export default function ServiceInvoicesPage() {
   }, [editDrNumber]);
 
   useEffect(() => {
-    if (!editSalesOrderId || editDrNumber) return;
+    if (!editSalesOrderId || editDrNumber || editReferenceMode !== "SALES_ORDER") return;
     const order = salesOrdersById[editSalesOrderId];
     if (!order) return;
     setEditPoNo(order.customerPONo || "");
     setEditTrNo(order.salesOrderNo || "");
-  }, [editSalesOrderId, editDrNumber, salesOrdersById]);
+  }, [editSalesOrderId, editDrNumber, salesOrdersById, editReferenceMode]);
 
   /* Table columns */
   const columns: ColumnDef<ServiceInvoiceSummary>[] = useMemo(
@@ -761,6 +779,15 @@ export default function ServiceInvoicesPage() {
                   <Upload className="h-4 w-4" />
                 )}
               </Button>
+              {row.original.salesOrderId && (row.original.manualCompletionStatus === "COMPLETED" ? (
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-600 hover:text-amber-800" onClick={() => { setReversalTarget(row.original); setReversalDate(new Date().toISOString().split("T")[0]); setReversalNotes(""); }} title="Reverse manual service completion">
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-800" onClick={() => openManualCompletion(row.original)} title="Mark service complete">
+                  <CheckCircle2 className="h-4 w-4" />
+                </Button>
+              ))}
               {row.original.serviceReportId ? (
                 <Button
                   variant="ghost"
@@ -847,6 +874,7 @@ export default function ServiceInvoicesPage() {
     setLineItems([]);
     setLinkedDrNumber("");
     setLinkedSalesOrderId("");
+    setReferenceMode(null);
     setTechnicianId("");
     setTechnicianName("");
     setPoNo("");
@@ -874,6 +902,11 @@ export default function ServiceInvoicesPage() {
   };
 
   const handleSaveAndPrint = async () => {
+    if (!referenceMode) { toast.error("Choose Sales Order or Legacy TR Number first."); return; }
+    if (!linkedDrNumber && !linkedSalesOrderId) {
+      toast.error("A Sales Order is required for every Service Invoice.");
+      return;
+    }
     if (!invoiceNo.trim()) {
       toast.error("Invoice No. is required.");
       return;
@@ -909,6 +942,7 @@ export default function ServiceInvoicesPage() {
         })),
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
+        referenceMode: referenceMode || "SALES_ORDER",
         salesOrderId: linkedDrNumber ? undefined : linkedSalesOrderId || undefined,
         poNo,
         trNo,
@@ -932,6 +966,11 @@ export default function ServiceInvoicesPage() {
   };
 
   const handleSaveDraft = async () => {
+    if (!referenceMode) { toast.error("Choose Sales Order or Legacy TR Number first."); return; }
+    if (!linkedDrNumber && !linkedSalesOrderId) {
+      toast.error("A Sales Order is required for every Service Invoice.");
+      return;
+    }
     if (!selectedCustomer) {
       toast.error("Please select a customer.");
       return;
@@ -952,6 +991,7 @@ export default function ServiceInvoicesPage() {
         status: "draft",
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
+        referenceMode: referenceMode || "SALES_ORDER",
         salesOrderId: linkedDrNumber ? undefined : linkedSalesOrderId || undefined,
         poNo,
         trNo,
@@ -999,6 +1039,7 @@ export default function ServiceInvoicesPage() {
       );
       setEditDrNumber(editTarget.drNumber?.toString() || "");
       setEditSalesOrderId(editTarget.salesOrderId || "");
+      setEditReferenceMode(editTarget.referenceMode || "SALES_ORDER");
       setEditTechnicianId(editTarget.assignedTechnicianUserId || "");
       setEditTechnicianName(editTarget.assignedTechnicianName || "");
       setEditPoNo(editTarget.poNo || "");
@@ -1022,6 +1063,10 @@ export default function ServiceInvoicesPage() {
   /* Edit save handler */
   const handleEditSave = async () => {
     if (!editTarget) return;
+    if (!editDrNumber && !editSalesOrderId) {
+      toast.error("A Sales Order is required for every Service Invoice.");
+      return;
+    }
     setEditSubmitting(true);
     try {
       const payload = {
@@ -1035,6 +1080,7 @@ export default function ServiceInvoicesPage() {
             unitPrice: Number(li.unitPrice) || 0,
           })),
         drNumber: editDrNumber ? parseInt(editDrNumber, 10) : null,
+        referenceMode: editReferenceMode,
         salesOrderId: editDrNumber ? null : editSalesOrderId || null,
         poNo: editPoNo,
         trNo: editTrNo,
@@ -1061,6 +1107,43 @@ export default function ServiceInvoicesPage() {
       );
     } finally {
       setEditSubmitting(false);
+    }
+  };
+
+  const openManualCompletion = (invoice: ServiceInvoiceSummary) => {
+    setCompletionTarget(invoice);
+    setCompletionDate(new Date().toISOString().split("T")[0]);
+    setCompletionTechnicianId(invoice.assignedTechnicianUserId || "");
+    setCompletionNotes("");
+  };
+
+  const submitManualCompletion = async () => {
+    if (!completionTarget) return;
+    setCompletingService(true);
+    try {
+      await serviceInvoiceService.completeServiceManually(completionTarget.invoiceNo, { completionDate, technicianUserId: completionTechnicianId, notes: completionNotes });
+      toast.success(`Service for invoice ${completionTarget.invoiceNo} marked complete.`);
+      setCompletionTarget(null);
+      fetchList();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || error?.message || "Failed to complete service.");
+    } finally {
+      setCompletingService(false);
+    }
+  };
+
+  const submitReversal = async () => {
+    if (!reversalTarget) return;
+    setCompletingService(true);
+    try {
+      await serviceInvoiceService.reverseManualServiceCompletion(reversalTarget.invoiceNo, { reversalDate, notes: reversalNotes });
+      toast.success(`Manual completion for invoice ${reversalTarget.invoiceNo} was reversed.`);
+      setReversalTarget(null);
+      fetchList();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || error?.message || "Failed to reverse manual completion.");
+    } finally {
+      setCompletingService(false);
     }
   };
 
@@ -1272,6 +1355,7 @@ export default function ServiceInvoicesPage() {
                   placeholder="Auto-filled from your profile"
                 />
               </div>
+              <div className="md:col-span-2"><InvoiceReferenceTypeSelector mode={referenceMode} disabled={!!linkedDrNumber} onChange={(mode) => { setReferenceMode(mode); setPoNo(""); setTrNo(""); }} /></div>
               <div className="space-y-1.5 w-full">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Linked DR (optional)</Label>
@@ -1279,6 +1363,7 @@ export default function ServiceInvoicesPage() {
                 </div>
                 <SearchableSelect
                   value={linkedDrNumber}
+                  disabled={!referenceMode}
                   onValueChange={(value) => { setLinkedDrNumber(value); if (value) setLinkedSalesOrderId(""); }}
                   options={drOptions}
                   placeholder="Select Delivery Receipt"
@@ -1286,18 +1371,18 @@ export default function ServiceInvoicesPage() {
               </div>
               <div className="space-y-1.5 w-full">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>Sales Order (optional)</Label>
+                  <Label>Sales Order <span className="text-destructive">*</span></Label>
                   {linkedSalesOrderId && !linkedDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setLinkedSalesOrderId("")}>Remove Sales Order</Button>}
                 </div>
-                <SearchableSelect value={linkedSalesOrderId} onValueChange={setLinkedSalesOrderId} options={salesOrderOptions} disabled={!!linkedDrNumber} placeholder={linkedDrNumber ? "DR reference takes priority" : "Select Service Sales Order"} />
+                <SearchableSelect value={linkedSalesOrderId} onValueChange={setLinkedSalesOrderId} options={salesOrderOptions} disabled={!!linkedDrNumber || !referenceMode} placeholder={linkedDrNumber ? "Supplied by linked DR" : "Select Service Sales Order"} />
               </div>
               <div className="space-y-1.5">
                 <Label>PO Number</Label>
-                <Input value={poNo} onChange={(e) => setPoNo(e.target.value)} readOnly={!!linkedDrNumber || !!linkedSalesOrderId} className={linkedDrNumber || linkedSalesOrderId ? "bg-muted" : undefined} placeholder="Customer PO Number" />
+                <Input value={poNo} onChange={(e) => setPoNo(e.target.value)} disabled={!!linkedDrNumber || referenceMode !== "TR_NUMBER"} className={linkedDrNumber || referenceMode !== "TR_NUMBER" ? "bg-muted" : undefined} placeholder="Customer PO Number" />
               </div>
               <div className="space-y-1.5">
                 <Label>SO / TR Number</Label>
-                <Input value={trNo} onChange={(e) => setTrNo(e.target.value)} readOnly={!!linkedDrNumber || !!linkedSalesOrderId} className={linkedDrNumber || linkedSalesOrderId ? "bg-muted" : undefined} placeholder="Sales Order or Legacy TR Number" />
+                <Input value={trNo} onChange={(e) => setTrNo(e.target.value)} disabled={!!linkedDrNumber || referenceMode !== "TR_NUMBER"} className={linkedDrNumber || referenceMode !== "TR_NUMBER" ? "bg-muted" : undefined} placeholder="Sales Order or Legacy TR Number" />
               </div>
               <div className="space-y-1.5 w-full">
                 <Label>
@@ -1412,6 +1497,7 @@ export default function ServiceInvoicesPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              <div className="md:col-span-2"><InvoiceReferenceTypeSelector mode={editReferenceMode} disabled={!!editDrNumber} onChange={(mode) => { setEditReferenceMode(mode); setEditPoNo(""); setEditTrNo(""); }} /></div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Linked DR (optional)</Label>
@@ -1426,18 +1512,18 @@ export default function ServiceInvoicesPage() {
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>Sales Order (optional)</Label>
+                  <Label>Sales Order <span className="text-destructive">*</span></Label>
                   {editSalesOrderId && !editDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setEditSalesOrderId("")}>Remove Sales Order</Button>}
                 </div>
-                <SearchableSelect value={editSalesOrderId} onValueChange={setEditSalesOrderId} options={salesOrderOptions} disabled={!!editDrNumber} placeholder={editDrNumber ? "DR reference takes priority" : "Select Service Sales Order"} />
+                <SearchableSelect value={editSalesOrderId} onValueChange={setEditSalesOrderId} options={salesOrderOptions} disabled={!!editDrNumber} placeholder={editDrNumber ? "Supplied by linked DR" : "Select Service Sales Order"} />
               </div>
               <div className="space-y-1.5">
                 <Label>PO Number</Label>
-                <Input value={editPoNo} onChange={(e) => setEditPoNo(e.target.value)} readOnly={!!editDrNumber || !!editSalesOrderId} className={editDrNumber || editSalesOrderId ? "bg-muted" : undefined} placeholder="Customer PO Number" />
+                <Input value={editPoNo} onChange={(e) => setEditPoNo(e.target.value)} disabled={!!editDrNumber || editReferenceMode !== "TR_NUMBER"} className={editDrNumber || editReferenceMode !== "TR_NUMBER" ? "bg-muted" : undefined} placeholder="Customer PO Number" />
               </div>
               <div className="space-y-1.5">
                 <Label>SO / TR Number</Label>
-                <Input value={editTrNo} onChange={(e) => setEditTrNo(e.target.value)} readOnly={!!editDrNumber || !!editSalesOrderId} className={editDrNumber || editSalesOrderId ? "bg-muted" : undefined} placeholder="Sales Order or Legacy TR Number" />
+                <Input value={editTrNo} onChange={(e) => setEditTrNo(e.target.value)} disabled={!!editDrNumber || editReferenceMode !== "TR_NUMBER"} className={editDrNumber || editReferenceMode !== "TR_NUMBER" ? "bg-muted" : undefined} placeholder="Sales Order or Legacy TR Number" />
               </div>
               <div className="space-y-1.5">
                 <Label>Assigned Technician {editDrNumber === "" && <span className="text-destructive">*</span>}</Label>
@@ -1570,6 +1656,30 @@ export default function ServiceInvoicesPage() {
           if (!v) setViewSi(null);
         }}
       />
+
+      <Dialog open={!!completionTarget} onOpenChange={(open) => !open && setCompletionTarget(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>Mark Service Complete — Invoice #{completionTarget?.invoiceNo}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>Completion Date <span className="text-destructive">*</span></Label><Input type="date" value={completionDate} onChange={(event) => setCompletionDate(event.target.value)} /></div>
+            <div className="space-y-2"><Label>Technician / Responsible Person <span className="text-destructive">*</span></Label><SearchableSelect value={completionTechnicianId} onValueChange={setCompletionTechnicianId} options={deliveryUsers} placeholder="Select technician or responsible person" /></div>
+            <div className="space-y-2"><Label>Notes <span className="text-destructive">*</span></Label><Textarea value={completionNotes} onChange={(event) => setCompletionNotes(event.target.value)} placeholder="Describe the completed service" /></div>
+            <p className="text-sm text-muted-foreground">This completes every active service line on the linked Sales Order.</p>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setCompletionTarget(null)} disabled={completingService}>Cancel</Button><Button onClick={submitManualCompletion} disabled={completingService || !completionDate || !completionTechnicianId || !completionNotes.trim()}>{completingService && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Mark Complete</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!reversalTarget} onOpenChange={(open) => !open && setReversalTarget(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>Reverse Manual Completion — Invoice #{reversalTarget?.invoiceNo}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>Reversal Date <span className="text-destructive">*</span></Label><Input type="date" value={reversalDate} onChange={(event) => setReversalDate(event.target.value)} /></div>
+            <div className="space-y-2"><Label>Reversal Notes <span className="text-destructive">*</span></Label><Textarea value={reversalNotes} onChange={(event) => setReversalNotes(event.target.value)} placeholder="Explain why this completion is being reversed" /></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setReversalTarget(null)} disabled={completingService}>Cancel</Button><Button variant="destructive" onClick={submitReversal} disabled={completingService || !reversalDate || !reversalNotes.trim()}>{completingService && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Reverse Completion</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}

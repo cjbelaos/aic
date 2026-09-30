@@ -55,7 +55,7 @@ export async function GET(
 
     const invResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${invRowNumber}:S${invRowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${invRowNumber}:Z${invRowNumber}`,
     });
     const invRow = invResponse.data.values?.[0] || [];
     const date = String(invRow[1] ?? "").trim();
@@ -67,7 +67,7 @@ export async function GET(
     const directSalesOrderId = String(invRow[18] ?? "").trim();
     const references = Number.isFinite(linkedDrNumber)
       ? await resolveDeliveryReceiptReferences(linkedDrNumber)
-      : directSalesOrderId
+      : directSalesOrderId && invRow[25] !== "TR_NUMBER"
         ? await getOrderDetail(directSalesOrderId).then((detail) => ({ poNo: detail.order.customerPONo || "", trNo: detail.order.salesOrderNo || "" }))
         : { poNo: String(invRow[16] ?? "").trim(), trNo: String(invRow[17] ?? "").trim() };
 
@@ -117,10 +117,16 @@ export async function GET(
         poNo: references.poNo || undefined,
         trNo: references.trNo || undefined,
         salesOrderId: directSalesOrderId || undefined,
+        referenceMode: invRow[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
         assignedTechnicianUserId: String(invRow[12] ?? "").trim() || undefined,
         assignedTechnicianName: String(invRow[13] ?? "").trim() || undefined,
         serviceReportId: String(invRow[14] ?? "").trim() || undefined,
         serviceReportStatus: String(invRow[15] ?? "").trim() || undefined,
+        manualCompletionStatus: String(invRow[19] ?? "").trim() === "COMPLETED" ? "COMPLETED" : String(invRow[19] ?? "").trim() === "REVERSED" ? "REVERSED" : undefined,
+        manualCompletionDate: String(invRow[20] ?? "").trim() || undefined,
+        manualCompletionTechnicianId: String(invRow[21] ?? "").trim() || undefined,
+        manualCompletionTechnicianName: String(invRow[22] ?? "").trim() || undefined,
+        manualCompletionNotes: String(invRow[23] ?? "").trim() || undefined,
         printUrl,
         pdfBase64,
       },
@@ -157,7 +163,7 @@ export async function PUT(
       error instanceof Error
         ? error.message
         : "Failed to update service invoice.";
-    const isValidationError = /Assigned Technician|Delivery Receipt/i.test(message);
+    const isValidationError = /Assigned Technician|Delivery Receipt|Sales Order|different customer/i.test(message);
     return NextResponse.json({ error: message }, { status: isValidationError ? 400 : 500 });
   }
 }

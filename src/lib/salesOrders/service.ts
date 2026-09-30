@@ -141,7 +141,7 @@ export async function listOrders(query: ListQuery): Promise<{ rows: OrderRowView
 }
 
 function matchesFilter(query: ListQuery, order: SalesOrder, items: SalesOrderItem[], category: string): boolean {
-  if (query.view === "services" && !items.some((item) => item.lineStatus === "ACTIVE" && item.orderCategory === "Services/ Repair")) return false;
+  if (query.view === "services" && !items.some((item) => item.lineStatus === "ACTIVE" && item.lineType === "SERVICE")) return false;
   if (query.status && query.status !== order.orderStatus) return false;
   if (query.fulfillmentStatus && query.fulfillmentStatus !== order.fulfillmentStatus) return false;
   if (query.customerId && query.customerId !== order.customerId) return false;

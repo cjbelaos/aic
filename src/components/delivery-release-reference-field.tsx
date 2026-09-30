@@ -4,14 +4,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
-  DELIVERY_REFERENCE_FIELD_LABEL,
   DELIVERY_REFERENCE_MODE_CHOICES,
   TR_NUMBER_FIELD_LABEL,
   type DeliveryReferenceMode,
 } from "@/lib/deliveryReference";
 
+export function InvoiceReferenceTypeSelector({ mode, onChange, disabled }: {
+  mode: DeliveryReferenceMode | null;
+  onChange: (mode: DeliveryReferenceMode) => void;
+  disabled?: boolean;
+}) {
+  return <fieldset className="space-y-2" disabled={disabled}>
+    <legend className="text-sm font-medium">Choose reference type</legend>
+    <div className="grid grid-cols-2 gap-2">
+      {DELIVERY_REFERENCE_MODE_CHOICES.map((choice) => <label key={choice.value} className={`flex items-center gap-2 rounded-md border p-3 text-sm ${mode === choice.value ? "border-primary bg-primary/5" : "border-input"}`}>
+        <input type="radio" checked={mode === choice.value} onChange={() => onChange(choice.value)} />
+        {choice.label}
+      </label>)}
+    </div>
+    <p className="text-xs text-muted-foreground">{disabled ? "References are supplied by the linked DR." : mode === "TR_NUMBER" ? "Enter the customer PO and legacy TR number. A Sales Order is still required." : mode === "SALES_ORDER" ? "The selected Sales Order supplies the customer PO and SO number." : "Choose how to fill the invoice references."}</p>
+  </fieldset>;
+}
+
 interface Props {
-  mode: DeliveryReferenceMode;
+  mode: DeliveryReferenceMode | null;
   onModeChange: (mode: DeliveryReferenceMode) => void;
   salesOrderId: string;
   onSalesOrderIdChange: (value: string) => void;
@@ -41,7 +57,7 @@ export function DeliveryReleaseReferenceField({
 }: Props) {
   return (
     <div className="space-y-2">
-      <Label>{DELIVERY_REFERENCE_FIELD_LABEL}</Label>
+      <Label>Choose reference type</Label>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {DELIVERY_REFERENCE_MODE_CHOICES.map((choice) => {
           const selected = mode === choice.value;
@@ -85,7 +101,7 @@ export function DeliveryReleaseReferenceField({
               : "Optional. Historical releases may remain unlinked."}
           </p>
         </>
-      ) : (
+      ) : mode === "TR_NUMBER" ? (
         <>
           <Label htmlFor="delivery-reference-tr-number">
             {TR_NUMBER_FIELD_LABEL}
@@ -101,7 +117,7 @@ export function DeliveryReleaseReferenceField({
             {`Type the legacy ${TR_NUMBER_FIELD_LABEL} by hand. It is never generated, and it replaces any linked Sales Order when you save.`}
           </p>
         </>
-      )}
+      ) : <p className="text-xs text-muted-foreground">Select Sales Order or Legacy TR Number to continue.</p>}
     </div>
   );
 }

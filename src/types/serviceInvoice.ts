@@ -21,6 +21,7 @@ export interface CreateServiceInvoicePayload {
   /** Optional direct Sales Order link for services that do not have a DR. */
   salesOrderId?: string | null;
   /** Customer PO Number. A linked Delivery Receipt is the source of truth. */
+  referenceMode?: "SALES_ORDER" | "TR_NUMBER";
   poNo?: string;
   /** Sales Order Number or legacy TR Number. A linked Delivery Receipt is the source of truth. */
   trNo?: string;
@@ -53,6 +54,7 @@ export interface ServiceInvoiceResponse {
   contractId?: string;
   drNumber?: number;
   salesOrderId?: string;
+  referenceMode?: "SALES_ORDER" | "TR_NUMBER";
   poNo?: string;
   trNo?: string;
   /** @deprecated The assigned technician is `assignedTechnicianUserId` (column M). */
@@ -62,6 +64,12 @@ export interface ServiceInvoiceResponse {
   assignedTechnicianName?: string;
   serviceReportId?: string;
   serviceReportStatus?: string;
+  manualCompletionStatus?: "COMPLETED" | "REVERSED";
+  manualCompletionDate?: string;
+  manualCompletionTechnicianId?: string;
+  manualCompletionTechnicianName?: string;
+  manualCompletionNotes?: string;
+  manualCompletionFulfillmentIds?: string[];
   trackerAssignmentOutcome?: "created" | "updated" | "unchanged" | "already_returned" | "unassigned";
   trackerAssignmentWarning?: string;
 }
@@ -82,6 +90,7 @@ export interface ServiceInvoiceSummary {
   contractId?: string;
   drNumber?: number;
   salesOrderId?: string;
+  referenceMode?: "SALES_ORDER" | "TR_NUMBER";
   poNo?: string;
   trNo?: string;
   /** @deprecated The assigned technician is `assignedTechnicianUserId` (column M). */
@@ -91,6 +100,12 @@ export interface ServiceInvoiceSummary {
   assignedTechnicianName?: string;
   serviceReportId?: string;
   serviceReportStatus?: string;
+  manualCompletionStatus?: "COMPLETED" | "REVERSED";
+  manualCompletionDate?: string;
+  manualCompletionTechnicianId?: string;
+  manualCompletionTechnicianName?: string;
+  manualCompletionNotes?: string;
+  manualCompletionFulfillmentIds?: string[];
   trackerAssignmentOutcome?: "created" | "updated" | "unchanged" | "already_returned" | "unassigned";
   trackerAssignmentWarning?: string;
 }
