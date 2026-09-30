@@ -145,7 +145,6 @@ export default function ServiceInvoicesPage() {
   const [deliveryUsersError, setDeliveryUsersError] = useState("");
 
   /* Print / View preview modals */
-  const [siResult, setSiResult] = useState<ServiceInvoiceResponse | null>(null);
   const [viewSi, setViewSi] = useState<ServiceInvoiceResponse | null>(null);
   const [previewing, setPreviewing] = useState<string | null>(null);
 
@@ -394,28 +393,20 @@ export default function ServiceInvoicesPage() {
 
   /* Load customers + current user for PreparedBy */
   useEffect(() => {
-    (async () => {
-      const all = await companyService.getAll();
-      const customers = all.filter(
+    companyService.getAll()
+      .then((all) => setCompanies(all.filter(
         (c) => c.companyType === "Customer" || c.companyType === "Both",
-      );
-      setCompanies(customers);
-
+      )))
+      .catch(() => toast.error("Failed to load customers."));
+    (async () => {
       try {
-        const parsed = JSON.parse(
-          window.localStorage.getItem("auth:user") || "{}",
-        );
-        const fullName = parsed.fullName || "";
-        const username = parsed.userName || parsed.username || "";
-        if (fullName) {
-          setPreparedBy(fullName);
-        } else if (username) {
-          // Avoid a second Users-sheet lookup during page startup. The session
-          // normally includes fullName; otherwise use the known login name.
-          setPreparedBy(username);
+        const response = await fetch("/api/auth/me");
+        if (response.ok) {
+          const data = await response.json();
+          setPreparedBy(String(data.result?.fullName || "").trim());
         }
       } catch {
-        // ignore — PreparedBy remains empty and the user can type it
+        // Keep the field empty until the user's full name can be resolved.
       }
     })();
   }, []);
@@ -951,7 +942,7 @@ export default function ServiceInvoicesPage() {
       const res = await serviceInvoiceService.createAndPopulateSheet(payload);
       toast.success("Service invoice recorded!");
       if (res.trackerAssignmentWarning) toast.warning(res.trackerAssignmentWarning);
-      setSiResult(res);
+      setViewSi(res);
       setModalOpen(false);
       fetchList();
     } catch (err: any) {

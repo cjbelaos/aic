@@ -5,6 +5,7 @@ import {
   getServiceInvoices,
 } from "@/lib/serviceInvoiceSheets";
 import { CreateServiceInvoicePayload } from "@/types/serviceInvoice";
+import { getUserById } from "@/lib/userSheets";
 
 export async function GET() {
   const session = await requireAuthenticatedSession();
@@ -64,6 +65,9 @@ export async function POST(request: Request) {
       }
     }
 
+    // The signed session owns the preparer's identity; a stale browser cache
+    // must not turn the printed name into a username.
+    body.preparedBy = session.fullName?.trim() || (await getUserById(session.userId))?.fullName?.trim() || body.preparedBy;
     const result = await processServiceInvoice(body, session.userId);
 
     return NextResponse.json(result, { status: 201 });

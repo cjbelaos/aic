@@ -12,6 +12,7 @@ import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCustomers } from "@/lib/companySheets";
 import { resolveDeliveryReceiptReferences } from "@/lib/deliverySheets";
 import { getOrderDetail } from "@/lib/salesOrders/service";
+import { getUserById } from "@/lib/userSheets";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
@@ -60,8 +61,11 @@ export async function GET(
     const invRow = invResponse.data.values?.[0] || [];
     const date = String(invRow[1] ?? "").trim();
     const customerId = String(invRow[2] ?? "").trim();
-    const preparedBy = String(invRow[3] ?? "").trim();
+    const storedPreparedBy = String(invRow[3] ?? "").trim();
     const createdBy = String(invRow[4] ?? "").trim();
+    const preparedBy = createdBy
+      ? (await getUserById(createdBy))?.fullName?.trim() || storedPreparedBy
+      : storedPreparedBy;
     const preparedByPosition = await resolvePreparedByPosition(createdBy);
     const linkedDrNumber = parseInt(String(invRow[11] ?? ""), 10);
     const directSalesOrderId = String(invRow[18] ?? "").trim();
