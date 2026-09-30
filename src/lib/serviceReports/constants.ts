@@ -27,7 +27,7 @@ export const SERVICE_INVOICES_REPORT_LINK_HEADERS: readonly string[] = [
   "ServiceReportStatus",
 ];
 /** ServiceInvoices row width, columns A:P. */
-export const SERVICE_INVOICES_ROW_WIDTH = 16;
+export const SERVICE_INVOICES_ROW_WIDTH = 21;
 
 // Canonical ServiceReports schema (34 columns, A:AH) in this exact order. The
 // live sheet was reordered by hand to match this order; it is now the contract

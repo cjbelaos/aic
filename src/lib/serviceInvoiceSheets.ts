@@ -21,11 +21,13 @@ import { getOrderDetail, postFulfillments, type Actor } from "@/lib/salesOrders/
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
-const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:Z`;
+const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:U`;
+// The append range locates the logical table. Restrict it to the invoice-number
+// column so a stray value in a later column cannot shift an entire row right.
+const SERVICE_INVOICES_APPEND_RANGE = `${SERVICE_INVOICES_SHEET}!A2:A`;
 // A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo
 // M:AssignedTechnicianUserId N:AssignedTechnicianName O:ServiceReportId P:ServiceReportStatus
-// Q:PONumber R:TRNumber S:SalesOrderId T:ManualCompletionStatus U:ManualCompletionDate
-// V:ManualCompletionTechnicianId W:ManualCompletionTechnicianName X:ManualCompletionNotes Y:ManualCompletionFulfillmentIds Z:ReferenceMode
+// Q:PONumber R:TRNumber S:SalesOrderId T:ManualCompletionData U:ReferenceMode
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
@@ -125,6 +127,24 @@ type DeliveredByResolution = {
   deliveredById?: string;
   deliveredByName?: string;
 };
+
+type ManualCompletionData = {
+  status?: "COMPLETED" | "REVERSED";
+  completionDate?: string;
+  technicianId?: string;
+  technicianName?: string;
+  notes?: string;
+  fulfillmentIds?: string[];
+};
+
+function parseManualCompletionData(value: unknown): ManualCompletionData {
+  try {
+    const parsed = JSON.parse(String(value ?? ""));
+    return parsed && typeof parsed === "object" ? parsed as ManualCompletionData : {};
+  } catch {
+    return {};
+  }
+}
 
 /** A linked DR wins, then a direct Sales Order, then manual document references. */
 async function resolveInvoiceReferences(payload: Pick<CreateServiceInvoicePayload, "drNumber" | "salesOrderId" | "poNo" | "trNo" | "referenceMode">): Promise<{ poNo: string; trNo: string; salesOrderId?: string }> {
@@ -309,6 +329,7 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
         const invoiceNo = String(row[0] ?? "").trim();
         if (!invoiceNo) return null;
         const status = String(row[8] ?? "created").trim() || "created";
+        const manualCompletion = parseManualCompletionData(row[19]);
         if (status === "deleted") return null;
         return {
           invoiceNo,
@@ -332,13 +353,13 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           poNo: String(row[16] ?? "").trim() || undefined,
           trNo: String(row[17] ?? "").trim() || undefined,
           salesOrderId: String(row[18] ?? "").trim() || undefined,
-          referenceMode: row[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
-          manualCompletionStatus: String(row[19] ?? "").trim() === "COMPLETED" ? "COMPLETED" : String(row[19] ?? "").trim() === "REVERSED" ? "REVERSED" : undefined,
-          manualCompletionDate: String(row[20] ?? "").trim() || undefined,
-          manualCompletionTechnicianId: String(row[21] ?? "").trim() || undefined,
-          manualCompletionTechnicianName: String(row[22] ?? "").trim() || undefined,
-          manualCompletionNotes: String(row[23] ?? "").trim() || undefined,
-          manualCompletionFulfillmentIds: String(row[24] ?? "").trim() ? String(row[24]).split(",").filter(Boolean) : undefined,
+          referenceMode: row[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
+          manualCompletionStatus: manualCompletion.status,
+          manualCompletionDate: manualCompletion.completionDate,
+          manualCompletionTechnicianId: manualCompletion.technicianId,
+          manualCompletionTechnicianName: manualCompletion.technicianName,
+          manualCompletionNotes: manualCompletion.notes,
+          manualCompletionFulfillmentIds: manualCompletion.fulfillmentIds,
           items: itemsByInvoice.get(invoiceNo) || [],
         };
       })
@@ -535,18 +556,14 @@ export async function processServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      "", // T: ManualCompletionStatus
-      "", // U: ManualCompletionDate
-      "", // V: ManualCompletionTechnicianId
-      "", // W: ManualCompletionTechnicianName
-      "", // X: ManualCompletionNotes
-      "", // Y: ManualCompletionFulfillmentIds
-      payload.referenceMode || "SALES_ORDER", // Z: ReferenceMode
+      "", // T: ManualCompletionData
+      payload.referenceMode || "SALES_ORDER", // U: ReferenceMode
     ];
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: SERVICE_INVOICES_RANGE,
+      range: SERVICE_INVOICES_APPEND_RANGE,
       valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
       requestBody: { values: [headerRow] },
     });
 
@@ -671,7 +688,7 @@ export async function updateServiceInvoice(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:Z${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:U${rowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[8] ?? "created").trim();
@@ -695,7 +712,7 @@ export async function updateServiceInvoice(
       : undefined;
     const references = await resolveInvoiceReferences({
       drNumber: linkedDrNumber,
-      referenceMode: payload.referenceMode ?? (currentRow[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"),
+      referenceMode: payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"),
       salesOrderId: linkedDrNumber === undefined
         ? (payload.salesOrderId !== undefined ? payload.salesOrderId : String(currentRow[18] ?? "").trim())
         : undefined,
@@ -770,18 +787,13 @@ export async function updateServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      String(currentRow[19] ?? "").trim(), // T: ManualCompletionStatus
-      String(currentRow[20] ?? "").trim(), // U: ManualCompletionDate
-      String(currentRow[21] ?? "").trim(), // V: ManualCompletionTechnicianId
-      String(currentRow[22] ?? "").trim(), // W: ManualCompletionTechnicianName
-      String(currentRow[23] ?? "").trim(), // X: ManualCompletionNotes
-      String(currentRow[24] ?? "").trim(), // Y: ManualCompletionFulfillmentIds
-      payload.referenceMode ?? (currentRow[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // Z: ReferenceMode
+      String(currentRow[19] ?? "").trim(), // T: ManualCompletionData
+      payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // U: ReferenceMode
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:Z${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:U${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -970,7 +982,7 @@ export async function populateAndExportServiceInvoiceFormPdf(
 
   const invResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:Z${rowNumber}`,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:U${rowNumber}`,
   });
   const invRow = invResponse.data.values?.[0] || [];
   const date = String(invRow[1] ?? "").trim();
@@ -1090,11 +1102,12 @@ async function readManualCompletionRecord(invoiceNo: string): Promise<ManualComp
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
   if (rowNumber <= 1) throw new Error(`Invoice "${invoiceNo}" not found.`);
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:Z${rowNumber}` });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:U${rowNumber}` });
   const row = response.data.values?.[0] || [];
   const salesOrderId = String(row[18] ?? "").trim();
   if (!salesOrderId) throw new Error("A Service Invoice must be linked to a Sales Order before completing service.");
-  return { rowNumber, invoiceNo: String(row[0] ?? invoiceNo).trim(), salesOrderId, status: String(row[19] ?? "").trim(), fulfillmentIds: String(row[24] ?? "").split(",").filter(Boolean) };
+  const completion = parseManualCompletionData(row[19]);
+  return { rowNumber, invoiceNo: String(row[0] ?? invoiceNo).trim(), salesOrderId, status: completion.status || "", fulfillmentIds: completion.fulfillmentIds || [] };
 }
 
 export async function getServiceInvoiceManualCompletionRecord(invoiceNo: string): Promise<Pick<ManualCompletionRecord, "salesOrderId" | "status">> {
@@ -1107,9 +1120,9 @@ async function writeManualCompletion(record: ManualCompletionRecord, values: { s
   const spreadsheetId = await getDatabaseSpreadsheetId();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_SHEET}!T${record.rowNumber}:Y${record.rowNumber}`,
+    range: `${SERVICE_INVOICES_SHEET}!T${record.rowNumber}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[values.status, values.completionDate, values.technicianId, values.technicianName, values.notes, values.fulfillmentIds.join(",")]] },
+    requestBody: { values: [[JSON.stringify(values)]] },
   });
 }
 
@@ -1162,9 +1175,9 @@ export async function syncSalesOrderServiceInvoiceReferences(salesOrderId: strin
   const order = await getOrderDetail(salesOrderId);
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A2:Z` });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A2:U` });
   const matches = (response.data.values ?? []).map((row, index) => ({ row, rowNumber: index + 2 }))
-    .filter(({ row }) => row[25] !== "TR_NUMBER" && !String(row[11] ?? "").trim() && String(row[18] ?? "").trim() === salesOrderId);
+    .filter(({ row }) => row[20] !== "TR_NUMBER" && !String(row[11] ?? "").trim() && String(row[18] ?? "").trim() === salesOrderId);
   if (!matches.length) return;
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,

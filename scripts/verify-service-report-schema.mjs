@@ -27,7 +27,7 @@
 //        node --env-file=.env.local scripts/provision-water-treatment-details-tab.mjs --apply
 //      which creates the tab and writes row 1 only (no other tab or row is
 //      touched).
-//   3. ServiceInvoices must keep the 16-column A:P layout, in this exact order:
+//   3. ServiceInvoices must keep the 21-column A:U layout, in this exact order:
 //        InvoiceNo, Date, CustomerId, PreparedBy, CreatedBy, CreatedAt, UpdatedBy,
 //        UpdatedAt, Status, DriveFileLink, ContractId, DRNo,
 //        AssignedTechnicianUserId (M), AssignedTechnicianName (N),
@@ -112,13 +112,14 @@ const WATER_TREATMENT_DETAILS_HEADERS = [
   "DistributionPumpStatus","PressureSensorsStatus","UvLightStatus",
   "Remarks","Recommendation","CreatedAt","CreatedBy","UpdatedAt","UpdatedBy",
 ];
-// ServiceInvoices is A:P (16 columns): M/N hold the assigned technician and O/P
-// hold the Service Report link. Nothing may be inserted, renamed or reordered.
+// ServiceInvoices is A:U (21 columns): M/N hold the assigned technician, O/P
+// hold the Service Report link, and Q:U hold invoice references and completion data.
 const SERVICE_INVOICES_HEADERS = [
   "InvoiceNo","Date","CustomerId","PreparedBy","CreatedBy","CreatedAt",
   "UpdatedBy","UpdatedAt","Status","DriveFileLink","ContractId","DRNo",
   "AssignedTechnicianUserId","AssignedTechnicianName",
   "ServiceReportId","ServiceReportStatus",
+  "PONumber","TRNumber","SalesOrderId","ManualCompletionData","ReferenceMode",
 ];
 const TABS = [
   { tab: "ServiceReports", headers: SERVICE_REPORTS_HEADERS },
@@ -251,7 +252,7 @@ async function main() {
       if (invActual.length > SERVICE_INVOICES_HEADERS.length) {
         invMismatches.push(`<unexpected extra column(s): ${invActual.slice(SERVICE_INVOICES_HEADERS.length).join(", ")}>`);
       }
-      if (invMismatches.length === 0) ok.push("ServiceInvoices: headers OK (16 columns A:P — technician M/N, report link O/P).");
+      if (invMismatches.length === 0) ok.push("ServiceInvoices: headers OK (21 columns A:U — technician M/N, report link O/P).");
       else problems.push(`ServiceInvoices: ${invMismatches.join("; ")}`);
     }
   }

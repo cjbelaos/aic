@@ -193,7 +193,7 @@ assert.equal(reportFromRow(["SR-2"]).serviceReportId, "SR-2");
 
 // ServiceInvoices reference columns — the mapping that decides whether a Service
 // Invoice may create a Service Report and which report it opens.
-assert.equal(SERVICE_INVOICES_ROW_WIDTH, 16, "ServiceInvoices is A:P (16 columns)");
+assert.equal(SERVICE_INVOICES_ROW_WIDTH, 21, "ServiceInvoices is A:U (21 columns)");
 
 const invoiceRow = (over: Record<number, string> = {}): string[] => {
   const row = Array.from({ length: SERVICE_INVOICES_ROW_WIDTH }, () => "");
