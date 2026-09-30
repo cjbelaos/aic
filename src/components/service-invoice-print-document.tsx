@@ -38,6 +38,10 @@ const RIGHT_MARGIN = MARGIN_RIGHT;
 const DATE_TOP = 187.04; // 5.25cm from top
 const DATE_RIGHT = 111.32; // 3.6cm from right
 
+// PO and SO/TR share one line two text heights below the date.
+const REFERENCES_TOP = DATE_TOP + 32;
+const REFERENCES_LEFT = 154.98;
+
 // Item grid line height definition
 const ITEM_LINE_HEIGHT = 24.57; // 6.5mm = 0.65cm = 24.57px
 const HALF_LINE_HEIGHT = ITEM_LINE_HEIGHT / 2; // ~12.28px shift up (1/2 character height)
@@ -367,6 +371,20 @@ export default function ServiceInvoicePrintDocument({
         }}
       >
         {formatDateMMDDYYYY(si.date)}
+      </div>
+
+      <div
+        style={{
+          position: "absolute",
+          top: REFERENCES_TOP + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP,
+          left: REFERENCES_LEFT,
+          right: RIGHT_MARGIN,
+          fontSize: FONT_SIZE,
+          fontFamily: FONT_FAMILY,
+          fontWeight: 700,
+        }}
+      >
+        PO No.: {si.poNo || "—"}    SO / TR No.: {si.trNo || "—"}
       </div>
 
       {/* ---------------------------------------------------------------------

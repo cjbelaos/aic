@@ -2,7 +2,9 @@ import {
   getSheetsClient,
   getDatabaseSpreadsheetId,
   getAccessTokenForFetch,
+  getDriveUploadClient,
 } from "@/lib/googleSheets";
+import { Readable } from "stream";
 import { getCompanies } from "@/lib/companySheets";
 import {
   CreateDeliveryPayload,
@@ -180,6 +182,75 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
     console.error("Failed to fetch delivery receipts:", error);
     throw error;
   }
+}
+
+/**
+ * Resolves the current document references for a Delivery Receipt. A Sales
+ * Order remains the source of truth for its Customer PO Number after creation.
+ */
+export async function resolveDeliveryReceiptReferences(drNumber: number): Promise<{ poNo: string; trNo: string; salesOrderId?: string }> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const rowNumber = await findDrRow(sheets, spreadsheetId, drNumber);
+  if (rowNumber <= 1) throw new Error(`Delivery Receipt #${drNumber} not found.`);
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${DELIVERY_RECEIPTS_SHEET}!A${rowNumber}:S${rowNumber}`,
+  });
+  const row = response.data.values?.[0] || [];
+  const salesOrderId = String(row[18] ?? "").trim();
+  const storedPoNo = String(row[3] ?? "").trim();
+  const storedTrNo = String(row[4] ?? "").trim();
+  if (!salesOrderId) return { poNo: storedPoNo, trNo: storedTrNo };
+
+  const order = await getOrderDetail(salesOrderId);
+  const poNo = order.order.customerPONo || "";
+  const trNo = order.order.salesOrderNo || storedTrNo;
+  if (storedPoNo !== poNo || storedTrNo !== trNo) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data: [
+          { range: `${DELIVERY_RECEIPTS_SHEET}!D${rowNumber}`, values: [[poNo]] },
+          { range: `${DELIVERY_RECEIPTS_SHEET}!E${rowNumber}`, values: [[trNo]] },
+        ],
+      },
+    });
+  }
+  return { poNo, trNo, salesOrderId };
+}
+
+/** Updates all linked DR references and overwrites their saved PDFs after a Customer PO change. */
+export async function syncSalesOrderDeliveryReferences(salesOrderId: string): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const order = await getOrderDetail(salesOrderId);
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: DELIVERY_RECEIPTS_RANGE });
+  const rows = response.data.values ?? [];
+  const matches = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => String(row[18] ?? "").trim() === salesOrderId);
+  if (!matches.length) return;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: matches.flatMap(({ rowNumber }) => [
+        { range: `${DELIVERY_RECEIPTS_SHEET}!D${rowNumber}`, values: [[order.order.customerPONo || ""]] },
+        { range: `${DELIVERY_RECEIPTS_SHEET}!E${rowNumber}`, values: [[order.order.salesOrderNo || ""]] },
+      ]),
+    },
+  });
+  const drive = await getDriveUploadClient();
+  for (const { row } of matches) {
+    const drNumber = Number(row[0]);
+    const link = String(row[11] ?? "").trim();
+    const fileId = link.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? link.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
+    if (!Number.isFinite(drNumber) || !fileId) continue;
+    const { pdfBase64 } = await populateAndExportDeliveryReceiptFormPdf(drNumber);
+    await drive.files.update({ fileId, media: { mimeType: "application/pdf", body: Readable.from(Buffer.from(pdfBase64, "base64")) } });
+  }
+  const { regenerateStoredServiceInvoicePdfsForDr } = await import("@/lib/serviceInvoiceSheets");
+  for (const { row } of matches) await regenerateStoredServiceInvoicePdfsForDr(Number(row[0]));
 }
 
 /**
@@ -579,14 +650,16 @@ export async function updateDeliveryReceipt(
       referenceRow = { ...referenceRow, reference: order.order.salesOrderNo };
     }
 
+    const effectivePoNo = payload.referenceMode === "SALES_ORDER" && referenceRow.salesOrderId
+      ? (await getOrderDetail(referenceRow.salesOrderId)).order.customerPONo || ""
+      : payload.poNo !== undefined ? payload.poNo : String(currentRow[3] ?? "").trim();
+
 
     const updatedRow = [
       String(effectiveDrNumber), // A: DRNumber (assigned when a draft is promoted)
       payload.date ?? String(currentRow[1] ?? "").trim(), // B
       payload.companyId ?? String(currentRow[2] ?? "").trim(), // C
-      payload.poNo !== undefined
-        ? payload.poNo
-        : String(currentRow[3] ?? "").trim(), // D
+      effectivePoNo, // D: Customer PO from SO, or manual value for a legacy TR
       referenceRow.reference, // E: SalesOrderNo (legacy TRNumber)
       // A legacy payload without a mode keeps the stored reference, which
       // deliveryReferenceRowValues() already resolved into referenceRow above.

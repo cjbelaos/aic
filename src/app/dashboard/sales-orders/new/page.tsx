@@ -71,9 +71,19 @@ export default function NewSalesOrderPage(): React.ReactNode {
     router.push(`/dashboard/sales-orders/${orderId}`);
   };
 
-  const createFromQuotation = async (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED"): Promise<void> => {
+  const createFromQuotation = async (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED", customerPO?: File): Promise<void> => {
     const result = await salesOrderService.fromQuotation(quotationNo, initialStatus);
     const id = result.order.order.salesOrderId;
+    if (customerPO) {
+      try {
+        await salesOrderService.uploadDocument(id, {
+          documentType: "CUSTOMER_PO", file: customerPO,
+          orderVersion: result.order.order.version,
+        });
+      } catch {
+        toast.error(`Sales Order created, but ${customerPO.name} could not be uploaded. Retry it in Documents.`);
+      }
+    }
     router.push(
       result.order.order.orderStatus === "DRAFT" ? `/dashboard/sales-orders/${id}/edit` : `/dashboard/sales-orders/${id}`,
     );

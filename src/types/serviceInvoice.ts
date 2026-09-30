@@ -18,6 +18,12 @@ export interface CreateServiceInvoicePayload {
   contractId?: string;
   /** Linked Delivery Receipt number. */
   drNumber?: number | null;
+  /** Optional direct Sales Order link for services that do not have a DR. */
+  salesOrderId?: string | null;
+  /** Customer PO Number. A linked Delivery Receipt is the source of truth. */
+  poNo?: string;
+  /** Sales Order Number or legacy TR Number. A linked Delivery Receipt is the source of truth. */
+  trNo?: string;
   /** @deprecated Legacy name of `assignedTechnicianUserId`; still accepted. */
   deliveredById?: string;
   /** @deprecated Legacy display-name snapshot; the server resolves the name. */
@@ -46,6 +52,9 @@ export interface ServiceInvoiceResponse {
   driveFileLink?: string;
   contractId?: string;
   drNumber?: number;
+  salesOrderId?: string;
+  poNo?: string;
+  trNo?: string;
   /** @deprecated The assigned technician is `assignedTechnicianUserId` (column M). */
   deliveredById?: string;
   deliveredByName?: string;
@@ -72,6 +81,9 @@ export interface ServiceInvoiceSummary {
   items: ServiceInvoiceItem[];
   contractId?: string;
   drNumber?: number;
+  salesOrderId?: string;
+  poNo?: string;
+  trNo?: string;
   /** @deprecated The assigned technician is `assignedTechnicianUserId` (column M). */
   deliveredById?: string;
   deliveredByName?: string;

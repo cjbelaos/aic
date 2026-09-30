@@ -5,10 +5,13 @@ import {
   deleteServiceInvoice,
   populateAndExportServiceInvoiceFormPdf,
   resolvePreparedByPosition,
+  regenerateStoredServiceInvoicePdfsForDr,
   UpdateServiceInvoicePayload,
 } from "@/lib/serviceInvoiceSheets";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCustomers } from "@/lib/companySheets";
+import { resolveDeliveryReceiptReferences } from "@/lib/deliverySheets";
+import { getOrderDetail } from "@/lib/salesOrders/service";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
@@ -52,7 +55,7 @@ export async function GET(
 
     const invResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${invRowNumber}:P${invRowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${invRowNumber}:S${invRowNumber}`,
     });
     const invRow = invResponse.data.values?.[0] || [];
     const date = String(invRow[1] ?? "").trim();
@@ -60,6 +63,13 @@ export async function GET(
     const preparedBy = String(invRow[3] ?? "").trim();
     const createdBy = String(invRow[4] ?? "").trim();
     const preparedByPosition = await resolvePreparedByPosition(createdBy);
+    const linkedDrNumber = parseInt(String(invRow[11] ?? ""), 10);
+    const directSalesOrderId = String(invRow[18] ?? "").trim();
+    const references = Number.isFinite(linkedDrNumber)
+      ? await resolveDeliveryReceiptReferences(linkedDrNumber)
+      : directSalesOrderId
+        ? await getOrderDetail(directSalesOrderId).then((detail) => ({ poNo: detail.order.customerPONo || "", trNo: detail.order.salesOrderNo || "" }))
+        : { poNo: String(invRow[16] ?? "").trim(), trNo: String(invRow[17] ?? "").trim() };
 
     // 2. Fetch items
     const itemsResponse = await sheets.spreadsheets.values.get({
@@ -103,6 +113,10 @@ export async function GET(
         preparedByPosition,
         items,
         status: String(invRow[8] ?? "created").trim(),
+        drNumber: Number.isFinite(linkedDrNumber) ? linkedDrNumber : undefined,
+        poNo: references.poNo || undefined,
+        trNo: references.trNo || undefined,
+        salesOrderId: directSalesOrderId || undefined,
         assignedTechnicianUserId: String(invRow[12] ?? "").trim() || undefined,
         assignedTechnicianName: String(invRow[13] ?? "").trim() || undefined,
         serviceReportId: String(invRow[14] ?? "").trim() || undefined,
@@ -134,6 +148,9 @@ export async function PUT(
 
     const body: UpdateServiceInvoicePayload = await request.json();
     const result = await updateServiceInvoice(normalized, body, session.userId);
+    if (result.drNumber && result.driveFileLink) {
+      await regenerateStoredServiceInvoicePdfsForDr(result.drNumber);
+    }
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     const message =

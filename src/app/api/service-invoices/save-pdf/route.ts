@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
-import { getDriveUploadClient } from "@/lib/googleSheets";
+import { getDatabaseSpreadsheetId, getDriveUploadClient, getSheetsClient } from "@/lib/googleSheets";
 import {
   ensureServiceInvoiceDocumentTrackerAssignment,
   populateAndExportServiceInvoiceFormPdf,
@@ -77,6 +77,26 @@ export async function POST(req: NextRequest) {
     }
 
     const fileLink = `https://drive.google.com/file/d/${fileId}/view`;
+
+    // Keep the current Drive document link on the invoice so later reference
+    // changes can overwrite the same file instead of creating stale copies.
+    const sheets = await getSheetsClient();
+    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const invoiceRows = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "ServiceInvoices!A2:A",
+    });
+    const rowIndex = (invoiceRows.data.values ?? []).findIndex(
+      (row) => String(row[0] ?? "").trim() === body.invoiceNo.trim(),
+    );
+    if (rowIndex >= 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `ServiceInvoices!J${rowIndex + 2}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[fileLink]] },
+      });
+    }
 
     let trackerAssignmentWarning: string | undefined;
     try {

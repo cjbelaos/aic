@@ -58,7 +58,7 @@ function trackerLifecycle(order: SalesOrder, item: SalesOrderItem): string {
     : "Pending";
 }
 
-export function projectTrackerLine(order: SalesOrder, item: SalesOrderItem): {
+export function projectTrackerLine(order: SalesOrder, item: SalesOrderItem, links: { customerPO?: string; quotation?: string } = {}): {
   aToP: TrackerRowValue[];
   uToV: [string, string];
 } {
@@ -67,7 +67,7 @@ export function projectTrackerLine(order: SalesOrder, item: SalesOrderItem): {
     trackerNumber(order), order.receivedDate, item.orderCategory, order.customerPONo,
     order.customerNameSnapshot, order.remarks, item.productCodeSnapshot,
     item.productNameSnapshot || item.description, item.description, quantity === 0 ? "" : quantity,
-    item.unitPrice ?? "", item.discountAmount, item.taxAmount, item.lineTotal, "", "",
+    item.unitPrice ?? "", item.discountAmount, item.taxAmount, item.lineTotal, links.customerPO ?? "", links.quotation ?? "",
   ];
   return { aToP, uToV: [order.assignedToUserId, trackerLifecycle(order, item)] };
 }
@@ -149,7 +149,7 @@ async function resolveTrackerLayout() {
  * visible projection rather than deleting its whole Sheet row and risking
  * unrelated workflow data.
  */
-export async function syncSalesOrderToTracker(order: SalesOrder, items: SalesOrderItem[]): Promise<void> {
+export async function syncSalesOrderToTracker(order: SalesOrder, items: SalesOrderItem[], documentLinks: { customerPO?: string; quotation?: string } = {}): Promise<void> {
   // Historical DRAFTs were never Tracker records. New orders are confirmed on creation.
   if (!order.salesOrderNo || order.orderStatus === "DRAFT") return;
   const { destination, sheets, sheet, quotedTitle } = await resolveTrackerLayout();
@@ -172,6 +172,14 @@ export async function syncSalesOrderToTracker(order: SalesOrder, items: SalesOrd
     if (orderId === order.salesOrderId) existingForOrder.push({ rowNumber, itemId });
   });
 
+  // Preserve document cells on ordinary order updates. New links are passed by
+  // the conversion and attachment routes and then copied to every item row.
+  const previous = existingForOrder.length ? values[existingForOrder[0].rowNumber - 1] : undefined;
+  const links = {
+    customerPO: documentLinks.customerPO ?? String(previous?.[14] ?? ""),
+    quotation: documentLinks.quotation ?? String(previous?.[15] ?? ""),
+  };
+
   const desiredItems = [...items]
     .filter((item) => item.lineStatus !== "INACTIVE")
     .sort((left, right) => left.lineNo - right.lineNo);
@@ -180,7 +188,7 @@ export async function syncSalesOrderToTracker(order: SalesOrder, items: SalesOrd
   let nextRow = lastOwnedRow + 1;
   for (const item of desiredItems) {
     const rowNumber = existingByItemId.get(item.salesOrderItemId) ?? nextRow++;
-    const visible = projectTrackerLine(order, item);
+    const visible = projectTrackerLine(order, item, links);
     updates.push(
       { range: `${quotedTitle}!A${rowNumber}:P${rowNumber}`, values: [visible.aToP] },
       { range: `${quotedTitle}!U${rowNumber}:V${rowNumber}`, values: [visible.uToV] },

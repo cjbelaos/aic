@@ -621,7 +621,7 @@ async function createDocumentLinksImpl(actor: Actor, id: string, input: { comman
   return result.replayed && result.result.links ? result.result.links : links;
 }
 
-async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: string; quotationNo: string; initialStatus?: "DRAFT" | "CONFIRMED" }): Promise<SalesOrderDetail> {
+async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: string; quotationNo: string; initialStatus?: "DRAFT" | "CONFIRMED" }): Promise<SalesOrderDetail & { reusedExisting?: boolean }> {
   const existing = (await readSalesOrders()).find((order) =>
     order.quotationNo.trim().toLowerCase() === input.quotationNo.trim().toLowerCase()
     && order.orderStatus !== "CANCELLED",
@@ -648,6 +648,9 @@ async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: st
   }
   const quotation = await getQuotationByRefNo(input.quotationNo);
   if (!quotation) throw notFound(`Quotation ${input.quotationNo} was not found.`);
+  if (!/^https:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+\/view/.test(quotation.file)) {
+    throw validationError(`Quotation ${input.quotationNo} has no saved PDF. Save its PDF before creating a Sales Order.`);
+  }
   const plan = conversionPlanFromQuotation({
     quotationNo: quotation.quotationNo,
     items: quotation.items,

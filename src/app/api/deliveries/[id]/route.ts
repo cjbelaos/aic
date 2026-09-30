@@ -10,6 +10,7 @@ import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCompanies } from "@/lib/companySheets";
 import { getProducts } from "@/lib/productSheets";
 import { getDeliveryItems } from "@/lib/transactionItemSheets";
+import { regenerateStoredServiceInvoicePdfsForDr } from "@/lib/serviceInvoiceSheets";
 import {
   deliveryReferenceFromRow,
   isDeliveryReferenceMode,
@@ -164,6 +165,11 @@ export async function PUT(
       body.trNo = reference.trNo;
     }
     const result = await updateDeliveryReceipt(drNumber, body, session.userId);
+    try {
+      await regenerateStoredServiceInvoicePdfsForDr(result.drNumber);
+    } catch (error) {
+      console.error("Delivery Receipt saved but linked Service Invoice PDF refresh failed:", error);
+    }
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     const message =

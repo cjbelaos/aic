@@ -1,7 +1,10 @@
+import { Readable } from "stream";
 import {
   getSheetsClient,
   getDatabaseSpreadsheetId,
   getAccessTokenForFetch,
+  getDriveUploadClient,
+  escapeDriveQueryValue,
 } from "@/lib/googleSheets";
 import { getCustomers, getCompanies } from "@/lib/companySheets";
 import {
@@ -12,13 +15,16 @@ import {
 } from "@/types/serviceInvoice";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 import { getUserById } from "@/lib/userSheets";
-import { resolveDeliveryReceiptDeliveredBy } from "@/lib/deliverySheets";
+import { resolveDeliveryReceiptDeliveredBy, resolveDeliveryReceiptReferences } from "@/lib/deliverySheets";
 import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/documentHandoverSheets";
+import { getOrderDetail } from "@/lib/salesOrders/service";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
-const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:P`;
+const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
+const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:S`;
 // A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo
-// M:AssignedTechnicianUserId N:AssignedTechnicianName O:ServiceReportId P:ServiceReportStatus (16 columns, A:P)
+// M:AssignedTechnicianUserId N:AssignedTechnicianName O:ServiceReportId P:ServiceReportStatus
+// Q:PONumber R:TRNumber S:SalesOrderId (19 columns, A:S)
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
@@ -30,6 +36,7 @@ const PRINT_TEMPLATE_SHEET = "ServiceInvoiceForm";
 //   TIN          -> B6
 //   Address      -> B7
 //   Date         -> B2:F2 (write to anchor cell B2)
+//   PO / SO-TR   -> B4:F4 (two text lines below the date)
 //   Items        -> rows 10-28 (B=Description, C=Qty, D=UnitPrice, E=Amount [formula/calculated])
 //   PreparedBy   -> A35 (write to anchor cell A35)
 const TEMPLATE_ITEM_START_ROW = 10;
@@ -117,6 +124,19 @@ type DeliveredByResolution = {
   deliveredById?: string;
   deliveredByName?: string;
 };
+
+/** A linked DR wins, then a direct Sales Order, then manual document references. */
+async function resolveInvoiceReferences(payload: Pick<CreateServiceInvoicePayload, "drNumber" | "salesOrderId" | "poNo" | "trNo">): Promise<{ poNo: string; trNo: string; salesOrderId?: string }> {
+  if (payload.drNumber !== undefined && payload.drNumber !== null) {
+    return resolveDeliveryReceiptReferences(payload.drNumber);
+  }
+  const salesOrderId = String(payload.salesOrderId ?? "").trim();
+  if (salesOrderId) {
+    const order = await getOrderDetail(salesOrderId);
+    return { poNo: order.order.customerPONo || "", trNo: order.order.salesOrderNo || "", salesOrderId };
+  }
+  return { poNo: String(payload.poNo ?? "").trim(), trNo: String(payload.trNo ?? "").trim() };
+}
 
 /** Applies the Service Invoice source-of-truth rules for its assignee. */
 async function resolveAssignedTechnician(payload: { assignedTechnicianUserId?: string; deliveredById?: string }): Promise<{ assignedTechnicianUserId: string; assignedTechnicianName: string }> {
@@ -280,7 +300,7 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
 
     const companies = await getCompanies().catch(() => []);
 
-    return invRows
+    const summaries = invRows
       .map((row) => {
         const invoiceNo = String(row[0] ?? "").trim();
         if (!invoiceNo) return null;
@@ -305,6 +325,9 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           assignedTechnicianName: String(row[13] ?? "").trim() || undefined,
           serviceReportId: String(row[14] ?? "").trim() || undefined,
           serviceReportStatus: String(row[15] ?? "").trim() || undefined,
+          poNo: String(row[16] ?? "").trim() || undefined,
+          trNo: String(row[17] ?? "").trim() || undefined,
+          salesOrderId: String(row[18] ?? "").trim() || undefined,
           items: itemsByInvoice.get(invoiceNo) || [],
         };
       })
@@ -331,6 +354,9 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
         if (bIsNumeric) return 1;
         return b.invoiceNo.localeCompare(a.invoiceNo);
       });
+    // The list reads synchronized Q/R values in one Sheets request. Resolving a
+    // DR or Sales Order per invoice here exhausts the Sheets read quota.
+    return summaries;
   } catch (error) {
     console.error("Failed to fetch service invoices:", error);
     throw error;
@@ -347,6 +373,8 @@ async function populateServiceInvoiceTemplate(
     tin: string;
     date: string;
     preparedBy: string;
+    poNo?: string;
+    trNo?: string;
     items: ServiceInvoiceItem[];
   },
 ): Promise<void> {
@@ -378,6 +406,7 @@ async function populateServiceInvoiceTemplate(
     { range: `${PRINT_TEMPLATE_SHEET}!B6`, values: [[data.tin]] },
     { range: `${PRINT_TEMPLATE_SHEET}!B7`, values: [[data.address]] },
     { range: `${PRINT_TEMPLATE_SHEET}!B2`, values: [[formattedDate]] },
+    { range: `${PRINT_TEMPLATE_SHEET}!B4`, values: [[`PO No.: ${data.poNo || "—"}    SO / TR No.: ${data.trNo || "—"}`]] },
     { range: `${PRINT_TEMPLATE_SHEET}!A35`, values: [[data.preparedBy]] },
   ];
 
@@ -468,6 +497,13 @@ export async function processServiceInvoice(
     const technicianName = deliveredBy.deliveredById
       ? deliveredBy.deliveredByName || assignedTechnician.assignedTechnicianName || ""
       : assignedTechnician.assignedTechnicianName || deliveredBy.deliveredByName || "";
+    const references = await resolveInvoiceReferences(payload);
+    if (references.salesOrderId) {
+      const order = await getOrderDetail(references.salesOrderId);
+      if (order.order.customerId !== payload.customerId) {
+        throw new Error("The selected Sales Order belongs to a different customer.");
+      }
+    }
     const headerRow = [
       invoiceNo,
       payload.date,
@@ -485,6 +521,9 @@ export async function processServiceInvoice(
       technicianName, // N: AssignedTechnicianName
       "", // O: ServiceReportId (written by the Service Report link)
       "", // P: ServiceReportStatus
+      references.poNo, // Q: PONumber
+      references.trNo, // R: TRNumber
+      references.salesOrderId || "", // S: direct SalesOrderId
     ];
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -523,6 +562,8 @@ export async function processServiceInvoice(
         tin,
         date: payload.date,
         preparedBy: preparedByDisplay,
+        poNo: references.poNo,
+        trNo: references.trNo,
         items: payload.items,
       });
 
@@ -578,6 +619,9 @@ export async function processServiceInvoice(
       pdfBase64,
       contractId: payload.contractId,
       drNumber: payload.drNumber ?? undefined,
+      poNo: references.poNo || undefined,
+      trNo: references.trNo || undefined,
+      salesOrderId: references.salesOrderId || undefined,
       assignedTechnicianUserId: technicianId || undefined,
       assignedTechnicianName: technicianName || undefined,
       trackerAssignmentOutcome,
@@ -608,7 +652,7 @@ export async function updateServiceInvoice(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:P${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:S${rowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[8] ?? "created").trim();
@@ -630,6 +674,21 @@ export async function updateServiceInvoice(
     const linkedDrNumber = typeof requestedDrNumber === "number" && !isNaN(requestedDrNumber)
       ? requestedDrNumber
       : undefined;
+    const references = await resolveInvoiceReferences({
+      drNumber: linkedDrNumber,
+      salesOrderId: linkedDrNumber === undefined
+        ? (payload.salesOrderId !== undefined ? payload.salesOrderId : String(currentRow[18] ?? "").trim())
+        : undefined,
+      poNo: payload.poNo !== undefined ? payload.poNo : String(currentRow[16] ?? "").trim(),
+      trNo: payload.trNo !== undefined ? payload.trNo : String(currentRow[17] ?? "").trim(),
+    });
+    if (references.salesOrderId) {
+      const order = await getOrderDetail(references.salesOrderId);
+      const customerId = payload.customerId ?? String(currentRow[2] ?? "").trim();
+      if (order.order.customerId !== customerId) {
+        throw new Error("The selected Sales Order belongs to a different customer.");
+      }
+    }
     let deliveredBy: DeliveredByResolution;
     if (linkedDrNumber !== undefined) {
       // A linked DR always wins, even if a client submits another user ID.
@@ -688,11 +747,14 @@ export async function updateServiceInvoice(
       technicianNameForRow, // N: AssignedTechnicianName
       String(currentRow[14] ?? "").trim(), // O: ServiceReportId (owned by the report link)
       String(currentRow[15] ?? "").trim(), // P: ServiceReportStatus
+      references.poNo, // Q: PONumber
+      references.trNo, // R: TRNumber
+      references.salesOrderId || "", // S: direct SalesOrderId
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:P${rowNumber}`,
+      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:S${rowNumber}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [updatedRow] },
     });
@@ -782,6 +844,9 @@ export async function updateServiceInvoice(
       drNumber: updatedRow[11]
         ? parseInt(String(updatedRow[11]), 10) || undefined
         : undefined,
+      poNo: references.poNo || undefined,
+      trNo: references.trNo || undefined,
+      salesOrderId: references.salesOrderId || undefined,
       assignedTechnicianUserId: technicianIdForRow || undefined,
       assignedTechnicianName: technicianNameForRow || undefined,
       trackerAssignmentOutcome,
@@ -871,13 +936,20 @@ export async function populateAndExportServiceInvoiceFormPdf(
 
   const invResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:L${rowNumber}`,
+    range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:S${rowNumber}`,
   });
   const invRow = invResponse.data.values?.[0] || [];
   const date = String(invRow[1] ?? "").trim();
   const customerId = String(invRow[2] ?? "").trim();
   const preparedByHeader = String(invRow[3] ?? "").trim();
   const createdBy = String(invRow[4] ?? "").trim();
+  const linkedDrNumber = parseInt(String(invRow[11] ?? ""), 10);
+  const references = await resolveInvoiceReferences({
+    drNumber: Number.isFinite(linkedDrNumber) ? linkedDrNumber : undefined,
+    salesOrderId: String(invRow[18] ?? "").trim(),
+    poNo: String(invRow[16] ?? "").trim(),
+    trNo: String(invRow[17] ?? "").trim(),
+  });
 
   const itemRowsData = await findInvoiceItemRows(
     sheets,
@@ -907,6 +979,8 @@ export async function populateAndExportServiceInvoiceFormPdf(
     tin,
     date,
     preparedBy,
+    poNo: references.poNo,
+    trNo: references.trNo,
     items,
   });
 
@@ -927,6 +1001,66 @@ export async function exportServiceInvoiceFormPdf(): Promise<{
   const printUrl = buildExportUrl(spreadsheetId, gid);
   const pdfBase64 = await fetchExportPdfBase64(printUrl);
   return { pdfBase64, printUrl };
+}
+
+/** Overwrites saved invoice PDFs that inherit their references from one DR. */
+export async function regenerateStoredServiceInvoicePdfsForDr(drNumber: number): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A2:L` });
+  const rows = response.data.values ?? [];
+  const drive = await getDriveUploadClient();
+  const companies = await getCompanies().catch(() => []);
+  for (const row of rows) {
+    if (Number(row[11]) !== drNumber) continue;
+    const invoiceNo = String(row[0] ?? "").trim();
+    const link = String(row[9] ?? "").trim();
+    let fileId = link.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? link.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
+    if (!fileId) {
+      const date = String(row[1] ?? "").trim();
+      const customerId = String(row[2] ?? "").trim();
+      const companyName = companies.find((company) => company.companyId === customerId || company.id === customerId)?.companyName || customerId;
+      const parsedDate = new Date(date + (date.length === 10 ? "T00:00:00" : ""));
+      const monthYear = Number.isNaN(parsedDate.getTime()) ? "" : `${String(parsedDate.getMonth() + 1).padStart(2, "0")}-${parsedDate.getFullYear()}`;
+      const safeName = companyName.replace(/[/\\?%*:|"<> ]+/g, "_");
+      const fileName = `SI-${monthYear}-${invoiceNo}_${safeName}.pdf`;
+      const existing = await drive.files.list({
+        q: `'${SERVICE_INVOICE_DRIVE_FOLDER_ID}' in parents and name = '${escapeDriveQueryValue(fileName)}' and trashed = false`,
+        fields: "files(id)",
+      });
+      fileId = existing.data.files?.[0]?.id || undefined;
+    }
+    if (!invoiceNo || !fileId) continue;
+    const { pdfBase64 } = await populateAndExportServiceInvoiceFormPdf(invoiceNo);
+    await drive.files.update({ fileId, media: { mimeType: "application/pdf", body: Readable.from(Buffer.from(pdfBase64, "base64")) } });
+  }
+}
+
+/** Syncs direct service-only Sales Order invoices and overwrites their saved PDFs. */
+export async function syncSalesOrderServiceInvoiceReferences(salesOrderId: string): Promise<void> {
+  const order = await getOrderDetail(salesOrderId);
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A2:S` });
+  const matches = (response.data.values ?? []).map((row, index) => ({ row, rowNumber: index + 2 }))
+    .filter(({ row }) => !String(row[11] ?? "").trim() && String(row[18] ?? "").trim() === salesOrderId);
+  if (!matches.length) return;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: "USER_ENTERED", data: matches.flatMap(({ rowNumber }) => [
+      { range: `${SERVICE_INVOICES_SHEET}!Q${rowNumber}`, values: [[order.order.customerPONo || ""]] },
+      { range: `${SERVICE_INVOICES_SHEET}!R${rowNumber}`, values: [[order.order.salesOrderNo || ""]] },
+    ]) },
+  });
+  const drive = await getDriveUploadClient();
+  for (const { row } of matches) {
+    const invoiceNo = String(row[0] ?? "").trim();
+    const link = String(row[9] ?? "").trim();
+    const fileId = link.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? link.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
+    if (!invoiceNo || !fileId) continue;
+    const { pdfBase64 } = await populateAndExportServiceInvoiceFormPdf(invoiceNo);
+    await drive.files.update({ fileId, media: { mimeType: "application/pdf", body: Readable.from(Buffer.from(pdfBase64, "base64")) } });
+  }
 }
 
 export async function testPopulateServiceInvoiceTemplateWithDuplicatedItems(

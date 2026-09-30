@@ -88,7 +88,9 @@ export async function POST(request: Request) {
       }
       body.salesOrderNo = salesOrder.order.salesOrderNo;
       body.trNo = salesOrder.order.salesOrderNo;
-      if (!body.poNo) body.poNo = salesOrder.order.customerPONo;
+      // A selected Sales Order owns the Customer PO field. Never accept a
+      // browser supplied substitute, including a non-empty stale value.
+      body.poNo = salesOrder.order.customerPONo || "";
 
       const orderItems = new Map(salesOrder.items.map((item) => [item.salesOrderItemId, item]));
       for (const [index, item] of body.items.entries()) {

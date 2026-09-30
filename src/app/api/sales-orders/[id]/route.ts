@@ -5,6 +5,8 @@ import { parseUpdateOrderInput } from "@/lib/salesOrders/validation";
 import { readSalesOrderById } from "@/lib/salesOrders/repository";
 import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
 import { getUsers } from "@/lib/userSheets";
+import { syncSalesOrderDeliveryReferences } from "@/lib/deliverySheets";
+import { syncSalesOrderServiceInvoiceReferences } from "@/lib/serviceInvoiceSheets";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireSalesPermission("so.view");
@@ -65,6 +67,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       lines: input.lines,
     });
     await syncSalesOrderToTracker(detail.order, detail.items);
+    if (existing?.customerPONo !== detail.order.customerPONo) {
+      try {
+        await syncSalesOrderDeliveryReferences(detail.order.salesOrderId);
+        await syncSalesOrderServiceInvoiceReferences(detail.order.salesOrderId);
+      } catch (error) {
+        // The order write is already durable; document regeneration can safely
+        // be retried without rejecting the customer PO update.
+        console.error("Sales Order saved but linked document refresh failed:", error);
+      }
+    }
     return NextResponse.json({ success: true, order: detail }, { status: 200 });
   } catch (error) {
     return salesErrorResponse(error);

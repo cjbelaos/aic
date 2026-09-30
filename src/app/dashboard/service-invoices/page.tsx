@@ -42,6 +42,7 @@ import userService from "@/lib/services/user.service";
 import positionService from "@/lib/services/position.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import serviceReportService from "@/lib/services/service-report.service";
+import salesOrderService, { type OrderRowView } from "@/lib/services/sales-order.service";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -118,13 +119,18 @@ export default function ServiceInvoicesPage() {
 
   /* Linked DR */
   const [linkedDrNumber, setLinkedDrNumber] = useState("");
+  const [linkedSalesOrderId, setLinkedSalesOrderId] = useState("");
   const [selectedContractId, setSelectedContractId] = useState("");
   const [drOptions, setDrOptions] = useState<
     { value: string; label: string }[]
   >([]);
+  const [salesOrderOptions, setSalesOrderOptions] = useState<{ value: string; label: string }[]>([]);
+  const [salesOrdersById, setSalesOrdersById] = useState<Record<string, OrderRowView["order"]>>({});
   /* Assigned technician (ServiceInvoices M/N). Inherited from a linked DR. */
   const [technicianId, setTechnicianId] = useState("");
   const [technicianName, setTechnicianName] = useState("");
+  const [poNo, setPoNo] = useState("");
+  const [trNo, setTrNo] = useState("");
   const [deliveryUsers, setDeliveryUsers] = useState<{ value: string; label: string }[]>([]);
   const [deliveryUsersLoading, setDeliveryUsersLoading] = useState(true);
   const [deliveryUsersError, setDeliveryUsersError] = useState("");
@@ -143,8 +149,11 @@ export default function ServiceInvoicesPage() {
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editDrNumber, setEditDrNumber] = useState("");
+  const [editSalesOrderId, setEditSalesOrderId] = useState("");
   const [editTechnicianId, setEditTechnicianId] = useState("");
   const [editTechnicianName, setEditTechnicianName] = useState("");
+  const [editPoNo, setEditPoNo] = useState("");
+  const [editTrNo, setEditTrNo] = useState("");
 
   /* Delete */
   const [deleteTarget, setDeleteTarget] =
@@ -384,8 +393,9 @@ export default function ServiceInvoicesPage() {
         if (fullName) {
           setPreparedBy(fullName);
         } else if (username) {
-          const name = await userService.getFullnameByUserName(username);
-          setPreparedBy(name);
+          // Avoid a second Users-sheet lookup during page startup. The session
+          // normally includes fullName; otherwise use the known login name.
+          setPreparedBy(username);
         }
       } catch {
         // ignore — PreparedBy remains empty and the user can type it
@@ -505,11 +515,35 @@ export default function ServiceInvoicesPage() {
     selected.then((dr) => {
       setTechnicianId(dr?.deliveredById || "");
       setTechnicianName(dr?.deliveredBy || "");
+      setPoNo(dr?.poNo || "");
+      setTrNo(dr?.trNo || "");
     }).catch(() => {
       setTechnicianId("");
       setTechnicianName("");
     });
   }, [linkedDrNumber]);
+
+  useEffect(() => {
+    if (!modalOpen && !editTarget) return;
+    salesOrderService.list({ pageSize: 1000, view: "services" })
+      .then((result) => {
+        const orders = result.rows
+          .filter((row) => row.order.orderStatus === "CONFIRMED" || row.order.orderStatus === "ON_HOLD")
+          .map((row) => row.order);
+        setSalesOrderOptions(orders.map((order) => ({ value: order.salesOrderId, label: `${order.salesOrderNo} — ${order.customerNameSnapshot}` })));
+        setSalesOrdersById(Object.fromEntries(orders.map((order) => [order.salesOrderId, order])));
+      })
+      .catch(() => { setSalesOrderOptions([]); setSalesOrdersById({}); });
+  }, [modalOpen, editTarget]);
+
+  useEffect(() => {
+    if (!linkedSalesOrderId || linkedDrNumber) return;
+    const order = salesOrdersById[linkedSalesOrderId];
+    if (!order) return;
+    setSelectedCustomer(order.customerId);
+    setPoNo(order.customerPONo || "");
+    setTrNo(order.salesOrderNo || "");
+  }, [linkedSalesOrderId, linkedDrNumber, salesOrdersById]);
 
   useEffect(() => {
     if (!editDrNumber) return;
@@ -518,12 +552,22 @@ export default function ServiceInvoicesPage() {
       .then((dr) => {
         setEditTechnicianId(dr?.deliveredById || "");
         setEditTechnicianName(dr?.deliveredBy || "");
+        setEditPoNo(dr?.poNo || "");
+        setEditTrNo(dr?.trNo || "");
       })
       .catch(() => {
         setEditTechnicianId("");
         setEditTechnicianName("");
       });
   }, [editDrNumber]);
+
+  useEffect(() => {
+    if (!editSalesOrderId || editDrNumber) return;
+    const order = salesOrdersById[editSalesOrderId];
+    if (!order) return;
+    setEditPoNo(order.customerPONo || "");
+    setEditTrNo(order.salesOrderNo || "");
+  }, [editSalesOrderId, editDrNumber, salesOrdersById]);
 
   /* Table columns */
   const columns: ColumnDef<ServiceInvoiceSummary>[] = useMemo(
@@ -802,8 +846,11 @@ export default function ServiceInvoicesPage() {
     setInvoiceDate(new Date().toISOString().split("T")[0]);
     setLineItems([]);
     setLinkedDrNumber("");
+    setLinkedSalesOrderId("");
     setTechnicianId("");
     setTechnicianName("");
+    setPoNo("");
+    setTrNo("");
     setSelectedContractId("");
     setModalOpen(true);
   };
@@ -862,6 +909,9 @@ export default function ServiceInvoicesPage() {
         })),
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
+        salesOrderId: linkedDrNumber ? undefined : linkedSalesOrderId || undefined,
+        poNo,
+        trNo,
         assignedTechnicianUserId: technicianId || undefined,
       };
       const res = await serviceInvoiceService.createAndPopulateSheet(payload);
@@ -902,6 +952,9 @@ export default function ServiceInvoicesPage() {
         status: "draft",
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
+        salesOrderId: linkedDrNumber ? undefined : linkedSalesOrderId || undefined,
+        poNo,
+        trNo,
         assignedTechnicianUserId: technicianId || undefined,
       };
       await serviceInvoiceService.createAndPopulateSheet(payload);
@@ -945,8 +998,11 @@ export default function ServiceInvoicesPage() {
         })),
       );
       setEditDrNumber(editTarget.drNumber?.toString() || "");
+      setEditSalesOrderId(editTarget.salesOrderId || "");
       setEditTechnicianId(editTarget.assignedTechnicianUserId || "");
       setEditTechnicianName(editTarget.assignedTechnicianName || "");
+      setEditPoNo(editTarget.poNo || "");
+      setEditTrNo(editTarget.trNo || "");
     }
   }, [editTarget]);
 
@@ -979,6 +1035,9 @@ export default function ServiceInvoicesPage() {
             unitPrice: Number(li.unitPrice) || 0,
           })),
         drNumber: editDrNumber ? parseInt(editDrNumber, 10) : null,
+        salesOrderId: editDrNumber ? null : editSalesOrderId || null,
+        poNo: editPoNo,
+        trNo: editTrNo,
         assignedTechnicianUserId: editTechnicianId || undefined,
       };
       const res = await serviceInvoiceService.update(
@@ -1220,10 +1279,25 @@ export default function ServiceInvoicesPage() {
                 </div>
                 <SearchableSelect
                   value={linkedDrNumber}
-                  onValueChange={setLinkedDrNumber}
+                  onValueChange={(value) => { setLinkedDrNumber(value); if (value) setLinkedSalesOrderId(""); }}
                   options={drOptions}
                   placeholder="Select Delivery Receipt"
                 />
+              </div>
+              <div className="space-y-1.5 w-full">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Sales Order (optional)</Label>
+                  {linkedSalesOrderId && !linkedDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setLinkedSalesOrderId("")}>Remove Sales Order</Button>}
+                </div>
+                <SearchableSelect value={linkedSalesOrderId} onValueChange={setLinkedSalesOrderId} options={salesOrderOptions} disabled={!!linkedDrNumber} placeholder={linkedDrNumber ? "DR reference takes priority" : "Select Service Sales Order"} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>PO Number</Label>
+                <Input value={poNo} onChange={(e) => setPoNo(e.target.value)} readOnly={!!linkedDrNumber || !!linkedSalesOrderId} className={linkedDrNumber || linkedSalesOrderId ? "bg-muted" : undefined} placeholder="Customer PO Number" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>SO / TR Number</Label>
+                <Input value={trNo} onChange={(e) => setTrNo(e.target.value)} readOnly={!!linkedDrNumber || !!linkedSalesOrderId} className={linkedDrNumber || linkedSalesOrderId ? "bg-muted" : undefined} placeholder="Sales Order or Legacy TR Number" />
               </div>
               <div className="space-y-1.5 w-full">
                 <Label>
@@ -1345,10 +1419,25 @@ export default function ServiceInvoicesPage() {
                 </div>
                 <SearchableSelect
                   value={editDrNumber}
-                  onValueChange={setEditDrNumber}
+                  onValueChange={(value) => { setEditDrNumber(value); if (value) setEditSalesOrderId(""); }}
                   options={drOptions}
                   placeholder="Select Delivery Receipt"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Sales Order (optional)</Label>
+                  {editSalesOrderId && !editDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setEditSalesOrderId("")}>Remove Sales Order</Button>}
+                </div>
+                <SearchableSelect value={editSalesOrderId} onValueChange={setEditSalesOrderId} options={salesOrderOptions} disabled={!!editDrNumber} placeholder={editDrNumber ? "DR reference takes priority" : "Select Service Sales Order"} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>PO Number</Label>
+                <Input value={editPoNo} onChange={(e) => setEditPoNo(e.target.value)} readOnly={!!editDrNumber || !!editSalesOrderId} className={editDrNumber || editSalesOrderId ? "bg-muted" : undefined} placeholder="Customer PO Number" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>SO / TR Number</Label>
+                <Input value={editTrNo} onChange={(e) => setEditTrNo(e.target.value)} readOnly={!!editDrNumber || !!editSalesOrderId} className={editDrNumber || editSalesOrderId ? "bg-muted" : undefined} placeholder="Sales Order or Legacy TR Number" />
               </div>
               <div className="space-y-1.5">
                 <Label>Assigned Technician {editDrNumber === "" && <span className="text-destructive">*</span>}</Label>

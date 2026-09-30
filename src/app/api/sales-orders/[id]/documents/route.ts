@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/salesOrders/http-helpers";
-import { attachDocument } from "@/lib/salesOrders/service";
+import { attachDocument, getOrderDetail } from "@/lib/salesOrders/service";
+import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
 import { parseDocumentInput } from "@/lib/salesOrders/validation";
 import { getDriveUploadClient } from "@/lib/googleSheets";
 import { Readable } from "node:stream";
@@ -40,8 +41,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       });
       const driveFileId = uploaded.data.id;
       if (!driveFileId) throw new Error("Drive did not return a file ID.");
+      let document;
       try {
-        const document = await attachDocument(toActor(auth.session), id, {
+        document = await attachDocument(toActor(auth.session), id, {
           commandId: String(form.get("commandId") || crypto.randomUUID()),
           documentType: String(form.get("documentType") || "OTHER"),
           externalDocumentNo: String(form.get("externalDocumentNo") || ""),
@@ -51,11 +53,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           mimeType: file.type,
           orderVersion: Number(form.get("orderVersion") || 0),
         });
-        return NextResponse.json({ success: true, document }, { status: 201 });
       } catch (error) {
         await drive.files.delete({ fileId: driveFileId }).catch(() => undefined);
         throw error;
       }
+      if (document.documentType === "CUSTOMER_PO" || document.documentType === "QUOTATION") {
+        const detail = await getOrderDetail(id);
+        await syncSalesOrderToTracker(detail.order, detail.items, {
+          [document.documentType === "CUSTOMER_PO" ? "customerPO" : "quotation"]: document.externalUrl,
+        });
+      }
+      return NextResponse.json({ success: true, document }, { status: 201 });
     }
 
     const input = parseDocumentInput(await request.json());
@@ -69,6 +77,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       mimeType: input.mimeType,
       orderVersion: input.orderVersion,
     });
+    if (document.documentType === "CUSTOMER_PO" || document.documentType === "QUOTATION") {
+      const detail = await getOrderDetail(id);
+      await syncSalesOrderToTracker(detail.order, detail.items, {
+        [document.documentType === "CUSTOMER_PO" ? "customerPO" : "quotation"]: document.externalUrl || (document.driveFileId ? `https://drive.google.com/file/d/${document.driveFileId}/view` : ""),
+      });
+    }
     return NextResponse.json({ success: true, document }, { status: 201 });
   } catch (error) {
     return salesErrorResponse(error);

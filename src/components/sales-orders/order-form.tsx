@@ -27,7 +27,7 @@ export interface OrderFormProps {
   onCancel?: () => void;
   /** New-order screens choose explicitly; edit screens retain one save action. */
   creationChoices?: boolean;
-  onCreateFromQuotation?: (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED") => Promise<void>;
+  onCreateFromQuotation?: (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED", customerPO?: File) => Promise<void>;
   enableReferenceUploads?: boolean;
 }
 
@@ -113,10 +113,15 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
 
   const convertQuotation = async (initialStatus: "DRAFT" | "CONFIRMED"): Promise<void> => {
     if (!onCreateFromQuotation || header.quotationSource === "EXTERNAL" || !header.sourceQuotationNo || converting) return;
+    const customerPO = referenceFiles.customerPO;
+    if (customerPO && (customerPO.size > 10 * 1024 * 1024 || !/\.(pdf|jpe?g|png|webp|docx?)$/i.test(customerPO.name))) {
+      setError(`${customerPO.name} must be a PDF, JPG, PNG, WebP, DOC, or DOCX file that is 10 MB or smaller.`);
+      return;
+    }
     setConverting(true);
     setError("");
     try {
-      await onCreateFromQuotation(header.sourceQuotationNo, initialStatus);
+      await onCreateFromQuotation(header.sourceQuotationNo, initialStatus, customerPO);
       dirty.current = false;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to create the Sales Order from the quotation.");
@@ -183,10 +188,10 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
         <Card className="gap-4">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-blue-600" />Reference documents</CardTitle>
-            <p className="text-sm text-muted-foreground">Optional. Select a current or external quotation and/or the customer&apos;s external PO. They upload automatically after the Sales Order is saved.</p>
+            <p className="text-sm text-muted-foreground">For an internal quotation, its saved PDF is used automatically. You can attach the customer&apos;s PO when creating the order.</p>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
-            <ReferenceFileInput label="Current / external quotation" file={referenceFiles.quotation} onChange={(file) => { setReferenceFiles((current) => ({ ...current, quotation: file })); dirty.current = true; }} />
+            {header.quotationSource === "EXTERNAL" ? <ReferenceFileInput label="External quotation" file={referenceFiles.quotation} onChange={(file) => { setReferenceFiles((current) => ({ ...current, quotation: file })); dirty.current = true; }} /> : null}
             <ReferenceFileInput label="Customer external PO" file={referenceFiles.customerPO} onChange={(file) => { setReferenceFiles((current) => ({ ...current, customerPO: file })); dirty.current = true; }} />
           </CardContent>
         </Card>

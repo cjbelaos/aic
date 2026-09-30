@@ -11,7 +11,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id } = await params;
     const input = parseExpectedVersion(await request.json());
     const detail = await confirmOrder(toActor(auth.session), id, { commandId: input.commandId, expectedVersion: input.expectedVersion });
-    await syncSalesOrderToTracker(detail.order, detail.items);
+    const links = {
+      quotation: detail.documents.find((document) => document.documentType === "QUOTATION")?.externalUrl,
+      customerPO: detail.documents.find((document) => document.documentType === "CUSTOMER_PO")?.externalUrl,
+    };
+    await syncSalesOrderToTracker(detail.order, detail.items, links);
     return NextResponse.json({ success: true, order: detail }, { status: 200 });
   } catch (error) {
     return salesErrorResponse(error);
