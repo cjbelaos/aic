@@ -81,7 +81,7 @@ const ADDITIONAL_TABLE_WIDTH = 103.95; // 2.75cm
 /* ---- Prepared By positioning ---- */
 // - From top: 26.3cm (994.14px) from top
 // - From left: 4.85cm (183.33px) width
-// - Fullname and Position Title moved 1 self height down
+// - Signature, full name, and position title share one vertical anchor
 const PREPARED_BY_TOP = 945; // 26.3cm from top
 const PREPARED_BY_WIDTH = 183.33; // 4.85cm
 const PREPARED_BY_LEFT = MARGIN_LEFT;
@@ -89,6 +89,7 @@ const PREPARED_BY_LEFT = MARGIN_LEFT;
 // Self height for Prepared By (approximately 1 line height at 11pt)
 const SELF_HEIGHT = 16; // 1 self height (approx 1 line height)
 const VERTICAL_SHIFT = SELF_HEIGHT; // 1 character/line height down
+const PREPARED_BY_SHIFT_UP = SELF_HEIGHT * 1.25;
 // A4 browser-print calibration: raise the date and both summary groups one text line.
 const DATE_SUMMARY_SHIFT_UP = SELF_HEIGHT; // 16px, approximately 4.2mm
 
@@ -757,14 +758,14 @@ export default function ServiceInvoicePrintDocument({
       </div>
 
       {/* ---------------------------------------------------------------------
-       * PREPARED BY - moved 1 self height down
+       * PREPARED BY
        * -------------------------------------------------------------------*/}
 
       <div
         style={{
           position: "absolute",
           left: PREPARED_BY_LEFT,
-          top: PREPARED_BY_TOP + VERTICAL_SHIFT, // Moved 1 self height down
+          top: PREPARED_BY_TOP + VERTICAL_SHIFT - PREPARED_BY_SHIFT_UP,
           width: PREPARED_BY_WIDTH,
           fontSize: FONT_SIZE,
           display: "flex",
