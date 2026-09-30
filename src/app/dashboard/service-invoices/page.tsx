@@ -521,6 +521,7 @@ export default function ServiceInvoicesPage() {
       drs.find((dr) => dr.drNumber === parseInt(linkedDrNumber, 10)),
     );
     selected.then((dr) => {
+      if (dr) setReferenceMode(dr.salesOrderId ? "SALES_ORDER" : "TR_NUMBER");
       setTechnicianId(dr?.deliveredById || "");
       setTechnicianName(dr?.deliveredBy || "");
       setPoNo(dr?.poNo || "");
