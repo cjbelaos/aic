@@ -25,12 +25,20 @@ const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:U`;
 // The append range locates the logical table. Restrict it to the invoice-number
 // column so a stray value in a later column cannot shift an entire row right.
 const SERVICE_INVOICES_APPEND_RANGE = `${SERVICE_INVOICES_SHEET}!A2:A`;
+const SERVICE_INVOICES_HEADERS = [
+  "InvoiceNo", "Date", "CustomerId", "PreparedBy", "CreatedBy", "CreatedAt",
+  "UpdatedBy", "UpdatedAt", "Status", "DriveFileLink", "ContractId", "DRNo",
+  "AssignedTechnicianUserId", "AssignedTechnicianName", "ServiceReportId",
+  "ServiceReportStatus", "PONumber", "TRNumber", "SalesOrderId",
+  "ManualCompletionData", "ReferenceMode",
+] as const;
 // A:InvoiceNo B:Date C:CustomerId D:PreparedBy E:CreatedBy F:CreatedAt G:UpdatedBy H:UpdatedAt I:Status J:DriveFileLink K:ContractId L:DRNo
 // M:AssignedTechnicianUserId N:AssignedTechnicianName O:ServiceReportId P:ServiceReportStatus
 // Q:PONumber R:TRNumber S:SalesOrderId T:ManualCompletionData U:ReferenceMode
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
+const SERVICE_INVOICE_ITEMS_APPEND_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:A`;
 // A:InvoiceNo B:Description C:Qty D:UnitPrice E:Amount
 
 const PRINT_TEMPLATE_SHEET = "ServiceInvoiceForm";
@@ -49,6 +57,15 @@ const TEMPLATE_ITEM_END_ROW = 28;
 // (DRAFT-*) is promoted to a real status, the next sequential number is
 // generated from the highest existing numeric invoice number.
 const SI_SEQUENCE_BASE = 1000;
+
+function appendedRowNumber(updatedRange: string | null | undefined, sheetName: string, endColumn: string, rowCount: number): number {
+  const range = updatedRange || "";
+  const match = new RegExp(`^'?${sheetName}'?!A(\\d+):${endColumn}(\\d+)$`).exec(range);
+  if (!match || Number(match[2]) - Number(match[1]) + 1 !== rowCount) {
+    throw new Error(`${sheetName} append landed outside columns A:${endColumn} or wrote an unexpected number of rows (${range || "no range returned"}).`);
+  }
+  return Number(match[1]);
+}
 
 /**
  * Generates the next sequential Service Invoice number by scanning existing
@@ -559,13 +576,32 @@ export async function processServiceInvoice(
       "", // T: ManualCompletionData
       payload.referenceMode || "SALES_ORDER", // U: ReferenceMode
     ];
-    await sheets.spreadsheets.values.append({
+    if (headerRow.length !== SERVICE_INVOICES_HEADERS.length) {
+      throw new Error("ServiceInvoices row width does not match the A:U schema.");
+    }
+    const headerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${SERVICE_INVOICES_SHEET}!A1:U1`,
+    });
+    const actualHeaders = (headerResponse.data.values?.[0] || []).map((value) => String(value ?? "").trim());
+    if (SERVICE_INVOICES_HEADERS.some((expected, index) => actualHeaders[index] !== expected)) {
+      throw new Error("ServiceInvoices headers do not match the expected A:U columns. Invoice was not saved.");
+    }
+    const appendResponse = await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: SERVICE_INVOICES_APPEND_RANGE,
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
       requestBody: { values: [headerRow] },
     });
+    const appendedRow = appendedRowNumber(appendResponse.data.updates?.updatedRange, SERVICE_INVOICES_SHEET, "U", 1);
+    const savedRow = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${SERVICE_INVOICES_SHEET}!A${appendedRow}:U${appendedRow}`,
+    });
+    if (String(savedRow.data.values?.[0]?.[0] ?? "").trim() !== invoiceNo) {
+      throw new Error(`ServiceInvoices row ${appendedRow} could not be verified in column A. Invoice items were not saved.`);
+    }
 
     const itemRows = payload.items.map((item) => [
       invoiceNo,
@@ -575,12 +611,14 @@ export async function processServiceInvoice(
       (item.quantity || 0) * (item.unitPrice || 0),
     ]);
     if (itemRows.length > 0) {
-      await sheets.spreadsheets.values.append({
+      const itemsAppendResponse = await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: SERVICE_INVOICE_ITEMS_RANGE,
+        range: SERVICE_INVOICE_ITEMS_APPEND_RANGE,
         valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
         requestBody: { values: itemRows },
       });
+      appendedRowNumber(itemsAppendResponse.data.updates?.updatedRange, SERVICE_INVOICE_ITEMS_SHEET, "E", itemRows.length);
     }
 
     let pdfBase64: string | undefined;
