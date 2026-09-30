@@ -22,7 +22,7 @@ export function InvoiceReferenceTypeSelector({ mode, onChange, disabled }: {
         {choice.label}
       </label>)}
     </div>
-    <p className="text-xs text-muted-foreground">{disabled ? "References are supplied by the linked DR." : mode === "TR_NUMBER" ? "Enter the customer PO and legacy TR number. A Sales Order is still required." : mode === "SALES_ORDER" ? "The selected Sales Order supplies the customer PO and SO number." : "Choose how to fill the invoice references."}</p>
+    <p className="text-xs text-muted-foreground">{disabled ? "References are supplied by the linked DR." : mode === "TR_NUMBER" ? "Enter the customer PO and legacy TR number manually." : mode === "SALES_ORDER" ? "The selected Sales Order supplies the customer PO and SO number." : "Choose how to fill the invoice references."}</p>
   </fieldset>;
 }
 

@@ -133,7 +133,7 @@ async function resolveInvoiceReferences(payload: Pick<CreateServiceInvoicePayloa
   }
   const salesOrderId = String(payload.salesOrderId ?? "").trim();
   if (payload.referenceMode === "TR_NUMBER") {
-    return { poNo: String(payload.poNo ?? "").trim(), trNo: String(payload.trNo ?? "").trim(), salesOrderId };
+    return { poNo: String(payload.poNo ?? "").trim(), trNo: String(payload.trNo ?? "").trim() };
   }
   if (salesOrderId) {
     const order = await getOrderDetail(salesOrderId);
@@ -509,7 +509,6 @@ export async function processServiceInvoice(
       ? deliveredBy.deliveredByName || assignedTechnician.assignedTechnicianName || ""
       : assignedTechnician.assignedTechnicianName || deliveredBy.deliveredByName || "";
     const references = await resolveInvoiceReferences(payload);
-    if (!references.salesOrderId) throw new Error("A Service Invoice must be linked to a Sales Order.");
     if (references.salesOrderId) {
       const order = await getOrderDetail(references.salesOrderId);
       if (order.order.customerId !== payload.customerId) {
@@ -710,7 +709,6 @@ export async function updateServiceInvoice(
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
-    if (!references.salesOrderId) throw new Error("A Service Invoice must be linked to a Sales Order.");
     let deliveredBy: DeliveredByResolution;
     if (linkedDrNumber !== undefined) {
       // A linked DR always wins, even if a client submits another user ID.

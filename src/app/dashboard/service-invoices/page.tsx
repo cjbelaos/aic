@@ -903,8 +903,8 @@ export default function ServiceInvoicesPage() {
 
   const handleSaveAndPrint = async () => {
     if (!referenceMode) { toast.error("Choose Sales Order or Legacy TR Number first."); return; }
-    if (!linkedDrNumber && !linkedSalesOrderId) {
-      toast.error("A Sales Order is required for every Service Invoice.");
+    if (referenceMode === "SALES_ORDER" && !linkedDrNumber && !linkedSalesOrderId) {
+      toast.error("Select a Sales Order or link a Delivery Report.");
       return;
     }
     if (!invoiceNo.trim()) {
@@ -967,8 +967,8 @@ export default function ServiceInvoicesPage() {
 
   const handleSaveDraft = async () => {
     if (!referenceMode) { toast.error("Choose Sales Order or Legacy TR Number first."); return; }
-    if (!linkedDrNumber && !linkedSalesOrderId) {
-      toast.error("A Sales Order is required for every Service Invoice.");
+    if (referenceMode === "SALES_ORDER" && !linkedDrNumber && !linkedSalesOrderId) {
+      toast.error("Select a Sales Order or link a Delivery Report.");
       return;
     }
     if (!selectedCustomer) {
@@ -1063,8 +1063,8 @@ export default function ServiceInvoicesPage() {
   /* Edit save handler */
   const handleEditSave = async () => {
     if (!editTarget) return;
-    if (!editDrNumber && !editSalesOrderId) {
-      toast.error("A Sales Order is required for every Service Invoice.");
+    if (editReferenceMode === "SALES_ORDER" && !editDrNumber && !editSalesOrderId) {
+      toast.error("Select a Sales Order or link a Delivery Report.");
       return;
     }
     setEditSubmitting(true);
@@ -1355,7 +1355,7 @@ export default function ServiceInvoicesPage() {
                   placeholder="Auto-filled from your profile"
                 />
               </div>
-              <div className="md:col-span-2"><InvoiceReferenceTypeSelector mode={referenceMode} disabled={!!linkedDrNumber} onChange={(mode) => { setReferenceMode(mode); setPoNo(""); setTrNo(""); }} /></div>
+              <div className="md:col-span-2"><InvoiceReferenceTypeSelector mode={referenceMode} disabled={!!linkedDrNumber} onChange={(mode) => { setReferenceMode(mode); setLinkedSalesOrderId(""); setPoNo(""); setTrNo(""); }} /></div>
               <div className="space-y-1.5 w-full">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Linked DR (optional)</Label>
@@ -1371,10 +1371,10 @@ export default function ServiceInvoicesPage() {
               </div>
               <div className="space-y-1.5 w-full">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>Sales Order <span className="text-destructive">*</span></Label>
+                  <Label>Sales Order {referenceMode === "SALES_ORDER" && <span className="text-destructive">*</span>}</Label>
                   {linkedSalesOrderId && !linkedDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setLinkedSalesOrderId("")}>Remove Sales Order</Button>}
                 </div>
-                <SearchableSelect value={linkedSalesOrderId} onValueChange={setLinkedSalesOrderId} options={salesOrderOptions} disabled={!!linkedDrNumber || !referenceMode} placeholder={linkedDrNumber ? "Supplied by linked DR" : "Select Service Sales Order"} />
+                <SearchableSelect value={linkedSalesOrderId} onValueChange={setLinkedSalesOrderId} options={salesOrderOptions} disabled={!!linkedDrNumber || referenceMode !== "SALES_ORDER"} placeholder={linkedDrNumber ? "Supplied by linked DR" : referenceMode === "SALES_ORDER" ? "Select Service Sales Order" : "Not needed for Legacy TR Number"} />
               </div>
               <div className="space-y-1.5">
                 <Label>PO Number</Label>
@@ -1497,7 +1497,7 @@ export default function ServiceInvoicesPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <div className="md:col-span-2"><InvoiceReferenceTypeSelector mode={editReferenceMode} disabled={!!editDrNumber} onChange={(mode) => { setEditReferenceMode(mode); setEditPoNo(""); setEditTrNo(""); }} /></div>
+              <div className="md:col-span-2"><InvoiceReferenceTypeSelector mode={editReferenceMode} disabled={!!editDrNumber} onChange={(mode) => { setEditReferenceMode(mode); setEditSalesOrderId(""); setEditPoNo(""); setEditTrNo(""); }} /></div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Linked DR (optional)</Label>
@@ -1512,10 +1512,10 @@ export default function ServiceInvoicesPage() {
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>Sales Order <span className="text-destructive">*</span></Label>
+                  <Label>Sales Order {editReferenceMode === "SALES_ORDER" && <span className="text-destructive">*</span>}</Label>
                   {editSalesOrderId && !editDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setEditSalesOrderId("")}>Remove Sales Order</Button>}
                 </div>
-                <SearchableSelect value={editSalesOrderId} onValueChange={setEditSalesOrderId} options={salesOrderOptions} disabled={!!editDrNumber} placeholder={editDrNumber ? "Supplied by linked DR" : "Select Service Sales Order"} />
+                <SearchableSelect value={editSalesOrderId} onValueChange={setEditSalesOrderId} options={salesOrderOptions} disabled={!!editDrNumber || editReferenceMode !== "SALES_ORDER"} placeholder={editDrNumber ? "Supplied by linked DR" : editReferenceMode === "SALES_ORDER" ? "Select Service Sales Order" : "Not needed for Legacy TR Number"} />
               </div>
               <div className="space-y-1.5">
                 <Label>PO Number</Label>
