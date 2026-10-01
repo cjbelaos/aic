@@ -336,7 +336,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
               variant={layoutMode === "html" ? "default" : "outline"}
               size="sm"
               onClick={() => setLayoutMode("html")}
-              disabled={printSaving || driveSaving || htmlPrinting}
+              disabled={printSaving || driveSaving || htmlPrinting || si.status === "cancelled" || si.status === "draft"}
             >
               HTML Print
             </Button>
@@ -358,6 +358,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
               size="sm"
               onClick={handlePrint}
               disabled={
+                si.status === "cancelled" || si.status === "draft" ||
                 printSaving ||
                 driveSaving ||
                 htmlPrinting ||
@@ -378,7 +379,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
             <Button
               size="sm"
               onClick={handleSaveToDrive}
-              disabled={printSaving || driveSaving || htmlPrinting}
+              disabled={printSaving || driveSaving || htmlPrinting || si.status === "cancelled" || si.status === "draft"}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {driveSaving ? (

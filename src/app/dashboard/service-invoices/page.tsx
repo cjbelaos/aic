@@ -154,6 +154,8 @@ export default function ServiceInvoicesPage() {
   );
   const [editDate, setEditDate] = useState("");
   const [editStatus, setEditStatus] = useState("created");
+  const [editInvoiceNo, setEditInvoiceNo] = useState("");
+  const [correctingInvoiceNo, setCorrectingInvoiceNo] = useState<string | null>(null);
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editDrNumber, setEditDrNumber] = useState("");
@@ -602,7 +604,7 @@ export default function ServiceInvoicesPage() {
       {
         accessorKey: "date",
         header: "Date",
-        cell: ({ getValue }) => {
+        cell: ({ getValue, row }) => {
           const raw = String(getValue() ?? "");
           try {
             const d = new Date(raw + (raw.length === 10 ? "T00:00:00" : ""));
@@ -645,7 +647,7 @@ export default function ServiceInvoicesPage() {
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ getValue }) => {
+        cell: ({ getValue, row }) => {
           const s = String(getValue() ?? "created");
           const map: Record<
             string,
@@ -662,7 +664,12 @@ export default function ServiceInvoicesPage() {
             cancelled: { label: "Cancelled", variant: "destructive" },
           };
           const cfg = map[s] || map.created;
-          return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
+          const linkedNo = row.original.replacementInvoiceNo || row.original.replacesInvoiceNo;
+          return <div className="flex flex-col items-start gap-1"><Badge variant={cfg.variant}>{cfg.label}</Badge>{linkedNo && <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => {
+            const linked = invoices.find((invoice) => invoice.invoiceNo === linkedNo);
+            if (linked?.status === "draft") setEditTarget(linked);
+            else if (linked) void serviceInvoiceService.getPreview(linkedNo).then(setViewSi).catch(() => toast.error("Failed to load linked invoice."));
+          }}>{row.original.replacementInvoiceNo ? `Replacement #${linkedNo}` : `Replaces #${linkedNo}`}</Button>}</div>;
         },
       },
       {
@@ -715,7 +722,7 @@ export default function ServiceInvoicesPage() {
         header: "Actions",
         cell: ({ row }) => {
           const locked =
-            row.original.status === "deleted" || row.original.status === "void";
+            row.original.status === "deleted" || row.original.status === "void" || row.original.status === "cancelled";
           return (
             <div className="flex items-center gap-1">
               <Button
@@ -821,6 +828,20 @@ export default function ServiceInvoicesPage() {
               )}
               {!locked && (
                 <>
+                  {row.original.status === "created" && !row.original.replacementInvoiceNo && (
+                    <Button variant="outline" size="sm" disabled={!!correctingInvoiceNo} onClick={async () => {
+                      setCorrectingInvoiceNo(row.original.invoiceNo);
+                      try {
+                        const replacementNo = await serviceInvoiceService.cancelAndCreateCorrectedCopy(row.original.invoiceNo);
+                        const updated = await serviceInvoiceService.getAll();
+                        setInvoices(updated);
+                        setEditTarget(updated.find((invoice) => invoice.invoiceNo === replacementNo) || null);
+                        toast.success(`Invoice ${row.original.invoiceNo} cancelled. Edit the corrected draft.`);
+                      } catch (error: any) {
+                        toast.error(error?.response?.data?.error || "Could not create corrected copy.");
+                      } finally { setCorrectingInvoiceNo(null); }
+                    }}>Cancel and create corrected copy</Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -846,7 +867,7 @@ export default function ServiceInvoicesPage() {
         },
       },
     ],
-    [previewing, uploading, uploadTarget],
+    [previewing, uploading, uploadTarget, correctingInvoiceNo, invoices],
   );
   /* When arriving with ?viewDR=<dr#>, only show the Service Invoices (SRs)
      linked to that Delivery Receipt. */
@@ -1022,6 +1043,7 @@ export default function ServiceInvoicesPage() {
     if (editTarget) {
       setEditDate(editTarget.date);
       setEditStatus(editTarget.status || "created");
+      setEditInvoiceNo("");
       setEditLineItems(
         editTarget.items.map((item) => ({
           description: item.description,
@@ -1062,6 +1084,7 @@ export default function ServiceInvoicesPage() {
     setEditSubmitting(true);
     try {
       const payload = {
+        invoiceNo: editTarget.replacesInvoiceNo && editStatus !== "draft" ? editInvoiceNo.trim() : undefined,
         date: editDate,
         status: editStatus,
         items: editLineItems
@@ -1453,6 +1476,8 @@ export default function ServiceInvoicesPage() {
           </DialogHeader>
 
           <div className="space-y-6">
+            {editTarget?.replacesInvoiceNo && <div className="space-y-2"><p>Replaces cancelled invoice #{editTarget.replacesInvoiceNo}</p>{editTarget.status === "draft" && <><Label>New number from physical form</Label><Input value={editInvoiceNo} onChange={(event) => setEditInvoiceNo(event.target.value)} placeholder="Required when finalizing" /></>}</div>}
+            {editTarget?.replacementInvoiceNo && <p>Replacement invoice #{editTarget.replacementInvoiceNo}</p>}
             {/* Row 1: Customer (read-only), Date, Status */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
               <div className="space-y-1.5">
@@ -1480,9 +1505,8 @@ export default function ServiceInvoicesPage() {
                   <SelectContent>
                     <SelectItem value="created">Created</SelectItem>
                     <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
+                    {!editTarget?.replacesInvoiceNo && <SelectItem value="paid">Paid</SelectItem>}
                     <SelectItem value="void">Void</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

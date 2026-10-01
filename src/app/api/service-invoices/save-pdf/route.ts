@@ -4,6 +4,7 @@ import { getDatabaseSpreadsheetId, getDriveUploadClient, getSheetsClient } from 
 import {
   ensureServiceInvoiceDocumentTrackerAssignment,
   populateAndExportServiceInvoiceFormPdf,
+  getServiceInvoices,
 } from "@/lib/serviceInvoiceSheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 
@@ -96,6 +97,10 @@ export async function POST(req: NextRequest) {
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [[fileLink]] },
       });
+    }
+    const invoice = (await getServiceInvoices()).find((entry) => entry.invoiceNo === body.invoiceNo);
+    if (!invoice || invoice.status === "cancelled" || invoice.status === "draft") {
+      return NextResponse.json({ error: "Cancelled or draft invoices cannot be saved as printable PDFs." }, { status: 400 });
     }
 
     let trackerAssignmentWarning: string | undefined;

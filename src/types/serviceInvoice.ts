@@ -72,6 +72,8 @@ export interface ServiceInvoiceResponse {
   manualCompletionFulfillmentIds?: string[];
   trackerAssignmentOutcome?: "created" | "updated" | "unchanged" | "already_returned" | "unassigned";
   trackerAssignmentWarning?: string;
+  replacesInvoiceNo?: string;
+  replacementInvoiceNo?: string;
 }
 
 export interface ServiceInvoiceSummary {
@@ -108,4 +110,6 @@ export interface ServiceInvoiceSummary {
   manualCompletionFulfillmentIds?: string[];
   trackerAssignmentOutcome?: "created" | "updated" | "unchanged" | "already_returned" | "unassigned";
   trackerAssignmentWarning?: string;
+  replacesInvoiceNo?: string;
+  replacementInvoiceNo?: string;
 }

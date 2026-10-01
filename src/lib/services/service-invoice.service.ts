@@ -56,6 +56,11 @@ const serviceInvoiceService = {
     }
   },
 
+  cancelAndCreateCorrectedCopy: async (invoiceNo: string): Promise<string> => {
+    const response = await axios.post<{ replacementInvoiceNo: string }>(`${API_BASE_URL}/${encodeURIComponent(invoiceNo)}/corrected-copy`);
+    return response.data.replacementInvoiceNo;
+  },
+
   completeServiceManually: async (invoiceNo: string, payload: { completionDate: string; technicianUserId: string; notes: string }): Promise<void> => {
     await axios.post(`${API_BASE_URL}/${encodeURIComponent(invoiceNo)}/manual-completion`, payload);
   },
