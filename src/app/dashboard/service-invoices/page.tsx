@@ -58,6 +58,7 @@ import {
 import { REPORT_TYPE_LABELS } from "@/lib/serviceReports/labels";
 import type { ServiceReportType } from "@/types/serviceReport";
 import { ServiceInvoicePreviewModal } from "@/components/service-invoice-preview-modal";
+import { SummaryCards } from "@/components/sales-orders/badges";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -878,6 +879,17 @@ export default function ServiceInvoicesPage() {
       (inv) => inv.drNumber != null && String(inv.drNumber) === target,
     );
   }, [invoices, viewDrRaw]);
+  const invoiceCards = useMemo(() => {
+    const active = displayInvoices.filter((invoice) => invoice.status === "created" || invoice.status === "paid");
+    const activeValue = active.reduce((sum, invoice) => sum + invoice.items.reduce((itemSum, item) => itemSum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0), 0);
+    const formatAmount = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(activeValue);
+    return [
+      { label: "Total Invoices", value: String(displayInvoices.length) },
+      { label: "Active Invoice Value", value: formatAmount, hint: "Created and paid invoices" },
+      { label: "Drafts", value: String(displayInvoices.filter((invoice) => invoice.status === "draft").length) },
+      { label: "Cancelled", value: String(displayInvoices.filter((invoice) => invoice.status === "cancelled").length) },
+    ];
+  }, [displayInvoices]);
 
   /* Create modal handlers */
   const openCreateModal = () => {
@@ -1165,6 +1177,8 @@ export default function ServiceInvoicesPage() {
   return (
     <>
       <div className="p-6 space-y-6">
+        <div className="space-y-1"><h1 className="text-2xl font-semibold tracking-tight">Service Invoices</h1><p className="text-sm text-muted-foreground">Create, correct, and track service invoices from one register.</p></div>
+        <SummaryCards cards={invoiceCards} />
         {/* 🧪 Test Mode banner temporarily hidden (kept for future layout tests).
             Restore by un-commenting the handleTestDuplication + testing state block. */}
         {/* {process.env.NODE_ENV === "development" && (
