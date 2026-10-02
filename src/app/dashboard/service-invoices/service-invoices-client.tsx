@@ -35,6 +35,8 @@ import {
 } from "@/components/ui/select";
 import {
   Plus,
+  SlidersHorizontal,
+  ChevronDown,
   Trash2,
   Loader2,
   Eye,
@@ -65,7 +67,6 @@ import {
 import { REPORT_TYPE_LABELS } from "@/lib/serviceReports/labels";
 import type { ServiceReportType } from "@/types/serviceReport";
 import { ServiceInvoicePreviewModal } from "@/components/service-invoice-preview-modal";
-import { SummaryCards } from "@/components/sales-orders/badges";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -796,6 +797,7 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   );
   /* When arriving with ?viewDR=<dr#>, only show the Service Invoices (SRs)
      linked to that Delivery Receipt. */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterCustomers, setFilterCustomers] = useState<string[]>([]);
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
@@ -826,18 +828,6 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
     `Search: ${search || "None"}`,
     `Delivery receipt: ${viewDrRaw || "All"}`,
   ];
-  const invoiceCards = useMemo(() => {
-    const active = displayInvoices.filter((invoice) => invoice.status === "created" || invoice.status === "paid");
-    const activeValue = active.reduce((sum, invoice) => sum + invoice.items.reduce((itemSum, item) => itemSum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0), 0);
-    const formatAmount = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(activeValue);
-    return [
-      { label: "Total Invoices", value: String(displayInvoices.length) },
-      { label: "Active Invoice Value", value: formatAmount, hint: "Active invoices across all payment labels" },
-      { label: "Drafts", value: String(displayInvoices.filter((invoice) => invoice.status === "draft").length) },
-      { label: "Cancelled", value: String(displayInvoices.filter((invoice) => invoice.status === "cancelled").length) },
-    ];
-  }, [displayInvoices]);
-
   /* Create modal handlers */
   const openCreateModal = () => {
     setInvoiceNo("");
@@ -1128,11 +1118,31 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
     }
   };
 
-  return (
-    <>
-      <div className="p-6 space-y-6">
-        <div className="space-y-1"><h1 className="text-2xl font-semibold tracking-tight">Service Invoices</h1><p className="text-sm text-muted-foreground">Create, correct, and track service invoices from one register.</p></div>
-        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+  const clearFilters = () => {
+    setFilterCustomers([]); setFilterCategories([]); setFilterStatuses([]); setFilterPayments([]); setFilterScanned([]);
+    setFilterDateFrom(""); setFilterDateTo(""); setFilterMonth(""); setCreatedFrom(""); setCreatedTo(""); setSearch("");
+  };
+  const filterChips: { key: string; label: string; remove: () => void }[] = [
+    ...filterCustomers.map(value => ({ key: `customer-${value}`, label: `Customer: ${customerFilterOptions.find(option => option.value === value)?.label || value}`, remove: () => setFilterCustomers(values => values.filter(item => item !== value)) })),
+    ...filterCategories.map(value => ({ key: `category-${value}`, label: `Category: ${value}`, remove: () => setFilterCategories(values => values.filter(item => item !== value)) })),
+    ...filterStatuses.map(value => ({ key: `status-${value}`, label: `Invoice: ${value}`, remove: () => setFilterStatuses(values => values.filter(item => item !== value)) })),
+    ...filterPayments.map(value => ({ key: `payment-${value}`, label: `Payment: ${PAYMENT_LABELS[value as keyof typeof PAYMENT_LABELS]}`, remove: () => setFilterPayments(values => values.filter(item => item !== value)) })),
+    ...filterScanned.map(value => ({ key: `scan-${value}`, label: value === "scanned" ? "Scanned" : "Not scanned", remove: () => setFilterScanned(values => values.filter(item => item !== value)) })),
+    ...[
+      { key: "invoice-from", value: filterDateFrom, label: "Invoice from", reset: () => setFilterDateFrom("") },
+      { key: "invoice-to", value: filterDateTo, label: "Invoice to", reset: () => setFilterDateTo("") },
+      { key: "invoice-month", value: filterMonth, label: "Invoice month", reset: () => setFilterMonth("") },
+      { key: "created-from", value: createdFrom, label: "Created from", reset: () => setCreatedFrom("") },
+      { key: "created-to", value: createdTo, label: "Created to", reset: () => setCreatedTo("") },
+    ].filter(item => item.value).map(item => ({ key: item.key, label: `${item.label}: ${item.value}`, remove: item.reset })),
+  ];
+  const toolbarActions = <>
+    {isAdmin && <ServiceInvoiceReporting report={report} filters={appliedFilters} loading={loading || invalidRange} showSummary={false} />}
+    <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" aria-expanded={filtersOpen} aria-controls="invoice-advanced-filters" onClick={() => setFiltersOpen(open => !open)}><SlidersHorizontal className="h-3.5 w-3.5" />Filters{filterChips.length > 0 ? ` (${filterChips.length})` : ""}<ChevronDown className={`h-3.5 w-3.5 transition-transform ${filtersOpen ? "rotate-180" : ""}`} /></Button>
+  </>;
+  const filterPanel = <>
+    <div id="invoice-advanced-filters" hidden={!filtersOpen} className="rounded-md border bg-muted/20 p-4">
+      <div className="grid w-full grid-cols-1 gap-x-3 gap-y-4 sm:grid-cols-2 lg:grid-cols-4 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:gap-2">
             <div><Label>Customer</Label><FilterMultiSelect label="Customer" values={filterCustomers} options={customerFilterOptions} onChange={setFilterCustomers} /></div>
             <div><Label htmlFor="invoice-filter-from">Invoice date from</Label><Input id="invoice-filter-from" type="date" value={filterDateFrom} max={filterDateTo || undefined} onChange={(event) => { setFilterDateFrom(event.target.value); setFilterMonth(""); }} /></div>
             <div><Label htmlFor="invoice-filter-to">Invoice date to</Label><Input id="invoice-filter-to" type="date" value={filterDateTo} min={filterDateFrom || undefined} onChange={(event) => { setFilterDateTo(event.target.value); setFilterMonth(""); }} /></div>
@@ -1140,23 +1150,26 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
             <div><Label>Payment status</Label><FilterMultiSelect label="Payment status" values={filterPayments} options={Object.entries(PAYMENT_LABELS).map(([value,label]) => ({ value, label }))} onChange={setFilterPayments} /></div>
             <div><Label>Scanned copy</Label><FilterMultiSelect label="Scanned copy" values={filterScanned} options={[{value:"scanned",label:"Scanned"},{value:"not_scanned",label:"Not scanned"}]} onChange={setFilterScanned} /></div>
             <div><Label>Invoice category</Label><FilterMultiSelect label="Invoice category" values={filterCategories} options={[...MANUAL_INVOICE_CATEGORIES,"Uncategorized"].map(value => ({value,label:value}))} onChange={setFilterCategories} /></div>
-            <div><Label htmlFor="creation-period">Creation period (PH)</Label><select id="creation-period" className="h-9 w-full rounded-md border bg-background px-3 text-sm" defaultValue="" key={`${createdFrom}-${createdTo}`} onChange={event => {
-              if (!event.target.value) return;
-              if (event.target.value === "all") { setCreatedFrom(""); setCreatedTo(""); }
-              else { const range = reportRange(event.target.value as "today" | "week" | "month"); setCreatedFrom(range.startDate); setCreatedTo(range.endDate); }
-            }}><option value="">Choose a preset...</option><option value="all">All creation dates</option><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option></select></div>
+            <div><Label>Creation period (PH)</Label><SearchableSelect placeholder="Choose a preset..." searchPlaceholder="Search creation periods..." options={[{ value: "all", label: "All creation dates" }, { value: "today", label: "Today" }, { value: "week", label: "This week" }, { value: "month", label: "This month" }]} onValueChange={value => {
+              if (value === "all") { setCreatedFrom(""); setCreatedTo(""); }
+              else { const range = reportRange(value as "today" | "week" | "month"); setCreatedFrom(range.startDate); setCreatedTo(range.endDate); }
+            }} /></div>
             <div><Label htmlFor="invoice-created-from">Creation date from (PH)</Label><Input id="invoice-created-from" type="date" value={createdFrom} max={createdTo || undefined} onChange={event => setCreatedFrom(event.target.value)} /></div>
             <div><Label htmlFor="invoice-created-to">Creation date to (PH)</Label><Input id="invoice-created-to" type="date" value={createdTo} min={createdFrom || undefined} onChange={event => setCreatedTo(event.target.value)} /></div>
             <div><Label>Invoice status</Label><FilterMultiSelect label="Invoice status" values={filterStatuses} options={["created", "draft", "cancelled", "void"].map(value => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }))} onChange={setFilterStatuses} /></div>
-            <div><Label htmlFor="invoice-search">Search invoices</Label><Input id="invoice-search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Invoice, customer, reference..." /></div>
-            <Button variant="outline" className="self-end" onClick={() => { setFilterCustomers([]); setFilterDateFrom(""); setFilterDateTo(""); setFilterMonth(""); setCreatedFrom(""); setCreatedTo(""); setFilterStatuses([]); setFilterCategories([]); setFilterPayments([]); setFilterScanned([]); setSearch(""); }}>Clear filters</Button>
-            {invalidRange && <p role="alert" className="text-sm text-destructive sm:col-span-2 lg:col-span-4">Each start date must be on or before its end date.</p>}
           </div>
-        {isAdmin && <ServiceInvoiceReporting report={report} filters={appliedFilters} loading={loading} showSummary={false} />}
+    </div>
+    {(filterChips.length > 0 || search) && <div className="flex flex-wrap items-center gap-2" aria-label="Applied filters">{filterChips.map(chip => <Button key={chip.key} type="button" variant="secondary" size="sm" className="h-auto max-w-full gap-1 py-1 text-xs" aria-label={`Remove ${chip.label}`} onClick={chip.remove}><span className="truncate">{chip.label}</span><X className="h-3 w-3 shrink-0" /></Button>)}{search && <Button type="button" variant="secondary" size="sm" className="h-auto max-w-full gap-1 py-1 text-xs" aria-label="Clear search" onClick={() => setSearch("")}><span className="truncate">Search: {search}</span><X className="h-3 w-3 shrink-0" /></Button>}<Button type="button" variant="ghost" size="sm" onClick={clearFilters}>Clear all</Button></div>}
+    {invalidRange && <p role="alert" className="text-sm text-destructive">Each start date must be on or before its end date.</p>}
+  </>;
+
+  return (
+    <>
+      <div className="p-6 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-semibold">Service Invoices</h1><Button onClick={openCreateModal} className="bg-blue-600 text-white hover:bg-blue-700"><Plus className="mr-2 h-4 w-4" />Create New</Button></div>
         <Tabs value={activeTab} onValueChange={changeTab}>
           {isAdmin && <TabsList aria-label="Service invoice views"><TabsTrigger value="invoices">Invoices</TabsTrigger><TabsTrigger value="summary">Summary</TabsTrigger></TabsList>}
           <TabsContent value="invoices" className="space-y-6">
-        <SummaryCards cards={invoiceCards} />
         {viewDrRaw && (
           <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-blue-800">
@@ -1182,14 +1195,18 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
           title="Service Invoices"
           columns={columns}
           data={displayInvoices}
-          hideSearch
+          hideHeader
+          searchValue={search}
+          onSearchChange={setSearch}
+          toolbarFilters={toolbarActions}
+          belowToolbar={filterPanel}
           hideTransferButtons
           loading={loading}
           onCreateNew={openCreateModal}
           mobileLayout={{ primary: ["invoiceNo", "companyName", "status"], labels: { paymentStatus: "Payment status", scannedStatus: "Scanned copy", category: "Category", invoiceNo: "Invoice", date: "Date", companyName: "Customer", preparedBy: "Prepared by", total: "Total", status: "Status", lastUpdated: "Updated", actions: "Actions" } }}
         />
           </TabsContent>
-          {isAdmin && <TabsContent value="summary"><ServiceInvoiceReporting report={report} filters={appliedFilters} loading={loading} showSummary /></TabsContent>}
+          {isAdmin && <TabsContent value="summary" className="space-y-4"><div className="rounded-md border bg-card p-4 space-y-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex flex-wrap items-center gap-2">{toolbarActions}</div><Input aria-label="Search Service Invoices" placeholder="Search..." value={search} onChange={event => setSearch(event.target.value)} className="h-8 w-full sm:w-[220px]" /></div>{filterPanel}</div><ServiceInvoiceReporting report={report} filters={appliedFilters} loading={loading} showSummary /></TabsContent>}
         </Tabs>
       </div>
 

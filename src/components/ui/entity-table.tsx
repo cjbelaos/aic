@@ -46,6 +46,11 @@ interface EntityTableProps<TData> {
   title: string;
   hideMobileTitle?: boolean;
   hideSearch?: boolean;
+  hideHeader?: boolean;
+  /** Controlled search is filtered by the parent so reports share the same rows. */
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
+  belowToolbar?: React.ReactNode;
   hideTransferButtons?: boolean;
   columns: ColumnDef<TData>[];
   data: TData[];
@@ -74,6 +79,10 @@ export function EntityTable<TData>({
   title,
   hideMobileTitle = false,
   hideSearch = false,
+  hideHeader = false,
+  searchValue,
+  onSearchChange,
+  belowToolbar,
   hideTransferButtons = false,
   columns,
   data,
@@ -164,6 +173,7 @@ export function EntityTable<TData>({
     getSortedRowModel: getSortedRowModel(),
     getRowId,
     manualPagination: false,
+    manualFiltering: onSearchChange !== undefined,
     autoResetPageIndex: true,
   });
 
@@ -242,7 +252,7 @@ export function EntityTable<TData>({
   return (
     <div className="space-y-4 min-w-0" data-mobile-list={!!mobileLayout}>
       {/* Header row */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      {!hideHeader && <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className={hideMobileTitle ? "sr-only" : "text-lg font-semibold"}>{title}</h1>
         {headerActions ? (
           headerActions
@@ -255,7 +265,7 @@ export function EntityTable<TData>({
             Create New
           </Button>
         ) : null}
-      </div>
+      </div>}
 
       {/* Card */}
       <div className="rounded-md border bg-card p-4 space-y-4 overflow-hidden flex flex-col">
@@ -332,9 +342,10 @@ export function EntityTable<TData>({
           {!hideSearch && <Input
             aria-label={`Search ${title}`}
             placeholder="Search..."
-            value={globalFilter}
+            value={searchValue ?? globalFilter}
             onChange={(e) => {
-              setGlobalFilter(e.target.value);
+              if (onSearchChange) onSearchChange(e.target.value);
+              else setGlobalFilter(e.target.value);
               if (pagination.pageIndex !== 0) {
                 setPagination((p) => ({ ...p, pageIndex: 0 }));
               }
@@ -342,6 +353,8 @@ export function EntityTable<TData>({
             className="h-8 w-full sm:w-[220px]"
           />}
         </div>
+
+        {belowToolbar}
 
         {mobileLayout && <div className="space-y-3 md:hidden">
           <label className="flex flex-wrap items-center gap-2 text-sm">Sort by

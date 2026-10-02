@@ -61,10 +61,14 @@ export function buildServiceInvoiceSummaryReport(invoices: ServiceInvoiceSummary
     const paymentStatus = paymentStatusFor(invoice.status, invoice);
     const scannedStatus: "scanned" | "not_scanned" = invoice.scannedStatus === "scanned" ? "scanned" : "not_scanned";
     const category = invoice.category || "Uncategorized";
-    paymentTotals[paymentStatus].count++; paymentTotals[paymentStatus].amount += amount;
+    // Legacy Paid represents a Created invoice with a full payment label.
+    if (invoice.status === "created" || invoice.status === "paid") {
+      paymentTotals[paymentStatus].count++;
+      paymentTotals[paymentStatus].amount += amount;
+    }
     scannedTotals[scannedStatus].count++; scannedTotals[scannedStatus].amount += amount;
     const categoryTotal = categoryTotals.get(category) || empty(); categoryTotal.count++; categoryTotal.amount += amount; categoryTotals.set(category,categoryTotal);
-    const row = { category, paymentStatus, scannedStatus, statusReason: invoice.statusReason || "", invoiceNo: invoice.invoiceNo, createdAt: invoice.createdAt, createdDate, invoiceDate: invoice.date, customer, status: invoice.status, group, amount };
+    const row = { category, paymentStatus, scannedStatus, statusReason: invoice.statusReason || "", invoiceNo: invoice.invoiceNo, createdAt: invoice.createdAt, createdDate, invoiceDate: invoice.date, customer, status: invoice.status === "paid" ? "created" : invoice.status, group, amount };
     rows.push(row);
     const breakdown = customers.get(customer) || { customer, active: empty(), cancelled: empty(), draft: empty(), void: empty(), total: empty() };
     breakdown[group].count++;

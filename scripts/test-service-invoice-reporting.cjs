@@ -34,6 +34,21 @@ async function main() {
   assert.equal(report.customers[0].total.count,25);
   assert.equal(summary.buildServiceInvoiceSummaryReport(rows,'today',undefined,undefined,new Date('2026-10-02T00:00:00Z')).overall.count,24);
   assert.deepEqual(summary.reportRange('week',undefined,undefined,new Date('2026-10-04T00:00:00Z')), {startDate:'2026-09-28',endDate:'2026-10-04'});
+  const mixed = summary.buildServiceInvoiceSummaryReport([
+    {...invoice, invoiceNo:'created-unpaid', status:'created'},
+    {...invoice, invoiceNo:'created-partial', status:'created', paymentStatus:'partial'},
+    {...invoice, invoiceNo:'created-full', status:'created', paymentStatus:'full'},
+    {...invoice, invoiceNo:'legacy-paid', status:'paid'},
+    {...invoice, invoiceNo:'draft-full', status:'draft', paymentStatus:'full'},
+    {...invoice, invoiceNo:'cancelled-partial', status:'cancelled', paymentStatus:'partial'},
+    {...invoice, invoiceNo:'void-unpaid', status:'void'},
+  ],'all');
+  assert.equal(mixed.paymentTotals.unpaid.count,1);
+  assert.equal(mixed.paymentTotals.partial.count,1);
+  assert.equal(mixed.paymentTotals.full.count,2);
+  assert.equal(mixed.overall.count,7);
+  assert.equal(mixed.totals.active.count,4);
+  assert.equal(mixed.invoices.find(row=>row.invoiceNo==='legacy-paid').status,'created');
   let session = null;
   const redirect = path => {throw new Error(`redirect:${path}`);};
   const auth = {getSession:async()=>session,isAdminUser:user=>user.admin};
@@ -60,24 +75,38 @@ async function main() {
     '@/lib/serviceInvoiceTracking': tracking,
     react:{useState:()=>[false,()=>{}]},
     '@/components/ui/button':{Button:'button'},
+    '@/components/ui/dropdown-menu':Object.fromEntries(['DropdownMenu','DropdownMenuTrigger','DropdownMenuContent','DropdownMenuItem'].map(key=>[key,'div'])),
     '@/components/ui/card':{Card:'div',CardHeader:'div',CardContent:'div',CardTitle:'h3'},
     '@/components/ui/table':Object.fromEntries(['Table','TableBody','TableCell','TableHead','TableHeader','TableRow'].map(key=>[key,'div'])),
     sonner:{toast:{error:message=>{throw new Error(message);}}},
     exceljs:{...ExcelJS,Workbook:CapturedWorkbook},
     jspdf:{jsPDF:CapturedPdf},
   }).default;
+  const summaryHtml = require('react-dom/server').renderToStaticMarkup(reporting({report:mixed,filters:[],loading:false,showSummary:true}));
+  const paymentSection = summaryHtml.match(/<section[^>]*>.*?Payment status.*?<\/section>/s)?.[0];
+  assert(paymentSection);
+  assert(!paymentSection.includes(String.fromCodePoint(0x20b1)), 'Payment cards must not show currency amounts');
+  assert(paymentSection.includes('Created does not mean paid'));
+  assert(!summaryHtml.includes('Created + Paid'));
   const tree = reporting({report,filters:['Creation date: Any','Invoice date: Any','Search: None'],loading:false,showSummary:false});
-  const button = tree.props.children[0].props.children[0];
-  button.props.onClick();
+  function findAction(node,label) {
+    if (!node || typeof node !== 'object') return undefined;
+    if (node.props?.children === label && node.props.onSelect) return node.props.onSelect;
+    for (const child of [node.props?.children].flat()) { const action = findAction(child,label); if (action) return action; }
+  }
+  findAction(tree,'Export Excel')();
   for(let i=0;i<100 && !downloaded;i++) await new Promise(resolve=>setTimeout(resolve,20));
   assert.equal(downloaded,'service-invoices-filtered.xlsx');
   assert.equal(workbook.getWorksheet('Invoices').rowCount,26);
   assert.equal(workbook.getWorksheet('Summary').getRow(7).getCell(2).value,25);
   assert.equal(workbook.getWorksheet('Filters').rowCount,3);
+  assert.equal(workbook.getWorksheet('Summary').getRow(10).getCell(2).value,20);
+  assert.equal(workbook.getWorksheet('Summary').getRow(10).getCell(3).value,null);
+  assert.equal(workbook.getWorksheet('Summary').getRow(3).getCell(1).value,'Created');
   const reloaded = new ExcelJS.Workbook(); await reloaded.xlsx.load(await workbook.xlsx.writeBuffer());
   assert.equal(reloaded.getWorksheet('Invoices').getRow(26).getCell(7).value,300.5);
   downloaded = undefined;
-  tree.props.children[0].props.children[1].props.onClick();
+  findAction(tree,'Export PDF')();
   for(let i=0;i<100 && !downloaded;i++) await new Promise(resolve=>setTimeout(resolve,20));
   assert.equal(downloaded,'service-invoices-filtered.pdf');
   assert(pdf.getNumberOfPages() >= 2);
@@ -85,6 +114,8 @@ async function main() {
   assert(pdfText.includes('Creation date: Any'));
   assert(pdfText.includes('SI-24'));
   assert(pdfText.includes('7,512.50'));
+  assert(pdfText.includes('Unpaid: 20 invoice'));
+  assert(!pdfText.includes('Active \(Created + Paid\)'));
   global.document = originalDocument;
   console.log('PASS shared date/status/search filters, PH midnight, missing timestamps, totals across 25 rows, admin gates, redirect and real Excel/PDF exports');
 }
