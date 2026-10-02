@@ -16,6 +16,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { EntityTable, ArrowUpDown } from "@/components/ui/entity-table";
+import { DocumentRegisterHeader } from "@/components/document-register-header";
+import { matchesDocumentSearch } from "@/lib/document-register";
 import {
   Plus,
   Trash2,
@@ -85,6 +87,8 @@ const EMPTY_LINE_ITEM: LineItem = {
 export default function PurchaseOrderPage() {
   /* List state */
   const [orders, setOrders] = useState<PurchaseOrderSummary[]>([]);
+  const [registerSearch, setRegisterSearch] = useState("");
+  const [registerStatus, setRegisterStatus] = useState("all");
   const [loading, setLoading] = useState(true);
 
   /* Reference data */
@@ -1011,13 +1015,16 @@ export default function PurchaseOrderPage() {
   return (
     <>
       <div className="p-3 sm:p-6 space-y-6 min-w-0">
+        <DocumentRegisterHeader eyebrow="Purchase management" title="Purchase Orders" description="Review supplier orders and manage documents." loading={loading} actions={<Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />Create New</Button>} cards={["all", ...Array.from(new Set(["draft", "created", "printed", "approved", "completed", "cancelled", ...orders.map(order => order.status || "created")]))].map(status => ({ label: status === "all" ? "Total" : status.charAt(0).toUpperCase() + status.slice(1), count: orders.filter(order => matchesDocumentSearch(registerSearch, [order.poNumber, order.date, order.supplierName, order.totalAmount, order.preparedBy, order.status]) && (status === "all" || (order.status || "created") === status)).length, selected: registerStatus === status, onClick: () => setRegisterStatus(status) }))} />
         <EntityTable
           mobileLayout={{ primary: ["poNumber", "supplierName", "status", "date", "itemCount", "totalAmount"], labels: { poNumber: "PO number", supplierName: "Supplier", status: "Status", date: "Order date", itemCount: "Items", totalAmount: "Total amount", preparedBy: "Prepared by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Purchase Orders"
           columns={columns}
-          data={orders}
+          data={orders.filter(order => matchesDocumentSearch(registerSearch, [order.poNumber, order.date, order.supplierName, order.totalAmount, order.preparedBy, order.status]) && (registerStatus === "all" || (order.status || "created") === registerStatus))}
+          searchValue={registerSearch}
+          onSearchChange={setRegisterSearch}
           loading={loading}
-          onCreateNew={openCreateModal}
+          onCreateNew={undefined}
         />
       </div>
 

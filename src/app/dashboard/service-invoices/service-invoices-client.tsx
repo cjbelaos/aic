@@ -26,6 +26,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { EntityTable, ArrowUpDown } from "@/components/ui/entity-table";
+import { DocumentRegisterHeader } from "@/components/document-register-header";
 import {
   Select,
   SelectContent,
@@ -812,10 +813,11 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   const [search, setSearch] = useState("");
   const invalidRange = !!((filterDateFrom && filterDateTo && filterDateFrom > filterDateTo) || (createdFrom && createdTo && createdFrom > createdTo));
   const customerFilterOptions = useMemo(() => [...new Map(invoices.map((invoice) => [invoice.customerId, { value: invoice.customerId, label: invoice.companyName }])).values()].sort((a, b) => a.label.localeCompare(b.label)), [invoices]);
-  const displayInvoices = useMemo(() => invoices.filter((invoice) => {
+  const matchingInvoices = useMemo(() => invoices.filter((invoice) => {
     if (viewDrRaw && String(invoice.drNumber ?? "") !== String(viewDrRaw).trim()) return false;
-    return matchesInvoiceFilters(invoice, { customers: filterCustomers, categories: filterCategories, paymentStatuses: filterPayments, scannedStatuses: filterScanned, dateFrom: filterDateFrom, dateTo: filterDateTo, month: filterMonth, createdFrom, createdTo, statuses: filterStatuses, search });
-  }), [invoices, viewDrRaw, filterCustomers, filterDateFrom, filterDateTo, filterMonth, createdFrom, createdTo, filterStatuses, search, filterCategories, filterPayments, filterScanned]);
+    return matchesInvoiceFilters(invoice, { customers: filterCustomers, categories: filterCategories, paymentStatuses: filterPayments, scannedStatuses: filterScanned, dateFrom: filterDateFrom, dateTo: filterDateTo, month: filterMonth, createdFrom, createdTo, search });
+  }), [invoices, viewDrRaw, filterCustomers, filterDateFrom, filterDateTo, filterMonth, createdFrom, createdTo, search, filterCategories, filterPayments, filterScanned]);
+  const displayInvoices = useMemo(() => matchingInvoices.filter(invoice => !filterStatuses.length || filterStatuses.includes(invoice.status)), [matchingInvoices, filterStatuses]);
   const report = useMemo(() => buildServiceInvoiceSummaryReport(displayInvoices, "all"), [displayInvoices]);
   const appliedFilters = [
     `Creation date (PH): ${createdFrom || "Any"} to ${createdTo || "Any"}`,
@@ -1166,8 +1168,8 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
 
   return (
     <>
-      <div className="p-6 space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-semibold">Service Invoices</h1><Button onClick={openCreateModal} className="bg-blue-600 text-white hover:bg-blue-700"><Plus className="mr-2 h-4 w-4" />Create New</Button></div>
+      <div className="p-3 sm:p-6 space-y-6 min-w-0">
+        <DocumentRegisterHeader eyebrow="Invoice management" title="Service Invoices" description="Review invoices, scanned copies, and payment labels." loading={loading} actions={<Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />Create New</Button>} cards={["all", "created", "draft", "cancelled", "void"].map(status => ({ label: status === "all" ? "Total" : status.charAt(0).toUpperCase() + status.slice(1), count: matchingInvoices.filter(invoice => status === "all" || invoice.status === status).length, selected: status === "all" ? filterStatuses.length === 0 : filterStatuses.length === 1 && filterStatuses[0] === status, onClick: () => setFilterStatuses(status === "all" ? [] : [status]) }))} />
         <Tabs value={activeTab} onValueChange={changeTab}>
           {isAdmin && <TabsList aria-label="Service invoice views"><TabsTrigger value="invoices">Invoices</TabsTrigger><TabsTrigger value="summary">Summary</TabsTrigger></TabsList>}
           <TabsContent value="invoices" className="space-y-6">

@@ -17,6 +17,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { EntityTable, ArrowUpDown } from "@/components/ui/entity-table";
+import { DocumentRegisterHeader } from "@/components/document-register-header";
+import { matchesDocumentSearch } from "@/lib/document-register";
 import {
   Plus,
   Trash2,
@@ -105,6 +107,8 @@ export default function DeliveryReleasePage() {
   const [receipts, setReceipts] = useState<DeliveryReceiptSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [assignedToFilter, setAssignedToFilter] = useState("all");
+  const [registerSearch, setRegisterSearch] = useState("");
+  const [registerStatus, setRegisterStatus] = useState("all");
   const [linkedDocumentFilter, setLinkedDocumentFilter] = useState("all");
 
   /* Reference data (shared) */
@@ -500,6 +504,7 @@ export default function DeliveryReleasePage() {
   const filteredReceipts = useMemo(
     () => {
       const filtered = receipts.filter((receipt) => {
+        if (!matchesDocumentSearch(registerSearch, [receipt.drNumber, receipt.companyName, deliveryReferenceDisplay(receipt), receipt.date, receipt.deliveredBy, receipt.status])) return false;
         const matchesAssignee =
           assignedToFilter === "all" ||
           getDeliveryAssigneeKey(receipt) === assignedToFilter;
@@ -517,7 +522,7 @@ export default function DeliveryReleasePage() {
         return activityDifference || b.drNumber - a.drNumber;
       });
     },
-    [assignedToFilter, linkedDocumentFilter, receipts, siLookup],
+    [assignedToFilter, linkedDocumentFilter, receipts, siLookup, registerSearch],
   );
 
   /* Table columns */
@@ -1264,21 +1269,14 @@ export default function DeliveryReleasePage() {
   return (
     <>
       <div className="p-3 sm:p-6 space-y-6 min-w-0">
-        <div className="rounded-lg border bg-card p-4 sm:p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Delivery management</p>
-          <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
-            <div><h1 className="text-2xl font-semibold tracking-tight">Delivery receipts</h1><p className="text-sm text-muted-foreground">Review deliveries and manage documents.</p></div>
-            <Button onClick={openCreateModal} className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"><Plus className="mr-2 h-4 w-4" />New delivery receipt</Button>
-          </div>
-          <div className="mt-4 grid grid-cols-3 gap-2 sm:max-w-xl sm:gap-3">
-            {[{ label: "Receipts", value: filteredReceipts.length }, { label: "Created", value: filteredReceipts.filter(r => r.status !== "draft").length }, { label: "Drafts", value: filteredReceipts.filter(r => r.status === "draft").length }].map(metric => <div key={metric.label} className="rounded-md bg-muted/60 px-3 py-2"><span className="block text-xs text-muted-foreground">{metric.label}</span><strong className="text-xl tabular-nums">{metric.value}</strong></div>)}
-          </div>
-        </div>
+        <DocumentRegisterHeader eyebrow="Delivery management" title="Delivery receipts" description="Review deliveries and manage documents." loading={loading} actions={<Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />New delivery receipt</Button>} cards={["all", "created", "draft"].map(status => ({ label: status === "all" ? "Total" : status === "draft" ? "Draft" : "Created", count: filteredReceipts.filter(receipt => status === "all" || (receipt.status === "draft" ? "draft" : "created") === status).length, selected: registerStatus === status, onClick: () => setRegisterStatus(status) }))} />
         <EntityTable
           mobileLayout={{ primary: ["drNumber", "companyName", "reference", "status", "date", "itemCount"], labels: { drNumber: "DR number", companyName: "Customer", reference: "Sales Order / TR No.", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Delivery Receipts"
           columns={columns}
-          data={filteredReceipts}
+          data={filteredReceipts.filter(receipt => registerStatus === "all" || (receipt.status === "draft" ? "draft" : "created") === registerStatus)}
+          searchValue={registerSearch}
+          onSearchChange={setRegisterSearch}
           loading={loading}
           onCreateNew={undefined}
           toolbarFilters={

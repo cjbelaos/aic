@@ -9,6 +9,8 @@ import { isAxiosError } from "axios";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
 import { EntityTable } from "@/components/ui/entity-table";
+import { DocumentRegisterHeader } from "@/components/document-register-header";
+import { matchesDocumentSearch } from "@/lib/document-register";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import {
   QuotationForm,
@@ -118,6 +120,7 @@ export default function QuotationsPage() {
   const [previewLoading, setPreviewLoading] = useState<string | null>(null);
   const [customerEmail, setCustomerEmail] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [preparedByFilter, setPreparedByFilter] = useState("all");
   const [fileFilter, setFileFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -254,11 +257,13 @@ export default function QuotationsPage() {
     } finally { setPreviewLoading(null); }
   };
 
-  const filteredQuotations = data.filter(q =>
-    (statusFilter === "all" || q.status === statusFilter) &&
+  const quotationStatus = (q: Quotation) => isDraftQuotationReference(q.quotationNo) ? "DRAFT" : q.status;
+  const matchingQuotations = data.filter(q =>
+    matchesDocumentSearch(search, [q.quotationNo, q.customer, q.description, q.amount, q.discount, quotationStatus(q), q.date, q.preparedBy]) &&
     (preparedByFilter === "all" || q.preparedBy === preparedByFilter) &&
     (fileFilter === "all" || (fileFilter === "with-pdf" ? !!q.file : !q.file))
   ).sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+  const filteredQuotations = matchingQuotations.filter(q => statusFilter === "all" || quotationStatus(q) === statusFilter);
   const printableModal = printQuotation && <QuotationPreviewModal key={printQuotation.quotationNo} quotation={printQuotation} customerEmail={customerEmail ?? undefined} onClose={() => { setPrintQuotation(null); setCustomerEmail(null); }} onSaved={() => void loadQuotations()} />;
 
   /** Handle "View" action - fetch full quot data and show read-only */
@@ -932,16 +937,15 @@ export default function QuotationsPage() {
   // Default: List Mode
   return (
     <>
-      <div className="rounded-lg border bg-card p-4 sm:p-5 mb-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Quotation management</p>
-        <div className="mt-1 flex flex-wrap justify-between gap-3"><div><h1 className="text-2xl font-semibold">Quotations</h1><p className="text-sm text-muted-foreground">Review quotations and manage printable documents.</p></div><Button onClick={() => setViewMode("create")}><Plus className="mr-2 h-4 w-4" />New quotation</Button></div>
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:max-w-xl">{[{ label: "Quotations", value: filteredQuotations.length }, { label: "Saved", value: filteredQuotations.filter(q => q.status === "SAVED").length }, { label: "Sent", value: filteredQuotations.filter(q => q.status === "SENT").length }, { label: "Drafts", value: filteredQuotations.filter(q => isDraftQuotationReference(q.quotationNo)).length }].map(metric => <div key={metric.label} className="rounded-md bg-muted/60 px-3 py-2"><span className="block text-xs text-muted-foreground">{metric.label}</span><strong className="text-xl tabular-nums">{metric.value}</strong></div>)}</div>
-      </div>
+      <div className="p-3 sm:p-6 space-y-6 min-w-0">
+      <DocumentRegisterHeader eyebrow="Quotation management" title="Quotations" description="Review quotations and manage printable documents." loading={loading} actions={<Button onClick={() => setViewMode("create")}><Plus className="mr-2 h-4 w-4" />New quotation</Button>} cards={[{ label: "Total", count: matchingQuotations.length, selected: statusFilter === "all", onClick: () => setStatusFilter("all") }, ...["SAVED", "SENT", "DRAFT"].map(status => ({ label: status === "DRAFT" ? "Draft" : status === "SAVED" ? "Saved" : "Sent", count: matchingQuotations.filter(q => quotationStatus(q) === status).length, selected: statusFilter === status, onClick: () => setStatusFilter(status) }))]} />
       {printableModal}
       <EntityTable
         title="Quotation List"
         columns={columns}
         data={filteredQuotations}
+        searchValue={search}
+        onSearchChange={setSearch}
         loading={loading}
         headerActions={<Button variant="outline" disabled={loading} onClick={() => { setLoading(true); void loadQuotations().finally(() => setLoading(false)); }}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>}
         toolbarFilters={<>
@@ -960,6 +964,7 @@ export default function QuotationsPage() {
         onConfirm={confirmDelete}
         onClose={() => setDeleteTarget(null)}
       />
+      </div>
     </>
   );
 }
