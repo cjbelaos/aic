@@ -46,6 +46,7 @@ import {
   FileText,
   CheckCircle2,
   RotateCcw,
+  Recycle,
   X,
   Check,
 } from "lucide-react";
@@ -765,7 +766,7 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
               {!locked && (
                 <>
                   {row.original.status === "created" && !row.original.replacementInvoiceNo && (
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="Cancel and create corrected copy" aria-label="Cancel and create corrected copy" disabled={!!correctingInvoiceNo || row.original.paymentStatus !== "unpaid"} onClick={() => { setCancelTarget(row.original); setCancelReason(""); }}>{correctingInvoiceNo === row.original.invoiceNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="flex items-center" aria-hidden="true"><X className="h-3 w-3" /><Check className="h-3 w-3" /></span>}</Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="Cancel and create corrected copy" aria-label="Cancel and create corrected copy" disabled={!!correctingInvoiceNo || row.original.paymentStatus !== "unpaid"} onClick={() => { setCancelTarget(row.original); setCancelReason(""); }}>{correctingInvoiceNo === row.original.invoiceNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Recycle className="h-4 w-4" aria-hidden="true" />}</Button>
                   )}
                   <Button
                     variant="ghost"
