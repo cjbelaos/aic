@@ -79,6 +79,8 @@ export interface ServiceInvoiceResponse {
 }
 
 export interface ServiceInvoiceSummary {
+  manualCategories?: string[];
+  categorySource?: "automatic" | "manual" | "uncategorized";
   /** Derived from the linked Sales Order, or PMS for a contract-only invoice. */
   category?: string;
   invoiceNo: string;

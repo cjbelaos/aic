@@ -19,6 +19,8 @@ import { resolveDeliveryReceiptDeliveredBy, resolveDeliveryReceiptReferences } f
 import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/documentHandoverSheets";
 import { getOrderDetail, postFulfillments, type Actor } from "@/lib/salesOrders/service";
 import { getProducts } from "@/lib/productSheets";
+import { validateManualCategories } from "@/lib/serviceInvoiceFilters";
+import { readSalesOrderById } from "@/lib/salesOrders/repository";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
@@ -184,6 +186,7 @@ type DeliveredByResolution = {
 };
 
 type ManualCompletionData = {
+  manualCategories?: string[];
   replacesInvoiceNo?: string;
   replacementInvoiceNo?: string;
   status?: "COMPLETED" | "REVERSED";
@@ -405,6 +408,7 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           salesOrderId: String(row[18] ?? "").trim() || undefined,
           referenceMode: row[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
           manualCompletionStatus: manualCompletion.status,
+          manualCategories: manualCompletion.manualCategories,
           manualCompletionDate: manualCompletion.completionDate,
           manualCompletionTechnicianId: manualCompletion.technicianId,
           manualCompletionTechnicianName: manualCompletion.technicianName,
@@ -749,6 +753,27 @@ export async function processServiceInvoice(
 
 export interface UpdateServiceInvoicePayload extends Partial<CreateServiceInvoicePayload> {
   status?: string;
+  manualCategories?: string[];
+}
+
+/** Category-only update: preserve invoice money, PDF links and completion history. */
+export async function updateServiceInvoiceCategory(invoiceNo: string, value: unknown, userId: string): Promise<void> {
+  const manualCategories = validateManualCategories(value);
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+  if (rowNumber <= 1) throw new Error("Invoice not found.");
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:U${rowNumber}` });
+  const row = response.data.values?.[0] ?? [];
+  if (["cancelled", "void", "deleted"].includes(String(row[8]))) throw new Error("This Service Invoice can no longer be edited.");
+  const dr = String(row[11] ?? "").trim();
+  const orderId = dr ? (await resolveDeliveryReceiptReferences(Number(dr))).salesOrderId : String(row[18] ?? "").trim();
+  const automatic = orderId ? (await readSalesOrderById(orderId)) ? (await getOrderDetail(orderId)).category : "Uncategorized" : row[10] ? "PMS" : "Uncategorized";
+  if (automatic && automatic !== "Uncategorized") throw new Error("Invoice category is automatically assigned by its Sales Order or PMS contract.");
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "RAW", data: [
+    { range: `${SERVICE_INVOICES_SHEET}!T${rowNumber}`, values: [[JSON.stringify({ ...parseManualCompletionData(row[19]), manualCategories })]] },
+    { range: `${SERVICE_INVOICES_SHEET}!G${rowNumber}:H${rowNumber}`, values: [[userId, new Date().toISOString()]] },
+  ] } });
 }
 
 /** A paper invoice can only be replaced before any payment is recorded. */
@@ -787,7 +812,7 @@ export async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, 
   const replacementRowNumber = await findInvoiceRow(sheets, spreadsheetId, replacementNo);
   const replacementRow = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!T${replacementRowNumber}` });
   await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data: [
-    { range: `${SERVICE_INVOICES_SHEET}!T${replacementRowNumber}`, values: [[JSON.stringify({ ...parseManualCompletionData(replacementRow.data.values?.[0]?.[0]), replacesInvoiceNo: invoiceNo })]] },
+    { range: `${SERVICE_INVOICES_SHEET}!T${replacementRowNumber}`, values: [[JSON.stringify({ ...parseManualCompletionData(replacementRow.data.values?.[0]?.[0]), manualCategories: metadata.manualCategories, replacesInvoiceNo: invoiceNo })]] },
     { range: `${SERVICE_INVOICES_SHEET}!G${rowNumber}:I${rowNumber}`, values: [[userId, new Date().toISOString(), "cancelled"]] },
     { range: `${SERVICE_INVOICES_SHEET}!T${rowNumber}`, values: [[JSON.stringify({ ...metadata, replacementInvoiceNo: replacementNo })]] },
   ] } });
@@ -801,6 +826,7 @@ export async function updateServiceInvoice(
   userId = "",
 ): Promise<ServiceInvoiceSummary> {
   try {
+    if (payload.manualCategories !== undefined) validateManualCategories(payload.manualCategories);
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
@@ -922,7 +948,7 @@ export async function updateServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      String(currentRow[19] ?? "").trim(), // T: ManualCompletionData
+      payload.manualCategories !== undefined ? JSON.stringify({ ...parseManualCompletionData(currentRow[19]), manualCategories: validateManualCategories(payload.manualCategories) }) : String(currentRow[19] ?? "").trim(), // T: metadata
       payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // U: ReferenceMode
     ];
 

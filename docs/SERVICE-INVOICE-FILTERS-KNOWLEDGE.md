@@ -39,3 +39,11 @@ Source repository: `C:\Users\chris\aic`.
 - `scripts/sales-order-tests/invoice-filters-test.ts`: category fallback, combined filters, inclusive dates, and month/year regression checks.
 
 The quotation conversion creates a Project line named "Combined total as quoted" for single-total quotations. Because Project wins, such an order displays Project even if it also includes service lines. Categories are calculated on read; no Google Sheets schema migration or stored-line rewrite is required.
+
+# Manual categories for legacy invoices
+
+Any editable Uncategorized invoice can be manually categorized, including created/paid invoices, using the clickable category label or Edit Invoice. Allowed selections: Service, Project, PMS, Parts, Consumables, Supplies, Treatment Package. Project wins, then Service; other selections combine. Manual selections can be revised or cleared. Linked Sales Order categories and contract-only PMS take priority over manual selections on read.
+
+Selections are stored as `manualCategories` in the existing ServiceInvoices column T metadata JSON, preserving completion and corrected-copy history. Category-only PATCH uses the same authenticated edit access and updates only metadata and audit fields, without modifying amounts or PDFs. Corrected drafts inherit manual selections. No schema migration is required. Regression checks: `node scripts/test-service-invoice-category.cjs` and `npm run test:sales-orders`.
+
+The Cancel and create corrected copy action is a single X/check icon button with the full tooltip/accessibility label; existing action behavior is retained.

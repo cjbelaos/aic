@@ -9,6 +9,14 @@ import type { UpdateServiceInvoicePayload } from "@/lib/serviceInvoiceSheets";
 const API_BASE_URL = "/api/service-invoices";
 
 const serviceInvoiceService = {
+  updateCategory: async (invoiceNo: string, manualCategories: string[]): Promise<void> => {
+    try {
+      await axios.patch(`${API_BASE_URL}/${encodeURIComponent(invoiceNo)}`, { manualCategories });
+    } catch (error) {
+      if (axios.isAxiosError<{ error?: string }>(error) && error.response?.data.error) throw new Error(error.response.data.error);
+      throw error;
+    }
+  },
   getAll: async (): Promise<ServiceInvoiceSummary[]> => {
     try {
       const response = await axios.get<ServiceInvoiceSummary[]>(API_BASE_URL);

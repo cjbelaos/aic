@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import {
   updateServiceInvoice,
+  updateServiceInvoiceCategory,
   deleteServiceInvoice,
   populateAndExportServiceInvoiceFormPdf,
   resolvePreparedByPosition,
@@ -145,6 +146,21 @@ export async function GET(
   }
 }
 
+export async function PATCH(request: Request, { params }: { params: Promise<{ invoiceNo: string }> }) {
+  const session = await requireAuthenticatedSession();
+  if (session instanceof Response) return session;
+  try {
+    const { invoiceNo } = await params;
+    const body = await request.json();
+    await updateServiceInvoiceCategory(decodeURIComponent(invoiceNo).trim(), body.manualCategories, session.userId);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update invoice category.";
+    const status = /not found/i.test(message) ? 404 : /Invalid invoice category|automatically assigned|no longer be edited/i.test(message) ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ invoiceNo: string }> },
@@ -167,7 +183,7 @@ export async function PUT(
       error instanceof Error
         ? error.message
         : "Failed to update service invoice.";
-    const isValidationError = /Assigned Technician|Delivery Receipt|Sales Order|different customer/i.test(message);
+    const isValidationError = /Assigned Technician|Delivery Receipt|Sales Order|different customer|Invalid invoice category/i.test(message);
     return NextResponse.json({ error: message }, { status: isValidationError ? 400 : 500 });
   }
 }

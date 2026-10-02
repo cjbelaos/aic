@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { FilterMultiSelect } from "@/components/ui/filter-multi-select";
+import { InvoiceCategoryPicker } from "@/components/invoice-category-picker";
 import { matchesInvoiceFilters } from "@/lib/serviceInvoiceFilters";
 import {
   Dialog,
@@ -40,6 +41,8 @@ import {
   FileText,
   CheckCircle2,
   RotateCcw,
+  X,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -158,6 +161,10 @@ export default function ServiceInvoicesPage() {
   );
   const [editDate, setEditDate] = useState("");
   const [editStatus, setEditStatus] = useState("created");
+  const [editManualCategories, setEditManualCategories] = useState<string[]>([]);
+  const [categoryTarget, setCategoryTarget] = useState<ServiceInvoiceSummary | null>(null);
+  const [manualCategories, setManualCategories] = useState<string[]>([]);
+  const [savingCategory, setSavingCategory] = useState(false);
   const [editInvoiceNo, setEditInvoiceNo] = useState("");
   const [correctingInvoiceNo, setCorrectingInvoiceNo] = useState<string | null>(null);
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
@@ -626,7 +633,12 @@ export default function ServiceInvoicesPage() {
         accessorKey: "companyName",
         header: "Customer",
       },
-      { accessorKey: "category", header: "Category", cell: ({ getValue }) => String(getValue() || "Uncategorized") },
+      { accessorKey: "category", header: "Category", cell: ({ getValue, row }) => {
+        const invoice = row.original;
+        const label = String(getValue() || "Uncategorized");
+        const editable = invoice.categorySource !== "automatic" && (label === "Uncategorized" || invoice.categorySource === "manual") && !["cancelled", "void", "deleted"].includes(invoice.status);
+        return editable ? <Button variant="ghost" size="sm" className="h-auto whitespace-normal px-1 text-left underline decoration-dotted" title="Update invoice category" onClick={(event) => { event.stopPropagation(); setManualCategories(invoice.manualCategories ?? []); setCategoryTarget(invoice); }}>{label}</Button> : label;
+      } },
       {
         accessorKey: "preparedBy",
         header: "Prepared By",
@@ -834,7 +846,7 @@ export default function ServiceInvoicesPage() {
               {!locked && (
                 <>
                   {row.original.status === "created" && !row.original.replacementInvoiceNo && (
-                    <Button variant="outline" size="sm" disabled={!!correctingInvoiceNo} onClick={async () => {
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="Cancel and create corrected copy" aria-label="Cancel and create corrected copy" disabled={!!correctingInvoiceNo} onClick={async () => {
                       setCorrectingInvoiceNo(row.original.invoiceNo);
                       try {
                         const replacementNo = await serviceInvoiceService.cancelAndCreateCorrectedCopy(row.original.invoiceNo);
@@ -845,7 +857,7 @@ export default function ServiceInvoicesPage() {
                       } catch (error: any) {
                         toast.error(error?.response?.data?.error || "Could not create corrected copy.");
                       } finally { setCorrectingInvoiceNo(null); }
-                    }}>Cancel and create corrected copy</Button>
+                    }}>{correctingInvoiceNo === row.original.invoiceNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="flex items-center" aria-hidden="true"><X className="h-3 w-3" /><Check className="h-3 w-3" /></span>}</Button>
                   )}
                   <Button
                     variant="ghost"
@@ -1063,6 +1075,7 @@ export default function ServiceInvoicesPage() {
     if (editTarget) {
       setEditDate(editTarget.date);
       setEditStatus(editTarget.status || "created");
+      setEditManualCategories(editTarget.manualCategories ?? []);
       setEditInvoiceNo("");
       setEditLineItems(
         editTarget.items.map((item) => ({
@@ -1108,6 +1121,7 @@ export default function ServiceInvoicesPage() {
         invoiceNo: editTarget.replacesInvoiceNo && editStatus !== "draft" ? editInvoiceNo.trim() : undefined,
         date: editDate,
         status: editStatus,
+        manualCategories: editTarget.categorySource === "automatic" ? undefined : editManualCategories,
         items: editLineItems
           .filter((li) => li.description.trim())
           .map((li) => ({
@@ -1261,6 +1275,19 @@ export default function ServiceInvoicesPage() {
       </div>
 
       {/* Create Invoice Dialog */}
+      <Dialog open={!!categoryTarget} onOpenChange={(open) => { if (!open && !savingCategory) setCategoryTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Category for invoice #{categoryTarget?.invoiceNo}</DialogTitle></DialogHeader>
+          <InvoiceCategoryPicker values={manualCategories} onChange={setManualCategories} disabled={savingCategory} />
+          <DialogFooter><Button variant="outline" disabled={savingCategory} onClick={() => setCategoryTarget(null)}>Cancel</Button><Button disabled={savingCategory} onClick={async () => {
+            if (!categoryTarget) return;
+            setSavingCategory(true);
+            try { await serviceInvoiceService.updateCategory(categoryTarget.invoiceNo, manualCategories); await fetchList(); setCategoryTarget(null); toast.success("Invoice category updated."); }
+            catch (error) { toast.error(error instanceof Error ? error.message : "Failed to update invoice category."); }
+            finally { setSavingCategory(false); }
+          }}>{savingCategory && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save category</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
           className="sm:max-w-[80vw] max-h-[90vh] overflow-y-auto"
@@ -1510,6 +1537,7 @@ export default function ServiceInvoicesPage() {
           <div className="space-y-6">
             {editTarget?.replacesInvoiceNo && <div className="space-y-2"><p>Replaces cancelled invoice #{editTarget.replacesInvoiceNo}</p>{editTarget.status === "draft" && <><Label>New number from physical form</Label><Input value={editInvoiceNo} onChange={(event) => setEditInvoiceNo(event.target.value)} placeholder="Required when finalizing" /></>}</div>}
             {editTarget?.replacementInvoiceNo && <p>Replacement invoice #{editTarget.replacementInvoiceNo}</p>}
+            {editTarget?.categorySource === "automatic" ? <p className="text-sm text-muted-foreground">Category: {editTarget.category} (from linked Sales Order or PMS contract)</p> : <InvoiceCategoryPicker values={editManualCategories} onChange={setEditManualCategories} disabled={editSubmitting} />}
             {/* Row 1: Customer (read-only), Date, Status */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
               <div className="space-y-1.5">

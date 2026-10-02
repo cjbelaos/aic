@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { categoryForInvoice, invoiceCategory, matchesInvoiceFilters, type InvoiceFilters } from "../../src/lib/serviceInvoiceFilters.ts";
+import { categoryForInvoice, invoiceCategory, matchesInvoiceFilters, manualCategoryLabel, validateManualCategories, type InvoiceFilters } from "../../src/lib/serviceInvoiceFilters.ts";
 
 const categories = new Map([["so1", "Service"], ["so2", "Project"]]);
 assert.equal(invoiceCategory("so1", "contract1", categories), "Service");
@@ -7,6 +7,17 @@ assert.equal(invoiceCategory(undefined, "contract1", categories), "PMS");
 assert.equal(invoiceCategory(undefined, undefined, categories), "Uncategorized");
 assert.equal(invoiceCategory("missing", "contract1", categories), "Uncategorized");
 const deliveryLinks = new Map([[42, "so2"]]);
+assert.deepEqual(validateManualCategories(["Parts", "Parts", "Consumables"]), ["Parts", "Consumables"]);
+assert.throws(() => validateManualCategories(["Mixed"]), /Invalid invoice category/);
+assert.throws(() => validateManualCategories("Parts"), /Invalid invoice category/);
+assert.equal(manualCategoryLabel(["Consumables", "Parts"]), "Parts / Consumables");
+assert.equal(manualCategoryLabel(["Service", "Parts"]), "Service");
+assert.equal(manualCategoryLabel(["Service", "Project"]), "Project");
+assert.equal(manualCategoryLabel([]), "Uncategorized");
+assert.equal(categoryForInvoice({ manualCategories: ["Parts", "Consumables"] }, categories, deliveryLinks), "Parts / Consumables");
+assert.equal(categoryForInvoice({ salesOrderId: "so1", manualCategories: ["Project"] }, categories, deliveryLinks), "Service");
+assert.equal(categoryForInvoice({ contractId: "contract1", manualCategories: ["Project"] }, categories, deliveryLinks), "PMS");
+assert.equal(categoryForInvoice({ salesOrderId: "missing", manualCategories: ["Service"] }, categories, deliveryLinks), "Service");
 assert.equal(categoryForInvoice({ drNumber: 42, salesOrderId: "so1" }, categories, deliveryLinks), "Project");
 assert.equal(categoryForInvoice({ drNumber: 42 }, categories, deliveryLinks), "Project");
 assert.equal(categoryForInvoice({ salesOrderId: "so1" }, categories, deliveryLinks), "Service");

@@ -29,7 +29,11 @@ export async function GET() {
       itemsByOrder.set(item.salesOrderId, group);
     }
     const categories = new Map(snapshot.orders.map((order) => [order.salesOrderId, deriveOrderCategory(itemsByOrder.get(order.salesOrderId) ?? [])]));
-    return NextResponse.json(invoices.map((invoice) => ({ ...invoice, category: categoryForInvoice(invoice, categories, deliveryLinks) })), { status: 200 });
+    return NextResponse.json(invoices.map((invoice) => {
+      const automatic = categoryForInvoice({ ...invoice, manualCategories: undefined }, categories, deliveryLinks);
+      const category = categoryForInvoice(invoice, categories, deliveryLinks);
+      return { ...invoice, category, categorySource: automatic !== "Uncategorized" ? "automatic" : category !== "Uncategorized" ? "manual" : "uncategorized" };
+    }), { status: 200 });
   } catch (error) {
     const message =
       error instanceof Error
