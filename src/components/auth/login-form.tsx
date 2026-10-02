@@ -1,20 +1,33 @@
 "use client";
 
-import { useState, type FormEvent, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowRight, User, Lock, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  useTransition,
+} from "react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Loader2, Lock, User, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import authService from "@/lib/services/auth.service";
 import { GoogleTokenPanel } from "@/components/auth/google-token-panel";
+
+/**
+ * BRAND COLORS: change these 4 values to match your logo and the whole
+ * login page follows. Tip: pick them straight from the logo file.
+ *  - deep:   darkest logo color (side panel background, headings)
+ *  - main:   primary logo color (button, focus rings, links)
+ *  - accent: secondary logo color (small highlights only)
+ *  - soft:   very light tint of the main color (page background)
+ */
+const BRAND = {
+  "--brand-deep": "#12285f", // navy of the drop
+  "--brand-main": "#1f56a8", // mid blue of the drop
+  "--brand-accent": "#5f9f2f", // green of the leaf
+  "--brand-soft": "#f2f7fa", // pale blue-green tint
+} as CSSProperties;
 
 interface FieldErrors {
   username?: string;
@@ -26,14 +39,15 @@ export function LoginForm() {
   const [isPending, startTransition] = useTransition();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [serverError, setServerError] = useState("");
 
   /** Per-field validation — returns true if form is valid */
   const validate = (): boolean => {
     const errors: FieldErrors = {};
-    if (!username.trim()) errors.username = "Username is required.";
-    if (!password) errors.password = "Password is required.";
+    if (!username.trim()) errors.username = "Enter your username.";
+    if (!password) errors.password = "Enter your password.";
     else if (password.length < 6)
       errors.password = "Password must be at least 6 characters.";
     setFieldErrors(errors);
@@ -46,7 +60,6 @@ export function LoginForm() {
 
     if (!validate()) return;
 
-    // Execute via React Transition context to handle async states natively
     startTransition(async () => {
       try {
         const res = await authService.login({
@@ -102,7 +115,6 @@ export function LoginForm() {
 
         router.replace("/dashboard");
       } catch (err) {
-        // setServerError("Unable to connect to the server. Please try again.");
         setServerError(
           err instanceof Error
             ? err.message
@@ -112,56 +124,98 @@ export function LoginForm() {
     });
   };
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50 px-4 py-12">
-      <Card className="relative w-full max-w-md overflow-hidden border-slate-200/80 bg-white/90 shadow-xl shadow-blue-900/5 backdrop-blur-md">
-        {/* Top brand accent bar */}
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-blue-500 to-emerald-500" />
+  const inputBase =
+    "h-11 border-slate-300 bg-white pl-10 text-slate-900 placeholder:text-slate-400 " +
+    "focus-visible:border-[var(--brand-main)] focus-visible:ring-2 focus-visible:ring-[var(--brand-main)]/25";
+  const inputError =
+    "border-red-400 focus-visible:border-red-500 focus-visible:ring-red-400/30";
 
-        <CardHeader className="space-y-4 pt-8">
-          <div className="flex justify-center">
-            <div className="relative flex h-20 w-20 items-center justify-center">
+  return (
+    <div
+      style={BRAND}
+      className="grid min-h-screen bg-[var(--brand-soft)] lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]"
+    >
+      {/* Brand panel (desktop only) */}
+      <aside className="relative hidden overflow-hidden bg-[var(--brand-deep)] lg:flex lg:flex-col lg:items-center lg:justify-center lg:p-12">
+        {/* Soft color glows taken from the logo palette */}
+        <div
+          aria-hidden
+          className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-[var(--brand-main)] opacity-40 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="absolute -right-24 -bottom-32 h-96 w-96 rounded-full bg-[var(--brand-accent)] opacity-25 blur-3xl"
+        />
+
+        <div className="relative flex max-w-sm flex-col items-center text-center">
+          {/* White tile keeps the logo readable whatever its background is */}
+          <div className="flex h-36 w-36 items-center justify-center rounded-3xl bg-white p-5 shadow-2xl shadow-black/30">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt="Company logo"
+              className="h-full w-full object-contain"
+            />
+          </div>
+          <h2 className="mt-10 text-3xl font-semibold leading-tight tracking-tight text-white">
+            Everything your team needs, in one place.
+          </h2>
+          <p className="mt-4 text-base leading-relaxed text-white/70">
+            Sign in to manage your work, your people, and your reports.
+          </p>
+          <div
+            aria-hidden
+            className="mt-10 h-1 w-16 rounded-full bg-[var(--brand-accent)]"
+          />
+        </div>
+      </aside>
+
+      {/* Form side */}
+      <main className="flex items-center justify-center px-5 py-12 sm:px-8">
+        <div className="w-full max-w-sm">
+          {/* Logo shown on mobile, where the brand panel is hidden */}
+          <div className="mb-8 flex justify-center lg:hidden">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white p-3 shadow-md ring-1 ring-slate-200">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/logo.png"
-                alt="Company Logo"
+                alt="Company logo"
                 className="h-full w-full object-contain"
               />
             </div>
           </div>
-          <div className="space-y-1.5 text-center">
-            <CardTitle className="text-2xl font-bold tracking-tight text-slate-900">
-              Welcome back
-            </CardTitle>
-            <CardDescription className="text-sm text-slate-500">
-              Sign in to access your dashboard and system features.
-            </CardDescription>
-          </div>
-        </CardHeader>
 
-        <CardContent>
+          <div className="mb-8 text-center lg:text-left">
+            <h1 className="text-3xl font-semibold tracking-tight text-[var(--brand-deep)]">
+              Welcome back
+            </h1>
+            <p className="mt-2 text-base text-slate-600">
+              Sign in with your username and password.
+            </p>
+          </div>
+
           <form className="space-y-5" onSubmit={handleSubmit} noValidate>
-            {/* Server-level error */}
             {serverError && (
-              <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5">
-                <span className="mt-0.5 text-red-500">⚠</span>
-                <p className="text-sm font-medium text-red-600">
-                  {serverError}
-                </p>
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                <p className="text-sm text-red-700">{serverError}</p>
               </div>
             )}
 
             {/* Username */}
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label
                 htmlFor="username"
-                className="text-xs font-semibold uppercase tracking-wider text-slate-600"
+                className="text-sm font-medium text-slate-700"
               >
                 Username
               </Label>
               <div className="relative">
                 <User
-                  className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${
+                  className={`pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 ${
                     fieldErrors.username ? "text-red-400" : "text-slate-400"
                   }`}
                 />
@@ -170,13 +224,13 @@ export function LoginForm() {
                   type="text"
                   placeholder="Enter your username"
                   autoComplete="username"
+                  autoFocus
                   disabled={isPending}
                   aria-invalid={!!fieldErrors.username}
-                  className={`pl-10 text-slate-900 ${
-                    fieldErrors.username
-                      ? "border-red-400 focus-visible:ring-red-400"
-                      : "focus-visible:ring-blue-500"
-                  }`}
+                  aria-describedby={
+                    fieldErrors.username ? "username-error" : undefined
+                  }
+                  className={`${inputBase} ${fieldErrors.username ? inputError : ""}`}
                   value={username}
                   onChange={(e) => {
                     setUsername(e.target.value);
@@ -187,36 +241,37 @@ export function LoginForm() {
                 />
               </div>
               {fieldErrors.username && (
-                <p className="text-xs text-red-500">{fieldErrors.username}</p>
+                <p id="username-error" className="text-sm text-red-600">
+                  {fieldErrors.username}
+                </p>
               )}
             </div>
 
             {/* Password */}
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label
                 htmlFor="password"
-                className="text-xs font-semibold uppercase tracking-wider text-slate-600"
+                className="text-sm font-medium text-slate-700"
               >
                 Password
               </Label>
               <div className="relative">
                 <Lock
-                  className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${
+                  className={`pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 ${
                     fieldErrors.password ? "text-red-400" : "text-slate-400"
                   }`}
                 />
                 <Input
                   id="password"
-                  type="password"
-                  placeholder="••••••••"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
                   autoComplete="current-password"
                   disabled={isPending}
                   aria-invalid={!!fieldErrors.password}
-                  className={`pl-10 text-slate-900 ${
-                    fieldErrors.password
-                      ? "border-red-400 focus-visible:ring-red-400"
-                      : "focus-visible:ring-blue-500"
-                  }`}
+                  aria-describedby={
+                    fieldErrors.password ? "password-error" : undefined
+                  }
+                  className={`${inputBase} pr-11 ${fieldErrors.password ? inputError : ""}`}
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
@@ -225,17 +280,32 @@ export function LoginForm() {
                     setServerError("");
                   }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  disabled={isPending}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                  className="absolute top-1/2 right-1.5 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition-colors hover:text-[var(--brand-main)] focus-visible:ring-2 focus-visible:ring-[var(--brand-main)]/40 focus-visible:outline-none"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
               </div>
               {fieldErrors.password && (
-                <p className="text-xs text-red-500">{fieldErrors.password}</p>
+                <p id="password-error" className="text-sm text-red-600">
+                  {fieldErrors.password}
+                </p>
               )}
             </div>
 
-            {/* Submit */}
             <Button
               type="submit"
               disabled={isPending}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 font-medium text-white shadow-md transition-all hover:from-blue-700 hover:to-blue-800 active:scale-[0.99]"
+              className="h-11 w-full bg-[var(--brand-main)] text-base font-medium text-white shadow-sm transition-colors hover:bg-[var(--brand-deep)] focus-visible:ring-2 focus-visible:ring-[var(--brand-main)]/40 focus-visible:ring-offset-2 disabled:opacity-80"
             >
               {isPending ? (
                 <>
@@ -243,15 +313,12 @@ export function LoginForm() {
                   Signing in…
                 </>
               ) : (
-                <>
-                  Sign in
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </>
+                "Sign in"
               )}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </main>
 
       <GoogleTokenPanel />
     </div>
