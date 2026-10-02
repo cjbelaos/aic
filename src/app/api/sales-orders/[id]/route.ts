@@ -2,11 +2,14 @@ import { NextResponse } from "next/server";
 import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/salesOrders/http-helpers";
 import { deleteDraftOrder, getOrderDetail, updateOrder } from "@/lib/salesOrders/service";
 import { parseUpdateOrderInput } from "@/lib/salesOrders/validation";
-import { readSalesOrderById } from "@/lib/salesOrders/repository";
+import { readSalesOrderById, readSalesOrderItems } from "@/lib/salesOrders/repository";
 import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
 import { getUsers } from "@/lib/userSheets";
 import { syncSalesOrderDeliveryReferences } from "@/lib/deliverySheets";
 import { syncSalesOrderServiceInvoiceReferences } from "@/lib/serviceInvoiceSheets";
+import { getProducts } from "@/lib/productSheets";
+import { getProductCategories, getProductUnits } from "@/lib/productReferenceSheets";
+import { bindNewCatalogLines } from "@/lib/salesOrders/catalogBinding";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireSalesPermission("so.view");
@@ -46,6 +49,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   try {
     const body = await request.json();
     const input = parseUpdateOrderInput(body);
+    const previousItems = input.lines ? await readSalesOrderItems(id) : [];
+    const previousById = new Map(previousItems.map((item) => [item.salesOrderItemId, item]));
+    const changedIdentity = (line: NonNullable<typeof input.lines>[number]) => {
+      const previous = line.salesOrderItemId ? previousById.get(line.salesOrderItemId) : undefined;
+      return !previous || previous.lineType !== line.lineType || previous.productId !== line.productId;
+    };
+    const catalog = input.lines?.some((line) => changedIdentity(line) && (line.lineType === "SERVICE" || !!line.productId))
+      ? await Promise.all([getProducts(), getProductCategories(), getProductUnits()]) : null;
+    const lines = input.lines && catalog
+      ? bindNewCatalogLines(input.lines, { products: catalog[0], categories: catalog[1], units: catalog[2] }, changedIdentity)
+      : input.lines;
     const detail = await updateOrder(toActor(auth.session), id, {
       commandId: input.commandId,
       expectedVersion: input.expectedVersion,
@@ -64,7 +78,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       contactNameSnapshot: input.contactNameSnapshot,
       contactPhoneSnapshot: input.contactPhoneSnapshot,
       deliveryAddressSnapshot: input.deliveryAddressSnapshot,
-      lines: input.lines,
+      lines,
     });
     await syncSalesOrderToTracker(detail.order, detail.items);
     if (existing?.customerPONo !== detail.order.customerPONo) {

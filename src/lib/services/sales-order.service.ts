@@ -95,6 +95,8 @@ export interface OptionsResponse {
   terms: Array<{ paymentTermId: string; name: string }>;
   categories: Array<{ productCategoryId: string; categoryName: string }>;
   units: Array<{ unitId: string; unitCode: string; unitName: string }>;
+  serviceCategoryName: string | null;
+  serviceUnitId: string | null;
   quotations: Array<{ quotationNo: string; customer: string; customerId?: string; date: string; status: string; amount: number }>;
   products: Array<{ productId: string; productCode: string; productName: string; productCategoryId: string; unitId: string; defaultSellingPrice: number | null }>;
   orderCategories: string[];

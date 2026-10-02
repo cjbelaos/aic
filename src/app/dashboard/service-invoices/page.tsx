@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { FilterMultiSelect } from "@/components/ui/filter-multi-select";
+import { matchesInvoiceFilters } from "@/lib/serviceInvoiceFilters";
 import {
   Dialog,
   DialogContent,
@@ -67,6 +69,7 @@ import {
 } from "@/types/serviceInvoice";
 
 interface LineItem {
+  productId?: string;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -623,6 +626,7 @@ export default function ServiceInvoicesPage() {
         accessorKey: "companyName",
         header: "Customer",
       },
+      { accessorKey: "category", header: "Category", cell: ({ getValue }) => String(getValue() || "Uncategorized") },
       {
         accessorKey: "preparedBy",
         header: "Prepared By",
@@ -872,13 +876,15 @@ export default function ServiceInvoicesPage() {
   );
   /* When arriving with ?viewDR=<dr#>, only show the Service Invoices (SRs)
      linked to that Delivery Receipt. */
-  const displayInvoices = useMemo(() => {
-    if (!viewDrRaw) return invoices;
-    const target = String(viewDrRaw).trim();
-    return invoices.filter(
-      (inv) => inv.drNumber != null && String(inv.drNumber) === target,
-    );
-  }, [invoices, viewDrRaw]);
+  const [filterCustomers, setFilterCustomers] = useState<string[]>([]);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const customerFilterOptions = useMemo(() => [...new Map(invoices.map((invoice) => [invoice.customerId, { value: invoice.customerId, label: invoice.companyName }])).values()].sort((a, b) => a.label.localeCompare(b.label)), [invoices]);
+  const displayInvoices = useMemo(() => invoices.filter((invoice) => {
+    if (viewDrRaw && String(invoice.drNumber ?? "") !== String(viewDrRaw).trim()) return false;
+    return matchesInvoiceFilters(invoice, { customers: filterCustomers, categories: [], dateFrom: filterDateFrom, dateTo: filterDateTo, month: filterMonth });
+  }), [invoices, viewDrRaw, filterCustomers, filterDateFrom, filterDateTo, filterMonth]);
   const invoiceCards = useMemo(() => {
     const active = displayInvoices.filter((invoice) => invoice.status === "created" || invoice.status === "paid");
     const activeValue = active.reduce((sum, invoice) => sum + invoice.items.reduce((itemSum, item) => itemSum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0), 0);
@@ -918,7 +924,7 @@ export default function ServiceInvoicesPage() {
     value: string | number,
   ) => {
     setLineItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+      prev.map((item, i) => (i === index ? { ...item, [field]: value, ...(field === "description" ? { productId: undefined } : {}) } : item)),
     );
   };
 
@@ -961,6 +967,7 @@ export default function ServiceInvoicesPage() {
         customerId: selectedCustomer,
         preparedBy,
         items: lineItems.map((li) => ({
+          productId: li.productId,
           description: li.description,
           quantity: Number(li.quantity) || 0,
           unitPrice: Number(li.unitPrice) || 0,
@@ -1009,6 +1016,7 @@ export default function ServiceInvoicesPage() {
         customerId: selectedCustomer,
         preparedBy: preparedBy || "",
         items: lineItems.map((li) => ({
+          productId: li.productId,
           description: li.description,
           quantity: Number(li.quantity) || 0,
           unitPrice: Number(li.unitPrice) || 0,
@@ -1058,6 +1066,7 @@ export default function ServiceInvoicesPage() {
       setEditInvoiceNo("");
       setEditLineItems(
         editTarget.items.map((item) => ({
+          productId: item.productId,
           description: item.description,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
@@ -1083,7 +1092,7 @@ export default function ServiceInvoicesPage() {
     value: string | number,
   ) =>
     setEditLineItems((prev) =>
-      prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)),
+      prev.map((item, i) => (i === idx ? { ...item, [field]: value, ...(field === "description" ? { productId: undefined } : {}) } : item)),
     );
 
   /* Edit save handler */
@@ -1102,6 +1111,7 @@ export default function ServiceInvoicesPage() {
         items: editLineItems
           .filter((li) => li.description.trim())
           .map((li) => ({
+            productId: li.productId,
             description: li.description,
             quantity: Number(li.quantity) || 0,
             unitPrice: Number(li.unitPrice) || 0,
@@ -1236,6 +1246,14 @@ export default function ServiceInvoicesPage() {
           title="Service Invoices"
           columns={columns}
           data={displayInvoices}
+          toolbarFilters={<div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div><Label>Customer</Label><FilterMultiSelect label="Customer" values={filterCustomers} options={customerFilterOptions} onChange={setFilterCustomers} /></div>
+            <div><Label htmlFor="invoice-filter-from">Invoice date from</Label><Input id="invoice-filter-from" type="date" value={filterDateFrom} max={filterDateTo || undefined} onChange={(event) => { setFilterDateFrom(event.target.value); setFilterMonth(""); }} /></div>
+            <div><Label htmlFor="invoice-filter-to">Invoice date to</Label><Input id="invoice-filter-to" type="date" value={filterDateTo} min={filterDateFrom || undefined} onChange={(event) => { setFilterDateTo(event.target.value); setFilterMonth(""); }} /></div>
+            <div><Label htmlFor="invoice-filter-month">Invoice month</Label><Input id="invoice-filter-month" type="month" value={filterMonth} onChange={(event) => { setFilterMonth(event.target.value); setFilterDateFrom(""); setFilterDateTo(""); }} /></div>
+            <Button variant="outline" className="self-end" onClick={() => { setFilterCustomers([]); setFilterDateFrom(""); setFilterDateTo(""); setFilterMonth(""); }}>Clear filters</Button>
+            {filterDateFrom && filterDateTo && filterDateFrom > filterDateTo && <p role="alert" className="text-sm text-destructive sm:col-span-2 lg:col-span-5">Start date must be on or before end date.</p>}
+          </div>}
           loading={loading}
           onCreateNew={openCreateModal}
           mobileLayout={{ primary: ["invoiceNo", "companyName", "status"], labels: { invoiceNo: "Invoice", date: "Date", companyName: "Customer", preparedBy: "Prepared by", total: "Total", status: "Status", lastUpdated: "Updated", actions: "Actions" } }}
@@ -1317,7 +1335,7 @@ export default function ServiceInvoicesPage() {
               {lineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
                   <Input
-                    className="flex-1 min-w-[200px] uppercase"
+                    className="flex-1 uppercase"
                     value={item.description}
                     placeholder="DESCRIPTION (in all caps)"
                     onChange={(e) =>
@@ -1603,7 +1621,7 @@ export default function ServiceInvoicesPage() {
               {editLineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
                   <Input
-                    className="flex-1 min-w-[200px] uppercase"
+                    className="flex-1 uppercase"
                     value={item.description}
                     placeholder="DESCRIPTION (in all caps)"
                     onChange={(e) =>

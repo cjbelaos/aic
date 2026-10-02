@@ -18,6 +18,7 @@ import { getUserById } from "@/lib/userSheets";
 import { resolveDeliveryReceiptDeliveredBy, resolveDeliveryReceiptReferences } from "@/lib/deliverySheets";
 import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/documentHandoverSheets";
 import { getOrderDetail, postFulfillments, type Actor } from "@/lib/salesOrders/service";
+import { getProducts } from "@/lib/productSheets";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
@@ -37,9 +38,46 @@ const SERVICE_INVOICES_HEADERS = [
 // Q:PONumber R:TRNumber S:SalesOrderId T:ManualCompletionData U:ReferenceMode
 
 const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
-const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`;
+const SERVICE_INVOICE_ITEMS_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:G`;
 const SERVICE_INVOICE_ITEMS_APPEND_RANGE = `${SERVICE_INVOICE_ITEMS_SHEET}!A2:A`;
-// A:InvoiceNo B:Description C:Qty D:UnitPrice E:Amount
+// A:InvoiceNo B:Description C:Qty D:UnitPrice E:Amount F:ProductId G:ProductCategoryId
+
+export async function readServiceInvoiceItemValues(sheets: Awaited<ReturnType<typeof getSheetsClient>>, spreadsheetId: string): Promise<string[][]> {
+  try {
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: SERVICE_INVOICE_ITEMS_RANGE });
+    return (response.data.values || []) as string[][];
+  } catch (error) {
+    const status = (error as { code?: number; response?: { status?: number } }).response?.status ?? (error as { code?: number }).code;
+    if (status !== 400) throw error;
+    const legacy = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E` });
+    return (legacy.data.values || []) as string[][];
+  }
+}
+
+async function ensureServiceInvoiceItemCatalogHeaders(sheets: Awaited<ReturnType<typeof getSheetsClient>>, spreadsheetId: string): Promise<void> {
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId, ranges: [SERVICE_INVOICE_ITEMS_SHEET], fields: "sheets.properties(sheetId,title,gridProperties.columnCount)" });
+  const tab = metadata.data.sheets?.find((entry) => entry.properties?.title === SERVICE_INVOICE_ITEMS_SHEET)?.properties;
+  if (tab?.sheetId == null) throw new Error("ServiceInvoiceItems tab was not found.");
+  if ((tab.gridProperties?.columnCount ?? 0) < 7) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ updateSheetProperties: { properties: { sheetId: tab.sheetId, gridProperties: { columnCount: 7 } }, fields: "gridProperties.columnCount" } }] } });
+  }
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICE_ITEMS_SHEET}!F1:G1` });
+  const headers = response.data.values?.[0] || [];
+  if (headers[0] === "ProductId" && headers[1] === "ProductCategoryId") return;
+  if (headers.some((value) => String(value || "").trim())) throw new Error("ServiceInvoiceItems columns F:G are already in use; product links cannot be saved.");
+  await sheets.spreadsheets.values.update({ spreadsheetId, range: `${SERVICE_INVOICE_ITEMS_SHEET}!F1:G1`, valueInputOption: "RAW", requestBody: { values: [["ProductId", "ProductCategoryId"]] } });
+}
+
+async function itemCatalogReferences(items: ServiceInvoiceItem[]): Promise<Array<{ productId: string; categoryId: string }>> {
+  if (!items.some((item) => item.productId)) return items.map(() => ({ productId: "", categoryId: "" }));
+  const products = await getProducts();
+  return items.map((item) => {
+    if (!item.productId) return { productId: "", categoryId: "" };
+    const product = products.find((candidate) => candidate.productId === item.productId);
+    if (!product) throw new Error(`Product "${item.productId}" was not found.`);
+    return { productId: product.productId, categoryId: product.productCategoryId };
+  });
+}
 
 const PRINT_TEMPLATE_SHEET = "ServiceInvoiceForm";
 // Template cells (ServiceInvoiceForm):
@@ -290,11 +328,7 @@ async function findInvoiceItemRows(
   spreadsheetId: string,
   invoiceNo: string,
 ): Promise<Array<{ rowNumber: number; rowData: string[] }>> {
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: SERVICE_INVOICE_ITEMS_RANGE,
-  });
-  const rows = response.data.values || [];
+  const rows = await readServiceInvoiceItemValues(sheets, spreadsheetId);
   const result: Array<{ rowNumber: number; rowData: string[] }> = [];
   rows.forEach((row, idx) => {
     if (String(row[0] ?? "").trim() === String(invoiceNo).trim()) {
@@ -315,23 +349,20 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
         spreadsheetId,
         range: SERVICE_INVOICES_RANGE,
       }),
-      sheets.spreadsheets.values
-        .get({
-          spreadsheetId,
-          range: SERVICE_INVOICE_ITEMS_RANGE,
-        })
-        .catch(() => ({ data: { values: [] as string[][] } })),
+      readServiceInvoiceItemValues(sheets, spreadsheetId),
     ]);
 
     const invRows = invResponse.data.values;
     if (!invRows || invRows.length === 0) return [];
 
-    const itemRows = itemsResponse.data.values || [];
+    const itemRows = itemsResponse;
     const itemsByInvoice = new Map<string, ServiceInvoiceItem[]>();
     for (const itemRow of itemRows) {
       const invoiceNo = String(itemRow[0] ?? "").trim();
       if (!invoiceNo) continue;
       const item: ServiceInvoiceItem = {
+        productId: String(itemRow[5] ?? "").trim() || undefined,
+        productCategoryId: String(itemRow[6] ?? "").trim() || undefined,
         description: String(itemRow[1] ?? "").trim(),
         quantity: parseFloat(String(itemRow[2] ?? "0")) || 0,
         unitPrice: parseFloat(String(itemRow[3] ?? "0")) || 0,
@@ -558,6 +589,8 @@ export async function processServiceInvoice(
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
+    const catalogReferences = await itemCatalogReferences(payload.items);
+    if (catalogReferences.some((entry) => entry.productId)) await ensureServiceInvoiceItemCatalogHeaders(sheets, spreadsheetId);
     const headerRow = [
       invoiceNo,
       payload.date,
@@ -608,12 +641,14 @@ export async function processServiceInvoice(
       throw new Error(`ServiceInvoices row ${appendedRow} could not be verified in column A. Invoice items were not saved.`);
     }
 
-    const itemRows = payload.items.map((item) => [
+    const itemRows = payload.items.map((item, index) => [
       invoiceNo,
       normalizeDescription(item.description),
       item.quantity,
       item.unitPrice,
       (item.quantity || 0) * (item.unitPrice || 0),
+      catalogReferences[index].productId,
+      catalogReferences[index].categoryId,
     ]);
     if (itemRows.length > 0) {
       const itemsAppendResponse = await sheets.spreadsheets.values.append({
@@ -623,7 +658,7 @@ export async function processServiceInvoice(
         insertDataOption: "INSERT_ROWS",
         requestBody: { values: itemRows },
       });
-      appendedRowNumber(itemsAppendResponse.data.updates?.updatedRange, SERVICE_INVOICE_ITEMS_SHEET, "E", itemRows.length);
+      appendedRowNumber(itemsAppendResponse.data.updates?.updatedRange, SERVICE_INVOICE_ITEMS_SHEET, "G", itemRows.length);
     }
 
     let pdfBase64: string | undefined;
@@ -741,7 +776,7 @@ export async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, 
     const replacement = await processServiceInvoice({
       invoiceNo: "", status: "draft", date: String(row[1] ?? ""),
       customerId: String(row[2] ?? ""), preparedBy: String(row[3] ?? ""),
-      items: itemRows.map(({ rowData }) => ({ description: String(rowData[1] ?? ""), quantity: Number(rowData[2]) || 0, unitPrice: Number(rowData[3]) || 0 })),
+      items: itemRows.map(({ rowData }) => ({ description: String(rowData[1] ?? ""), quantity: Number(rowData[2]) || 0, unitPrice: Number(rowData[3]) || 0, productId: String(rowData[5] ?? "") || undefined, productCategoryId: String(rowData[6] ?? "") || undefined })),
       contractId: String(row[10] ?? ""), drNumber: Number(row[11]) || undefined,
       assignedTechnicianUserId: String(row[12] ?? "") || undefined,
       referenceMode: row[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
@@ -779,6 +814,8 @@ export async function updateServiceInvoice(
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[8] ?? "created").trim();
     const newStatus = payload.status ?? oldStatus;
+    const catalogReferences = payload.items ? await itemCatalogReferences(payload.items) : undefined;
+    if (catalogReferences?.some((entry) => entry.productId)) await ensureServiceInvoiceItemCatalogHeaders(sheets, spreadsheetId);
     if (oldStatus === "cancelled" || oldStatus === "void" || oldStatus === "deleted") throw new Error("This Service Invoice can no longer be edited.");
     if (newStatus === "cancelled") throw new Error("Use Cancel and create corrected copy to cancel a Service Invoice.");
     if (parseManualCompletionData(currentRow[19]).replacesInvoiceNo && !["draft", "created"].includes(newStatus)) throw new Error("A corrected copy must be finalized as created before payment.");
@@ -925,14 +962,16 @@ export async function updateServiceInvoice(
         spreadsheetId,
         invoiceNo,
       );
-      const itemRows = payload.items.map((item) => [
+      const itemRows = payload.items.map((item, index) => [
         effectiveInvoiceNo,
         normalizeDescription(item.description),
         item.quantity,
         item.unitPrice,
         (item.quantity || 0) * (item.unitPrice || 0),
+        catalogReferences![index].productId,
+        catalogReferences![index].categoryId,
       ]);
-      await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: SERVICE_INVOICE_ITEMS_SHEET, columnCount: 5, existingRows: existingItemRows, values: itemRows });
+      await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: SERVICE_INVOICE_ITEMS_SHEET, columnCount: 7, existingRows: existingItemRows, values: itemRows });
     }
     const replacesInvoiceNo = parseManualCompletionData(currentRow[19]).replacesInvoiceNo;
     if (effectiveInvoiceNo !== invoiceNo && replacesInvoiceNo) {

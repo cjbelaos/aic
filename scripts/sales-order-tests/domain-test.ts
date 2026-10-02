@@ -69,8 +69,11 @@ function makeItem(overrides: Partial<SalesOrderItem> = {}): SalesOrderItem {
 }
 
 assert.equal(deriveOrderCategory([makeItem(), makeItem({ orderCategory: "Parts" })]), "Parts");
-assert.equal(deriveOrderCategory([makeItem({ orderCategory: "Parts" }), makeItem({ orderCategory: "Services/ Repair" })]), "Mixed");
-assert.equal(deriveOrderCategory([makeItem({ lineStatus: "INACTIVE" })]), "");
+assert.equal(deriveOrderCategory([makeItem({ orderCategory: "Parts" }), makeItem({ orderCategory: "Services/ Repair" })]), "Service");
+assert.equal(deriveOrderCategory([makeItem({ lineStatus: "INACTIVE" })]), "Uncategorized");
+assert.equal(deriveOrderCategory([makeItem({ orderCategory: "Services / Repair" }), makeItem({ orderCategory: "Project" })]), "Project");
+assert.equal(deriveOrderCategory([makeItem({ orderCategory: "Parts" }), makeItem({ orderCategory: "Consumables" }), makeItem({ orderCategory: "Parts" })]), "Parts / Consumables");
+assert.equal(deriveOrderCategory([makeItem({ orderCategory: "Parts" }), makeItem({ orderCategory: "Project", lineStatus: "INACTIVE" })]), "Parts");
 
 const item10 = makeItem({ quantity: 10 });
 assert.equal(deriveFulfillmentStatus([item10]), "UNFULFILLED");

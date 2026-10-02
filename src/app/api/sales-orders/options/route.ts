@@ -31,11 +31,15 @@ export async function GET() {
       paymentTermId: term.paymentTermId,
       name: term.name,
     }));
-    const categories = (await getProductCategories()).map((category) => ({
+    const categoryRecords = await getProductCategories();
+    const serviceCategory = categoryRecords.find((category) => category.status === "active" && /^services?\s*\/\s*repair$/i.test(category.categoryName.trim()));
+    const categories = categoryRecords.map((category) => ({
       productCategoryId: category.productCategoryId,
       categoryName: category.categoryName,
     }));
-    const units = (await getProductUnits()).map((unit) => ({
+    const unitRecords = await getProductUnits();
+    const serviceUnit = unitRecords.find((unit) => unit.status === "active" && unit.unitCode.trim().toUpperCase() === "SET");
+    const units = unitRecords.map((unit) => ({
       unitId: unit.unitId,
       unitCode: unit.unitCode,
       unitName: unit.unitName,
@@ -57,6 +61,8 @@ export async function GET() {
         terms,
         categories,
         units,
+        serviceCategoryName: serviceCategory?.categoryName || null,
+        serviceUnitId: serviceUnit?.unitId || null,
         quotations,
         products: productRows
           .filter((product) => product.status === "active")
@@ -68,7 +74,7 @@ export async function GET() {
             unitId: product.unitId,
             defaultSellingPrice: product.defaultSellingPrice ?? null,
           })),
-        orderCategories: SALES_ORDER_CATEGORIES,
+        orderCategories: [...new Set([...categoryRecords.filter((category) => category.status === "active").map((category) => category.categoryName), ...SALES_ORDER_CATEGORIES])],
         assignmentMandatory: false,
       },
       { status: 200 },

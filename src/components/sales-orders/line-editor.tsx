@@ -31,7 +31,10 @@ export interface LineEditorProps {
   onChange: (lines: OrderLineInput[]) => void;
   units: OptionsResponse["units"];
   products: OptionsResponse["products"];
+  categories: OptionsResponse["categories"];
   orderCategories: string[];
+  serviceCategoryName: string | null;
+  serviceUnitId: string | null;
 }
 
 const emptyLine = (): OrderLineInput => ({
@@ -76,7 +79,10 @@ export function LineEditor({
   onChange,
   units,
   products,
+  categories,
   orderCategories,
+  serviceCategoryName,
+  serviceUnitId,
 }: LineEditorProps): React.ReactNode {
   const update = (index: number, patch: Partial<OrderLineInput>): void =>
     onChange(
@@ -97,8 +103,9 @@ export function LineEditor({
   // Services never pick a category (it is assigned automatically for the
   // Services/ Repair reporting view), so product choices exclude it.
   const productCategories = orderCategories.filter(
-    (category) => category !== SALES_ORDER_SERVICE_CATEGORY,
+    (category) => category !== SALES_ORDER_SERVICE_CATEGORY && category !== serviceCategoryName,
   );
+  const setUnit = units.find((unit) => unit.unitId === serviceUnitId);
 
   const selectProduct = (index: number, productId: string): void => {
     const product = products.find(
@@ -112,10 +119,9 @@ export function LineEditor({
       productNameSnapshot: product.productName,
       description: product.productName,
       unitId: product.unitId,
-      unitSnapshot:
-        units.find((unit) => unit.unitId === product.unitId)?.unitCode ||
-        product.unitId,
+      unitSnapshot: units.find((unit) => unit.unitId === product.unitId)?.unitCode || product.unitId,
       unitPrice: product.defaultSellingPrice,
+      orderCategory: categories.find((category) => category.productCategoryId === product.productCategoryId)?.categoryName || "",
       priceSource: "DEFAULT_PRICE",
     });
   };
@@ -143,9 +149,11 @@ export function LineEditor({
       customerProductPriceId: "",
       customerProductName: "",
       priceSource,
+      unitId: next === "SERVICE" ? serviceUnitId || "" : "",
+      unitSnapshot: next === "SERVICE" ? setUnit?.unitCode || "" : "",
       orderCategory:
         next === "SERVICE"
-          ? SALES_ORDER_SERVICE_CATEGORY
+          ? serviceCategoryName || ""
           : productCategories.includes(line.orderCategory ?? "")
             ? line.orderCategory
             : SALES_ORDER_PRODUCT_CATEGORY,
@@ -281,7 +289,7 @@ export function LineEditor({
                   )}
                   {line.lineType === "PRODUCT" ? (
                     <Field label="Category" className="md:col-span-4">
-                      <Select
+                      {line.productId ? <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm" title="Inherited from the selected catalog product">{line.orderCategory || "Uncategorized"}</div> : <Select
                         value={line.orderCategory || ""}
                         onValueChange={(value) =>
                           update(index, { orderCategory: value })
@@ -297,7 +305,7 @@ export function LineEditor({
                             </SelectItem>
                           ))}
                         </SelectContent>
-                      </Select>
+                      </Select>}
                     </Field>
                   ) : (
                     <Field label="Category" className="md:col-span-4">
@@ -305,7 +313,7 @@ export function LineEditor({
                         className="flex h-9 items-center rounded-md border border-dashed bg-muted/40 px-3 text-sm text-muted-foreground"
                         title="Assigned automatically for Services/ Repair reporting; no choice is required."
                       >
-                        {SALES_ORDER_SERVICE_CATEGORY} · automatic
+                        {(line.salesOrderItemId && line.orderCategory !== serviceCategoryName ? line.orderCategory : serviceCategoryName) || "Service / Repair category missing from Product Categories"} · automatic
                       </div>
                     </Field>
                   )}
@@ -332,7 +340,7 @@ export function LineEditor({
                         : "md:col-span-4"
                     }
                   >
-                    <SearchableSelect
+                    {line.lineType === "SERVICE" || !!line.productId ? <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm" title="Inherited automatically">{line.lineType === "SERVICE" ? (line.salesOrderItemId && line.unitId !== serviceUnitId ? line.unitSnapshot || line.unitId : setUnit?.unitCode || "SET unit missing from Product Units") : units.find((unit) => unit.unitId === line.unitId)?.unitCode || line.unitSnapshot || line.unitId || "Unit unavailable"}</div> : <SearchableSelect
                       value={line.unitId}
                       onValueChange={(value) =>
                         update(index, {
@@ -344,7 +352,7 @@ export function LineEditor({
                       }
                       options={unitOptions}
                       placeholder="Unit…"
-                    />
+                    />}
                   </Field>
                   <Field
                     label="Quantity"

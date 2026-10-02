@@ -7,6 +7,7 @@ import {
   resolvePreparedByPosition,
   regenerateStoredServiceInvoicePdfsForDr,
   UpdateServiceInvoicePayload,
+  readServiceInvoiceItemValues,
 } from "@/lib/serviceInvoiceSheets";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getCustomers } from "@/lib/companySheets";
@@ -15,7 +16,6 @@ import { getOrderDetail } from "@/lib/salesOrders/service";
 import { getUserById } from "@/lib/userSheets";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
-const SERVICE_INVOICE_ITEMS_SHEET = "ServiceInvoiceItems";
 
 export async function GET(
   _request: Request,
@@ -76,16 +76,14 @@ export async function GET(
         : { poNo: String(invRow[16] ?? "").trim(), trNo: String(invRow[17] ?? "").trim() };
 
     // 2. Fetch items
-    const itemsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${SERVICE_INVOICE_ITEMS_SHEET}!A2:E`,
-    });
-    const allItemRows = itemsResponse.data.values || [];
+    const allItemRows = await readServiceInvoiceItemValues(sheets, spreadsheetId);
     const items = allItemRows
       .filter(
         (row) => String(row[0] ?? "").trim() === normalized,
       )
       .map((row) => ({
+        productId: String(row[5] ?? "").trim() || undefined,
+        productCategoryId: String(row[6] ?? "").trim() || undefined,
         description: String(row[1] ?? "").trim(),
         quantity: parseFloat(String(row[2] ?? "0")) || 0,
         unitPrice: parseFloat(String(row[3] ?? "0")) || 0,

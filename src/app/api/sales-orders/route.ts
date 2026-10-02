@@ -4,6 +4,9 @@ import { attachDocument, createOrder, listOrders } from "@/lib/salesOrders/servi
 import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
 import { parseCreateOrderInput } from "@/lib/salesOrders/validation";
 import { getQuotationByRefNo } from "@/lib/quotationSheets";
+import { getProducts } from "@/lib/productSheets";
+import { getProductCategories, getProductUnits } from "@/lib/productReferenceSheets";
+import { bindNewCatalogLines } from "@/lib/salesOrders/catalogBinding";
 
 export async function GET(request: Request) {
   const auth = await requireSalesPermission("so.view");
@@ -37,6 +40,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const input = parseCreateOrderInput(body);
+    const needsCatalog = input.lines.some((line) => line.lineType === "SERVICE" || !!line.productId);
+    const catalog = needsCatalog ? await Promise.all([getProducts(), getProductCategories(), getProductUnits()]) : null;
+    const lines = catalog ? bindNewCatalogLines(input.lines, { products: catalog[0], categories: catalog[1], units: catalog[2] }) : input.lines;
     const session = auth.session;
     let quotationUrl = "";
     let quotationFileId = "";
@@ -68,7 +74,7 @@ export async function POST(request: Request) {
       assignedToUserId: input.assignedToUserId,
       currency: input.currency,
       remarks: input.remarks,
-      lines: input.lines,
+      lines,
     });
     if (quotationFileId) {
       await attachDocument(toActor(session), detail.order.salesOrderId, {

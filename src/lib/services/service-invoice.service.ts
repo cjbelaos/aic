@@ -18,7 +18,7 @@ const serviceInvoiceService = {
         "Failed to fetch service invoices in service layer:",
         error,
       );
-      return [];
+      throw error;
     }
   },
 

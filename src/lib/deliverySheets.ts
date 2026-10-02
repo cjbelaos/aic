@@ -112,6 +112,19 @@ export async function getDriversFromSheets(): Promise<DeliveryPersonOption[]> {
 }
 
 /** Fetches and groups delivery receipt rows into summary objects by DR number. */
+/** Lightweight batch lookup for invoice reporting; no item or company reads. */
+export async function getDeliverySalesOrderLinks(): Promise<Map<number, string>> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: DELIVERY_RECEIPTS_RANGE });
+  const links = new Map<number, string>();
+  for (const row of response.data.values ?? []) {
+    const reference = deliveryReferenceFromRow(row);
+    if (reference.salesOrderId) links.set(Number(row[0]), reference.salesOrderId);
+  }
+  return links;
+}
+
 export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
   try {
     const sheets = await getSheetsClient();

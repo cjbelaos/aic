@@ -1,4 +1,6 @@
 export interface ServiceInvoiceItem {
+  productId?: string;
+  productCategoryId?: string;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -77,6 +79,8 @@ export interface ServiceInvoiceResponse {
 }
 
 export interface ServiceInvoiceSummary {
+  /** Derived from the linked Sales Order, or PMS for a contract-only invoice. */
+  category?: string;
   invoiceNo: string;
   date: string;
   customerId: string;

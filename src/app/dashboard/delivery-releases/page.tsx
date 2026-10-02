@@ -338,7 +338,7 @@ export default function DeliveryReleasePage() {
   );
 
   const productOptions = useMemo(
-    () => products.map((p) => ({ value: p.code, label: p.name })),
+    () => products.map((p) => ({ value: p.code, label: `${p.name} — ${p.category?.name || "Uncategorized"}`, categoryId: String(p.category?.id || "") })),
     [products],
   );
 

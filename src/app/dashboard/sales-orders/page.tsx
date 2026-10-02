@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { toast } from "sonner";
 
 const ORDER_STATUSES = ["DRAFT", "CONFIRMED", "ON_HOLD", "CANCELLED", "CLOSED"];
-const ORDER_CATEGORIES = ["Consumables", "Services/ Repair", "Project", "Parts", "Supplies", "Treatment Package", "PMS", "Mixed"];
+const ORDER_CATEGORIES = ["Consumables", "Service", "Project", "Parts", "Supplies", "Treatment Package", "PMS", "Uncategorized"];
 
 export default function SalesOrdersPage(): React.ReactNode {
   const router = useRouter();
@@ -134,6 +134,7 @@ export default function SalesOrdersPage(): React.ReactNode {
   ], [loadingActionId, openItems, openPdf, openPreview, router]);
 
   const grandTotal = rows.reduce((sum, row) => sum + row.order.grandTotal, 0);
+  const categoryOptions = [...new Set([...ORDER_CATEGORIES, ...rows.map((row) => row.category).filter(Boolean), ...(category !== "all" ? [category] : [])])];
   const openCount = rows.filter((row) => ["DRAFT", "CONFIRMED", "ON_HOLD"].includes(row.order.orderStatus)).length;
   const overdueCount = rows.filter((row) => row.overdue).length;
 
@@ -161,7 +162,7 @@ export default function SalesOrdersPage(): React.ReactNode {
         getRowId={(row) => row.order.salesOrderId}
         onRowClick={(row) => router.push(`/dashboard/sales-orders/${row.order.salesOrderId}`)}
         headerActions={<div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row"><Button variant="outline" onClick={() => router.push(view === "services" ? "/dashboard/sales-orders" : "/dashboard/sales-orders?view=services")}>{view === "services" ? <FileText className="mr-2 h-4 w-4" /> : <Wrench className="mr-2 h-4 w-4" />}{view === "services" ? "All Orders" : "Services / Repair"}</Button><Button className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600" onClick={() => router.push("/dashboard/sales-orders/new")}><Plus className="mr-2 h-4 w-4" />Create Order</Button></div>}
-        toolbarFilters={<><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-8 w-[150px]"><SelectValue placeholder="Order status" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{ORDER_STATUSES.map((item) => <SelectItem key={item} value={item}>{item.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select><Select value={category} onValueChange={setCategory}><SelectTrigger className="h-8 w-[170px]"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{ORDER_CATEGORIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></>}
+        toolbarFilters={<><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-8 w-[150px]"><SelectValue placeholder="Order status" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{ORDER_STATUSES.map((item) => <SelectItem key={item} value={item}>{item.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select><Select value={category} onValueChange={setCategory}><SelectTrigger className="h-8 w-[170px]"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{categoryOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></>}
         mobileLayout={{ primary: ["salesOrderNo", "customer", "total", "status", "fulfillment"], labels: { salesOrderNo: "Sales Order", receivedDate: "Received", customer: "Customer", customerPO: "Customer PO", category: "Category", total: "Total", status: "Status", fulfillment: "Fulfillment" } }}
       />
       <Dialog open={!!preview} onOpenChange={(open) => { if (!open) setPreview(null); }}>

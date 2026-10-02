@@ -57,9 +57,10 @@ export function deriveOrderCategory(items: readonly Pick<SalesOrderItem, "orderC
         .filter((category) => category.length > 0),
     ),
   ];
-  if (unique.length === 0) return "";
-  if (unique.length === 1) return unique[0];
-  return "Mixed";
+  if (unique.some((category) => category.toLowerCase() === "project")) return "Project";
+  if (unique.some((category) => /^(services?\s*\/\s*repair|service)$/i.test(category))) return "Service";
+  if (unique.length === 0) return "Uncategorized";
+  return unique.sort((a, b) => a === "Parts" ? -1 : b === "Parts" ? 1 : a.localeCompare(b)).join(" / ");
 }
 
 export function deriveFulfillmentStatus(items: readonly Pick<SalesOrderItem, "lineStatus" | "quantity" | "cancelledQty" | "fulfilledQty">[]): FulfillmentStatus {

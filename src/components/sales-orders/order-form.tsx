@@ -76,6 +76,10 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
 
   const submit = async (initialStatus: "DRAFT" | "CONFIRMED" = "DRAFT"): Promise<void> => {
     if (submitting) return;
+    if (lines.some((line) => line.lineType === "SERVICE" && !line.salesOrderItemId) && (!options.serviceCategoryName || !options.serviceUnitId)) {
+      setError("Service lines require an active Service / Repair Product Category and SET Product Unit.");
+      return;
+    }
     const selectedFiles = Object.values(referenceFiles).filter((file): file is File => Boolean(file));
     const invalidFile = selectedFiles.find((file) => file.size > 10 * 1024 * 1024 || !/\.(pdf|jpe?g|png|webp|docx?)$/i.test(file.name));
     if (invalidFile) {
@@ -199,7 +203,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
 
       <Card className="gap-4">
         <CardHeader><CardTitle className="text-base">Products / Services</CardTitle></CardHeader>
-        <CardContent><LineEditor lines={lines} onChange={(next) => markDirty(() => setLines(next))} units={options.units} products={options.products} orderCategories={options.orderCategories} /></CardContent>
+        <CardContent><LineEditor lines={lines} onChange={(next) => markDirty(() => setLines(next))} units={options.units} products={options.products} categories={options.categories} orderCategories={options.orderCategories} serviceCategoryName={options.serviceCategoryName} serviceUnitId={options.serviceUnitId} /></CardContent>
       </Card>
 
       <Card className="gap-3">

@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { categoryForInvoice, invoiceCategory, matchesInvoiceFilters, type InvoiceFilters } from "../../src/lib/serviceInvoiceFilters.ts";
+
+const categories = new Map([["so1", "Service"], ["so2", "Project"]]);
+assert.equal(invoiceCategory("so1", "contract1", categories), "Service");
+assert.equal(invoiceCategory(undefined, "contract1", categories), "PMS");
+assert.equal(invoiceCategory(undefined, undefined, categories), "Uncategorized");
+assert.equal(invoiceCategory("missing", "contract1", categories), "Uncategorized");
+const deliveryLinks = new Map([[42, "so2"]]);
+assert.equal(categoryForInvoice({ drNumber: 42, salesOrderId: "so1" }, categories, deliveryLinks), "Project");
+assert.equal(categoryForInvoice({ drNumber: 42 }, categories, deliveryLinks), "Project");
+assert.equal(categoryForInvoice({ salesOrderId: "so1" }, categories, deliveryLinks), "Service");
+assert.equal(categoryForInvoice({ contractId: "contract1" }, categories, deliveryLinks), "PMS");
+const empty: InvoiceFilters = { customers: [], categories: [], dateFrom: "", dateTo: "", month: "" };
+const invoice = { customerId: "c1", category: "Service", date: "2026-10-01" };
+assert(matchesInvoiceFilters(invoice, empty));
+assert(matchesInvoiceFilters(invoice, { ...empty, customers: ["c1", "c2"], categories: ["Service", "PMS"], dateFrom: "2026-10-01", dateTo: "2026-10-01" }));
+assert(!matchesInvoiceFilters(invoice, { ...empty, customers: ["c2"] }));
+assert(!matchesInvoiceFilters(invoice, { ...empty, categories: ["Project"] }));
+assert(!matchesInvoiceFilters(invoice, { ...empty, dateFrom: "2026-10-02" }));
+assert(!matchesInvoiceFilters(invoice, { ...empty, dateTo: "2026-09-30" }));
+assert(matchesInvoiceFilters(invoice, { ...empty, month: "2026-10" }));
+assert(!matchesInvoiceFilters(invoice, { ...empty, month: "2025-10" }));
+assert(!matchesInvoiceFilters({ ...invoice, date: "" }, { ...empty, month: "2026-10" }));
+console.log("Invoice category and filter tests passed.");

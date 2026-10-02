@@ -6,6 +6,10 @@ import {
 } from "@/lib/serviceInvoiceSheets";
 import { CreateServiceInvoicePayload } from "@/types/serviceInvoice";
 import { getUserById } from "@/lib/userSheets";
+import { readSalesOrderListSnapshot } from "@/lib/salesOrders/repository";
+import { deriveOrderCategory } from "@/lib/salesOrders/domain";
+import { getDeliverySalesOrderLinks } from "@/lib/deliverySheets";
+import { categoryForInvoice } from "@/lib/serviceInvoiceFilters";
 
 export async function GET() {
   const session = await requireAuthenticatedSession();
@@ -13,7 +17,19 @@ export async function GET() {
 
   try {
     const invoices = await getServiceInvoices();
-    return NextResponse.json(invoices, { status: 200 });
+    if (!invoices.length) return NextResponse.json([], { status: 200 });
+    const [snapshot, deliveryLinks] = await Promise.all([
+      readSalesOrderListSnapshot(),
+      invoices.some((invoice) => invoice.drNumber != null) ? getDeliverySalesOrderLinks() : Promise.resolve(new Map<number, string>()),
+    ]);
+    const itemsByOrder = new Map<string, typeof snapshot.items>();
+    for (const item of snapshot.items) {
+      const group = itemsByOrder.get(item.salesOrderId) ?? [];
+      group.push(item);
+      itemsByOrder.set(item.salesOrderId, group);
+    }
+    const categories = new Map(snapshot.orders.map((order) => [order.salesOrderId, deriveOrderCategory(itemsByOrder.get(order.salesOrderId) ?? [])]));
+    return NextResponse.json(invoices.map((invoice) => ({ ...invoice, category: categoryForInvoice(invoice, categories, deliveryLinks) })), { status: 200 });
   } catch (error) {
     const message =
       error instanceof Error

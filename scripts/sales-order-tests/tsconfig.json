@@ -16,6 +16,7 @@
   "include": [
     "*.ts",
     "../../src/lib/salesOrders/errors.ts",
+    "../../src/lib/salesOrders/catalogBinding.ts",
     "../../src/lib/salesOrders/ids.ts",
     "../../src/lib/salesOrders/money.ts",
     "../../src/lib/salesOrders/domain.ts",
