@@ -11,7 +11,8 @@ function load(file, mocks) {
 }
 
 (async () => {
-  const filters = load('src/lib/serviceInvoiceFilters.ts', {});
+  const tracking = load('src/lib/serviceInvoiceTracking.ts', {});
+  const filters = load('src/lib/serviceInvoiceFilters.ts', { './serviceInvoiceTracking': tracking, './serviceInvoiceSummary': load('src/lib/serviceInvoiceSummary.ts', { './serviceInvoiceTracking': tracking }) });
   let row = Array(21).fill('');
   row[0] = '1001'; row[8] = 'paid';
   row[19] = JSON.stringify({ status: 'COMPLETED', fulfillmentIds: ['f1'], replacesInvoiceNo: '999', notes: 'Keep history' });
@@ -22,6 +23,7 @@ function load(file, mocks) {
     batchUpdate: async (request) => { writes.push(request); const metadata = request.requestBody.data.find((entry) => entry.range.endsWith('T2')); row[19] = metadata.values[0][0]; },
   } } };
   const storage = load('src/lib/serviceInvoiceSheets.ts', {
+    './serviceInvoiceTracking': tracking,
     '@/lib/googleSheets': { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => 'fixture' },
     '@/lib/serviceInvoiceFilters': filters,
     '@/lib/salesOrders/repository': { readSalesOrderById: async () => orderExists ? {salesOrderId:'so1'} : null },

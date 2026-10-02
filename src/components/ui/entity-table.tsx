@@ -45,6 +45,8 @@ export { ArrowUpDown };
 interface EntityTableProps<TData> {
   title: string;
   hideMobileTitle?: boolean;
+  hideSearch?: boolean;
+  hideTransferButtons?: boolean;
   columns: ColumnDef<TData>[];
   data: TData[];
   loading?: boolean;
@@ -71,6 +73,8 @@ interface EntityTableProps<TData> {
 export function EntityTable<TData>({
   title,
   hideMobileTitle = false,
+  hideSearch = false,
+  hideTransferButtons = false,
   columns,
   data,
   loading = false,
@@ -287,6 +291,7 @@ export function EntityTable<TData>({
 
             {toolbarFilters}
 
+            {!hideTransferButtons && <>
             {/* Export */}
             <Button
               type="button"
@@ -320,10 +325,11 @@ export function EntityTable<TData>({
                 Import
               </Button>
             </>
+            </>}
           </div>
 
           {/* Right: search */}
-          <Input
+          {!hideSearch && <Input
             aria-label={`Search ${title}`}
             placeholder="Search..."
             value={globalFilter}
@@ -334,7 +340,7 @@ export function EntityTable<TData>({
               }
             }}
             className="h-8 w-full sm:w-[220px]"
-          />
+          />}
         </div>
 
         {mobileLayout && <div className="space-y-3 md:hidden">

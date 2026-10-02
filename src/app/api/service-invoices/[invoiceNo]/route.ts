@@ -1,12 +1,12 @@
+import { parseInvoiceMetadata, paymentStatusFor } from "@/lib/serviceInvoiceTracking";
 import { NextResponse } from "next/server";
-import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { requireAuthenticatedSession, isAdminUser } from "@/lib/auth/session";
 import {
   updateServiceInvoice,
   updateServiceInvoiceCategory,
+  updateServiceInvoicePayment,
   deleteServiceInvoice,
-  populateAndExportServiceInvoiceFormPdf,
   resolvePreparedByPosition,
-  regenerateStoredServiceInvoicePdfsForDr,
   UpdateServiceInvoicePayload,
   readServiceInvoiceItemValues,
 } from "@/lib/serviceInvoiceSheets";
@@ -72,7 +72,7 @@ export async function GET(
     const directSalesOrderId = String(invRow[18] ?? "").trim();
     const references = Number.isFinite(linkedDrNumber)
       ? await resolveDeliveryReceiptReferences(linkedDrNumber)
-      : directSalesOrderId && invRow[25] !== "TR_NUMBER"
+      : directSalesOrderId && invRow[20] !== "TR_NUMBER"
         ? await getOrderDetail(directSalesOrderId).then((detail) => ({ poNo: detail.order.customerPONo || "", trNo: detail.order.salesOrderNo || "" }))
         : { poNo: String(invRow[16] ?? "").trim(), trNo: String(invRow[17] ?? "").trim() };
 
@@ -100,10 +100,7 @@ export async function GET(
     const address = company?.address || "";
     const tin = company?.tin || "";
 
-    // 4. Generate PDF from DB data
-    const { pdfBase64, printUrl } =
-      await populateAndExportServiceInvoiceFormPdf(normalized);
-
+    const metadata = parseInvoiceMetadata(invRow[19]);
     return NextResponse.json(
       {
         success: true,
@@ -115,7 +112,12 @@ export async function GET(
         preparedBy,
         preparedByPosition,
         items,
-        status: String(invRow[8] ?? "created").trim(),
+        status: invRow[8] === "paid" ? "created" : String(invRow[8] ?? "created").trim(),
+        paymentStatus: paymentStatusFor(String(invRow[8]), metadata),
+        scannedFileLink: metadata.scannedFileLink,
+        scannedStatus: metadata.scannedFileLink ? "scanned" : "not_scanned",
+        statusReason: metadata.statusReason,
+        driveFileLink: String(invRow[9] ?? "").trim() || undefined,
         drNumber: Number.isFinite(linkedDrNumber) ? linkedDrNumber : undefined,
         poNo: references.poNo || undefined,
         trNo: references.trNo || undefined,
@@ -127,13 +129,12 @@ export async function GET(
         assignedTechnicianName: String(invRow[13] ?? "").trim() || undefined,
         serviceReportId: String(invRow[14] ?? "").trim() || undefined,
         serviceReportStatus: String(invRow[15] ?? "").trim() || undefined,
-        manualCompletionStatus: String(invRow[19] ?? "").trim() === "COMPLETED" ? "COMPLETED" : String(invRow[19] ?? "").trim() === "REVERSED" ? "REVERSED" : undefined,
-        manualCompletionDate: String(invRow[20] ?? "").trim() || undefined,
-        manualCompletionTechnicianId: String(invRow[21] ?? "").trim() || undefined,
-        manualCompletionTechnicianName: String(invRow[22] ?? "").trim() || undefined,
-        manualCompletionNotes: String(invRow[23] ?? "").trim() || undefined,
-        printUrl,
-        pdfBase64,
+        manualCompletionStatus: metadata.status,
+        manualCompletionDate: metadata.completionDate,
+        manualCompletionTechnicianId: metadata.technicianId,
+        manualCompletionTechnicianName: metadata.technicianName,
+        manualCompletionNotes: metadata.notes,
+
       },
       { status: 200 },
     );
@@ -152,11 +153,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ in
   try {
     const { invoiceNo } = await params;
     const body = await request.json();
-    await updateServiceInvoiceCategory(decodeURIComponent(invoiceNo).trim(), body.manualCategories, session.userId);
+    if (body.paymentStatus !== undefined) {
+      if (!isAdminUser(session)) return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+      if (body.manualCategories !== undefined) return NextResponse.json({ error: "Update payment and category separately." }, { status: 400 });
+      await updateServiceInvoicePayment(decodeURIComponent(invoiceNo).trim(), body.paymentStatus, session.userId);
+    } else await updateServiceInvoiceCategory(decodeURIComponent(invoiceNo).trim(), body.manualCategories, session.userId);
     return NextResponse.json({ success: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update invoice category.";
-    const status = /not found/i.test(message) ? 404 : /Invalid invoice category|automatically assigned|no longer be edited/i.test(message) ? 400 : 500;
+    const status = /not found/i.test(message) ? 404 : /Invalid invoice category|Invalid payment status|active invoices|automatically assigned|no longer be edited/i.test(message) ? 400 : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }
@@ -173,17 +178,15 @@ export async function PUT(
     const normalized = decodeURIComponent(invoiceNo).trim();
 
     const body: UpdateServiceInvoicePayload = await request.json();
+    if ("paymentStatus" in body) return NextResponse.json({ error: "Use the admin payment update action." }, { status: 400 });
     const result = await updateServiceInvoice(normalized, body, session.userId);
-    if (result.drNumber && result.driveFileLink) {
-      await regenerateStoredServiceInvoicePdfsForDr(result.drNumber);
-    }
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
         : "Failed to update service invoice.";
-    const isValidationError = /Assigned Technician|Delivery Receipt|Sales Order|different customer|Invalid invoice category/i.test(message);
+    const isValidationError = /Assigned Technician|Delivery Receipt|Sales Order|different customer|Invalid invoice category|Invalid invoice status|reason is required|Resolve recorded payments|no longer be edited/i.test(message);
     return NextResponse.json({ error: message }, { status: isValidationError ? 400 : 500 });
   }
 }

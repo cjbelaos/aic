@@ -1,10 +1,9 @@
-import { Readable } from "stream";
+import { parseInvoiceMetadata, paymentStatusFor, validatePaymentStatus, assertUnpaid, requireStatusReason, type InvoiceTrackingData } from "./serviceInvoiceTracking";
 import {
   getSheetsClient,
   getDatabaseSpreadsheetId,
   getAccessTokenForFetch,
   getDriveUploadClient,
-  escapeDriveQueryValue,
 } from "@/lib/googleSheets";
 import { getCustomers, getCompanies } from "@/lib/companySheets";
 import {
@@ -23,7 +22,6 @@ import { validateManualCategories } from "@/lib/serviceInvoiceFilters";
 import { readSalesOrderById } from "@/lib/salesOrders/repository";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
-const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
 const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:U`;
 // The append range locates the logical table. Restrict it to the invoice-number
 // column so a stray value in a later column cannot shift an entire row right.
@@ -185,7 +183,7 @@ type DeliveredByResolution = {
   deliveredByName?: string;
 };
 
-type ManualCompletionData = {
+type ManualCompletionData = InvoiceTrackingData & {
   manualCategories?: string[];
   replacesInvoiceNo?: string;
   replacementInvoiceNo?: string;
@@ -198,12 +196,7 @@ type ManualCompletionData = {
 };
 
 function parseManualCompletionData(value: unknown): ManualCompletionData {
-  try {
-    const parsed = JSON.parse(String(value ?? ""));
-    return parsed && typeof parsed === "object" ? parsed as ManualCompletionData : {};
-  } catch {
-    return {};
-  }
+  return parseInvoiceMetadata(value) as ManualCompletionData;
 }
 
 /** A linked DR wins, then a direct Sales Order, then manual document references. */
@@ -341,6 +334,59 @@ async function findInvoiceItemRows(
   return result;
 }
 
+const legacyScanCache = new Map<string, { scanned: boolean; expiresAt: number }>();
+async function identifyLegacyScan(link: string): Promise<boolean | undefined> {
+  const fileId = link.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? link.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
+  if (!fileId) return undefined;
+  const cached = legacyScanCache.get(fileId);
+  if (cached && cached.expiresAt > Date.now()) return cached.scanned;
+  try {
+    const drive = await getDriveUploadClient();
+    const file = await drive.files.get({ fileId, fields: "name,trashed" });
+    const name = file.data.name || "";
+    const scanned = !file.data.trashed && name.startsWith("SI-SCANNED_");
+    if (!name.startsWith("SI-SCANNED_") && !name.startsWith("SI-")) return undefined;
+    if (legacyScanCache.size > 1000) legacyScanCache.clear();
+    legacyScanCache.set(fileId, { scanned, expiresAt: Date.now() + 300_000 });
+    return scanned;
+  } catch { return undefined; }
+}
+
+/** Tracking stays in the existing T metadata cell; no new sheet schema. */
+export async function updateServiceInvoicePayment(invoiceNo: string, value: unknown, userId: string): Promise<void> {
+  const paymentStatus = validatePaymentStatus(value);
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+  if (rowNumber <= 1) throw new Error("Invoice not found.");
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:U${rowNumber}` });
+  const row = response.data.values?.[0] ?? [];
+  if (!["created", "paid"].includes(String(row[8]))) throw new Error("Payment labels can only be changed on active invoices.");
+  const metadata = parseManualCompletionData(row[19]);
+  const previousStatus = paymentStatusFor(String(row[8]), metadata);
+  if (paymentStatus === previousStatus) return;
+  const changedAt = new Date().toISOString();
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "RAW", data: [
+    { range: `${SERVICE_INVOICES_SHEET}!T${rowNumber}`, values: [[JSON.stringify({ ...metadata, paymentStatus, paymentHistory: [...(Array.isArray(metadata.paymentHistory) ? metadata.paymentHistory : []), { status: paymentStatus, previousStatus, changedBy: userId, changedAt }] })]] },
+    { range: `${SERVICE_INVOICES_SHEET}!G${rowNumber}:I${rowNumber}`, values: [[userId, changedAt, "created"]] },
+  ] } });
+}
+
+export async function recordServiceInvoiceScan(invoiceNo: string, fileLink: string, userId: string): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+  if (rowNumber <= 1) throw new Error("Invoice not found.");
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!T${rowNumber}` });
+  const metadata = parseManualCompletionData(response.data.values?.[0]?.[0]);
+  const scannedAt = new Date().toISOString();
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "RAW", data: [
+    { range: `${SERVICE_INVOICES_SHEET}!J${rowNumber}`, values: [[fileLink]] },
+    { range: `${SERVICE_INVOICES_SHEET}!T${rowNumber}`, values: [[JSON.stringify({ ...metadata, scannedFileLink: fileLink, scannedBy: userId, scannedAt })]] },
+    { range: `${SERVICE_INVOICES_SHEET}!G${rowNumber}:H${rowNumber}`, values: [[userId, scannedAt]] },
+  ] } });
+}
+
 /** Fetches and groups service invoice rows into summaries by InvoiceNo. */
 export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
   try {
@@ -393,7 +439,11 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           createdAt: String(row[5] ?? "").trim(),
           updatedBy: String(row[6] ?? "").trim() || undefined,
           updatedAt: String(row[7] ?? "").trim() || undefined,
-          status,
+          status: status === "paid" ? "created" : status,
+          paymentStatus: paymentStatusFor(status, manualCompletion),
+          statusReason: manualCompletion.statusReason,
+          scannedFileLink: manualCompletion.scannedFileLink,
+          scannedStatus: manualCompletion.scannedFileLink ? "scanned" : "not_scanned",
           driveFileLink: String(row[9] ?? "").trim() || undefined,
           contractId: String(row[10] ?? "").trim() || undefined,
           drNumber: row[11]
@@ -444,6 +494,17 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
       });
     // The list reads synchronized Q/R values in one Sheets request. Resolving a
     // DR or Sales Order per invoice here exhausts the Sheets read quota.
+    // Existing uploaded scans used the SI-SCANNED_ filename convention.
+    for (let index = 0; index < summaries.length; index += 5) {
+      await Promise.all(summaries.slice(index, index + 5).map(async invoice => {
+        if (!invoice.scannedFileLink && invoice.driveFileLink) {
+          const scan = await identifyLegacyScan(invoice.driveFileLink);
+          invoice.scannedFileLink = scan === true ? invoice.driveFileLink : undefined;
+          invoice.scannedStatus = scan === true ? "scanned" : "not_scanned";
+          invoice.scanVerificationPending = scan === undefined;
+        }
+      }));
+    }
     return summaries;
   } catch (error) {
     console.error("Failed to fetch service invoices:", error);
@@ -533,6 +594,7 @@ export async function processServiceInvoice(
   userId = "",
 ): Promise<ServiceInvoiceResponse> {
   try {
+    if (payload.status && !["draft", "created"].includes(payload.status)) throw new Error("Invalid invoice status for creation.");
     if (payload.status === "cancelled") throw new Error("Use Cancel and create corrected copy to cancel a Service Invoice.");
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
@@ -665,41 +727,9 @@ export async function processServiceInvoice(
       appendedRowNumber(itemsAppendResponse.data.updates?.updatedRange, SERVICE_INVOICE_ITEMS_SHEET, "G", itemRows.length);
     }
 
-    let pdfBase64: string | undefined;
-    let printUrl: string | undefined;
-
-    if (!isDraft) {
-      const preparedByDisplay = await resolvePreparedByTitle(
-        userId,
-        payload.preparedBy || "",
-      );
-      await populateServiceInvoiceTemplate(sheets, spreadsheetId, {
-        companyName,
-        address,
-        tin,
-        date: payload.date,
-        preparedBy: preparedByDisplay,
-        poNo: references.poNo,
-        trNo: references.trNo,
-        items: payload.items,
-      });
-
-      const gid = await getSheetTabGid(
-        sheets,
-        spreadsheetId,
-        PRINT_TEMPLATE_SHEET,
-      );
-      printUrl = buildExportUrl(spreadsheetId, gid);
-      try {
-        pdfBase64 = await fetchExportPdfBase64(printUrl);
-      } catch (e) {
-        console.warn("PDF export failed (will use print URL fallback):", e);
-      }
-    }
-
     let trackerAssignmentOutcome: ServiceInvoiceResponse["trackerAssignmentOutcome"];
     let trackerAssignmentWarning: string | undefined;
-    if (!isDraft && pdfBase64 && technicianId && technicianName) {
+    if (!isDraft && technicianId && technicianName) {
       try {
         const assignment = await ensureAutomaticDocumentHandover({
           documentType: "service_invoice",
@@ -716,10 +746,9 @@ export async function processServiceInvoice(
           trackerAssignmentWarning = "The existing Document Tracker assignment was returned and requires manual review.";
         }
       } catch (error) {
-        trackerAssignmentWarning = `Service Invoice was saved and its PDF generated, but Document Tracker assignment failed: ${error instanceof Error ? error.message : "unknown error"}`;
+        trackerAssignmentWarning = `Service Invoice was saved, but Document Tracker assignment failed: ${error instanceof Error ? error.message : "unknown error"}`;
       }
-    } else if (!isDraft && !pdfBase64) {
-      trackerAssignmentWarning = "Service Invoice was saved, but its printable PDF could not be generated, so no Document Tracker assignment was created.";
+
     }
 
     return {
@@ -732,8 +761,7 @@ export async function processServiceInvoice(
       preparedBy: payload.preparedBy || "",
       items: payload.items,
       status: payload.status || "created",
-      printUrl,
-      pdfBase64,
+
       contractId: payload.contractId,
       drNumber: payload.drNumber ?? undefined,
       poNo: references.poNo || undefined,
@@ -754,6 +782,7 @@ export async function processServiceInvoice(
 export interface UpdateServiceInvoicePayload extends Partial<CreateServiceInvoicePayload> {
   status?: string;
   manualCategories?: string[];
+  statusReason?: string;
 }
 
 /** Category-only update: preserve invoice money, PDF links and completion history. */
@@ -781,7 +810,7 @@ function assertReplaceableStatus(status: string): void {
   if (status !== "created") throw new Error("Only an unpaid, created Service Invoice can be cancelled and replaced.");
 }
 
-export async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, userId: string): Promise<string> {
+export async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, userId: string, reason: string): Promise<string> {
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const rowNumber = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
@@ -791,6 +820,8 @@ export async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, 
   const metadata = parseManualCompletionData(row[19]);
   if (metadata.replacementInvoiceNo) return metadata.replacementInvoiceNo;
   assertReplaceableStatus(String(row[8] ?? "").trim());
+  assertUnpaid(String(row[8]), metadata);
+  const statusReason = requireStatusReason(reason);
 
   // Recover a draft left by an interrupted request before creating another one.
   const all = await sheets.spreadsheets.values.get({ spreadsheetId, range: SERVICE_INVOICES_RANGE });
@@ -814,7 +845,7 @@ export async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, 
   await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data: [
     { range: `${SERVICE_INVOICES_SHEET}!T${replacementRowNumber}`, values: [[JSON.stringify({ ...parseManualCompletionData(replacementRow.data.values?.[0]?.[0]), manualCategories: metadata.manualCategories, replacesInvoiceNo: invoiceNo })]] },
     { range: `${SERVICE_INVOICES_SHEET}!G${rowNumber}:I${rowNumber}`, values: [[userId, new Date().toISOString(), "cancelled"]] },
-    { range: `${SERVICE_INVOICES_SHEET}!T${rowNumber}`, values: [[JSON.stringify({ ...metadata, replacementInvoiceNo: replacementNo })]] },
+    { range: `${SERVICE_INVOICES_SHEET}!T${rowNumber}`, values: [[JSON.stringify({ ...metadata, replacementInvoiceNo: replacementNo, statusReason, statusHistory: [...(Array.isArray(metadata.statusHistory) ? metadata.statusHistory : []), { status: "cancelled", reason: statusReason, changedBy: userId, changedAt: new Date().toISOString() }] })]] },
   ] } });
   return replacementNo;
 }
@@ -839,13 +870,17 @@ export async function updateServiceInvoice(
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     const oldStatus = String(currentRow[8] ?? "created").trim();
-    const newStatus = payload.status ?? oldStatus;
+    const currentMetadata = parseManualCompletionData(currentRow[19]);
+    const newStatus = payload.status ?? (oldStatus === "paid" ? "created" : oldStatus);
+    if (!["draft", "created", "void"].includes(newStatus)) throw new Error("Invalid invoice status.");
+    if (newStatus === "void" || (newStatus === "draft" && oldStatus !== "draft")) assertUnpaid(oldStatus, currentMetadata);
+    const statusReason = newStatus === "void" ? requireStatusReason(payload.statusReason) : currentMetadata.statusReason;
     const catalogReferences = payload.items ? await itemCatalogReferences(payload.items) : undefined;
     if (catalogReferences?.some((entry) => entry.productId)) await ensureServiceInvoiceItemCatalogHeaders(sheets, spreadsheetId);
     if (oldStatus === "cancelled" || oldStatus === "void" || oldStatus === "deleted") throw new Error("This Service Invoice can no longer be edited.");
     if (newStatus === "cancelled") throw new Error("Use Cancel and create corrected copy to cancel a Service Invoice.");
-    if (parseManualCompletionData(currentRow[19]).replacesInvoiceNo && !["draft", "created"].includes(newStatus)) throw new Error("A corrected copy must be finalized as created before payment.");
-    if (oldStatus === "paid" && newStatus !== "paid") throw new Error("A paid Service Invoice cannot be changed to unpaid.");
+    if (parseManualCompletionData(currentRow[19]).replacesInvoiceNo && !["draft", "created", "void"].includes(newStatus)) throw new Error("A corrected copy must be finalized as created before payment.");
+
     const isFinal = newStatus !== "draft";
     const updatedAt = new Date().toISOString();
 
@@ -948,7 +983,7 @@ export async function updateServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      payload.manualCategories !== undefined ? JSON.stringify({ ...parseManualCompletionData(currentRow[19]), manualCategories: validateManualCategories(payload.manualCategories) }) : String(currentRow[19] ?? "").trim(), // T: metadata
+      JSON.stringify({ ...currentMetadata, paymentStatus: paymentStatusFor(oldStatus, currentMetadata), ...(payload.manualCategories !== undefined ? { manualCategories: validateManualCategories(payload.manualCategories) } : {}), ...(newStatus === "void" ? { statusReason, statusHistory: [...(Array.isArray(currentMetadata.statusHistory) ? currentMetadata.statusHistory : []), { status: "void", reason: statusReason!, changedBy: userId, changedAt: updatedAt }] } : {}) }), // T: metadata
       payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // U: ReferenceMode
     ];
 
@@ -1049,6 +1084,10 @@ export async function updateServiceInvoice(
       updatedBy: String(updatedRow[6] ?? "").trim() || undefined,
       updatedAt: updatedRow[7] || undefined,
       status: updatedRow[8],
+      paymentStatus: paymentStatusFor(String(updatedRow[8]), parseManualCompletionData(updatedRow[19])),
+      scannedFileLink: parseManualCompletionData(updatedRow[19]).scannedFileLink,
+      scannedStatus: parseManualCompletionData(updatedRow[19]).scannedFileLink ? "scanned" : "not_scanned",
+      statusReason: parseManualCompletionData(updatedRow[19]).statusReason,
       driveFileLink: String(updatedRow[9] ?? "").trim() || undefined,
       contractId: String(updatedRow[10] ?? "").trim() || undefined,
       drNumber: updatedRow[11]
@@ -1058,12 +1097,12 @@ export async function updateServiceInvoice(
       trNo: references.trNo || undefined,
       salesOrderId: references.salesOrderId || undefined,
       referenceMode: updatedRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
-      manualCompletionStatus: updatedRow[19] === "COMPLETED" ? "COMPLETED" : updatedRow[19] === "REVERSED" ? "REVERSED" : undefined,
-      manualCompletionDate: updatedRow[20] || undefined,
-      manualCompletionTechnicianId: updatedRow[21] || undefined,
-      manualCompletionTechnicianName: updatedRow[22] || undefined,
-      manualCompletionNotes: updatedRow[23] || undefined,
-      manualCompletionFulfillmentIds: updatedRow[24] ? String(updatedRow[24]).split(",").filter(Boolean) : undefined,
+      manualCompletionStatus: parseManualCompletionData(updatedRow[19]).status,
+      manualCompletionDate: parseManualCompletionData(updatedRow[19]).completionDate,
+      manualCompletionTechnicianId: parseManualCompletionData(updatedRow[19]).technicianId,
+      manualCompletionTechnicianName: parseManualCompletionData(updatedRow[19]).technicianName,
+      manualCompletionNotes: parseManualCompletionData(updatedRow[19]).notes,
+      manualCompletionFulfillmentIds: parseManualCompletionData(updatedRow[19]).fulfillmentIds,
       replacesInvoiceNo: parseManualCompletionData(updatedRow[19]).replacesInvoiceNo,
       replacementInvoiceNo: parseManualCompletionData(updatedRow[19]).replacementInvoiceNo,
       assignedTechnicianUserId: technicianIdForRow || undefined,
@@ -1128,6 +1167,7 @@ export async function deleteServiceInvoice(invoiceNo: string): Promise<void> {
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     if (String(currentRow[8] ?? "") === "cancelled" || parseManualCompletionData(currentRow[19]).replacesInvoiceNo) throw new Error("Invoice history cannot be deleted.");
+    assertUnpaid(String(currentRow[8]), parseManualCompletionData(currentRow[19]));
     const updatedRow = currentRow.slice(0, 12);
     while (updatedRow.length < 12) updatedRow.push("");
     updatedRow[8] = "deleted";
@@ -1225,36 +1265,9 @@ export async function exportServiceInvoiceFormPdf(): Promise<{
 }
 
 /** Overwrites saved invoice PDFs that inherit their references from one DR. */
-export async function regenerateStoredServiceInvoicePdfsForDr(drNumber: number): Promise<void> {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = await getDatabaseSpreadsheetId();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A2:L` });
-  const rows = response.data.values ?? [];
-  const drive = await getDriveUploadClient();
-  const companies = await getCompanies().catch(() => []);
-  for (const row of rows) {
-    if (Number(row[11]) !== drNumber) continue;
-    const invoiceNo = String(row[0] ?? "").trim();
-    const link = String(row[9] ?? "").trim();
-    let fileId = link.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? link.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
-    if (!fileId) {
-      const date = String(row[1] ?? "").trim();
-      const customerId = String(row[2] ?? "").trim();
-      const companyName = companies.find((company) => company.companyId === customerId || company.id === customerId)?.companyName || customerId;
-      const parsedDate = new Date(date + (date.length === 10 ? "T00:00:00" : ""));
-      const monthYear = Number.isNaN(parsedDate.getTime()) ? "" : `${String(parsedDate.getMonth() + 1).padStart(2, "0")}-${parsedDate.getFullYear()}`;
-      const safeName = companyName.replace(/[/\\?%*:|"<> ]+/g, "_");
-      const fileName = `SI-${monthYear}-${invoiceNo}_${safeName}.pdf`;
-      const existing = await drive.files.list({
-        q: `'${SERVICE_INVOICE_DRIVE_FOLDER_ID}' in parents and name = '${escapeDriveQueryValue(fileName)}' and trashed = false`,
-        fields: "files(id)",
-      });
-      fileId = existing.data.files?.[0]?.id || undefined;
-    }
-    if (!invoiceNo || !fileId) continue;
-    const { pdfBase64 } = await populateAndExportServiceInvoiceFormPdf(invoiceNo);
-    await drive.files.update({ fileId, media: { mimeType: "application/pdf", body: Readable.from(Buffer.from(pdfBase64, "base64")) } });
-  }
+export async function regenerateStoredServiceInvoicePdfsForDr(_drNumber: number): Promise<void> {
+  void _drNumber;
+  // Physical paper scans are evidence and must never be regenerated.
 }
 
 export interface ManualServiceCompletionInput {
@@ -1361,15 +1374,7 @@ export async function syncSalesOrderServiceInvoiceReferences(salesOrderId: strin
       { range: `${SERVICE_INVOICES_SHEET}!R${rowNumber}`, values: [[order.order.salesOrderNo || ""]] },
     ]) },
   });
-  const drive = await getDriveUploadClient();
-  for (const { row } of matches) {
-    const invoiceNo = String(row[0] ?? "").trim();
-    const link = String(row[9] ?? "").trim();
-    const fileId = link.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? link.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1];
-    if (!invoiceNo || !fileId) continue;
-    const { pdfBase64 } = await populateAndExportServiceInvoiceFormPdf(invoiceNo);
-    await drive.files.update({ fileId, media: { mimeType: "application/pdf", body: Readable.from(Buffer.from(pdfBase64, "base64")) } });
-  }
+
 }
 
 export async function testPopulateServiceInvoiceTemplateWithDuplicatedItems(

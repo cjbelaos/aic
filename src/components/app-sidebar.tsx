@@ -491,7 +491,6 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              {isAdmin && <SidebarMenuItem><SidebarMenuButton asChild isActive={isItemActive("/dashboard/service-invoice-summary")} tooltip="Service Invoice Summary"><Link href="/dashboard/service-invoice-summary"><BarChart3 /><span>Service Invoice Summary</span></Link></SidebarMenuButton></SidebarMenuItem>}
               {!showServiceReportsInTechnicianGroup && (
                 <SidebarMenuItem>
                   <SidebarMenuButton

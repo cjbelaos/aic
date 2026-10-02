@@ -1,3 +1,4 @@
+import { recordServiceInvoiceScan } from "@/lib/serviceInvoiceSheets";
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Reasonable size cap (10 MB) so we don't stream huge files.
+  if (!["application/pdf", "image/jpeg", "image/png", "image/webp"].includes(file.type)) return NextResponse.json({ error: "Upload a PDF, JPEG, PNG or WebP scan." }, { status: 400 });
   if (file.size > 10 * 1024 * 1024) {
     return NextResponse.json(
       { error: "File must be 10 MB or smaller." },
@@ -113,13 +115,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Store the link in column J of the invoice header row.
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `ServiceInvoices!J${siRowIdx + 2}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[fileLink]] },
-    });
+    await recordServiceInvoiceScan(invoiceNo, fileLink, session.userId);
 
     return NextResponse.json({
       success: true,

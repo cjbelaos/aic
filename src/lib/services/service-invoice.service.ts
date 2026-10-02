@@ -17,6 +17,9 @@ const serviceInvoiceService = {
       throw error;
     }
   },
+  updatePayment: async (invoiceNo: string, paymentStatus: string): Promise<void> => {
+    await axios.patch(`${API_BASE_URL}/${encodeURIComponent(invoiceNo)}`, { paymentStatus });
+  },
   getAll: async (): Promise<ServiceInvoiceSummary[]> => {
     try {
       const response = await axios.get<ServiceInvoiceSummary[]>(API_BASE_URL);
@@ -64,8 +67,8 @@ const serviceInvoiceService = {
     }
   },
 
-  cancelAndCreateCorrectedCopy: async (invoiceNo: string): Promise<string> => {
-    const response = await axios.post<{ replacementInvoiceNo: string }>(`${API_BASE_URL}/${encodeURIComponent(invoiceNo)}/corrected-copy`);
+  cancelAndCreateCorrectedCopy: async (invoiceNo: string, reason: string): Promise<string> => {
+    const response = await axios.post<{ replacementInvoiceNo: string }>(`${API_BASE_URL}/${encodeURIComponent(invoiceNo)}/corrected-copy`, { reason });
     return response.data.replacementInvoiceNo;
   },
 
@@ -128,6 +131,7 @@ const serviceInvoiceService = {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("invoiceNo", invoiceNo);
       const response = await axios.post(
         `${API_BASE_URL}/upload-scanned`,
         formData,

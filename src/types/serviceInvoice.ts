@@ -1,3 +1,12 @@
+export type InvoicePaymentStatus = "unpaid" | "partial" | "full";
+export interface InvoiceTrackingFields {
+  paymentStatus?: InvoicePaymentStatus;
+  scannedFileLink?: string;
+  scannedStatus?: "scanned" | "not_scanned";
+  scanVerificationPending?: boolean;
+  statusReason?: string;
+}
+
 export interface ServiceInvoiceItem {
   productId?: string;
   productCategoryId?: string;
@@ -39,7 +48,7 @@ export interface CreateServiceInvoicePayload {
   assignedTechnicianUserId?: string;
 }
 
-export interface ServiceInvoiceResponse {
+export interface ServiceInvoiceResponse extends InvoiceTrackingFields {
   success: boolean;
   invoiceNo: string;
   date: string;
@@ -78,7 +87,7 @@ export interface ServiceInvoiceResponse {
   replacementInvoiceNo?: string;
 }
 
-export interface ServiceInvoiceSummary {
+export interface ServiceInvoiceSummary extends InvoiceTrackingFields {
   manualCategories?: string[];
   categorySource?: "automatic" | "manual" | "uncategorized";
   /** Derived from the linked Sales Order, or PMS for a contract-only invoice. */
