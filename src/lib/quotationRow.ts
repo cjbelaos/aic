@@ -1,5 +1,6 @@
+import { parseDiscountJson, type DiscountSettings } from "./discounts.ts";
 /**
- * Quotations tab column contract — the sheet has exactly 21 columns, A..U:
+ * Quotations tab column contract — the sheet has 22 columns, A..V (V is additive DiscountSettings):
  *
  *   A QuotationNo        B CustomerId          C Customer
  *   D Description        E Amount              F Discount
@@ -22,8 +23,8 @@ import { asMoney, normalizeQuotationPricingMode } from "./quotationPricing.ts";
 
 export const QUOTATION_SHEET_NAME = "Quotations";
 
-/** Exactly 21 columns (A..U) are written and read for every quotation. */
-export const QUOTATION_ROW_COLUMN_COUNT = 21;
+/** 22 columns (A..V) are written and read for every quotation. */
+export const QUOTATION_ROW_COLUMN_COUNT = 22;
 
 /** Zero-based index of every Quotations column. */
 export const QUOTATION_ROW = {
@@ -48,11 +49,13 @@ export const QUOTATION_ROW = {
   createdAt: 18,
   updatedBy: 19,
   updatedAt: 20,
+  discountSettings: 21,
 } as const;
 
 export type QuotationColumnKey = keyof typeof QUOTATION_ROW;
 
 export interface ParsedQuotationRowValues {
+  discountSettings?: DiscountSettings;
   quotationNo: string;
   customerId: string;
   customer: string;
@@ -94,6 +97,7 @@ function cellNumber(row: readonly unknown[], index: number): number {
  */
 export function parseQuotationRowValues(row: readonly unknown[]): ParsedQuotationRowValues {
   return {
+    discountSettings: parseDiscountJson(row[21]),
     quotationNo: cellText(row, QUOTATION_ROW.quotationNo).trim(),
     customerId: cellText(row, QUOTATION_ROW.customerId),
     customer: cellText(row, QUOTATION_ROW.customer),
@@ -156,6 +160,7 @@ export function quotationAuditCells(actor: string, timestamp: string, existingRo
 }
 
 export interface QuotationRowWriteInput extends Partial<QuotationAuditCells> {
+  discountSettings?: DiscountSettings;
   quotationNo?: string | null;
   customerId?: string | null;
   customer?: string | null;
@@ -176,7 +181,7 @@ export interface QuotationRowWriteInput extends Partial<QuotationAuditCells> {
   status?: string | null;
 }
 
-/** Builds the 21-cell row in the exact A..U order the sheet uses. */
+/** Builds the 22-cell row in the exact A..V order the sheet uses. */
 export function quotationRowValues(input: QuotationRowWriteInput): Array<string | number> {
   return [
     input.quotationNo ?? "",
@@ -200,6 +205,7 @@ export function quotationRowValues(input: QuotationRowWriteInput): Array<string 
     input.createdAt ?? "",
     input.updatedBy ?? "",
     input.updatedAt ?? "",
+    input.discountSettings ? JSON.stringify(input.discountSettings) : "",
   ];
 }
 
@@ -208,7 +214,7 @@ export const QUOTATION_ROW_HEADERS: readonly string[] = [
   "QuotationNo", "CustomerId", "Customer", "Description", "Amount", "Discount",
   "ShippingFee", "PricingMode", "SingleTotalPrice", "PaymentTermId", "PaymentTerms",
   "File", "Date", "PreparedBy", "ApprovedBy", "SentBy", "Status", "CreatedBy",
-  "CreatedAt", "UpdatedBy", "UpdatedAt",
+  "CreatedAt", "UpdatedBy", "UpdatedAt", "DiscountSettings",
 ];
 
 /** A1 column letter for a zero-based index (0 → A, 20 → U, 26 → AA). */

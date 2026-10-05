@@ -1,5 +1,8 @@
+import type { DiscountSettings } from "../lib/discounts.ts";
 export type InvoicePaymentStatus = "unpaid" | "partial" | "full";
 export interface InvoiceTrackingFields {
+  discountSettings?: DiscountSettings;
+  discountAmount?: number;
   paymentStatus?: InvoicePaymentStatus;
   scannedFileLink?: string;
   scannedStatus?: "scanned" | "not_scanned";
@@ -8,6 +11,9 @@ export interface InvoiceTrackingFields {
 }
 
 export interface ServiceInvoiceItem {
+  salesOrderItemId?: string;
+  discountSettings?: DiscountSettings;
+  discountAmount?: number;
   productId?: string;
   productCategoryId?: string;
   description: string;
@@ -17,6 +23,7 @@ export interface ServiceInvoiceItem {
 }
 
 export interface CreateServiceInvoicePayload {
+  discountSettings?: DiscountSettings;
   /** Invoice number typed from the physical paper. Required, must be unique. */
   invoiceNo: string;
   date: string;

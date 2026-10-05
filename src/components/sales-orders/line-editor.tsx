@@ -1,5 +1,7 @@
 "use client";
 
+import { DiscountInput } from "@/components/discount-input";
+import { defaultDiscount, discountAmount } from "@/lib/discounts";
 import * as React from "react";
 import { Package, Plus, Trash2, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,7 @@ import {
 } from "@/types/salesOrder";
 
 export interface LineEditorProps {
+  allowItemDiscounts?: boolean;
   lines: OrderLineInput[];
   onChange: (lines: OrderLineInput[]) => void;
   units: OptionsResponse["units"];
@@ -65,16 +68,16 @@ function isCombinedCharge(line: OrderLineInput): boolean {
 function lineTotal(line: OrderLineInput): number | null {
   if (isNotPriced(line)) return null;
   if (line.quantity === null || line.unitPrice === null) return null;
-  const payable = Math.max(
-    0,
-    line.quantity * line.unitPrice - (line.discountAmount ?? 0),
-  );
+  let deduction = line.discountAmount ?? 0;
+  try { if (line.discountSettings) deduction = discountAmount(line.quantity * line.unitPrice, line.discountSettings, line.quantity, line.taxMode, line.taxRate); } catch { return null; }
+  const payable = Math.max(0, line.quantity * line.unitPrice - deduction);
   return line.taxMode === "VAT_EXCLUSIVE"
     ? payable * (1 + (line.taxRate ?? 0))
     : payable;
 }
 
 export function LineEditor({
+  allowItemDiscounts = false,
   lines,
   onChange,
   units,
@@ -397,16 +400,7 @@ export function LineEditor({
                   </Field>
 
                   <div className="col-span-full grid grid-cols-1 gap-4 rounded-md bg-muted/20 p-3 sm:grid-cols-2 md:grid-cols-12">
-                    <Field label="Discount" className="md:col-span-6">
-                      <NumberInput
-                        value={line.discountAmount ?? 0}
-                        onChange={(value) =>
-                          update(index, { discountAmount: value ?? 0 })
-                        }
-                        placeholder="0.00"
-                        prefix="₱"
-                      />
-                    </Field>
+                    {allowItemDiscounts && <Field label="Item discount" className="md:col-span-6"><DiscountInput value={line.discountSettings ?? defaultDiscount(line.discountAmount ?? 0)} onChange={discountSettings => update(index, { discountSettings, discountAmount: 0 })} showScope /></Field>}
                     <Field label="VAT" className="md:col-span-6">
                       <Select
                         value={line.taxMode || "VAT_INCLUSIVE"}

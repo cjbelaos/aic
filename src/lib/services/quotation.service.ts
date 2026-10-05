@@ -1,3 +1,4 @@
+import type { DiscountSettings } from "@/lib/discounts";
 // src/lib/services/quotation.service.ts
 import axios from "axios";
 import {
@@ -26,6 +27,7 @@ export interface SaveAndEmailPayload {
   warranty: string;
   preparedBy: string;
   discount: number;
+  discountSettings?: DiscountSettings;
   shippingFee?: number;
   paymentTermId?: string;
   quotationNo: string;
@@ -56,6 +58,7 @@ export interface SaveQuotationPayload {
   preparedBy: string;
   approvedBy?: string;
   discount: number;
+  discountSettings?: DiscountSettings;
   shippingFee?: number;
   paymentTermId?: string;
   quotationNo: string;

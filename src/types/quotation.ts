@@ -1,3 +1,4 @@
+import type { DiscountSettings } from "../lib/discounts.ts";
 export type QuotationStatus = "DRAFT" | "SAVED" | "SENT";
 
 /**
@@ -22,6 +23,7 @@ export interface QuotationAudit {
 }
 
 export interface Quotation extends QuotationAudit {
+  discountSettings?: DiscountSettings;
   id: string;
   quotationNo: string;
   customer: string;
@@ -55,6 +57,8 @@ export interface Quotation extends QuotationAudit {
 }
 
 export interface QuotationDetail extends QuotationAudit {
+  notes?: string;
+  discountSettings?: DiscountSettings;
   quotationNo: string;
   /** Stable Products reference when this is a catalog item. */
   productId?: string;

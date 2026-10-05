@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Loader2, FilePlus2, FileText, Droplets } from "lucide-react";
@@ -169,13 +170,13 @@ export default function NewServiceReportPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="standalone-reason">Why is there no Service Invoice? <span className="text-destructive">*</span></Label>
-                    <select id="standalone-reason" value={standaloneReason} onChange={(event) => { setStandaloneReason(event.target.value); setError(""); }} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs">
-                      <option value="">Select a reason</option>
-                      <option value="EMERGENCY_REPAIR">Emergency repair</option>
-                      <option value="WARRANTY_SERVICE">Warranty service</option>
-                      <option value="NO_CHARGE_SERVICE">No-charge service</option>
-                      <option value="OTHER">Other documented exception</option>
-                    </select>
+                    <Select value={standaloneReason} onValueChange={(selected) => { setStandaloneReason(selected); setError(""); }}><SelectTrigger id="standalone-reason" className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"><SelectValue /></SelectTrigger><SelectContent>
+                      <SelectItem value="">Select a reason</SelectItem>
+                      <SelectItem value="EMERGENCY_REPAIR">Emergency repair</SelectItem>
+                      <SelectItem value="WARRANTY_SERVICE">Warranty service</SelectItem>
+                      <SelectItem value="NO_CHARGE_SERVICE">No-charge service</SelectItem>
+                      <SelectItem value="OTHER">Other documented exception</SelectItem>
+                    </SelectContent></Select>
                   </div>
                   {standaloneReason === "OTHER" ? <div className="space-y-2 md:col-span-2"><Label htmlFor="standalone-reason-details">Exception details <span className="text-destructive">*</span></Label><Textarea id="standalone-reason-details" value={standaloneReasonDetails} onChange={(event) => { setStandaloneReasonDetails(event.target.value); setError(""); }} placeholder="Explain why no Service Invoice applies" /></div> : null}
                 </div>

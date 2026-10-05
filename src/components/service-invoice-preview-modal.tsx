@@ -1,4 +1,5 @@
 "use client";
+import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Paperclip, Printer } from "lucide-react";
@@ -87,14 +88,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
     };
   }, [si]);
 
-  const total = useMemo(
-    () =>
-      (si?.items ?? []).reduce(
-        (sum, item) => sum + item.quantity * item.unitPrice,
-        0,
-      ),
-    [si],
-  );
+  const total = useMemo(() => si ? invoiceTotals(si).grandTotal : 0, [si]);
 
   if (!si) return null;
 
@@ -244,6 +238,12 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
         </div>
 
         {/* Total */}
+        <div className="space-y-1 text-sm sm:ml-auto sm:w-72">
+          <div className="flex justify-between"><span>Subtotal</span><span>₱{invoiceTotals(si).subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span></div>
+          <div className="flex justify-between"><span>Less Discount</span><span>₱{invoiceTotals(si).discount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span></div>
+          <div className="flex justify-between"><span>Vatable amount</span><span>₱{invoiceTotals(si).vatableAmount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span></div>
+          <div className="flex justify-between"><span>VAT</span><span>₱{invoiceTotals(si).vat.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span></div>
+        </div>
         <div className="flex items-center justify-between rounded-lg bg-primary/10 px-4 py-3 sm:ml-auto sm:w-72">
           <span className="text-sm font-medium text-muted-foreground">
             Total

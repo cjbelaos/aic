@@ -6,6 +6,7 @@
 // pair as a stacked card with persistent Before and After labels so no
 // horizontal measurement grid is required at 320-430px widths.
 
+import { DatePickerInput } from "@/components/ui/date-picker";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Save, Loader2, CheckCircle2 } from "lucide-react";
@@ -165,7 +166,7 @@ export function WaterTreatmentServiceReportForm({ detail, onSaved, onDirtyChange
             </div>
             <div className="space-y-2">
               <Label>Service date <span className="text-destructive">*</span></Label>
-              <Input type="date" value={serviceDate} onChange={(e) => markText(setServiceDate, e.target.value)} aria-invalid={Boolean(fieldErrors.serviceDate)} />
+              <DatePickerInput value={serviceDate} onChange={(selectedDate) => markText(setServiceDate, selectedDate)} aria-invalid={Boolean(fieldErrors.serviceDate)} />
               {fieldErrors.serviceDate ? <p className="text-xs text-destructive">{fieldErrors.serviceDate}</p> : null}
             </div>
             <div className="space-y-2">

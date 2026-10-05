@@ -187,9 +187,12 @@ export default function QuotationsPage() {
       lineItems: (quot.items || []).map((item) => ({
         quantity: item.quantity || 0,
         unitPrice: item.unitPrice || 0,
+        notes: item.notes,
+        discountSettings: item.discountSettings,
       })),
       singleTotalPrice: storedSingleTotalPrice,
       discount: quot.discount || 0,
+      discountSettings: quot.discountSettings,
       shippingFee: quot.shippingFee || 0,
     });
 
@@ -207,12 +210,15 @@ export default function QuotationsPage() {
         quantity: item.quantity || 0,
         unit: item.unit || "",
         unitPrice: item.unitPrice || 0,
+        notes: item.notes,
+        discountSettings: item.discountSettings,
       })),
       notations: quot.notation || [],
       // Stored pricing mode drives the totals: single-total quotations show the
       // one combined price, never a divided per-line figure.
       subTotal: storedTotals.subtotal,
       discount: quot.discount || 0,
+      discountSettings: quot.discountSettings,
       shippingFee: quot.shippingFee || 0,
       paymentTermId: quot.paymentTermId || "",
       terms: quot.terms || "",
@@ -353,7 +359,7 @@ export default function QuotationsPage() {
           ...selectedQuotation, quotationNo: selectedQuotation.quotationNo,
           customer: formPayload.customer.companyName, customerId: formPayload.customer.companyId,
           description: formPayload.quotationDescription, amount: formPayload.grandTotal,
-          discount: formPayload.discount, shippingFee: formPayload.shippingFee || 0,
+          discount: formPayload.discount, discountSettings: formPayload.discountSettings, shippingFee: formPayload.shippingFee || 0,
           paymentTermId: formPayload.paymentTermId,
           date, preparedBy: formPayload.preparedBy, approvedBy: formPayload.approvedBy,
           items: formPayload.items, notation: formPayload.notations || [],
@@ -368,7 +374,7 @@ export default function QuotationsPage() {
           terms: formPayload.terms, delivery: formPayload.delivery, warranty: formPayload.warranty,
           paymentTermId: formPayload.paymentTermId,
           preparedBy: formPayload.preparedBy, approvedBy: formPayload.approvedBy,
-          discount: formPayload.discount, shippingFee: formPayload.shippingFee || 0,
+          discount: formPayload.discount, discountSettings: formPayload.discountSettings, shippingFee: formPayload.shippingFee || 0,
           dateIssued: date, validUntil: String(formPayload.validity), notations: formPayload.notations,
           subTotal: formPayload.subTotal, vatableAmount: formPayload.vatableAmount,
           vat: formPayload.vat, grandTotal: formPayload.grandTotal, status,

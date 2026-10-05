@@ -1,4 +1,8 @@
 "use client";
+import { DatePickerInput, MonthPickerInput } from "@/components/ui/date-picker";
+import { InvoiceDiscountEditor } from "@/components/invoice-discount-editor";
+import { defaultDiscount } from "@/lib/discounts";
+import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 
 import { InvoiceReferenceTypeSelector } from "@/components/delivery-release-reference-field";
 import type { DeliveryReferenceMode } from "@/lib/deliveryReference";
@@ -14,10 +18,16 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { FilterMultiSelect } from "@/components/ui/filter-multi-select";
 import { InvoiceCategoryPicker } from "@/components/invoice-category-picker";
 import ServiceInvoiceReporting from "@/components/service-invoice-reporting";
-import { buildServiceInvoiceSummaryReport, reportRange } from "@/lib/serviceInvoiceSummary";
+import {
+  buildServiceInvoiceSummaryReport,
+  reportRange,
+} from "@/lib/serviceInvoiceSummary";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PAYMENT_LABELS } from "@/lib/serviceInvoiceTracking";
-import { MANUAL_INVOICE_CATEGORIES, matchesInvoiceFilters } from "@/lib/serviceInvoiceFilters";
+import {
+  MANUAL_INVOICE_CATEGORIES,
+  matchesInvoiceFilters,
+} from "@/lib/serviceInvoiceFilters";
 import {
   Dialog,
   DialogContent,
@@ -59,7 +69,9 @@ import deliveryService from "@/lib/services/delivery.service";
 import userService from "@/lib/services/user.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import serviceReportService from "@/lib/services/service-report.service";
-import salesOrderService, { type OrderRowView } from "@/lib/services/sales-order.service";
+import salesOrderService, {
+  type OrderRowView,
+} from "@/lib/services/sales-order.service";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +89,7 @@ import {
 } from "@/types/serviceInvoice";
 
 interface LineItem {
+  salesOrderItemId?: string;
   productId?: string;
   description: string;
   quantity: number;
@@ -89,22 +102,33 @@ const EMPTY_LINE_ITEM: LineItem = {
   unitPrice: 0,
 };
 
-export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean }) {
+export default function ServiceInvoicesClient({
+  isAdmin,
+}: {
+  isAdmin: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const viewDrRaw = searchParams.get("viewDR");
-  const activeTab = isAdmin && searchParams.get("tab") === "summary" ? "summary" : "invoices";
+  const activeTab =
+    isAdmin && searchParams.get("tab") === "summary" ? "summary" : "invoices";
   const changeTab = (tab: string) => {
     const query = new URLSearchParams(searchParams.toString());
-    if (tab === "summary") query.set("tab", tab); else query.delete("tab");
-    router.replace(`/dashboard/service-invoices${query.size ? `?${query}` : ""}`, { scroll: false });
+    if (tab === "summary") query.set("tab", tab);
+    else query.delete("tab");
+    router.replace(
+      `/dashboard/service-invoices${query.size ? `?${query}` : ""}`,
+      { scroll: false },
+    );
   };
 
   /* List state */
   const [invoices, setInvoices] = useState<ServiceInvoiceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   /** Service Report type per report id (best effort; never blocks the list). */
-  const [reportTypeByReportId, setReportTypeByReportId] = useState<Record<string, ServiceReportType>>({});
+  const [reportTypeByReportId, setReportTypeByReportId] = useState<
+    Record<string, ServiceReportType>
+  >({});
 
   const reportTypeLabelFor = useCallback(
     (reportId?: string): string => {
@@ -116,10 +140,12 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   );
 
   useEffect(() => {
-    void serviceReportService.list()
+    void serviceReportService
+      .list()
       .then((result) => {
         const map: Record<string, ServiceReportType> = {};
-        for (const row of result.rows ?? []) map[row.report.serviceReportId] = row.report.reportType;
+        for (const row of result.rows ?? [])
+          map[row.report.serviceReportId] = row.report.reportType;
         setReportTypeByReportId(map);
       })
       .catch(() => {});
@@ -136,13 +162,18 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
     new Date().toISOString().split("T")[0],
   );
   const [preparedBy, setPreparedBy] = useState("");
+  const [discountSettings, setDiscountSettings] = useState(defaultDiscount());
+  const [editDiscountSettings, setEditDiscountSettings] =
+    useState(defaultDiscount());
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [printing, setPrinting] = useState(false);
 
-  const [referenceMode, setReferenceMode] = useState<DeliveryReferenceMode | null>(null);
-  const [editReferenceMode, setEditReferenceMode] = useState<DeliveryReferenceMode>("SALES_ORDER");
+  const [referenceMode, setReferenceMode] =
+    useState<DeliveryReferenceMode | null>(null);
+  const [editReferenceMode, setEditReferenceMode] =
+    useState<DeliveryReferenceMode>("SALES_ORDER");
 
   /* Linked DR */
   const [linkedDrNumber, setLinkedDrNumber] = useState("");
@@ -151,14 +182,20 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   const [drOptions, setDrOptions] = useState<
     { value: string; label: string }[]
   >([]);
-  const [salesOrderOptions, setSalesOrderOptions] = useState<{ value: string; label: string }[]>([]);
-  const [salesOrdersById, setSalesOrdersById] = useState<Record<string, OrderRowView["order"]>>({});
+  const [salesOrderOptions, setSalesOrderOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [salesOrdersById, setSalesOrdersById] = useState<
+    Record<string, OrderRowView["order"]>
+  >({});
   /* Assigned technician (ServiceInvoices M/N). Inherited from a linked DR. */
   const [technicianId, setTechnicianId] = useState("");
   const [technicianName, setTechnicianName] = useState("");
   const [poNo, setPoNo] = useState("");
   const [trNo, setTrNo] = useState("");
-  const [deliveryUsers, setDeliveryUsers] = useState<{ value: string; label: string }[]>([]);
+  const [deliveryUsers, setDeliveryUsers] = useState<
+    { value: string; label: string }[]
+  >([]);
   const [deliveryUsersLoading, setDeliveryUsersLoading] = useState(true);
   const [deliveryUsersError, setDeliveryUsersError] = useState("");
 
@@ -172,18 +209,25 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   );
   const [editDate, setEditDate] = useState("");
   const [editStatus, setEditStatus] = useState("created");
-  const [editManualCategories, setEditManualCategories] = useState<string[]>([]);
-  const [categoryTarget, setCategoryTarget] = useState<ServiceInvoiceSummary | null>(null);
+  const [editManualCategories, setEditManualCategories] = useState<string[]>(
+    [],
+  );
+  const [categoryTarget, setCategoryTarget] =
+    useState<ServiceInvoiceSummary | null>(null);
   const [manualCategories, setManualCategories] = useState<string[]>([]);
   const [savingCategory, setSavingCategory] = useState(false);
   const [editInvoiceNo, setEditInvoiceNo] = useState("");
-  const [paymentTarget, setPaymentTarget] = useState<ServiceInvoiceSummary | null>(null);
+  const [paymentTarget, setPaymentTarget] =
+    useState<ServiceInvoiceSummary | null>(null);
   const [paymentValue, setPaymentValue] = useState("unpaid");
   const [savingPayment, setSavingPayment] = useState(false);
-  const [cancelTarget, setCancelTarget] = useState<ServiceInvoiceSummary | null>(null);
+  const [cancelTarget, setCancelTarget] =
+    useState<ServiceInvoiceSummary | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [voidReason, setVoidReason] = useState("");
-  const [correctingInvoiceNo, setCorrectingInvoiceNo] = useState<string | null>(null);
+  const [correctingInvoiceNo, setCorrectingInvoiceNo] = useState<string | null>(
+    null,
+  );
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editDrNumber, setEditDrNumber] = useState("");
@@ -192,19 +236,20 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   const [editTechnicianName, setEditTechnicianName] = useState("");
   const [editPoNo, setEditPoNo] = useState("");
   const [editTrNo, setEditTrNo] = useState("");
-  const [completionTarget, setCompletionTarget] = useState<ServiceInvoiceSummary | null>(null);
+  const [completionTarget, setCompletionTarget] =
+    useState<ServiceInvoiceSummary | null>(null);
   const [completionDate, setCompletionDate] = useState("");
   const [completionTechnicianId, setCompletionTechnicianId] = useState("");
   const [completionNotes, setCompletionNotes] = useState("");
   const [completingService, setCompletingService] = useState(false);
-  const [reversalTarget, setReversalTarget] = useState<ServiceInvoiceSummary | null>(null);
+  const [reversalTarget, setReversalTarget] =
+    useState<ServiceInvoiceSummary | null>(null);
   const [reversalDate, setReversalDate] = useState("");
   const [reversalNotes, setReversalNotes] = useState("");
 
   /* Delete */
   const [deleteTarget, setDeleteTarget] =
     useState<ServiceInvoiceSummary | null>(null);
-
 
   /* Scanned Service Invoice upload */
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -243,7 +288,13 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
       setInvoices((prev) =>
         prev.map((inv) =>
           inv.invoiceNo === uploadTarget
-            ? { ...inv, driveFileLink: result.fileLink, scannedFileLink: result.fileLink, scannedStatus: "scanned", scanVerificationPending: false }
+            ? {
+                ...inv,
+                driveFileLink: result.fileLink,
+                scannedFileLink: result.fileLink,
+                scannedStatus: "scanned",
+                scanVerificationPending: false,
+              }
             : inv,
         ),
       );
@@ -265,11 +316,16 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   }, [fetchList]);
 
   useEffect(() => {
-    deliveryService.getAll()
-      .then((allDrs) => setDrOptions(allDrs.map((d) => ({
-        value: String(d.drNumber),
-        label: `DR #${d.drNumber} — ${d.companyName} (${d.date})`,
-      }))))
+    deliveryService
+      .getAll()
+      .then((allDrs) =>
+        setDrOptions(
+          allDrs.map((d) => ({
+            value: String(d.drNumber),
+            label: `DR #${d.drNumber} — ${d.companyName} (${d.date})`,
+          })),
+        ),
+      )
       .catch(() => setDrOptions([]));
   }, []);
 
@@ -316,20 +372,36 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
 
   /* Eligible application users for manual Service Invoice handover. */
   useEffect(() => {
-    userService.getAllUsers()
-      .then((users) => setDeliveryUsers(users
-        .filter((user) => user.userId && user.fullName.trim())
-        .map((user) => ({ value: user.userId, label: user.fullName }))))
-      .catch((error) => setDeliveryUsersError(error instanceof Error ? error.message : "Failed to load eligible users."))
+    userService
+      .getAllUsers()
+      .then((users) =>
+        setDeliveryUsers(
+          users
+            .filter((user) => user.userId && user.fullName.trim())
+            .map((user) => ({ value: user.userId, label: user.fullName })),
+        ),
+      )
+      .catch((error) =>
+        setDeliveryUsersError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load eligible users.",
+        ),
+      )
       .finally(() => setDeliveryUsersLoading(false));
   }, []);
 
   /* Load customers + current user for PreparedBy */
   useEffect(() => {
-    companyService.getAll()
-      .then((all) => setCompanies(all.filter(
-        (c) => c.companyType === "Customer" || c.companyType === "Both",
-      )))
+    companyService
+      .getAll()
+      .then((all) =>
+        setCompanies(
+          all.filter(
+            (c) => c.companyType === "Customer" || c.companyType === "Both",
+          ),
+        ),
+      )
       .catch(() => toast.error("Failed to load customers."));
     (async () => {
       try {
@@ -450,32 +522,56 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
      The server re-resolves the technician from the DR on save. */
   useEffect(() => {
     if (!linkedDrNumber) return;
-    const selected = deliveryService.getAll().then((drs) =>
-      drs.find((dr) => dr.drNumber === parseInt(linkedDrNumber, 10)),
-    );
-    selected.then((dr) => {
-      if (dr) setReferenceMode(dr.salesOrderId ? "SALES_ORDER" : "TR_NUMBER");
-      setTechnicianId(dr?.deliveredById || "");
-      setTechnicianName(dr?.deliveredBy || "");
-      setPoNo(dr?.poNo || "");
-      setTrNo(dr?.trNo || "");
-    }).catch(() => {
-      setTechnicianId("");
-      setTechnicianName("");
-    });
+    const selected = deliveryService
+      .getAll()
+      .then((drs) =>
+        drs.find((dr) => dr.drNumber === parseInt(linkedDrNumber, 10)),
+      );
+    selected
+      .then((dr) => {
+        if (dr) {
+          setReferenceMode(dr.salesOrderId ? "SALES_ORDER" : "TR_NUMBER");
+          setLinkedSalesOrderId(dr.salesOrderId || "");
+        }
+        setTechnicianId(dr?.deliveredById || "");
+        setTechnicianName(dr?.deliveredBy || "");
+        setPoNo(dr?.poNo || "");
+        setTrNo(dr?.trNo || "");
+      })
+      .catch(() => {
+        setTechnicianId("");
+        setTechnicianName("");
+      });
   }, [linkedDrNumber]);
 
   useEffect(() => {
     if (!modalOpen && !editTarget) return;
-    salesOrderService.list({ pageSize: 1000, view: "services" })
+    salesOrderService
+      .list({ pageSize: 1000, view: "services" })
       .then((result) => {
         const orders = result.rows
-          .filter((row) => row.order.orderStatus === "CONFIRMED" || row.order.orderStatus === "ON_HOLD")
+          .filter(
+            (row) =>
+              row.order.orderStatus === "CONFIRMED" ||
+              row.order.orderStatus === "ON_HOLD",
+          )
           .map((row) => row.order);
-        setSalesOrderOptions(orders.map((order) => ({ value: order.salesOrderId, label: `${order.salesOrderNo} — ${order.customerNameSnapshot}` })));
-        setSalesOrdersById(Object.fromEntries(orders.map((order) => [order.salesOrderId, order])));
+        setSalesOrderOptions(
+          orders.map((order) => ({
+            value: order.salesOrderId,
+            label: `${order.salesOrderNo} — ${order.customerNameSnapshot}`,
+          })),
+        );
+        setSalesOrdersById(
+          Object.fromEntries(
+            orders.map((order) => [order.salesOrderId, order]),
+          ),
+        );
       })
-      .catch(() => { setSalesOrderOptions([]); setSalesOrdersById({}); });
+      .catch(() => {
+        setSalesOrderOptions([]);
+        setSalesOrdersById({});
+      });
   }, [modalOpen, editTarget]);
 
   useEffect(() => {
@@ -490,9 +586,16 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
 
   useEffect(() => {
     if (!editDrNumber) return;
-    deliveryService.getAll()
-      .then((drs) => drs.find((dr) => dr.drNumber === parseInt(editDrNumber, 10)))
+    deliveryService
+      .getAll()
+      .then((drs) =>
+        drs.find((dr) => dr.drNumber === parseInt(editDrNumber, 10)),
+      )
       .then((dr) => {
+        if (dr) {
+          setEditReferenceMode(dr.salesOrderId ? "SALES_ORDER" : "TR_NUMBER");
+          setEditSalesOrderId(dr.salesOrderId || "");
+        }
         setEditTechnicianId(dr?.deliveredById || "");
         setEditTechnicianName(dr?.deliveredBy || "");
         setEditPoNo(dr?.poNo || "");
@@ -505,7 +608,12 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   }, [editDrNumber]);
 
   useEffect(() => {
-    if (!editSalesOrderId || editDrNumber || editReferenceMode !== "SALES_ORDER") return;
+    if (
+      !editSalesOrderId ||
+      editDrNumber ||
+      editReferenceMode !== "SALES_ORDER"
+    )
+      return;
     const order = salesOrdersById[editSalesOrderId];
     if (!order) return;
     setEditPoNo(order.customerPONo || "");
@@ -553,14 +661,87 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         accessorKey: "companyName",
         header: "Customer",
       },
-      { accessorKey: "paymentStatus", header: "Payment status", cell: ({ row }) => <div className="space-y-1"><Badge variant={row.original.paymentStatus === "full" ? "default" : "outline"}>{PAYMENT_LABELS[row.original.paymentStatus ?? "unpaid"]}</Badge>{isAdmin && row.original.status === "created" && <Button variant="ghost" size="sm" className="h-7 px-1 text-xs" onClick={() => { setPaymentTarget(row.original); setPaymentValue(row.original.paymentStatus ?? "unpaid"); }}>Update payment</Button>}</div> },
-      { accessorKey: "scannedStatus", header: "Scanned copy", cell: ({ row }) => <div><Badge variant={row.original.scannedStatus === "scanned" ? "default" : "outline"}>{row.original.scannedStatus === "scanned" ? "Scanned" : "Not scanned"}</Badge>{row.original.scanVerificationPending && <p className="text-xs text-muted-foreground">Existing attachment could not be verified; upload a scan to confirm.</p>}</div> },
-      { accessorKey: "category", header: "Category", cell: ({ getValue, row }) => {
-        const invoice = row.original;
-        const label = String(getValue() || "Uncategorized");
-        const editable = invoice.categorySource !== "automatic" && (label === "Uncategorized" || invoice.categorySource === "manual") && !["cancelled", "void", "deleted"].includes(invoice.status);
-        return editable ? <Button variant="ghost" size="sm" className="h-auto whitespace-normal px-1 text-left underline decoration-dotted" title="Update invoice category" onClick={(event) => { event.stopPropagation(); setManualCategories(invoice.manualCategories ?? []); setCategoryTarget(invoice); }}>{label}</Button> : label;
-      } },
+      {
+        accessorKey: "paymentStatus",
+        header: "Payment status",
+        cell: ({ row }) => (
+          <div className="space-y-1">
+            <Badge
+              variant={
+                row.original.paymentStatus === "full" ? "default" : "outline"
+              }
+            >
+              {PAYMENT_LABELS[row.original.paymentStatus ?? "unpaid"]}
+            </Badge>
+            {isAdmin && row.original.status === "created" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-1 text-xs"
+                onClick={() => {
+                  setPaymentTarget(row.original);
+                  setPaymentValue(row.original.paymentStatus ?? "unpaid");
+                }}
+              >
+                Update payment
+              </Button>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "scannedStatus",
+        header: "Scanned copy",
+        cell: ({ row }) => (
+          <div>
+            <Badge
+              variant={
+                row.original.scannedStatus === "scanned" ? "default" : "outline"
+              }
+            >
+              {row.original.scannedStatus === "scanned"
+                ? "Scanned"
+                : "Not scanned"}
+            </Badge>
+            {row.original.scanVerificationPending && (
+              <p className="text-xs text-muted-foreground">
+                Existing attachment could not be verified; upload a scan to
+                confirm.
+              </p>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "category",
+        header: "Category",
+        cell: ({ getValue, row }) => {
+          const invoice = row.original;
+          const label = String(getValue() || "Uncategorized");
+          const editable =
+            invoice.categorySource !== "automatic" &&
+            (label === "Uncategorized" ||
+              invoice.categorySource === "manual") &&
+            !["cancelled", "void", "deleted"].includes(invoice.status);
+          return editable ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto whitespace-normal px-1 text-left underline decoration-dotted"
+              title="Update invoice category"
+              onClick={(event) => {
+                event.stopPropagation();
+                setManualCategories(invoice.manualCategories ?? []);
+                setCategoryTarget(invoice);
+              }}
+            >
+              {label}
+            </Button>
+          ) : (
+            label
+          );
+        },
+      },
       {
         accessorKey: "preparedBy",
         header: "Prepared By",
@@ -569,10 +750,7 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         id: "total",
         header: "Total",
         cell: ({ row }) => {
-          const total = row.original.items.reduce(
-            (sum, i) => sum + (i.amount ?? i.quantity * i.unitPrice),
-            0,
-          );
+          const total = invoiceTotals(row.original).grandTotal;
           return (
             <span className="tabular-nums">
               {total.toLocaleString("en-PH", {
@@ -602,12 +780,42 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
             cancelled: { label: "Cancelled", variant: "destructive" },
           };
           const cfg = map[s] || map.created;
-          const linkedNo = row.original.replacementInvoiceNo || row.original.replacesInvoiceNo;
-          return <div className="flex flex-col items-start gap-1"><Badge variant={cfg.variant}>{cfg.label}</Badge>{row.original.statusReason && <span className="text-xs text-muted-foreground">{row.original.statusReason}</span>}{linkedNo && <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => {
-            const linked = invoices.find((invoice) => invoice.invoiceNo === linkedNo);
-            if (linked?.status === "draft") setEditTarget(linked);
-            else if (linked) void serviceInvoiceService.getPreview(linkedNo).then(setViewSi).catch(() => toast.error("Failed to load linked invoice."));
-          }}>{row.original.replacementInvoiceNo ? `Replacement #${linkedNo}` : `Replaces #${linkedNo}`}</Button>}</div>;
+          const linkedNo =
+            row.original.replacementInvoiceNo || row.original.replacesInvoiceNo;
+          return (
+            <div className="flex flex-col items-start gap-1">
+              <Badge variant={cfg.variant}>{cfg.label}</Badge>
+              {row.original.statusReason && (
+                <span className="text-xs text-muted-foreground">
+                  {row.original.statusReason}
+                </span>
+              )}
+              {linkedNo && (
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-xs"
+                  onClick={() => {
+                    const linked = invoices.find(
+                      (invoice) => invoice.invoiceNo === linkedNo,
+                    );
+                    if (linked?.status === "draft") setEditTarget(linked);
+                    else if (linked)
+                      void serviceInvoiceService
+                        .getPreview(linkedNo)
+                        .then(setViewSi)
+                        .catch(() =>
+                          toast.error("Failed to load linked invoice."),
+                        );
+                  }}
+                >
+                  {row.original.replacementInvoiceNo
+                    ? `Replacement #${linkedNo}`
+                    : `Replaces #${linkedNo}`}
+                </Button>
+              )}
+            </div>
+          );
         },
       },
       {
@@ -660,7 +868,9 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         header: "Actions",
         cell: ({ row }) => {
           const locked =
-            row.original.status === "deleted" || row.original.status === "void" || row.original.status === "cancelled";
+            row.original.status === "deleted" ||
+            row.original.status === "void" ||
+            row.original.status === "cancelled";
           return (
             <div className="flex items-center gap-1">
               <Button
@@ -716,21 +926,42 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
                   <Upload className="h-4 w-4" />
                 )}
               </Button>
-              {row.original.salesOrderId && (row.original.manualCompletionStatus === "COMPLETED" ? (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-600 hover:text-amber-800" onClick={() => { setReversalTarget(row.original); setReversalDate(new Date().toISOString().split("T")[0]); setReversalNotes(""); }} title="Reverse manual service completion">
-                  <RotateCcw className="h-4 w-4" />
-                </Button>
-              ) : (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-800" onClick={() => openManualCompletion(row.original)} title="Mark service complete">
-                  <CheckCircle2 className="h-4 w-4" />
-                </Button>
-              ))}
+              {row.original.salesOrderId &&
+                (row.original.manualCompletionStatus === "COMPLETED" ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-amber-600 hover:text-amber-800"
+                    onClick={() => {
+                      setReversalTarget(row.original);
+                      setReversalDate(new Date().toISOString().split("T")[0]);
+                      setReversalNotes("");
+                    }}
+                    title="Reverse manual service completion"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-emerald-600 hover:text-emerald-800"
+                    onClick={() => openManualCompletion(row.original)}
+                    title="Mark service complete"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                  </Button>
+                ))}
               {row.original.serviceReportId ? (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => router.push(`/dashboard/service-reports/${row.original.serviceReportId}`)}
+                  onClick={() =>
+                    router.push(
+                      `/dashboard/service-reports/${row.original.serviceReportId}`,
+                    )
+                  }
                   title={`View Service Report${reportTypeLabelFor(row.original.serviceReportId)}`}
                 >
                   <FileText className="h-4 w-4" />
@@ -743,21 +974,31 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
                       size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-foreground"
                       disabled={!row.original.assignedTechnicianUserId}
-                      title={row.original.assignedTechnicianUserId
-                        ? "Create Service Report"
-                        : "Assign a technician before creating a Service Report."}
+                      title={
+                        row.original.assignedTechnicianUserId
+                          ? "Create Service Report"
+                          : "Assign a technician before creating a Service Report."
+                      }
                     >
                       <FileText className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
-                      onClick={() => router.push(`/dashboard/service-reports/new?invoiceNo=${encodeURIComponent(row.original.invoiceNo)}&type=GENERAL`)}
+                      onClick={() =>
+                        router.push(
+                          `/dashboard/service-reports/new?invoiceNo=${encodeURIComponent(row.original.invoiceNo)}&type=GENERAL`,
+                        )
+                      }
                     >
                       Create General Service Report
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() => router.push(`/dashboard/service-reports/new?invoiceNo=${encodeURIComponent(row.original.invoiceNo)}&type=WATER_TREATMENT`)}
+                      onClick={() =>
+                        router.push(
+                          `/dashboard/service-reports/new?invoiceNo=${encodeURIComponent(row.original.invoiceNo)}&type=WATER_TREATMENT`,
+                        )
+                      }
                     >
                       Create Water Treatment System Service Report
                     </DropdownMenuItem>
@@ -766,9 +1007,30 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
               )}
               {!locked && (
                 <>
-                  {row.original.status === "created" && !row.original.replacementInvoiceNo && (
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="Cancel and create corrected copy" aria-label="Cancel and create corrected copy" disabled={!!correctingInvoiceNo || row.original.paymentStatus !== "unpaid"} onClick={() => { setCancelTarget(row.original); setCancelReason(""); }}>{correctingInvoiceNo === row.original.invoiceNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Recycle className="h-4 w-4" aria-hidden="true" />}</Button>
-                  )}
+                  {row.original.status === "created" &&
+                    !row.original.replacementInvoiceNo && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        title="Cancel and create corrected copy"
+                        aria-label="Cancel and create corrected copy"
+                        disabled={
+                          !!correctingInvoiceNo ||
+                          row.original.paymentStatus !== "unpaid"
+                        }
+                        onClick={() => {
+                          setCancelTarget(row.original);
+                          setCancelReason("");
+                        }}
+                      >
+                        {correctingInvoiceNo === row.original.invoiceNo ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Recycle className="h-4 w-4" aria-hidden="true" />
+                        )}
+                      </Button>
+                    )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -795,7 +1057,16 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         },
       },
     ],
-    [previewing, uploading, uploadTarget, correctingInvoiceNo, invoices, isAdmin, reportTypeLabelFor, router],
+    [
+      previewing,
+      uploading,
+      uploadTarget,
+      correctingInvoiceNo,
+      invoices,
+      isAdmin,
+      reportTypeLabelFor,
+      router,
+    ],
   );
   /* When arriving with ?viewDR=<dr#>, only show the Service Invoices (SRs)
      linked to that Delivery Receipt. */
@@ -811,22 +1082,85 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   const [filterScanned, setFilterScanned] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const invalidRange = !!((filterDateFrom && filterDateTo && filterDateFrom > filterDateTo) || (createdFrom && createdTo && createdFrom > createdTo));
-  const customerFilterOptions = useMemo(() => [...new Map(invoices.map((invoice) => [invoice.customerId, { value: invoice.customerId, label: invoice.companyName }])).values()].sort((a, b) => a.label.localeCompare(b.label)), [invoices]);
-  const matchingInvoices = useMemo(() => invoices.filter((invoice) => {
-    if (viewDrRaw && String(invoice.drNumber ?? "") !== String(viewDrRaw).trim()) return false;
-    return matchesInvoiceFilters(invoice, { customers: filterCustomers, categories: filterCategories, paymentStatuses: filterPayments, scannedStatuses: filterScanned, dateFrom: filterDateFrom, dateTo: filterDateTo, month: filterMonth, createdFrom, createdTo, search });
-  }), [invoices, viewDrRaw, filterCustomers, filterDateFrom, filterDateTo, filterMonth, createdFrom, createdTo, search, filterCategories, filterPayments, filterScanned]);
-  const displayInvoices = useMemo(() => matchingInvoices.filter(invoice => !filterStatuses.length || filterStatuses.includes(invoice.status)), [matchingInvoices, filterStatuses]);
-  const report = useMemo(() => buildServiceInvoiceSummaryReport(displayInvoices, "all"), [displayInvoices]);
+  const invalidRange = !!(
+    (filterDateFrom && filterDateTo && filterDateFrom > filterDateTo) ||
+    (createdFrom && createdTo && createdFrom > createdTo)
+  );
+  const customerFilterOptions = useMemo(
+    () =>
+      [
+        ...new Map(
+          invoices.map((invoice) => [
+            invoice.customerId,
+            { value: invoice.customerId, label: invoice.companyName },
+          ]),
+        ).values(),
+      ].sort((a, b) => a.label.localeCompare(b.label)),
+    [invoices],
+  );
+  const matchingInvoices = useMemo(
+    () =>
+      invoices.filter((invoice) => {
+        if (
+          viewDrRaw &&
+          String(invoice.drNumber ?? "") !== String(viewDrRaw).trim()
+        )
+          return false;
+        return matchesInvoiceFilters(invoice, {
+          customers: filterCustomers,
+          categories: filterCategories,
+          paymentStatuses: filterPayments,
+          scannedStatuses: filterScanned,
+          dateFrom: filterDateFrom,
+          dateTo: filterDateTo,
+          month: filterMonth,
+          createdFrom,
+          createdTo,
+          search,
+        });
+      }),
+    [
+      invoices,
+      viewDrRaw,
+      filterCustomers,
+      filterDateFrom,
+      filterDateTo,
+      filterMonth,
+      createdFrom,
+      createdTo,
+      search,
+      filterCategories,
+      filterPayments,
+      filterScanned,
+    ],
+  );
+  const displayInvoices = useMemo(
+    () =>
+      matchingInvoices.filter(
+        (invoice) =>
+          !filterStatuses.length || filterStatuses.includes(invoice.status),
+      ),
+    [matchingInvoices, filterStatuses],
+  );
+  const report = useMemo(
+    () => buildServiceInvoiceSummaryReport(displayInvoices, "all"),
+    [displayInvoices],
+  );
   const appliedFilters = [
     `Creation date (PH): ${createdFrom || "Any"} to ${createdTo || "Any"}`,
     `Invoice date: ${filterDateFrom || "Any"} to ${filterDateTo || "Any"}`,
     `Invoice month: ${filterMonth || "Any"}`,
-    `Customers: ${filterCustomers.length ? customerFilterOptions.filter(option => filterCustomers.includes(option.value)).map(option => option.label).join(", ") : "All"}`,
+    `Customers: ${
+      filterCustomers.length
+        ? customerFilterOptions
+            .filter((option) => filterCustomers.includes(option.value))
+            .map((option) => option.label)
+            .join(", ")
+        : "All"
+    }`,
     `Statuses: ${filterStatuses.join(", ") || "All"}`,
     `Categories: ${filterCategories.join(", ") || "All"}`,
-    `Payment statuses: ${filterPayments.map(value => PAYMENT_LABELS[value as keyof typeof PAYMENT_LABELS]).join(", ") || "All"}`,
+    `Payment statuses: ${filterPayments.map((value) => PAYMENT_LABELS[value as keyof typeof PAYMENT_LABELS]).join(", ") || "All"}`,
     `Scanned copies: ${filterScanned.join(", ") || "All"}`,
     `Search: ${search || "None"}`,
     `Delivery receipt: ${viewDrRaw || "All"}`,
@@ -837,6 +1171,7 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
     setSelectedCustomer("");
     setInvoiceDate(new Date().toISOString().split("T")[0]);
     setLineItems([]);
+    setDiscountSettings(defaultDiscount());
     setLinkedDrNumber("");
     setLinkedSalesOrderId("");
     setReferenceMode(null);
@@ -858,7 +1193,15 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
     value: string | number,
   ) => {
     setLineItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value, ...(field === "description" ? { productId: undefined } : {}) } : item)),
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              [field]: value,
+              ...(field === "description" ? { productId: undefined } : {}),
+            }
+          : item,
+      ),
     );
   };
 
@@ -867,8 +1210,15 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   };
 
   const handleSaveInvoice = async () => {
-    if (!referenceMode) { toast.error("Choose Sales Order or Legacy TR Number first."); return; }
-    if (referenceMode === "SALES_ORDER" && !linkedDrNumber && !linkedSalesOrderId) {
+    if (!referenceMode) {
+      toast.error("Choose Sales Order or Legacy TR Number first.");
+      return;
+    }
+    if (
+      referenceMode === "SALES_ORDER" &&
+      !linkedDrNumber &&
+      !linkedSalesOrderId
+    ) {
       toast.error("Select a Sales Order or link a Delivery Report.");
       return;
     }
@@ -900,6 +1250,7 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         date: invoiceDate,
         customerId: selectedCustomer,
         preparedBy,
+        discountSettings,
         items: lineItems.map((li) => ({
           productId: li.productId,
           description: li.description,
@@ -909,14 +1260,17 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
         referenceMode: referenceMode || "SALES_ORDER",
-        salesOrderId: linkedDrNumber ? undefined : linkedSalesOrderId || undefined,
+        salesOrderId: linkedDrNumber
+          ? undefined
+          : linkedSalesOrderId || undefined,
         poNo,
         trNo,
         assignedTechnicianUserId: technicianId || undefined,
       };
       const res = await serviceInvoiceService.createAndPopulateSheet(payload);
       toast.success("Service invoice recorded!");
-      if (res.trackerAssignmentWarning) toast.warning(res.trackerAssignmentWarning);
+      if (res.trackerAssignmentWarning)
+        toast.warning(res.trackerAssignmentWarning);
       setModalOpen(false);
       fetchList();
     } catch (err: any) {
@@ -931,8 +1285,15 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
   };
 
   const handleSaveDraft = async () => {
-    if (!referenceMode) { toast.error("Choose Sales Order or Legacy TR Number first."); return; }
-    if (referenceMode === "SALES_ORDER" && !linkedDrNumber && !linkedSalesOrderId) {
+    if (!referenceMode) {
+      toast.error("Choose Sales Order or Legacy TR Number first.");
+      return;
+    }
+    if (
+      referenceMode === "SALES_ORDER" &&
+      !linkedDrNumber &&
+      !linkedSalesOrderId
+    ) {
       toast.error("Select a Sales Order or link a Delivery Report.");
       return;
     }
@@ -948,6 +1309,7 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         date: invoiceDate,
         customerId: selectedCustomer,
         preparedBy: preparedBy || "",
+        discountSettings,
         items: lineItems.map((li) => ({
           productId: li.productId,
           description: li.description,
@@ -958,7 +1320,9 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         contractId: selectedContractId || undefined,
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
         referenceMode: referenceMode || "SALES_ORDER",
-        salesOrderId: linkedDrNumber ? undefined : linkedSalesOrderId || undefined,
+        salesOrderId: linkedDrNumber
+          ? undefined
+          : linkedSalesOrderId || undefined,
         poNo,
         trNo,
         assignedTechnicianUserId: technicianId || undefined,
@@ -999,9 +1363,11 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
       setVoidReason("");
       setEditManualCategories(editTarget.manualCategories ?? []);
       setEditInvoiceNo("");
+      setEditDiscountSettings(editTarget.discountSettings ?? defaultDiscount());
       setEditLineItems(
         editTarget.items.map((item) => ({
           productId: item.productId,
+          salesOrderItemId: item.salesOrderItemId,
           description: item.description,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
@@ -1027,28 +1393,47 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
     value: string | number,
   ) =>
     setEditLineItems((prev) =>
-      prev.map((item, i) => (i === idx ? { ...item, [field]: value, ...(field === "description" ? { productId: undefined } : {}) } : item)),
+      prev.map((item, i) =>
+        i === idx
+          ? {
+              ...item,
+              [field]: value,
+              ...(field === "description" ? { productId: undefined } : {}),
+            }
+          : item,
+      ),
     );
 
   /* Edit save handler */
   const handleEditSave = async () => {
     if (!editTarget) return;
-    if (editReferenceMode === "SALES_ORDER" && !editDrNumber && !editSalesOrderId) {
+    if (
+      editReferenceMode === "SALES_ORDER" &&
+      !editDrNumber &&
+      !editSalesOrderId
+    ) {
       toast.error("Select a Sales Order or link a Delivery Report.");
       return;
     }
     setEditSubmitting(true);
     try {
       const payload = {
-        invoiceNo: editTarget.replacesInvoiceNo && editStatus !== "draft" ? editInvoiceNo.trim() : undefined,
+        invoiceNo:
+          editTarget.replacesInvoiceNo && editStatus !== "draft"
+            ? editInvoiceNo.trim()
+            : undefined,
         date: editDate,
         status: editStatus,
         statusReason: editStatus === "void" ? voidReason : undefined,
-        manualCategories: editTarget.categorySource === "automatic" ? undefined : editManualCategories,
+        manualCategories:
+          editTarget.categorySource === "automatic"
+            ? undefined
+            : editManualCategories,
         items: editLineItems
           .filter((li) => li.description.trim())
           .map((li) => ({
             productId: li.productId,
+            salesOrderItemId: li.salesOrderItemId,
             description: li.description,
             quantity: Number(li.quantity) || 0,
             unitPrice: Number(li.unitPrice) || 0,
@@ -1067,9 +1452,12 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
       const updatedInvoiceNo = res?.invoiceNo ?? editTarget.invoiceNo;
       toast.success(`Invoice ${updatedInvoiceNo} updated.`);
       if (res.trackerAssignmentOutcome === "already_returned") {
-        toast.warning("The Document Tracker assignment was already returned and requires manual review.");
+        toast.warning(
+          "The Document Tracker assignment was already returned and requires manual review.",
+        );
       }
-      if (res.trackerAssignmentWarning) toast.warning(res.trackerAssignmentWarning);
+      if (res.trackerAssignmentWarning)
+        toast.warning(res.trackerAssignmentWarning);
 
       setEditTarget(null);
       fetchList();
@@ -1095,12 +1483,25 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
     if (!completionTarget) return;
     setCompletingService(true);
     try {
-      await serviceInvoiceService.completeServiceManually(completionTarget.invoiceNo, { completionDate, technicianUserId: completionTechnicianId, notes: completionNotes });
-      toast.success(`Service for invoice ${completionTarget.invoiceNo} marked complete.`);
+      await serviceInvoiceService.completeServiceManually(
+        completionTarget.invoiceNo,
+        {
+          completionDate,
+          technicianUserId: completionTechnicianId,
+          notes: completionNotes,
+        },
+      );
+      toast.success(
+        `Service for invoice ${completionTarget.invoiceNo} marked complete.`,
+      );
       setCompletionTarget(null);
       fetchList();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || error?.message || "Failed to complete service.");
+      toast.error(
+        error?.response?.data?.error ||
+          error?.message ||
+          "Failed to complete service.",
+      );
     } finally {
       setCompletingService(false);
     }
@@ -1110,121 +1511,512 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
     if (!reversalTarget) return;
     setCompletingService(true);
     try {
-      await serviceInvoiceService.reverseManualServiceCompletion(reversalTarget.invoiceNo, { reversalDate, notes: reversalNotes });
-      toast.success(`Manual completion for invoice ${reversalTarget.invoiceNo} was reversed.`);
+      await serviceInvoiceService.reverseManualServiceCompletion(
+        reversalTarget.invoiceNo,
+        { reversalDate, notes: reversalNotes },
+      );
+      toast.success(
+        `Manual completion for invoice ${reversalTarget.invoiceNo} was reversed.`,
+      );
       setReversalTarget(null);
       fetchList();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || error?.message || "Failed to reverse manual completion.");
+      toast.error(
+        error?.response?.data?.error ||
+          error?.message ||
+          "Failed to reverse manual completion.",
+      );
     } finally {
       setCompletingService(false);
     }
   };
 
   const clearFilters = () => {
-    setFilterCustomers([]); setFilterCategories([]); setFilterStatuses([]); setFilterPayments([]); setFilterScanned([]);
-    setFilterDateFrom(""); setFilterDateTo(""); setFilterMonth(""); setCreatedFrom(""); setCreatedTo(""); setSearch("");
+    setFilterCustomers([]);
+    setFilterCategories([]);
+    setFilterStatuses([]);
+    setFilterPayments([]);
+    setFilterScanned([]);
+    setFilterDateFrom("");
+    setFilterDateTo("");
+    setFilterMonth("");
+    setCreatedFrom("");
+    setCreatedTo("");
+    setSearch("");
   };
   const filterChips: { key: string; label: string; remove: () => void }[] = [
-    ...filterCustomers.map(value => ({ key: `customer-${value}`, label: `Customer: ${customerFilterOptions.find(option => option.value === value)?.label || value}`, remove: () => setFilterCustomers(values => values.filter(item => item !== value)) })),
-    ...filterCategories.map(value => ({ key: `category-${value}`, label: `Category: ${value}`, remove: () => setFilterCategories(values => values.filter(item => item !== value)) })),
-    ...filterStatuses.map(value => ({ key: `status-${value}`, label: `Invoice: ${value}`, remove: () => setFilterStatuses(values => values.filter(item => item !== value)) })),
-    ...filterPayments.map(value => ({ key: `payment-${value}`, label: `Payment: ${PAYMENT_LABELS[value as keyof typeof PAYMENT_LABELS]}`, remove: () => setFilterPayments(values => values.filter(item => item !== value)) })),
-    ...filterScanned.map(value => ({ key: `scan-${value}`, label: value === "scanned" ? "Scanned" : "Not scanned", remove: () => setFilterScanned(values => values.filter(item => item !== value)) })),
+    ...filterCustomers.map((value) => ({
+      key: `customer-${value}`,
+      label: `Customer: ${customerFilterOptions.find((option) => option.value === value)?.label || value}`,
+      remove: () =>
+        setFilterCustomers((values) => values.filter((item) => item !== value)),
+    })),
+    ...filterCategories.map((value) => ({
+      key: `category-${value}`,
+      label: `Category: ${value}`,
+      remove: () =>
+        setFilterCategories((values) =>
+          values.filter((item) => item !== value),
+        ),
+    })),
+    ...filterStatuses.map((value) => ({
+      key: `status-${value}`,
+      label: `Invoice: ${value}`,
+      remove: () =>
+        setFilterStatuses((values) => values.filter((item) => item !== value)),
+    })),
+    ...filterPayments.map((value) => ({
+      key: `payment-${value}`,
+      label: `Payment: ${PAYMENT_LABELS[value as keyof typeof PAYMENT_LABELS]}`,
+      remove: () =>
+        setFilterPayments((values) => values.filter((item) => item !== value)),
+    })),
+    ...filterScanned.map((value) => ({
+      key: `scan-${value}`,
+      label: value === "scanned" ? "Scanned" : "Not scanned",
+      remove: () =>
+        setFilterScanned((values) => values.filter((item) => item !== value)),
+    })),
     ...[
-      { key: "invoice-from", value: filterDateFrom, label: "Invoice from", reset: () => setFilterDateFrom("") },
-      { key: "invoice-to", value: filterDateTo, label: "Invoice to", reset: () => setFilterDateTo("") },
-      { key: "invoice-month", value: filterMonth, label: "Invoice month", reset: () => setFilterMonth("") },
-      { key: "created-from", value: createdFrom, label: "Created from", reset: () => setCreatedFrom("") },
-      { key: "created-to", value: createdTo, label: "Created to", reset: () => setCreatedTo("") },
-    ].filter(item => item.value).map(item => ({ key: item.key, label: `${item.label}: ${item.value}`, remove: item.reset })),
+      {
+        key: "invoice-from",
+        value: filterDateFrom,
+        label: "Invoice from",
+        reset: () => setFilterDateFrom(""),
+      },
+      {
+        key: "invoice-to",
+        value: filterDateTo,
+        label: "Invoice to",
+        reset: () => setFilterDateTo(""),
+      },
+      {
+        key: "invoice-month",
+        value: filterMonth,
+        label: "Invoice month",
+        reset: () => setFilterMonth(""),
+      },
+      {
+        key: "created-from",
+        value: createdFrom,
+        label: "Created from",
+        reset: () => setCreatedFrom(""),
+      },
+      {
+        key: "created-to",
+        value: createdTo,
+        label: "Created to",
+        reset: () => setCreatedTo(""),
+      },
+    ]
+      .filter((item) => item.value)
+      .map((item) => ({
+        key: item.key,
+        label: `${item.label}: ${item.value}`,
+        remove: item.reset,
+      })),
   ];
-  const toolbarActions = <>
-    {isAdmin && <ServiceInvoiceReporting report={report} filters={appliedFilters} loading={loading || invalidRange} showSummary={false} />}
-    <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" aria-expanded={filtersOpen} aria-controls="invoice-advanced-filters" onClick={() => setFiltersOpen(open => !open)}><SlidersHorizontal className="h-3.5 w-3.5" />Filters{filterChips.length > 0 ? ` (${filterChips.length})` : ""}<ChevronDown className={`h-3.5 w-3.5 transition-transform ${filtersOpen ? "rotate-180" : ""}`} /></Button>
-  </>;
-  const filterPanel = <>
-    <div id="invoice-advanced-filters" hidden={!filtersOpen} className="rounded-md border bg-muted/20 p-4">
-      <div className="grid w-full grid-cols-1 gap-x-3 gap-y-4 sm:grid-cols-2 lg:grid-cols-4 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:gap-2">
-            <div><Label>Customer</Label><FilterMultiSelect label="Customer" values={filterCustomers} options={customerFilterOptions} onChange={setFilterCustomers} /></div>
-            <div><Label htmlFor="invoice-filter-from">Invoice date from</Label><Input id="invoice-filter-from" type="date" value={filterDateFrom} max={filterDateTo || undefined} onChange={(event) => { setFilterDateFrom(event.target.value); setFilterMonth(""); }} /></div>
-            <div><Label htmlFor="invoice-filter-to">Invoice date to</Label><Input id="invoice-filter-to" type="date" value={filterDateTo} min={filterDateFrom || undefined} onChange={(event) => { setFilterDateTo(event.target.value); setFilterMonth(""); }} /></div>
-            <div><Label htmlFor="invoice-filter-month">Invoice month</Label><Input id="invoice-filter-month" type="month" value={filterMonth} onChange={(event) => { setFilterMonth(event.target.value); setFilterDateFrom(""); setFilterDateTo(""); }} /></div>
-            <div><Label>Payment status</Label><FilterMultiSelect label="Payment status" values={filterPayments} options={Object.entries(PAYMENT_LABELS).map(([value,label]) => ({ value, label }))} onChange={setFilterPayments} /></div>
-            <div><Label>Scanned copy</Label><FilterMultiSelect label="Scanned copy" values={filterScanned} options={[{value:"scanned",label:"Scanned"},{value:"not_scanned",label:"Not scanned"}]} onChange={setFilterScanned} /></div>
-            <div><Label>Invoice category</Label><FilterMultiSelect label="Invoice category" values={filterCategories} options={[...MANUAL_INVOICE_CATEGORIES,"Uncategorized"].map(value => ({value,label:value}))} onChange={setFilterCategories} /></div>
-            <div><Label>Creation period (PH)</Label><SearchableSelect placeholder="Choose a preset..." searchPlaceholder="Search creation periods..." options={[{ value: "all", label: "All creation dates" }, { value: "today", label: "Today" }, { value: "week", label: "This week" }, { value: "month", label: "This month" }]} onValueChange={value => {
-              if (value === "all") { setCreatedFrom(""); setCreatedTo(""); }
-              else { const range = reportRange(value as "today" | "week" | "month"); setCreatedFrom(range.startDate); setCreatedTo(range.endDate); }
-            }} /></div>
-            <div><Label htmlFor="invoice-created-from">Creation date from (PH)</Label><Input id="invoice-created-from" type="date" value={createdFrom} max={createdTo || undefined} onChange={event => setCreatedFrom(event.target.value)} /></div>
-            <div><Label htmlFor="invoice-created-to">Creation date to (PH)</Label><Input id="invoice-created-to" type="date" value={createdTo} min={createdFrom || undefined} onChange={event => setCreatedTo(event.target.value)} /></div>
-            <div><Label>Invoice status</Label><FilterMultiSelect label="Invoice status" values={filterStatuses} options={["created", "draft", "cancelled", "void"].map(value => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }))} onChange={setFilterStatuses} /></div>
+  const toolbarActions = (
+    <>
+      {isAdmin && (
+        <ServiceInvoiceReporting
+          report={report}
+          filters={appliedFilters}
+          loading={loading || invalidRange}
+          showSummary={false}
+        />
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 gap-1.5"
+        aria-expanded={filtersOpen}
+        aria-controls="invoice-advanced-filters"
+        onClick={() => setFiltersOpen((open) => !open)}
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        Filters{filterChips.length > 0 ? ` (${filterChips.length})` : ""}
+        <ChevronDown
+          className={`h-3.5 w-3.5 transition-transform ${filtersOpen ? "rotate-180" : ""}`}
+        />
+      </Button>
+    </>
+  );
+  const filterPanel = (
+    <>
+      <div
+        id="invoice-advanced-filters"
+        hidden={!filtersOpen}
+        className="rounded-md border bg-muted/20 p-4"
+      >
+        <div className="grid w-full grid-cols-1 gap-x-3 gap-y-4 sm:grid-cols-2 lg:grid-cols-4 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:gap-2">
+          <div>
+            <Label>Customer</Label>
+            <FilterMultiSelect
+              label="Customer"
+              values={filterCustomers}
+              options={customerFilterOptions}
+              onChange={setFilterCustomers}
+            />
           </div>
-    </div>
-    {(filterChips.length > 0 || search) && <div className="flex flex-wrap items-center gap-2" aria-label="Applied filters">{filterChips.map(chip => <Button key={chip.key} type="button" variant="secondary" size="sm" className="h-auto max-w-full gap-1 py-1 text-xs" aria-label={`Remove ${chip.label}`} onClick={chip.remove}><span className="truncate">{chip.label}</span><X className="h-3 w-3 shrink-0" /></Button>)}{search && <Button type="button" variant="secondary" size="sm" className="h-auto max-w-full gap-1 py-1 text-xs" aria-label="Clear search" onClick={() => setSearch("")}><span className="truncate">Search: {search}</span><X className="h-3 w-3 shrink-0" /></Button>}<Button type="button" variant="ghost" size="sm" onClick={clearFilters}>Clear all</Button></div>}
-    {invalidRange && <p role="alert" className="text-sm text-destructive">Each start date must be on or before its end date.</p>}
-  </>;
+          <div>
+            <Label htmlFor="invoice-filter-from">Invoice date from</Label>
+            <DatePickerInput
+              id="invoice-filter-from"
+              value={filterDateFrom}
+              max={filterDateTo || undefined}
+              onChange={(selectedDate) => {
+                setFilterDateFrom(selectedDate);
+                setFilterMonth("");
+              }}
+            />
+          </div>
+          <div>
+            <Label htmlFor="invoice-filter-to">Invoice date to</Label>
+            <DatePickerInput
+              id="invoice-filter-to"
+              value={filterDateTo}
+              min={filterDateFrom || undefined}
+              onChange={(selectedDate) => {
+                setFilterDateTo(selectedDate);
+                setFilterMonth("");
+              }}
+            />
+          </div>
+          <div>
+            <Label htmlFor="invoice-filter-month">Invoice month</Label>
+            <MonthPickerInput
+              id="invoice-filter-month"
+              value={filterMonth}
+              onChange={(month) => {
+                setFilterMonth(month);
+                setFilterDateFrom("");
+                setFilterDateTo("");
+              }}
+            />
+          </div>
+          <div>
+            <Label>Payment status</Label>
+            <FilterMultiSelect
+              label="Payment status"
+              values={filterPayments}
+              options={Object.entries(PAYMENT_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+              onChange={setFilterPayments}
+            />
+          </div>
+          <div>
+            <Label>Scanned copy</Label>
+            <FilterMultiSelect
+              label="Scanned copy"
+              values={filterScanned}
+              options={[
+                { value: "scanned", label: "Scanned" },
+                { value: "not_scanned", label: "Not scanned" },
+              ]}
+              onChange={setFilterScanned}
+            />
+          </div>
+          <div>
+            <Label>Invoice category</Label>
+            <FilterMultiSelect
+              label="Invoice category"
+              values={filterCategories}
+              options={[...MANUAL_INVOICE_CATEGORIES, "Uncategorized"].map(
+                (value) => ({ value, label: value }),
+              )}
+              onChange={setFilterCategories}
+            />
+          </div>
+          <div>
+            <Label>Creation period (PH)</Label>
+            <SearchableSelect
+              placeholder="Choose a preset..."
+              searchPlaceholder="Search creation periods..."
+              options={[
+                { value: "all", label: "All creation dates" },
+                { value: "today", label: "Today" },
+                { value: "week", label: "This week" },
+                { value: "month", label: "This month" },
+              ]}
+              onValueChange={(value) => {
+                if (value === "all") {
+                  setCreatedFrom("");
+                  setCreatedTo("");
+                } else {
+                  const range = reportRange(
+                    value as "today" | "week" | "month",
+                  );
+                  setCreatedFrom(range.startDate);
+                  setCreatedTo(range.endDate);
+                }
+              }}
+            />
+          </div>
+          <div>
+            <Label htmlFor="invoice-created-from">
+              Creation date from (PH)
+            </Label>
+            <DatePickerInput
+              id="invoice-created-from"
+              value={createdFrom}
+              max={createdTo || undefined}
+              onChange={(selectedDate) => setCreatedFrom(selectedDate)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="invoice-created-to">Creation date to (PH)</Label>
+            <DatePickerInput
+              id="invoice-created-to"
+              value={createdTo}
+              min={createdFrom || undefined}
+              onChange={(selectedDate) => setCreatedTo(selectedDate)}
+            />
+          </div>
+          <div>
+            <Label>Invoice status</Label>
+            <FilterMultiSelect
+              label="Invoice status"
+              values={filterStatuses}
+              options={["created", "draft", "cancelled", "void"].map(
+                (value) => ({
+                  value,
+                  label: value.charAt(0).toUpperCase() + value.slice(1),
+                }),
+              )}
+              onChange={setFilterStatuses}
+            />
+          </div>
+        </div>
+      </div>
+      {(filterChips.length > 0 || search) && (
+        <div
+          className="flex flex-wrap items-center gap-2"
+          aria-label="Applied filters"
+        >
+          {filterChips.map((chip) => (
+            <Button
+              key={chip.key}
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-auto max-w-full gap-1 py-1 text-xs"
+              aria-label={`Remove ${chip.label}`}
+              onClick={chip.remove}
+            >
+              <span className="truncate">{chip.label}</span>
+              <X className="h-3 w-3 shrink-0" />
+            </Button>
+          ))}
+          {search && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-auto max-w-full gap-1 py-1 text-xs"
+              aria-label="Clear search"
+              onClick={() => setSearch("")}
+            >
+              <span className="truncate">Search: {search}</span>
+              <X className="h-3 w-3 shrink-0" />
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={clearFilters}
+          >
+            Clear all
+          </Button>
+        </div>
+      )}
+      {invalidRange && (
+        <p role="alert" className="text-sm text-destructive">
+          Each start date must be on or before its end date.
+        </p>
+      )}
+    </>
+  );
 
   return (
     <>
-      <div className="p-3 sm:p-6 space-y-6 min-w-0">
-        <DocumentRegisterHeader eyebrow="Invoice management" title="Service Invoices" description="Review invoices, scanned copies, and payment labels." loading={loading} actions={<Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />Create New</Button>} cards={["all", "created", "draft", "cancelled", "void"].map(status => ({ label: status === "all" ? "Total" : status.charAt(0).toUpperCase() + status.slice(1), count: matchingInvoices.filter(invoice => status === "all" || invoice.status === status).length, selected: status === "all" ? filterStatuses.length === 0 : filterStatuses.length === 1 && filterStatuses[0] === status, onClick: () => setFilterStatuses(status === "all" ? [] : [status]) }))} />
-        <Tabs value={activeTab} onValueChange={changeTab}>
-          {isAdmin && <TabsList aria-label="Service invoice views"><TabsTrigger value="invoices">Invoices</TabsTrigger><TabsTrigger value="summary">Summary</TabsTrigger></TabsList>}
-          <TabsContent value="invoices" className="space-y-6">
-        {viewDrRaw && (
-          <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-blue-800">
-              Showing Service Invoices (SRs) linked to DR #
-              <span className="font-semibold">{viewDrRaw}</span>
-              <span className="text-blue-700/70">
-                {" "}
-                ({displayInvoices.length} found)
-              </span>
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-blue-300 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
-              onClick={() => router.replace("/dashboard/service-invoices")}
-            >
-              Show All SRs
-            </Button>
-          </div>
-        )}
-
-        <EntityTable
+      <div className="space-y-6 min-w-0">
+        <DocumentRegisterHeader
+          eyebrow="Invoice management"
           title="Service Invoices"
-          columns={columns}
-          data={displayInvoices}
-          hideHeader
-          searchValue={search}
-          onSearchChange={setSearch}
-          toolbarFilters={toolbarActions}
-          belowToolbar={filterPanel}
-          hideTransferButtons
+          description="Review invoices, scanned copies, and payment labels."
           loading={loading}
-          onCreateNew={openCreateModal}
-          mobileLayout={{ primary: ["invoiceNo", "companyName", "status"], labels: { paymentStatus: "Payment status", scannedStatus: "Scanned copy", category: "Category", invoiceNo: "Invoice", date: "Date", companyName: "Customer", preparedBy: "Prepared by", total: "Total", status: "Status", lastUpdated: "Updated", actions: "Actions" } }}
+          actions={
+            <Button onClick={openCreateModal}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create New
+            </Button>
+          }
+          cards={["all", "created", "draft", "cancelled", "void"].map(
+            (status) => ({
+              label:
+                status === "all"
+                  ? "Total"
+                  : status.charAt(0).toUpperCase() + status.slice(1),
+              count: matchingInvoices.filter(
+                (invoice) => status === "all" || invoice.status === status,
+              ).length,
+              selected:
+                status === "all"
+                  ? filterStatuses.length === 0
+                  : filterStatuses.length === 1 && filterStatuses[0] === status,
+              onClick: () =>
+                setFilterStatuses(status === "all" ? [] : [status]),
+            }),
+          )}
         />
+        <Tabs value={activeTab} onValueChange={changeTab}>
+          {isAdmin && (
+            <TabsList aria-label="Service invoice views">
+              <TabsTrigger value="invoices">Invoices</TabsTrigger>
+              <TabsTrigger value="summary">Summary</TabsTrigger>
+            </TabsList>
+          )}
+          <TabsContent value="invoices" className="space-y-6">
+            {viewDrRaw && (
+              <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-blue-800">
+                  Showing Service Invoices (SRs) linked to DR #
+                  <span className="font-semibold">{viewDrRaw}</span>
+                  <span className="text-blue-700/70">
+                    {" "}
+                    ({displayInvoices.length} found)
+                  </span>
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-blue-300 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+                  onClick={() => router.replace("/dashboard/service-invoices")}
+                >
+                  Show All SRs
+                </Button>
+              </div>
+            )}
+
+            <EntityTable
+              title="Service Invoices"
+              columns={columns}
+              data={displayInvoices}
+              hideHeader
+              searchValue={search}
+              onSearchChange={setSearch}
+              toolbarFilters={toolbarActions}
+              belowToolbar={filterPanel}
+              hideTransferButtons
+              loading={loading}
+              onCreateNew={openCreateModal}
+              mobileLayout={{
+                primary: ["invoiceNo", "companyName", "status"],
+                labels: {
+                  paymentStatus: "Payment status",
+                  scannedStatus: "Scanned copy",
+                  category: "Category",
+                  invoiceNo: "Invoice",
+                  date: "Date",
+                  companyName: "Customer",
+                  preparedBy: "Prepared by",
+                  total: "Total",
+                  status: "Status",
+                  lastUpdated: "Updated",
+                  actions: "Actions",
+                },
+              }}
+            />
           </TabsContent>
-          {isAdmin && <TabsContent value="summary" className="space-y-4"><div className="rounded-md border bg-card p-4 space-y-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex flex-wrap items-center gap-2">{toolbarActions}</div><Input aria-label="Search Service Invoices" placeholder="Search..." value={search} onChange={event => setSearch(event.target.value)} className="h-8 w-full sm:w-[220px]" /></div>{filterPanel}</div><ServiceInvoiceReporting report={report} filters={appliedFilters} loading={loading} showSummary /></TabsContent>}
+          {isAdmin && (
+            <TabsContent value="summary" className="space-y-4">
+              <div className="rounded-md border bg-card p-4 space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {toolbarActions}
+                  </div>
+                  <Input
+                    aria-label="Search Service Invoices"
+                    placeholder="Search..."
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    className="h-8 w-full sm:w-[220px]"
+                  />
+                </div>
+                {filterPanel}
+              </div>
+              <ServiceInvoiceReporting
+                report={report}
+                filters={appliedFilters}
+                loading={loading}
+                showSummary
+              />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 
       {/* Create Invoice Dialog */}
-      <Dialog open={!!categoryTarget} onOpenChange={(open) => { if (!open && !savingCategory) setCategoryTarget(null); }}>
+      <Dialog
+        open={!!categoryTarget}
+        onOpenChange={(open) => {
+          if (!open && !savingCategory) setCategoryTarget(null);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Category for invoice #{categoryTarget?.invoiceNo}</DialogTitle></DialogHeader>
-          <InvoiceCategoryPicker values={manualCategories} onChange={setManualCategories} disabled={savingCategory} />
-          <DialogFooter><Button variant="outline" disabled={savingCategory} onClick={() => setCategoryTarget(null)}>Cancel</Button><Button disabled={savingCategory} onClick={async () => {
-            if (!categoryTarget) return;
-            setSavingCategory(true);
-            try { await serviceInvoiceService.updateCategory(categoryTarget.invoiceNo, manualCategories); await fetchList(); setCategoryTarget(null); toast.success("Invoice category updated."); }
-            catch (error) { toast.error(error instanceof Error ? error.message : "Failed to update invoice category."); }
-            finally { setSavingCategory(false); }
-          }}>{savingCategory && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save category</Button></DialogFooter>
+          <DialogHeader>
+            <DialogTitle>
+              Category for invoice #{categoryTarget?.invoiceNo}
+            </DialogTitle>
+          </DialogHeader>
+          <InvoiceCategoryPicker
+            values={manualCategories}
+            onChange={setManualCategories}
+            disabled={savingCategory}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={savingCategory}
+              onClick={() => setCategoryTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={savingCategory}
+              onClick={async () => {
+                if (!categoryTarget) return;
+                setSavingCategory(true);
+                try {
+                  await serviceInvoiceService.updateCategory(
+                    categoryTarget.invoiceNo,
+                    manualCategories,
+                  );
+                  await fetchList();
+                  setCategoryTarget(null);
+                  toast.success("Invoice category updated.");
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to update invoice category.",
+                  );
+                } finally {
+                  setSavingCategory(false);
+                }
+              }}
+            >
+              {savingCategory && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Save category
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -1268,10 +2060,9 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
                 <Label>
                   Date <span className="text-destructive">*</span>
                 </Label>
-                <Input
-                  type="date"
+                <DatePickerInput
                   value={invoiceDate}
-                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  onChange={(selectedDate) => setInvoiceDate(selectedDate)}
                 />
               </div>
               {/* The assigned technician is edited next to the Linked DR below. */}
@@ -1368,43 +2159,145 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
                   placeholder="Auto-filled from your profile"
                 />
               </div>
-              <div className="md:col-span-2"><InvoiceReferenceTypeSelector mode={referenceMode} disabled={!!linkedDrNumber} onChange={(mode) => { setReferenceMode(mode); setLinkedSalesOrderId(""); setPoNo(""); setTrNo(""); }} /></div>
+              <div className="md:col-span-2">
+                <InvoiceReferenceTypeSelector
+                  mode={referenceMode}
+                  disabled={!!linkedDrNumber}
+                  onChange={(mode) => {
+                    setReferenceMode(mode);
+                    setLinkedSalesOrderId("");
+                    setPoNo("");
+                    setTrNo("");
+                  }}
+                />
+              </div>
               <div className="space-y-1.5 w-full">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Linked DR (optional)</Label>
-                  {linkedDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setLinkedDrNumber("")}>Remove DR</Button>}
+                  {linkedDrNumber && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto px-1 text-xs"
+                      onClick={() => setLinkedDrNumber("")}
+                    >
+                      Remove DR
+                    </Button>
+                  )}
                 </div>
                 <SearchableSelect
                   value={linkedDrNumber}
                   disabled={!referenceMode}
-                  onValueChange={(value) => { setLinkedDrNumber(value); if (value) setLinkedSalesOrderId(""); }}
+                  onValueChange={(value) => {
+                    setLinkedDrNumber(value);
+                    if (value) setLinkedSalesOrderId("");
+                  }}
                   options={drOptions}
                   placeholder="Select Delivery Receipt"
                 />
               </div>
               <div className="space-y-1.5 w-full">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>Sales Order {referenceMode === "SALES_ORDER" && <span className="text-destructive">*</span>}</Label>
-                  {linkedSalesOrderId && !linkedDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setLinkedSalesOrderId("")}>Remove Sales Order</Button>}
+                  <Label>
+                    Sales Order{" "}
+                    {referenceMode === "SALES_ORDER" && (
+                      <span className="text-destructive">*</span>
+                    )}
+                  </Label>
+                  {linkedSalesOrderId && !linkedDrNumber && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto px-1 text-xs"
+                      onClick={() => setLinkedSalesOrderId("")}
+                    >
+                      Remove Sales Order
+                    </Button>
+                  )}
                 </div>
-                <SearchableSelect value={linkedSalesOrderId} onValueChange={setLinkedSalesOrderId} options={salesOrderOptions} disabled={!!linkedDrNumber || referenceMode !== "SALES_ORDER"} placeholder={linkedDrNumber ? "Supplied by linked DR" : referenceMode === "SALES_ORDER" ? "Select Service Sales Order" : "Not needed for Legacy TR Number"} />
+                <SearchableSelect
+                  value={linkedSalesOrderId}
+                  onValueChange={setLinkedSalesOrderId}
+                  options={salesOrderOptions}
+                  disabled={!!linkedDrNumber || referenceMode !== "SALES_ORDER"}
+                  placeholder={
+                    linkedDrNumber
+                      ? "Supplied by linked DR"
+                      : referenceMode === "SALES_ORDER"
+                        ? "Select Service Sales Order"
+                        : "Not needed for legacy SO / TR number"
+                  }
+                />
               </div>
+              <div className="space-y-2">
+                <Label>Overall discount</Label>
+                <InvoiceDiscountEditor
+                  orderId={
+                    referenceMode === "SALES_ORDER"
+                      ? linkedSalesOrderId
+                      : undefined
+                  }
+                  items={lineItems}
+                  value={discountSettings}
+                  onChange={setDiscountSettings}
+                  onSelectLine={(index, salesOrderItemId) =>
+                    setLineItems((rows) =>
+                      rows.map((row, i) =>
+                        i === index ? { ...row, salesOrderItemId } : row,
+                      ),
+                    )
+                  }
+                />
+              </div>
+
               <div className="space-y-1.5">
                 <Label>PO Number</Label>
-                <Input value={poNo} onChange={(e) => setPoNo(e.target.value)} disabled={!!linkedDrNumber || referenceMode !== "TR_NUMBER"} className={linkedDrNumber || referenceMode !== "TR_NUMBER" ? "bg-muted" : undefined} placeholder="Customer PO Number" />
+                <Input
+                  value={poNo}
+                  onChange={(e) => setPoNo(e.target.value)}
+                  disabled={!!linkedDrNumber || referenceMode !== "TR_NUMBER"}
+                  className={
+                    linkedDrNumber || referenceMode !== "TR_NUMBER"
+                      ? "bg-muted"
+                      : undefined
+                  }
+                  placeholder="Customer PO Number"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>SO / TR Number</Label>
-                <Input value={trNo} onChange={(e) => setTrNo(e.target.value)} disabled={!!linkedDrNumber || referenceMode !== "TR_NUMBER"} className={linkedDrNumber || referenceMode !== "TR_NUMBER" ? "bg-muted" : undefined} placeholder="Sales Order or Legacy TR Number" />
+                <Input
+                  value={trNo}
+                  onChange={(e) => setTrNo(e.target.value)}
+                  disabled={!!linkedDrNumber || referenceMode !== "TR_NUMBER"}
+                  className={
+                    linkedDrNumber || referenceMode !== "TR_NUMBER"
+                      ? "bg-muted"
+                      : undefined
+                  }
+                  placeholder="Sales Order or Legacy TR Number"
+                />
               </div>
               <div className="space-y-1.5 w-full">
                 <Label>
-                  Assigned Technician {!linkedDrNumber && <span className="text-destructive">*</span>}
+                  Assigned Technician{" "}
+                  {!linkedDrNumber && (
+                    <span className="text-destructive">*</span>
+                  )}
                 </Label>
                 {linkedDrNumber ? (
                   <>
-                    <Input value={technicianName} readOnly className="bg-muted" placeholder="Loading from Delivery Receipt..." />
-                    <p className="text-xs text-muted-foreground">Automatically assigned from DR #{linkedDrNumber}</p>
+                    <Input
+                      value={technicianName}
+                      readOnly
+                      className="bg-muted"
+                      placeholder="Loading from Delivery Receipt..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Automatically assigned from DR #{linkedDrNumber}
+                    </p>
                   </>
                 ) : (
                   <>
@@ -1412,14 +2305,25 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
                       value={technicianId}
                       onValueChange={(id) => {
                         setTechnicianId(id);
-                        setTechnicianName(deliveryUsers.find((user) => user.value === id)?.label || "");
+                        setTechnicianName(
+                          deliveryUsers.find((user) => user.value === id)
+                            ?.label || "",
+                        );
                       }}
                       options={deliveryUsers}
                       disabled={deliveryUsersLoading || !!deliveryUsersError}
-                      placeholder={deliveryUsersLoading ? "Loading eligible users..." : "Select Assigned Technician"}
+                      placeholder={
+                        deliveryUsersLoading
+                          ? "Loading eligible users..."
+                          : "Select Assigned Technician"
+                      }
                       emptyText="No eligible application users found."
                     />
-                    {deliveryUsersError && <p className="text-xs text-destructive">{deliveryUsersError}</p>}
+                    {deliveryUsersError && (
+                      <p className="text-xs text-destructive">
+                        {deliveryUsersError}
+                      </p>
+                    )}
                   </>
                 )}
               </div>
@@ -1474,9 +2378,38 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
           </DialogHeader>
 
           <div className="space-y-6">
-            {editTarget?.replacesInvoiceNo && <div className="space-y-2"><p>Replaces cancelled invoice #{editTarget.replacesInvoiceNo}</p>{editTarget.status === "draft" && <><Label>New number from physical form</Label><Input value={editInvoiceNo} onChange={(event) => setEditInvoiceNo(event.target.value)} placeholder="Required when finalizing" /></>}</div>}
-            {editTarget?.replacementInvoiceNo && <p>Replacement invoice #{editTarget.replacementInvoiceNo}</p>}
-            {editTarget?.categorySource === "automatic" ? <p className="text-sm text-muted-foreground">Category: {editTarget.category} (from linked Sales Order or PMS contract)</p> : <InvoiceCategoryPicker values={editManualCategories} onChange={setEditManualCategories} disabled={editSubmitting} />}
+            {editTarget?.replacesInvoiceNo && (
+              <div className="space-y-2">
+                <p>
+                  Replaces cancelled invoice #{editTarget.replacesInvoiceNo}
+                </p>
+                {editTarget.status === "draft" && (
+                  <>
+                    <Label>New number from physical form</Label>
+                    <Input
+                      value={editInvoiceNo}
+                      onChange={(event) => setEditInvoiceNo(event.target.value)}
+                      placeholder="Required when finalizing"
+                    />
+                  </>
+                )}
+              </div>
+            )}
+            {editTarget?.replacementInvoiceNo && (
+              <p>Replacement invoice #{editTarget.replacementInvoiceNo}</p>
+            )}
+            {editTarget?.categorySource === "automatic" ? (
+              <p className="text-sm text-muted-foreground">
+                Category: {editTarget.category} (from linked Sales Order or PMS
+                contract)
+              </p>
+            ) : (
+              <InvoiceCategoryPicker
+                values={editManualCategories}
+                onChange={setEditManualCategories}
+                disabled={editSubmitting}
+              />
+            )}
             {/* Row 1: Customer (read-only), Date, Status */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
               <div className="space-y-1.5">
@@ -1489,10 +2422,9 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
               </div>
               <div className="space-y-2">
                 <Label>Date</Label>
-                <Input
-                  type="date"
+                <DatePickerInput
                   value={editDate}
-                  onChange={(e) => setEditDate(e.target.value)}
+                  onChange={(selectedDate) => setEditDate(selectedDate)}
                 />
               </div>
               <div className="space-y-2">
@@ -1504,63 +2436,194 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
                   <SelectContent>
                     <SelectItem value="created">Created</SelectItem>
                     <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="void" disabled={editTarget?.paymentStatus !== "unpaid"}>Void</SelectItem>
+                    <SelectItem
+                      value="void"
+                      disabled={editTarget?.paymentStatus !== "unpaid"}
+                    >
+                      Void
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            {editStatus === "void" && <div className="space-y-2"><Label htmlFor="void-reason">Reason for voiding *</Label><Textarea id="void-reason" value={voidReason} onChange={event => setVoidReason(event.target.value)} /></div>}
+            {editStatus === "void" && (
+              <div className="space-y-2">
+                <Label htmlFor="void-reason">Reason for voiding *</Label>
+                <Textarea
+                  id="void-reason"
+                  value={voidReason}
+                  onChange={(event) => setVoidReason(event.target.value)}
+                />
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <div className="md:col-span-2"><InvoiceReferenceTypeSelector mode={editReferenceMode} disabled={!!editDrNumber} onChange={(mode) => { setEditReferenceMode(mode); setEditSalesOrderId(""); setEditPoNo(""); setEditTrNo(""); }} /></div>
+              <div className="md:col-span-2">
+                <InvoiceReferenceTypeSelector
+                  mode={editReferenceMode}
+                  disabled={!!editDrNumber}
+                  onChange={(mode) => {
+                    setEditReferenceMode(mode);
+                    setEditSalesOrderId("");
+                    setEditPoNo("");
+                    setEditTrNo("");
+                  }}
+                />
+              </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Linked DR (optional)</Label>
-                  {editDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setEditDrNumber("")}>Remove DR</Button>}
+                  {editDrNumber && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto px-1 text-xs"
+                      onClick={() => setEditDrNumber("")}
+                    >
+                      Remove DR
+                    </Button>
+                  )}
                 </div>
                 <SearchableSelect
                   value={editDrNumber}
-                  onValueChange={(value) => { setEditDrNumber(value); if (value) setEditSalesOrderId(""); }}
+                  onValueChange={(value) => {
+                    setEditDrNumber(value);
+                    if (value) setEditSalesOrderId("");
+                  }}
                   options={drOptions}
                   placeholder="Select Delivery Receipt"
                 />
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>Sales Order {editReferenceMode === "SALES_ORDER" && <span className="text-destructive">*</span>}</Label>
-                  {editSalesOrderId && !editDrNumber && <Button type="button" variant="ghost" size="sm" className="h-auto px-1 text-xs" onClick={() => setEditSalesOrderId("")}>Remove Sales Order</Button>}
+                  <Label>
+                    Sales Order{" "}
+                    {editReferenceMode === "SALES_ORDER" && (
+                      <span className="text-destructive">*</span>
+                    )}
+                  </Label>
+                  {editSalesOrderId && !editDrNumber && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto px-1 text-xs"
+                      onClick={() => setEditSalesOrderId("")}
+                    >
+                      Remove Sales Order
+                    </Button>
+                  )}
                 </div>
-                <SearchableSelect value={editSalesOrderId} onValueChange={setEditSalesOrderId} options={salesOrderOptions} disabled={!!editDrNumber || editReferenceMode !== "SALES_ORDER"} placeholder={editDrNumber ? "Supplied by linked DR" : editReferenceMode === "SALES_ORDER" ? "Select Service Sales Order" : "Not needed for Legacy TR Number"} />
+                <SearchableSelect
+                  value={editSalesOrderId}
+                  onValueChange={setEditSalesOrderId}
+                  options={salesOrderOptions}
+                  disabled={
+                    !!editDrNumber || editReferenceMode !== "SALES_ORDER"
+                  }
+                  placeholder={
+                    editDrNumber
+                      ? "Supplied by linked DR"
+                      : editReferenceMode === "SALES_ORDER"
+                        ? "Select Service Sales Order"
+                        : "Not needed for legacy SO / TR number"
+                  }
+                />
               </div>
+              <div className="space-y-2">
+                <Label>Overall discount</Label>
+                <InvoiceDiscountEditor
+                  orderId={
+                    editReferenceMode === "SALES_ORDER"
+                      ? editSalesOrderId
+                      : undefined
+                  }
+                  items={editLineItems}
+                  value={editDiscountSettings}
+                  onChange={setEditDiscountSettings}
+                  onSelectLine={(index, salesOrderItemId) =>
+                    setEditLineItems((rows) =>
+                      rows.map((row, i) =>
+                        i === index ? { ...row, salesOrderItemId } : row,
+                      ),
+                    )
+                  }
+                />
+              </div>
+
               <div className="space-y-1.5">
                 <Label>PO Number</Label>
-                <Input value={editPoNo} onChange={(e) => setEditPoNo(e.target.value)} disabled={!!editDrNumber || editReferenceMode !== "TR_NUMBER"} className={editDrNumber || editReferenceMode !== "TR_NUMBER" ? "bg-muted" : undefined} placeholder="Customer PO Number" />
+                <Input
+                  value={editPoNo}
+                  onChange={(e) => setEditPoNo(e.target.value)}
+                  disabled={!!editDrNumber || editReferenceMode !== "TR_NUMBER"}
+                  className={
+                    editDrNumber || editReferenceMode !== "TR_NUMBER"
+                      ? "bg-muted"
+                      : undefined
+                  }
+                  placeholder="Customer PO Number"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>SO / TR Number</Label>
-                <Input value={editTrNo} onChange={(e) => setEditTrNo(e.target.value)} disabled={!!editDrNumber || editReferenceMode !== "TR_NUMBER"} className={editDrNumber || editReferenceMode !== "TR_NUMBER" ? "bg-muted" : undefined} placeholder="Sales Order or Legacy TR Number" />
+                <Input
+                  value={editTrNo}
+                  onChange={(e) => setEditTrNo(e.target.value)}
+                  disabled={!!editDrNumber || editReferenceMode !== "TR_NUMBER"}
+                  className={
+                    editDrNumber || editReferenceMode !== "TR_NUMBER"
+                      ? "bg-muted"
+                      : undefined
+                  }
+                  placeholder="Sales Order or Legacy TR Number"
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>Assigned Technician {editDrNumber === "" && <span className="text-destructive">*</span>}</Label>
+                <Label>
+                  Assigned Technician{" "}
+                  {editDrNumber === "" && (
+                    <span className="text-destructive">*</span>
+                  )}
+                </Label>
                 {editDrNumber ? (
                   <>
-                    <Input value={editTechnicianName} readOnly className="bg-muted" placeholder="Loading from Delivery Receipt..." />
-                    <p className="text-xs text-muted-foreground">Automatically assigned from DR #{editDrNumber}</p>
+                    <Input
+                      value={editTechnicianName}
+                      readOnly
+                      className="bg-muted"
+                      placeholder="Loading from Delivery Receipt..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Automatically assigned from DR #{editDrNumber}
+                    </p>
                   </>
                 ) : (
                   <SearchableSelect
                     value={editTechnicianId}
                     onValueChange={(id) => {
                       setEditTechnicianId(id);
-                      setEditTechnicianName(deliveryUsers.find((user) => user.value === id)?.label || "");
+                      setEditTechnicianName(
+                        deliveryUsers.find((user) => user.value === id)
+                          ?.label || "",
+                      );
                     }}
                     options={deliveryUsers}
                     disabled={deliveryUsersLoading || !!deliveryUsersError}
-                    placeholder={deliveryUsersLoading ? "Loading eligible users..." : "Select Assigned Technician"}
+                    placeholder={
+                      deliveryUsersLoading
+                        ? "Loading eligible users..."
+                        : "Select Assigned Technician"
+                    }
                     emptyText="No eligible application users found."
                   />
                 )}
-                {deliveryUsersError && <p className="text-xs text-destructive">{deliveryUsersError}</p>}
+                {deliveryUsersError && (
+                  <p className="text-xs text-destructive">
+                    {deliveryUsersError}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1653,7 +2716,12 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
             >
               Cancel
             </Button>
-            <Button onClick={handleEditSave} disabled={editSubmitting || (editStatus === "void" && !voidReason.trim())}>
+            <Button
+              onClick={handleEditSave}
+              disabled={
+                editSubmitting || (editStatus === "void" && !voidReason.trim())
+              }
+            >
               {editSubmitting && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
@@ -1663,20 +2731,128 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!paymentTarget} onOpenChange={open => !open && !savingPayment && setPaymentTarget(null)}><DialogContent><DialogHeader><DialogTitle>Payment status - #{paymentTarget?.invoiceNo}</DialogTitle></DialogHeader><Label>Payment status</Label><Select value={paymentValue} onValueChange={setPaymentValue}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(PAYMENT_LABELS).map(([value,label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select><p className="text-sm text-muted-foreground">Reconcile this label with the legacy payment sheet. No payment amounts are recorded here.</p><DialogFooter><Button variant="outline" disabled={savingPayment} onClick={() => setPaymentTarget(null)}>Cancel</Button><Button disabled={savingPayment} onClick={async () => {
-        if (!paymentTarget || !isAdmin) return;
-        setSavingPayment(true);
-        try { await serviceInvoiceService.updatePayment(paymentTarget.invoiceNo,paymentValue); await fetchList(); setPaymentTarget(null); toast.success("Payment status updated."); }
-        catch { toast.error("Failed to update payment status."); }
-        finally { setSavingPayment(false); }
-      }}>Save payment status</Button></DialogFooter></DialogContent></Dialog>
-      <Dialog open={!!cancelTarget} onOpenChange={open => !open && !correctingInvoiceNo && setCancelTarget(null)}><DialogContent><DialogHeader><DialogTitle>Cancel and create corrected copy - #{cancelTarget?.invoiceNo}</DialogTitle></DialogHeader><Label htmlFor="cancel-reason">Reason *</Label><Textarea id="cancel-reason" value={cancelReason} onChange={event => setCancelReason(event.target.value)} /><DialogFooter><Button variant="outline" disabled={!!correctingInvoiceNo} onClick={() => setCancelTarget(null)}>Back</Button><Button disabled={!!correctingInvoiceNo || !cancelReason.trim()} onClick={async () => {
-        if (!cancelTarget) return;
-        setCorrectingInvoiceNo(cancelTarget.invoiceNo);
-        try { const replacementNo = await serviceInvoiceService.cancelAndCreateCorrectedCopy(cancelTarget.invoiceNo,cancelReason); const updated = await serviceInvoiceService.getAll(); setInvoices(updated); setCancelTarget(null); setEditTarget(updated.find(invoice => invoice.invoiceNo === replacementNo) || null); toast.success("Invoice cancelled. Edit the corrected draft."); }
-        catch { toast.error("Could not cancel invoice. Check payment status and try again."); }
-        finally { setCorrectingInvoiceNo(null); }
-      }}>Cancel and create corrected copy</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog
+        open={!!paymentTarget}
+        onOpenChange={(open) =>
+          !open && !savingPayment && setPaymentTarget(null)
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Payment status - #{paymentTarget?.invoiceNo}
+            </DialogTitle>
+          </DialogHeader>
+          <Label>Payment status</Label>
+          <Select value={paymentValue} onValueChange={setPaymentValue}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(PAYMENT_LABELS).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-sm text-muted-foreground">
+            Reconcile this label with the legacy payment sheet. No payment
+            amounts are recorded here.
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={savingPayment}
+              onClick={() => setPaymentTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={savingPayment}
+              onClick={async () => {
+                if (!paymentTarget || !isAdmin) return;
+                setSavingPayment(true);
+                try {
+                  await serviceInvoiceService.updatePayment(
+                    paymentTarget.invoiceNo,
+                    paymentValue,
+                  );
+                  await fetchList();
+                  setPaymentTarget(null);
+                  toast.success("Payment status updated.");
+                } catch {
+                  toast.error("Failed to update payment status.");
+                } finally {
+                  setSavingPayment(false);
+                }
+              }}
+            >
+              Save payment status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!cancelTarget}
+        onOpenChange={(open) =>
+          !open && !correctingInvoiceNo && setCancelTarget(null)
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Cancel and create corrected copy - #{cancelTarget?.invoiceNo}
+            </DialogTitle>
+          </DialogHeader>
+          <Label htmlFor="cancel-reason">Reason *</Label>
+          <Textarea
+            id="cancel-reason"
+            value={cancelReason}
+            onChange={(event) => setCancelReason(event.target.value)}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={!!correctingInvoiceNo}
+              onClick={() => setCancelTarget(null)}
+            >
+              Back
+            </Button>
+            <Button
+              disabled={!!correctingInvoiceNo || !cancelReason.trim()}
+              onClick={async () => {
+                if (!cancelTarget) return;
+                setCorrectingInvoiceNo(cancelTarget.invoiceNo);
+                try {
+                  const replacementNo =
+                    await serviceInvoiceService.cancelAndCreateCorrectedCopy(
+                      cancelTarget.invoiceNo,
+                      cancelReason,
+                    );
+                  const updated = await serviceInvoiceService.getAll();
+                  setInvoices(updated);
+                  setCancelTarget(null);
+                  setEditTarget(
+                    updated.find(
+                      (invoice) => invoice.invoiceNo === replacementNo,
+                    ) || null,
+                  );
+                  toast.success("Invoice cancelled. Edit the corrected draft.");
+                } catch {
+                  toast.error(
+                    "Could not cancel invoice. Check payment status and try again.",
+                  );
+                } finally {
+                  setCorrectingInvoiceNo(null);
+                }
+              }}
+            >
+              Cancel and create corrected copy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* View Invoice Modal */}
       <ServiceInvoicePreviewModal
         si={viewSi}
@@ -1686,27 +2862,131 @@ export default function ServiceInvoicesClient({ isAdmin }: { isAdmin: boolean })
         }}
       />
 
-      <Dialog open={!!completionTarget} onOpenChange={(open) => !open && setCompletionTarget(null)}>
+      <Dialog
+        open={!!completionTarget}
+        onOpenChange={(open) => !open && setCompletionTarget(null)}
+      >
         <DialogContent className="sm:max-w-lg">
-          <DialogHeader><DialogTitle>Mark Service Complete — Invoice #{completionTarget?.invoiceNo}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>
+              Mark Service Complete — Invoice #{completionTarget?.invoiceNo}
+            </DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2"><Label>Completion Date <span className="text-destructive">*</span></Label><Input type="date" value={completionDate} onChange={(event) => setCompletionDate(event.target.value)} /></div>
-            <div className="space-y-2"><Label>Technician / Responsible Person <span className="text-destructive">*</span></Label><SearchableSelect value={completionTechnicianId} onValueChange={setCompletionTechnicianId} options={deliveryUsers} placeholder="Select technician or responsible person" /></div>
-            <div className="space-y-2"><Label>Notes <span className="text-destructive">*</span></Label><Textarea value={completionNotes} onChange={(event) => setCompletionNotes(event.target.value)} placeholder="Describe the completed service" /></div>
-            <p className="text-sm text-muted-foreground">This completes every active service line on the linked Sales Order.</p>
+            <div className="space-y-2">
+              <Label>
+                Completion Date <span className="text-destructive">*</span>
+              </Label>
+              <DatePickerInput
+                value={completionDate}
+                onChange={(selectedDate) => setCompletionDate(selectedDate)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Technician / Responsible Person{" "}
+                <span className="text-destructive">*</span>
+              </Label>
+              <SearchableSelect
+                value={completionTechnicianId}
+                onValueChange={setCompletionTechnicianId}
+                options={deliveryUsers}
+                placeholder="Select technician or responsible person"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Notes <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                value={completionNotes}
+                onChange={(event) => setCompletionNotes(event.target.value)}
+                placeholder="Describe the completed service"
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              This completes every active service line on the linked Sales
+              Order.
+            </p>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setCompletionTarget(null)} disabled={completingService}>Cancel</Button><Button onClick={submitManualCompletion} disabled={completingService || !completionDate || !completionTechnicianId || !completionNotes.trim()}>{completingService && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Mark Complete</Button></DialogFooter>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCompletionTarget(null)}
+              disabled={completingService}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitManualCompletion}
+              disabled={
+                completingService ||
+                !completionDate ||
+                !completionTechnicianId ||
+                !completionNotes.trim()
+              }
+            >
+              {completingService && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Mark Complete
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!reversalTarget} onOpenChange={(open) => !open && setReversalTarget(null)}>
+      <Dialog
+        open={!!reversalTarget}
+        onOpenChange={(open) => !open && setReversalTarget(null)}
+      >
         <DialogContent className="sm:max-w-lg">
-          <DialogHeader><DialogTitle>Reverse Manual Completion — Invoice #{reversalTarget?.invoiceNo}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>
+              Reverse Manual Completion — Invoice #{reversalTarget?.invoiceNo}
+            </DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2"><Label>Reversal Date <span className="text-destructive">*</span></Label><Input type="date" value={reversalDate} onChange={(event) => setReversalDate(event.target.value)} /></div>
-            <div className="space-y-2"><Label>Reversal Notes <span className="text-destructive">*</span></Label><Textarea value={reversalNotes} onChange={(event) => setReversalNotes(event.target.value)} placeholder="Explain why this completion is being reversed" /></div>
+            <div className="space-y-2">
+              <Label>
+                Reversal Date <span className="text-destructive">*</span>
+              </Label>
+              <DatePickerInput
+                value={reversalDate}
+                onChange={(selectedDate) => setReversalDate(selectedDate)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Reversal Notes <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                value={reversalNotes}
+                onChange={(event) => setReversalNotes(event.target.value)}
+                placeholder="Explain why this completion is being reversed"
+              />
+            </div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setReversalTarget(null)} disabled={completingService}>Cancel</Button><Button variant="destructive" onClick={submitReversal} disabled={completingService || !reversalDate || !reversalNotes.trim()}>{completingService && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Reverse Completion</Button></DialogFooter>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setReversalTarget(null)}
+              disabled={completingService}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={submitReversal}
+              disabled={
+                completingService || !reversalDate || !reversalNotes.trim()
+              }
+            >
+              {completingService && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Reverse Completion
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

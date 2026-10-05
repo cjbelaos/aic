@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerInput } from "@/components/ui/date-picker";
 import { useEffect, useRef, useState } from "react";
 import {
   Loader2,
@@ -179,6 +180,7 @@ function FieldWithGuide({
         )}
       </div>
 
+      {type === "date" ? <DatePickerInput value={value} onChange={onChange} placeholder={placeholder} className="h-11 text-base" /> : (
       <Input
         type={type}
         inputMode={type === "number" ? "decimal" : undefined}
@@ -190,7 +192,7 @@ function FieldWithGuide({
           onChange(uppercase ? e.target.value.toUpperCase() : e.target.value)
         }
         className={uppercase ? "h-11 text-base uppercase" : "h-11 text-base"}
-      />
+      />)}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );

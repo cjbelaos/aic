@@ -1,4 +1,5 @@
 import { paymentStatusFor } from "./serviceInvoiceTracking";
+import { invoiceTotals } from "./serviceInvoiceDiscounts.ts";
 import type { InvoicePaymentStatus } from "../types/serviceInvoice";
 import type { ServiceInvoiceSummary } from "../types/serviceInvoice";
 
@@ -56,7 +57,7 @@ export function buildServiceInvoiceSummaryReport(invoices: ServiceInvoiceSummary
     const createdDate = validTimestamp ? manilaDate(timestamp) : "";
     if (period !== "all" && (createdDate < startDate || createdDate > endDate)) continue;
     const group = groupFor(invoice.status);
-    const amount = Math.round(invoice.items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0) * 100) / 100;
+    const amount = invoiceTotals(invoice).grandTotal;
     const customer = invoice.companyName || invoice.customerId;
     const paymentStatus = paymentStatusFor(invoice.status, invoice);
     const scannedStatus: "scanned" | "not_scanned" = invoice.scannedStatus === "scanned" ? "scanned" : "not_scanned";

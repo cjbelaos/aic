@@ -1,3 +1,4 @@
+import { parseDiscountJson } from "../discounts";
 // Sales Orders — Google Sheets repository and column contract.
 // The Next.js server writes the authoritative tabs directly through the same
 // authenticated Sheets client used by the rest of the application. This module
@@ -29,7 +30,7 @@ export const ORDERS_HEADERS: readonly string[] = [
   "QuotationNo", "PaymentTermId", "PaymentTermsSnapshot", "RequiredDate", "AssignedToUserId",
   "Currency", "OrderStatus", "FulfillmentStatus", "SubtotalExTax", "DiscountTotal", "TaxTotal",
   "GrandTotal", "Remarks", "Version", "ConfirmedAt", "ClosedAt", "CancelReason", "ImportQuality",
-  "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy",
+  "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "DiscountSettings",
 ];
 
 export const ITEMS_HEADERS: readonly string[] = [
@@ -38,7 +39,7 @@ export const ITEMS_HEADERS: readonly string[] = [
   "UnitId", "UnitSnapshot", "Quantity", "UnitPrice", "PriceSource", "CustomerProductPriceId",
   "QuotationLineReference", "DiscountAmount", "TaxMode", "TaxRate", "SubtotalExTax", "TaxAmount",
   "LineTotal", "FulfilledQty", "CancelledQty", "LineStatus", "PriceOverrideReason", "CreatedAt",
-  "CreatedBy", "UpdatedAt", "UpdatedBy",
+  "CreatedBy", "UpdatedAt", "UpdatedBy", "DiscountSettings",
 ];
 
 export const HISTORY_HEADERS: readonly string[] = [
@@ -101,6 +102,7 @@ const nullableNum = (value: unknown): number | null => {
 export function orderFromRow(row: unknown[]): SalesOrder {
   const r = row.length >= 34 ? row : [...row, ...Array<unknown>(34 - row.length).fill("")];
   return {
+    discountSettings: parseDiscountJson(r[35]),
     salesOrderId: text(r[0]), salesOrderNo: text(r[1]), legacyTrackerNo: text(r[2]),
     receivedDate: text(r[3]), customerId: text(r[4]), customerNameSnapshot: text(r[5]),
     customerTINSnapshot: text(r[6]), billingAddressSnapshot: text(r[7]), contactId: text(r[8]),
@@ -120,6 +122,7 @@ export function orderFromRow(row: unknown[]): SalesOrder {
 export function itemFromRow(row: unknown[]): SalesOrderItem {
   const r = row.length >= 31 ? row : [...row, ...Array<unknown>(31 - row.length).fill("")];
   return {
+    discountSettings: parseDiscountJson(r[31]),
     salesOrderItemId: text(r[0]), salesOrderId: text(r[1]), lineNo: num(r[2]),
     orderCategory: text(r[3]), lineType: text(r[4]) === "SERVICE" ? "SERVICE" : "PRODUCT",
     productId: text(r[5]), productCodeSnapshot: text(r[6]), productNameSnapshot: text(r[7]),
@@ -196,7 +199,7 @@ export function orderToRow(order: SalesOrder): Array<string | number | null> {
     order.quotationNo, order.paymentTermId, order.paymentTermsSnapshot, order.requiredDate, order.assignedToUserId,
     order.currency, order.orderStatus, order.fulfillmentStatus, order.subtotalExTax, order.discountTotal,
     order.taxTotal, order.grandTotal, order.remarks, order.version, order.confirmedAt, order.closedAt,
-    order.cancelReason, order.importQuality, order.createdAt, order.createdBy, order.updatedAt, order.updatedBy,
+    order.cancelReason, order.importQuality, order.createdAt, order.createdBy, order.updatedAt, order.updatedBy, order.discountSettings ? JSON.stringify(order.discountSettings) : "",
   ];
 }
 
@@ -207,7 +210,7 @@ export function itemToRow(item: SalesOrderItem): Array<string | number | null> {
     item.unitId, item.unitSnapshot, item.quantity, item.unitPrice, item.priceSource, item.customerProductPriceId,
     item.quotationLineReference, item.discountAmount, item.taxMode, item.taxRate, item.subtotalExTax,
     item.taxAmount, item.lineTotal, item.fulfilledQty, item.cancelledQty, item.lineStatus,
-    item.priceOverrideReason, item.createdAt, item.createdBy, item.updatedAt, item.updatedBy,
+    item.priceOverrideReason, item.createdAt, item.createdBy, item.updatedAt, item.updatedBy, item.discountSettings ? JSON.stringify(item.discountSettings) : "",
   ];
 }
 

@@ -1,3 +1,4 @@
+import { validateDiscount, type DiscountSettings } from "../discounts.ts";
 // Runtime request validation for Sales Order API endpoints. Route handlers are
 // thin: they call these parsers, which throw SalesOrderError (400 malformed /
 // 422 business) with a fieldErrors map. Never rely on TypeScript casts.
@@ -13,6 +14,8 @@ export function isUuid(value: unknown): boolean {
 }
 
 export interface ValidatedLineInput {
+  discountSettings?: DiscountSettings;
+  discountChangeReason?: string;
   salesOrderItemId?: string;
   lineType: "PRODUCT" | "SERVICE";
   productId: string;
@@ -64,6 +67,7 @@ export function parseLineInput(raw: unknown, index: number): ValidatedLineInput 
     salesOrderItemId, lineType, productId, description, unitId, unitSnapshot, customerProductName,
     productCodeSnapshot, productNameSnapshot, quantity: quantity ?? null, unitPrice: unitPrice ?? null,
     priceSource, priceOverrideReason, customerProductPriceId, quotationLineReference,
+    discountSettings: value.discountSettings === undefined ? undefined : validateDiscount(value.discountSettings),
     discountAmount: discountAmount ?? 0, taxMode, taxRate: taxRate ?? 0, orderCategory,
   };
 }
@@ -118,6 +122,8 @@ function numericOr(
 
 export { SalesOrderError, isValidSalesOrderNo };
 export interface ValidatedCreateOrder {
+  discountSettings?: DiscountSettings;
+  discountChangeReason?: string;
   commandId: string;
   initialStatus: "DRAFT" | "CONFIRMED";
   sourceQuotationNo: string;
@@ -176,6 +182,8 @@ export function parseCreateOrderInput(body: unknown): ValidatedCreateOrder {
     fieldErrors[quotationSourceRaw === "EXTERNAL" ? "externalQuotationNo" : "sourceQuotationNo"] = quotation.error;
   }
   const result: ValidatedCreateOrder = {
+    discountSettings: value.discountSettings === undefined ? undefined : validateDiscount(value.discountSettings),
+    discountChangeReason: typeof value.discountChangeReason === "string" ? value.discountChangeReason.trim() : "",
     commandId,
     initialStatus: initialStatusRaw === "DRAFT" ? "DRAFT" : "CONFIRMED",
     sourceQuotationNo: quotation.quotationNo,
@@ -203,6 +211,8 @@ export function parseCreateOrderInput(body: unknown): ValidatedCreateOrder {
   return result;
 }
 export interface ValidatedUpdateOrder {
+  discountSettings?: DiscountSettings;
+  discountChangeReason?: string;
   commandId: string;
   expectedVersion: number;
   receivedDate?: string;
@@ -236,6 +246,8 @@ export function parseUpdateOrderInput(body: unknown): ValidatedUpdateOrder {
   const lines = Array.isArray(linesRaw) ? linesRaw.map(parseLineInput) : undefined;
   if (Object.keys(fieldErrors).length > 0) throw badRequest("Invalid update-order payload.", fieldErrors);
   return {
+    discountSettings: value.discountSettings === undefined ? undefined : validateDiscount(value.discountSettings),
+    discountChangeReason: typeof value.discountChangeReason === "string" ? value.discountChangeReason.trim() : "",
     commandId,
     expectedVersion,
     receivedDate: typeof value.receivedDate === "string" ? value.receivedDate : undefined,

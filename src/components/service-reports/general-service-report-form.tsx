@@ -4,6 +4,7 @@
 // stored ReportType can dispatch between the General and Water Treatment forms
 // without changing General behavior.
 
+import { DatePickerInput } from "@/components/ui/date-picker";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Save, Loader2, CheckCircle2 } from "lucide-react";
@@ -98,7 +99,7 @@ export function GeneralServiceReportForm({ detail, onSaved, onDirtyChange }: Ser
             <div className="space-y-2"><Label>Service Invoice No.</Label><Input value={report.serviceInvoiceNo || "Not linked to a Service Invoice"} readOnly className="bg-muted" /></div>
             <div className="space-y-2">
               <Label>Service date <span className="text-destructive">*</span></Label>
-              <Input type="date" value={serviceDate} onChange={(e) => mark(setServiceDate, e.target.value)} aria-invalid={!serviceDate} />
+              <DatePickerInput value={serviceDate} onChange={(selectedDate) => mark(setServiceDate, selectedDate)} aria-invalid={!serviceDate} />
             </div>
             <div className="space-y-2"><Label>Company / customer</Label><Input value={report.companyNameSnapshot} readOnly className="bg-muted" /></div>
             <div className="space-y-2"><Label>Client name</Label><Input value={report.clientNameSnapshot} readOnly className="bg-muted" /></div>

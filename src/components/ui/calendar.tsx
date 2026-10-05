@@ -6,10 +6,12 @@ import {
   getDefaultClassNames,
   type DayButton,
   type Locale,
+  type DropdownProps,
 } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from "lucide-react"
 
 function Calendar({
@@ -51,17 +53,17 @@ function Calendar({
         ),
         month: cn("flex w-full flex-col gap-4", defaultClassNames.month),
         nav: cn(
-          "absolute inset-x-0 top-0 flex w-full items-center justify-between gap-1",
+          "pointer-events-none absolute inset-x-0 top-0 flex w-full items-center justify-between gap-1",
           defaultClassNames.nav
         ),
         button_previous: cn(
           buttonVariants({ variant: buttonVariant }),
-          "size-(--cell-size) p-0 select-none aria-disabled:opacity-50",
+          "pointer-events-auto size-(--cell-size) p-0 select-none aria-disabled:opacity-50",
           defaultClassNames.button_previous
         ),
         button_next: cn(
           buttonVariants({ variant: buttonVariant }),
-          "size-(--cell-size) p-0 select-none aria-disabled:opacity-50",
+          "pointer-events-auto size-(--cell-size) p-0 select-none aria-disabled:opacity-50",
           defaultClassNames.button_next
         ),
         month_caption: cn(
@@ -134,6 +136,7 @@ function Calendar({
         ...classNames,
       }}
       components={{
+        Dropdown: CalendarDropdown,
         Root: ({ className, rootRef, ...props }) => {
           return (
             <div
@@ -177,6 +180,28 @@ function Calendar({
       }}
       {...props}
     />
+  )
+}
+
+function CalendarDropdown({ options = [], value, onChange, disabled, className, style, id, name, "aria-label": ariaLabel }: DropdownProps) {
+  return (
+    <Select value={value === undefined ? undefined : String(value)} disabled={disabled} name={name}
+      onValueChange={(nextValue) => {
+        // DayPicker's month/year navigation handlers read only event.target.value.
+        onChange?.({ target: { value: nextValue } } as React.ChangeEvent<HTMLSelectElement>)
+      }}>
+      <SelectTrigger id={id} aria-label={ariaLabel} style={style} size="sm"
+        className={cn("h-8 w-fit min-w-0 gap-1 border-0 bg-transparent px-2 py-1 text-sm font-medium shadow-none", className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="min-w-48">
+        {options.map(option => (
+          <SelectItem key={option.value} value={String(option.value)} disabled={option.disabled}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

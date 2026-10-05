@@ -358,10 +358,10 @@ export function EntityTable<TData>({
 
         {mobileLayout && <div className="space-y-3 md:hidden">
           <label className="flex flex-wrap items-center gap-2 text-sm">Sort by
-            <select aria-label="Sort records" className="min-h-11 max-w-full rounded-md border bg-background px-2 text-base" value={sorting[0]?.id ?? ""} onChange={event => setSorting(event.target.value ? [{ id: event.target.value, desc: false }] : [])}>
-              <option value="">Default order</option>
-              {table.getAllLeafColumns().filter(column => column.getCanSort()).map(column => <option key={column.id} value={column.id}>{mobileLayout.labels[column.id] ?? column.id}</option>)}
-            </select>
+            <Select value={sorting[0]?.id ?? ""} onValueChange={selected => setSorting(selected ? [{ id: selected, desc: false }] : [])}><SelectTrigger aria-label="Sort records" className="min-h-11 max-w-full rounded-md border bg-background px-2 text-base"><SelectValue /></SelectTrigger><SelectContent>
+              <SelectItem value="">Default order</SelectItem>
+              {table.getAllLeafColumns().filter(column => column.getCanSort()).map(column => <SelectItem key={column.id} value={column.id}>{mobileLayout.labels[column.id] ?? column.id}</SelectItem>)}
+            </SelectContent></Select>
             {sorting.length > 0 && <Button variant="outline" onClick={() => setSorting([{ ...sorting[0], desc: !sorting[0].desc }])}>{sorting[0].desc ? "Descending" : "Ascending"}</Button>}
           </label>
           {loading ? <div className="flex justify-center py-10"><LogoLoader label="Loading records…" size={48} /></div> : !table.getRowModel().rows.length ? <p role="status" className="py-8 text-center">No results found.</p> : table.getRowModel().rows.map(row => {

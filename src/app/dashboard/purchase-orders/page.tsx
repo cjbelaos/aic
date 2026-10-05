@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerInput } from "@/components/ui/date-picker";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
@@ -1070,11 +1071,7 @@ export default function PurchaseOrderPage() {
                 <Label>
                   Date <span className="text-destructive">*</span>
                 </Label>
-                <Input
-                  type="date"
-                  value={orderDate}
-                  onChange={(e) => setOrderDate(e.target.value)}
-                />
+                <DatePickerInput value={orderDate} onChange={(selectedDate) => setOrderDate(selectedDate)} />
               </div>
             </div>
 
@@ -1089,11 +1086,7 @@ export default function PurchaseOrderPage() {
               </div>
               <div className="space-y-2">
                 <Label>Expected Delivery Date</Label>
-                <Input
-                  type="date"
-                  value={deliveryDate}
-                  onChange={(e) => setDeliveryDate(e.target.value)}
-                />
+                <DatePickerInput value={deliveryDate} onChange={(selectedDate) => setDeliveryDate(selectedDate)} />
               </div>
               <div className="space-y-2">
                 <Label>Payment Terms</Label>
@@ -1356,11 +1349,7 @@ export default function PurchaseOrderPage() {
                 <Label>
                   Date <span className="text-destructive">*</span>
                 </Label>
-                <Input
-                  type="date"
-                  value={editDate}
-                  onChange={(e) => setEditDate(e.target.value)}
-                />
+                <DatePickerInput value={editDate} onChange={(selectedDate) => setEditDate(selectedDate)} />
               </div>
             </div>
 
@@ -1374,11 +1363,7 @@ export default function PurchaseOrderPage() {
               </div>
               <div className="space-y-2">
                 <Label>Expected Delivery Date</Label>
-                <Input
-                  type="date"
-                  value={editDeliveryDate}
-                  onChange={(e) => setEditDeliveryDate(e.target.value)}
-                />
+                <DatePickerInput value={editDeliveryDate} onChange={(selectedDate) => setEditDeliveryDate(selectedDate)} />
               </div>
               <div className="space-y-2">
                 <Label>Payment Terms</Label>

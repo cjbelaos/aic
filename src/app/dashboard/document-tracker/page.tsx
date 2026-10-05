@@ -1,5 +1,6 @@
 "use client";
 
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
@@ -936,19 +937,14 @@ export default function DocumentTrackerPage() {
                 >
                   Assigned to
                 </Label>
-                <select
-                  id="handover-assignee-filter"
-                  value={handoverAssigneeFilter}
-                  onChange={(event) => setHandoverAssigneeFilter(event.target.value)}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[200px]"
-                >
-                  <option value="all">All assignees</option>
+                <Select value={handoverAssigneeFilter} onValueChange={(selected) => setHandoverAssigneeFilter(selected)}><SelectTrigger id="handover-assignee-filter" className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[200px]"><SelectValue /></SelectTrigger><SelectContent>
+                  <SelectItem value="all">All assignees</SelectItem>
                   {handoverAssigneeOptions.map((assignee) => (
-                    <option key={assignee.value} value={assignee.value}>
+                    <SelectItem key={assignee.value} value={assignee.value}>
                       {assignee.label}
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
+                </SelectContent></Select>
               </div>
             )}
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
@@ -958,23 +954,18 @@ export default function DocumentTrackerPage() {
               >
                 Document type
               </Label>
-              <select
-                id="handover-document-type-filter"
-                value={handoverDocumentTypeFilter}
-                onChange={(event) =>
+              <Select value={handoverDocumentTypeFilter} onValueChange={(selected) =>
                   setHandoverDocumentTypeFilter(
-                    event.target.value as
+                    selected as
                       | "all"
                       | "delivery_receipt"
                       | "service_invoice",
                   )
-                }
-                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[180px]"
-              >
-                <option value="all">All document types</option>
-                <option value="delivery_receipt">Delivery Receipts (DR)</option>
-                <option value="service_invoice">Service Reports (SR)</option>
-              </select>
+                }><SelectTrigger id="handover-document-type-filter" className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[180px]"><SelectValue /></SelectTrigger><SelectContent>
+                <SelectItem value="all">All document types</SelectItem>
+                <SelectItem value="delivery_receipt">Delivery Receipts (DR)</SelectItem>
+                <SelectItem value="service_invoice">Service Reports (SR)</SelectItem>
+              </SelectContent></Select>
             </div>
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <Label
@@ -983,27 +974,22 @@ export default function DocumentTrackerPage() {
               >
                 Status
               </Label>
-              <select
-                id="handover-status-filter"
-                value={handoverStatusFilter}
-                onChange={(event) =>
+              <Select value={handoverStatusFilter} onValueChange={(selected) =>
                   setHandoverStatusFilter(
-                    event.target.value as
+                    selected as
                       | "all"
                       | "handed_over"
                       | "received_by_after_sales"
                       | "returned"
                       | "unassigned",
                   )
-                }
-                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[200px]"
-              >
-                <option value="all">All statuses</option>
-                <option value="handed_over">Assigned</option>
-                <option value="received_by_after_sales">Received by After Sales</option>
-                <option value="returned">Returned / verified</option>
-                <option value="unassigned">Unassigned</option>
-              </select>
+                }><SelectTrigger id="handover-status-filter" className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[200px]"><SelectValue /></SelectTrigger><SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="handed_over">Assigned</SelectItem>
+                <SelectItem value="received_by_after_sales">Received by After Sales</SelectItem>
+                <SelectItem value="returned">Returned / verified</SelectItem>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+              </SelectContent></Select>
             </div>
           </>
         }
@@ -1321,17 +1307,12 @@ export default function DocumentTrackerPage() {
               </div>
               <div className="min-w-0 sm:min-w-48">
                 <Label htmlFor="return-assignee" className="sr-only">Filter by assignee</Label>
-                <select
-                  id="return-assignee"
-                  value={returnAssignee}
-                  onChange={(event) => setReturnAssignee(event.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="all">All assignees</option>
+                <Select value={returnAssignee} onValueChange={(selected) => setReturnAssignee(selected)}><SelectTrigger id="return-assignee" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"><SelectValue /></SelectTrigger><SelectContent>
+                  <SelectItem value="all">All assignees</SelectItem>
                   {Array.from(new Map(assignedDocs.map((doc) => [doc.assignedToId, doc.assignedToName])).entries()).map(([id, name]) => (
-                    <option key={id} value={id}>{name}</option>
+                    <SelectItem key={id} value={id ?? ""}>{name}</SelectItem>
                   ))}
-                </select>
+                </SelectContent></Select>
               </div>
             </div>
 

@@ -3,6 +3,7 @@
 // (or `npm run test:quotations`).
 
 import "./pricing-test.ts";
+import "./discount-test.ts";
 import "./row-mapping-test.ts";
 import "./text-case-test.ts";
 

@@ -1,4 +1,5 @@
 "use client";
+import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 
 import type { CSSProperties } from "react";
 import type {
@@ -265,7 +266,7 @@ export default function ServiceInvoicePrintDocument({
    * TOTALS
    * -------------------------------------------------------------------------*/
 
-  const totalAmount = rows.reduce((sum, item) => {
+  const subtotalAmount = rows.reduce((sum, item) => {
     if (!item) return sum;
 
     return sum + (item.amount ?? (item.quantity || 0) * (item.unitPrice || 0));
@@ -273,8 +274,10 @@ export default function ServiceInvoicePrintDocument({
 
   // The total on a Service Invoice is VAT-inclusive. Derive the taxable base
   // first, then calculate VAT from that base.
-  const netAmount = totalAmount / 1.12;
-  const vatAmount = netAmount * 0.12;
+  const totals = invoiceTotals({ items: rows.filter((item): item is ServiceInvoiceItem => Boolean(item)), discountAmount: si.discountAmount });
+  const totalAmount = totals.grandTotal;
+  const netAmount = totals.vatableAmount;
+  const vatAmount = totals.vat;
   const withholdingTax = vatAmount;
   const totalDue = totalAmount;
 
@@ -357,6 +360,11 @@ export default function ServiceInvoicePrintDocument({
       }}
       className="relative bg-white text-black mx-auto"
     >
+      {totals.discount > 0 && <div style={{ position: "absolute", left: MARGIN_LEFT, top: 882, width: 240, fontSize: 10, fontWeight: 700, lineHeight: "12px" }}>
+        <div>Subtotal: PHP {formatNumber(subtotalAmount)}</div>
+        <div>Less Discount: PHP {formatNumber(totals.discount)}</div>
+        <div>Final Amount Payable: PHP {formatNumber(totalAmount)}</div>
+      </div>}
       {/* ---------------------------------------------------------------------
        * DATE
        * -------------------------------------------------------------------*/}

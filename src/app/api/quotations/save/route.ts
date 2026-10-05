@@ -128,6 +128,7 @@ export async function POST(request: Request) {
       quotationDescription: payload.quotationDescription,
       grandTotal: payload.grandTotal || 0,
       discount: payload.discount || 0,
+      discountSettings: payload.discountSettings,
       shippingFee,
       quotationNo: payload.quotationNo,
       preparedByName:
@@ -143,6 +144,8 @@ export async function POST(request: Request) {
         productId: item.productId || undefined,
         productCodeSnapshot: item.productCodeSnapshot || undefined,
         description: item.description || item.name || "",
+        notes: item.notes,
+        discountSettings: item.discountSettings,
         qty: item.quantity || item.qty || 0,
         unit: item.unit || "",
         priceUnit: item.pricePerUnit || item.unitPrice || item.priceUnit || 0,

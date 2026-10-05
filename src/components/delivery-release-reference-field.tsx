@@ -19,10 +19,10 @@ export function InvoiceReferenceTypeSelector({ mode, onChange, disabled }: {
     <div className="grid grid-cols-2 gap-2">
       {DELIVERY_REFERENCE_MODE_CHOICES.map((choice) => <label key={choice.value} className={`flex items-center gap-2 rounded-md border p-3 text-sm ${mode === choice.value ? "border-primary bg-primary/5" : "border-input"}`}>
         <input type="radio" checked={mode === choice.value} onChange={() => onChange(choice.value)} />
-        {choice.label}
+        {choice.value === "TR_NUMBER" ? "Legacy SO / TR Number" : choice.label}
       </label>)}
     </div>
-    <p className="text-xs text-muted-foreground">{disabled ? "References are supplied by the linked DR." : mode === "TR_NUMBER" ? "Enter the customer PO and legacy TR number manually." : mode === "SALES_ORDER" ? "The selected Sales Order supplies the customer PO and SO number." : "Choose how to fill the invoice references."}</p>
+    <p className="text-xs text-muted-foreground">{disabled ? "References are supplied by the linked DR." : mode === "TR_NUMBER" ? "Enter the customer PO and legacy Sales Order / TR number manually." : mode === "SALES_ORDER" ? "The selected Sales Order supplies the customer PO and SO number." : "Choose how to fill the invoice references."}</p>
   </fieldset>;
 }
 

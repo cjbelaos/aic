@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerInput } from "@/components/ui/date-picker";
 import { useEffect, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown, Loader2 } from "lucide-react";
@@ -366,50 +367,30 @@ return (
               </div>
 <div className="space-y-1.5">
                 <Label>Last PMS Date</Label>
-                <Input
-                  type="date"
-                  value={form.lastPmsDate}
-                  disabled={saving}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, lastPmsDate: e.target.value }))
-                  }
-                />
+                <DatePickerInput value={form.lastPmsDate} disabled={saving} onChange={(selectedDate) =>
+                    setForm((f) => ({ ...f, lastPmsDate: selectedDate }))
+                  } />
               </div>
               <div className="space-y-1.5">
                 <Label>Next PMS Date</Label>
-                <Input
-                  type="date"
-                  value={form.nextPmsDate}
-                  disabled={saving}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, nextPmsDate: e.target.value }))
-                  }
-                />
+                <DatePickerInput value={form.nextPmsDate} disabled={saving} onChange={(selectedDate) =>
+                    setForm((f) => ({ ...f, nextPmsDate: selectedDate }))
+                  } />
               </div>
               <div className="space-y-1.5">
                 <Label>Registration Expiry</Label>
-                <Input
-                  type="date"
-                  value={form.registrationExpiry}
-                  disabled={saving}
-                  onChange={(e) =>
+                <DatePickerInput value={form.registrationExpiry} disabled={saving} onChange={(selectedDate) =>
                     setForm((f) => ({
                       ...f,
-                      registrationExpiry: e.target.value,
+                      registrationExpiry: selectedDate,
                     }))
-                  }
-                />
+                  } />
               </div>
               <div className="space-y-1.5">
                 <Label>Insurance Expiry</Label>
-                <Input
-                  type="date"
-                  value={form.insuranceExpiry}
-                  disabled={saving}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, insuranceExpiry: e.target.value }))
-                  }
-                />
+                <DatePickerInput value={form.insuranceExpiry} disabled={saving} onChange={(selectedDate) =>
+                    setForm((f) => ({ ...f, insuranceExpiry: selectedDate }))
+                  } />
               </div>
               <div className="space-y-1.5">
                 <Label>Status</Label>

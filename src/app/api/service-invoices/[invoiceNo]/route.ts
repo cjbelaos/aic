@@ -1,3 +1,4 @@
+import { resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot } from "@/lib/serviceInvoiceDiscounts";
 import { parseInvoiceMetadata, paymentStatusFor } from "@/lib/serviceInvoiceTracking";
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession, isAdminUser } from "@/lib/auth/session";
@@ -101,6 +102,15 @@ export async function GET(
     const tin = company?.tin || "";
 
     const metadata = parseInvoiceMetadata(invRow[19]);
+    const sourceId = ("salesOrderId" in references ? references.salesOrderId : undefined) || directSalesOrderId;
+    let discountData = invoiceDiscountSnapshot(metadata.discountData);
+    hydrateInvoiceDiscount(items, discountData);
+    if (["draft", "created"].includes(String(invRow[8])) && sourceId) {
+      const source = await getOrderDetail(String(sourceId));
+      if (discountData?.sourceVersion !== source.order.version) discountData = resolveInvoiceDiscount(items, undefined, source);
+      hydrateInvoiceDiscount(items, discountData);
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -112,6 +122,8 @@ export async function GET(
         preparedBy,
         preparedByPosition,
         items,
+        discountSettings: discountData?.discountSettings,
+        discountAmount: discountData?.discountAmount,
         status: invRow[8] === "paid" ? "created" : String(invRow[8] ?? "created").trim(),
         paymentStatus: paymentStatusFor(String(invRow[8]), metadata),
         scannedFileLink: metadata.scannedFileLink,

@@ -91,6 +91,7 @@ export default function EditSalesOrderPage(): React.ReactNode {
   const order = detail.order;
   const initial: OrderInput = {
     sourceQuotationNo: order.quotationNo,
+    discountSettings: order.discountSettings,
     customerId: order.customerId,
     customerNameSnapshot: order.customerNameSnapshot,
     customerTINSnapshot: order.customerTINSnapshot,
@@ -126,6 +127,7 @@ export default function EditSalesOrderPage(): React.ReactNode {
         customerProductPriceId: item.customerProductPriceId,
         quotationLineReference: item.quotationLineReference,
         discountAmount: item.discountAmount,
+      discountSettings: item.discountSettings,
         taxMode: item.taxMode,
         taxRate: item.taxRate,
         orderCategory: item.orderCategory,

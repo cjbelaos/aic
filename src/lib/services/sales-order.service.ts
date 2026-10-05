@@ -1,3 +1,4 @@
+import type { DiscountSettings } from "../discounts";
 import api from "@/lib/apiClient";
 import type {
   SalesOrder,
@@ -37,6 +38,7 @@ export interface OrderListResponse {
 }
 
 export interface OrderLineInput {
+  discountSettings?: DiscountSettings;
   salesOrderItemId?: string;
   lineType: "PRODUCT" | "SERVICE";
   productId?: string;
@@ -59,6 +61,8 @@ export interface OrderLineInput {
 }
 
 export interface OrderInput {
+  discountSettings?: DiscountSettings;
+  discountChangeReason?: string;
   commandId?: string;
   /** Explicit choice on creation. Older callers continue to create confirmed orders. */
   initialStatus?: "DRAFT" | "CONFIRMED";

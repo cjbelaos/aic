@@ -1,3 +1,4 @@
+import { allocateInvoiceDiscounts, resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot, type InvoiceDiscountData } from "./serviceInvoiceDiscounts";
 import { parseInvoiceMetadata, paymentStatusFor, validatePaymentStatus, assertUnpaid, requireStatusReason, type InvoiceTrackingData } from "./serviceInvoiceTracking";
 import {
   getSheetsClient,
@@ -19,7 +20,7 @@ import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/doc
 import { getOrderDetail, postFulfillments, type Actor } from "@/lib/salesOrders/service";
 import { getProducts } from "@/lib/productSheets";
 import { validateManualCategories } from "@/lib/serviceInvoiceFilters";
-import { readSalesOrderById } from "@/lib/salesOrders/repository";
+import { readSalesOrderListSnapshot, readSalesOrderById } from "@/lib/salesOrders/repository";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:U`;
@@ -429,6 +430,8 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
         if (!invoiceNo) return null;
         const status = String(row[8] ?? "created").trim() || "created";
         const manualCompletion = parseManualCompletionData(row[19]);
+        const discountData = invoiceDiscountSnapshot(manualCompletion.discountData);
+        hydrateInvoiceDiscount(itemsByInvoice.get(invoiceNo) || [], discountData);
         if (status === "deleted") return null;
         return {
           invoiceNo,
@@ -467,6 +470,8 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           replacesInvoiceNo: manualCompletion.replacesInvoiceNo,
           replacementInvoiceNo: manualCompletion.replacementInvoiceNo,
           items: itemsByInvoice.get(invoiceNo) || [],
+          discountSettings: discountData?.discountSettings,
+          discountAmount: discountData?.discountAmount,
         };
       })
       .filter((d): d is NonNullable<typeof d> => d != null)
@@ -505,6 +510,23 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
         }
       }));
     }
+    const storedStatuses = new Map(invRows.map(row => [String(row[0]).trim(), String(row[8]).trim()]));
+    const linkedIds = new Set(summaries.filter(invoice => ["draft", "created"].includes(storedStatuses.get(invoice.invoiceNo) || "")).map(invoice => invoice.salesOrderId).filter(Boolean));
+    if (linkedIds.size) {
+      const source = await readSalesOrderListSnapshot();
+      for (const order of source.orders.filter(order => linkedIds.has(order.salesOrderId))) {
+        const group = summaries.filter(invoice => invoice.salesOrderId === order.salesOrderId && ["draft", "created", "paid"].includes(invoice.status));
+        // Keep cent allocations already saved for this order version. Historical
+        // invoices without a snapshot pick up discounts on their first read.
+        const allocations = allocateInvoiceDiscounts({ order, items: source.items.filter(item => item.salesOrderId === order.salesOrderId) }, group.map(invoice => ({ ...invoice, status: storedStatuses.get(invoice.invoiceNo), discountData: { discountSettings: invoice.discountSettings, discountAmount: invoice.discountAmount ?? 0, itemDiscounts: [] } })));
+        group.forEach((invoice, index) => {
+          if (!["draft", "created"].includes(storedStatuses.get(invoice.invoiceNo) || "")) return;
+          invoice.discountSettings = allocations[index].discountSettings;
+          invoice.discountAmount = allocations[index].discountAmount;
+          hydrateInvoiceDiscount(invoice.items, allocations[index]);
+        });
+      }
+    }
     return summaries;
   } catch (error) {
     console.error("Failed to fetch service invoices:", error);
@@ -525,6 +547,8 @@ async function populateServiceInvoiceTemplate(
     poNo?: string;
     trNo?: string;
     items: ServiceInvoiceItem[];
+    discountSettings?: import("./discounts").DiscountSettings;
+    discountAmount?: number;
   },
 ): Promise<void> {
   // Clear ONLY the item data area (rows 10-28, columns B-D)
@@ -655,6 +679,8 @@ export async function processServiceInvoice(
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
+    let discountData = resolveInvoiceDiscount(payload.items, payload.discountSettings, references.salesOrderId ? await getOrderDetail(references.salesOrderId) : undefined);
+    hydrateInvoiceDiscount(payload.items, discountData);
     const catalogReferences = await itemCatalogReferences(payload.items);
     if (catalogReferences.some((entry) => entry.productId)) await ensureServiceInvoiceItemCatalogHeaders(sheets, spreadsheetId);
     const headerRow = [
@@ -677,7 +703,7 @@ export async function processServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      "", // T: ManualCompletionData
+      JSON.stringify({ discountData }), // T: metadata
       payload.referenceMode || "SALES_ORDER", // U: ReferenceMode
     ];
     if (headerRow.length !== SERVICE_INVOICES_HEADERS.length) {
@@ -727,6 +753,11 @@ export async function processServiceInvoice(
       appendedRowNumber(itemsAppendResponse.data.updates?.updatedRange, SERVICE_INVOICE_ITEMS_SHEET, "G", itemRows.length);
     }
 
+    if (references.salesOrderId) {
+      const allocations = await syncSalesOrderInvoiceDiscounts(await getOrderDetail(references.salesOrderId));
+      discountData = allocations[invoiceNo] ?? discountData;
+      hydrateInvoiceDiscount(payload.items, discountData);
+    }
     let trackerAssignmentOutcome: ServiceInvoiceResponse["trackerAssignmentOutcome"];
     let trackerAssignmentWarning: string | undefined;
     if (!isDraft && technicianId && technicianName) {
@@ -760,6 +791,8 @@ export async function processServiceInvoice(
       date: payload.date,
       preparedBy: payload.preparedBy || "",
       items: payload.items,
+      discountSettings: discountData.discountSettings,
+      discountAmount: discountData.discountAmount,
       status: payload.status || "created",
 
       contractId: payload.contractId,
@@ -836,6 +869,7 @@ export async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, 
       contractId: String(row[10] ?? ""), drNumber: Number(row[11]) || undefined,
       assignedTechnicianUserId: String(row[12] ?? "") || undefined,
       referenceMode: row[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
+      discountSettings: invoiceDiscountSnapshot(metadata.discountData)?.discountSettings,
       poNo: String(row[16] ?? ""), trNo: String(row[17] ?? ""), salesOrderId: String(row[18] ?? "") || undefined,
     }, userId);
     replacementNo = replacement.invoiceNo;
@@ -922,6 +956,14 @@ export async function updateServiceInvoice(
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
+    const discountItems = payload.items ?? (await findInvoiceItemRows(sheets, spreadsheetId, invoiceNo)).map(({ rowData }) => ({ description: String(rowData[1] ?? ""), quantity: Number(rowData[2]) || 0, unitPrice: Number(rowData[3]) || 0, productId: String(rowData[5] ?? "") || undefined }));
+    const previousDiscount = invoiceDiscountSnapshot(currentMetadata.discountData);
+    hydrateInvoiceDiscount(discountItems, previousDiscount);
+    const discountData = ["draft", "created"].includes(newStatus)
+      ? resolveInvoiceDiscount(discountItems, payload.discountSettings ?? previousDiscount?.discountSettings, references.salesOrderId ? await getOrderDetail(references.salesOrderId) : undefined)
+      : previousDiscount;
+    hydrateInvoiceDiscount(discountItems, discountData);
+
     let deliveredBy: DeliveredByResolution;
     if (linkedDrNumber !== undefined) {
       // A linked DR always wins, even if a client submits another user ID.
@@ -983,7 +1025,7 @@ export async function updateServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      JSON.stringify({ ...currentMetadata, paymentStatus: paymentStatusFor(oldStatus, currentMetadata), ...(payload.manualCategories !== undefined ? { manualCategories: validateManualCategories(payload.manualCategories) } : {}), ...(newStatus === "void" ? { statusReason, statusHistory: [...(Array.isArray(currentMetadata.statusHistory) ? currentMetadata.statusHistory : []), { status: "void", reason: statusReason!, changedBy: userId, changedAt: updatedAt }] } : {}) }), // T: metadata
+      JSON.stringify({ ...currentMetadata, discountData, paymentStatus: paymentStatusFor(oldStatus, currentMetadata), ...(payload.manualCategories !== undefined ? { manualCategories: validateManualCategories(payload.manualCategories) } : {}), ...(newStatus === "void" ? { statusReason, statusHistory: [...(Array.isArray(currentMetadata.statusHistory) ? currentMetadata.statusHistory : []), { status: "void", reason: statusReason!, changedBy: userId, changedAt: updatedAt }] } : {}) }), // T: metadata
       payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // U: ReferenceMode
     ];
 
@@ -1073,6 +1115,13 @@ export async function updateServiceInvoice(
         trackerAssignmentWarning = `Service Invoice was updated, but Document Tracker assignment failed: ${error instanceof Error ? error.message : "unknown error"}`;
       }
     }
+    let finalDiscount = discountData;
+    if (references.salesOrderId && ["draft", "created"].includes(newStatus)) {
+      const allocations = await syncSalesOrderInvoiceDiscounts(await getOrderDetail(references.salesOrderId));
+      finalDiscount = allocations[effectiveInvoiceNo] ?? discountData;
+      hydrateInvoiceDiscount(discountItems, finalDiscount);
+    }
+
     return {
       invoiceNo: effectiveInvoiceNo,
       date: updatedRow[1],
@@ -1109,7 +1158,9 @@ export async function updateServiceInvoice(
       assignedTechnicianName: technicianNameForRow || undefined,
       trackerAssignmentOutcome,
       trackerAssignmentWarning,
-      items: payload.items || [],
+      items: discountItems,
+      discountSettings: finalDiscount?.discountSettings,
+      discountAmount: finalDiscount?.discountAmount,
     };
   } catch (error) {
     console.error("Failed to update service invoice:", error);
@@ -1207,7 +1258,7 @@ export async function populateAndExportServiceInvoiceFormPdf(
   const references = await resolveInvoiceReferences({
     drNumber: Number.isFinite(linkedDrNumber) ? linkedDrNumber : undefined,
     salesOrderId: String(invRow[18] ?? "").trim(),
-    referenceMode: invRow[25] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
+    referenceMode: invRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
     poNo: String(invRow[16] ?? "").trim(),
     trNo: String(invRow[17] ?? "").trim(),
   });
@@ -1223,6 +1274,14 @@ export async function populateAndExportServiceInvoiceFormPdf(
     unitPrice: parseFloat(String(rowData[3] ?? "0")) || 0,
     amount: parseFloat(String(rowData[4] ?? "0")) || 0,
   }));
+  let discountData = invoiceDiscountSnapshot(parseInvoiceMetadata(invRow[19]).discountData);
+  hydrateInvoiceDiscount(items, discountData);
+  if (["draft", "created"].includes(String(invRow[8])) && references.salesOrderId) {
+    const source = await getOrderDetail(references.salesOrderId);
+    if (discountData?.sourceVersion !== source.order.version) discountData = resolveInvoiceDiscount(items, undefined, source);
+    hydrateInvoiceDiscount(items, discountData);
+  }
+
 
   const customers = await getCustomers();
   const company = customers.find(
@@ -1243,6 +1302,8 @@ export async function populateAndExportServiceInvoiceFormPdf(
     poNo: references.poNo,
     trNo: references.trNo,
     items,
+    discountSettings: discountData?.discountSettings,
+    discountAmount: discountData?.discountAmount,
   });
 
   const gid = await getSheetTabGid(sheets, spreadsheetId, PRINT_TEMPLATE_SHEET);
@@ -1478,4 +1539,30 @@ export async function syncServiceInvoiceReportLink(
   } catch (error) {
     console.error("syncServiceInvoiceReportLink failed (non-fatal):", error);
   }
+}
+
+/** Update only editable invoice snapshots when a Sales Order changes. */
+export async function syncSalesOrderInvoiceDiscounts(source: { order: import("@/types/salesOrder").SalesOrder; items: import("@/types/salesOrder").SalesOrderItem[] }): Promise<Record<string, InvoiceDiscountData>> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const headers = await sheets.spreadsheets.values.get({ spreadsheetId, range: SERVICE_INVOICES_RANGE });
+  const rows = headers.data.values || [];
+  const linked = rows.map((row, index) => ({ row, index })).filter(({ row }) => String(row[18]) === source.order.salesOrderId && ["draft", "created", "paid"].includes(String(row[8])));
+  if (!linked.some(({ row }) => ["draft", "created"].includes(String(row[8])))) return {};
+  const allItems = await readServiceInvoiceItemValues(sheets, spreadsheetId);
+  const invoices = linked.map(({ row, index }) => {
+    const metadata = parseInvoiceMetadata(row[19]);
+    const items = allItems.filter(item => String(item[0]) === String(row[0])).map(item => ({ description: String(item[1]), quantity: Number(item[2]) || 0, unitPrice: Number(item[3]) || 0, productId: String(item[5] || "") || undefined }));
+    hydrateInvoiceDiscount(items, invoiceDiscountSnapshot(metadata.discountData));
+    return { row, index, metadata, items, status: String(row[8]), discountData: invoiceDiscountSnapshot(metadata.discountData) };
+  });
+  const allocations = allocateInvoiceDiscounts(source, invoices);
+  const result: Record<string, InvoiceDiscountData> = {};
+  const data = invoices.flatMap(({ row, index, metadata }, i) => {
+    if (!["draft", "created"].includes(String(row[8]))) return [];
+    const discountData = allocations[i]; result[String(row[0])] = discountData;
+    return [{ range: `${SERVICE_INVOICES_SHEET}!T${index + 2}`, values: [[JSON.stringify({ ...metadata, discountData })]] }];
+  });
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "RAW", data } });
+  return result;
 }

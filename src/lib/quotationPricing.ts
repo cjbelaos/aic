@@ -1,3 +1,4 @@
+import { discountAmount, type DiscountSettings } from "./discounts.ts";
 /**
  * Quotation pricing modes — pure module (no React, no Google, no node APIs) so
  * the editor, the Sheets persistence layer, the conversion code and the focused
@@ -63,6 +64,7 @@ export function asMoney(value: unknown): number {
 export interface QuotationLineAmount {
   quantity: number;
   unitPrice: number;
+  discountSettings?: DiscountSettings;
 }
 
 export interface QuotationTotalsInput {
@@ -71,6 +73,7 @@ export interface QuotationTotalsInput {
   /** The one combined price entered in SINGLE_TOTAL mode. */
   singleTotalPrice?: number;
   discount?: number;
+  discountSettings?: DiscountSettings;
   shippingFee?: number;
 }
 
@@ -106,7 +109,10 @@ export function quotationTotals(
 ): QuotationTotals {
   const lineSubTotal = lineAmountSum(input.lineItems ?? []);
   const singleTotalPrice = asMoney(input.singleTotalPrice);
-  const discount = asMoney(input.discount);
+  const gross = isSingleTotalPricing(pricingMode) ? singleTotalPrice : lineSubTotal;
+  const discount = input.discountSettings?.mode === "PER_ITEM"
+    ? input.lineItems.reduce((sum, line) => sum + discountAmount(line.quantity * line.unitPrice, line.discountSettings, line.quantity), 0)
+    : input.discountSettings ? discountAmount(gross, input.discountSettings) : asMoney(input.discount);
   const shippingFee = asMoney(input.shippingFee);
   const priceBasis = isSingleTotalPricing(pricingMode) ? singleTotalPrice : lineSubTotal;
   const grandTotal = Math.max(priceBasis - discount, 0) + shippingFee;

@@ -1,3 +1,5 @@
+import { applyOrderDiscounts, effectiveOrderDiscount } from "./discounts";
+import { defaultDiscount, discountAmount, type DiscountSettings } from "../discounts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { payloadHash } from "./crypto-hash.ts";
 // Sales Orders — server-side orchestration. Route handlers stay thin and call
@@ -160,6 +162,7 @@ function matchesFilter(query: ListQuery, order: SalesOrder, items: SalesOrderIte
   return true;
 }
 function baseOrder(input: {
+  discountSettings?: DiscountSettings;
   customerId: string; receivedDate: string; currency: string; assignedToUserId: string;
   customerNameSnapshot: string; customerTINSnapshot: string; billingAddressSnapshot: string;
   contactId: string; contactNameSnapshot: string; contactPhoneSnapshot: string;
@@ -168,6 +171,7 @@ function baseOrder(input: {
 }, actor: Actor): SalesOrder {
   const now = nowIso();
   return {
+    discountSettings: input.discountSettings,
     salesOrderId: newUuid(), salesOrderNo: "", legacyTrackerNo: "", receivedDate: input.receivedDate,
     customerId: input.customerId, customerNameSnapshot: input.customerNameSnapshot,
     customerTINSnapshot: input.customerTINSnapshot, billingAddressSnapshot: input.billingAddressSnapshot,
@@ -183,6 +187,7 @@ function baseOrder(input: {
 }
 
 export function buildItems(orderId: string, lines: Array<{
+  discountSettings?: DiscountSettings;
   lineType: "PRODUCT" | "SERVICE"; productId: string; description: string; unitId: string; unitSnapshot: string;
   customerProductName: string; productCodeSnapshot: string; productNameSnapshot: string;
   quantity: number | null; unitPrice: number | null; priceSource: string; priceOverrideReason: string;
@@ -190,12 +195,14 @@ export function buildItems(orderId: string, lines: Array<{
   taxRate: number; orderCategory: string;
 }>, actor: Actor, now = nowIso()): SalesOrderItem[] {
   return lines.map((line, index) => {
+    if (line.discountSettings) line = { ...line, discountAmount: discountAmount((line.quantity ?? 0) * (line.unitPrice ?? 0), line.discountSettings, line.quantity ?? 0, line.taxMode, line.taxRate) };
     const money = recalculateItemMoneyForLine({
       quantity: line.quantity, unitPrice: line.unitPrice, discountAmount: line.discountAmount,
       taxMode: line.taxMode as SalesOrderItem["taxMode"], taxRate: line.taxRate,
       priceSource: line.priceSource,
     });
     return {
+      discountSettings: line.discountSettings,
       salesOrderItemId: newUuid(), salesOrderId: orderId, lineNo: index + 1,
       // Services (including repair work) always fall into the Services/ Repair
       // category the reporting view filters on; the user is never asked for it.
@@ -240,13 +247,14 @@ async function runWrite<T>(
 }
 async function createOrderImpl(actor: Actor, input: {
   commandId: string;
+  discountSettings?: DiscountSettings;
   sourceQuotationNo?: string; quotationSource?: string; externalQuotationNo?: string;
   customerId: string; customerNameSnapshot: string; customerTINSnapshot: string;
   billingAddressSnapshot: string; contactId: string; contactNameSnapshot: string; contactPhoneSnapshot: string;
   deliveryAddressSnapshot: string; customerPONo: string; paymentTermId: string; paymentTermsSnapshot: string;
   receivedDate: string; requiredDate: string; assignedToUserId: string; currency: string; remarks: string;
   initialStatus?: "DRAFT" | "CONFIRMED";
-  lines: Array<{ lineType: "PRODUCT" | "SERVICE"; productId: string; description: string; unitId: string;
+  lines: Array<{ discountSettings?: DiscountSettings; lineType: "PRODUCT" | "SERVICE"; productId: string; description: string; unitId: string;
     unitSnapshot: string; customerProductName: string; productCodeSnapshot: string; productNameSnapshot: string;
     quantity: number | null; unitPrice: number | null; priceSource: string; priceOverrideReason: string;
     customerProductPriceId: string; quotationLineReference: string; discountAmount: number; taxMode: string;
@@ -263,6 +271,7 @@ async function createOrderImpl(actor: Actor, input: {
   const initialStatus = input.initialStatus ?? "CONFIRMED";
   const order = baseOrder({ ...input, initialStatus, quotationNo: quotation.quotationNo }, actor);
   const items = buildItems(order.salesOrderId, input.lines, actor);
+  applyOrderDiscounts(order, items);
   const totals = recalculateOrderTotals(items);
   order.subtotalExTax = totals.subtotalExTax;
   order.discountTotal = totals.discountTotal;
@@ -287,11 +296,12 @@ async function createOrderImpl(actor: Actor, input: {
   return getOrderDetail(saved.result.salesOrderId);
 }
 async function updateOrderImpl(actor: Actor, id: string, input: { commandId: string;
+  discountSettings?: DiscountSettings; discountChangeReason?: string;
   expectedVersion: number; receivedDate?: string; requiredDate?: string; assignedToUserId?: string;
   customerPONo?: string; paymentTermId?: string; paymentTermsSnapshot?: string; remarks?: string;
   customerId?: string; customerNameSnapshot?: string; customerTINSnapshot?: string; billingAddressSnapshot?: string;
   contactId?: string; contactNameSnapshot?: string; contactPhoneSnapshot?: string; deliveryAddressSnapshot?: string;
-  lines?: Array<{ salesOrderItemId?: string; lineType: "PRODUCT" | "SERVICE"; productId: string; description: string; unitId: string;
+  lines?: Array<{ discountSettings?: DiscountSettings; salesOrderItemId?: string; lineType: "PRODUCT" | "SERVICE"; productId: string; description: string; unitId: string;
     unitSnapshot: string; customerProductName: string; productCodeSnapshot: string; productNameSnapshot: string;
     quantity: number | null; unitPrice: number | null; priceSource: string; priceOverrideReason: string;
     customerProductPriceId: string; quotationLineReference: string; discountAmount: number; taxMode: string;
@@ -307,7 +317,7 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
       write(order, value);
     }
   };
-  const order = { ...current };
+  const order = { ...current, discountSettings: input.discountSettings ?? current.discountSettings };
   if (input.lines) changed.lines = { from: "replaced", to: `${input.lines.length} lines` };
   applyString("receivedDate", input.receivedDate, (o) => o.receivedDate, (o, v) => { o.receivedDate = v; });
   applyString("requiredDate", input.requiredDate, (o) => o.requiredDate, (o, v) => { o.requiredDate = v; });
@@ -324,12 +334,12 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
   applyString("contactNameSnapshot", input.contactNameSnapshot, (o) => o.contactNameSnapshot, (o, v) => { o.contactNameSnapshot = v; });
   applyString("contactPhoneSnapshot", input.contactPhoneSnapshot, (o) => o.contactPhoneSnapshot, (o, v) => { o.contactPhoneSnapshot = v; });
 
-  const hadItems = input.lines !== undefined;
+  const hadItems = input.lines !== undefined || input.discountSettings !== undefined;
   if (["CANCELLED", "CLOSED"].includes(current.orderStatus)) throw validationError("Closed or cancelled orders cannot be edited.");
   const existingItems = await readSalesOrderItems(id);
   const seen = new Set<string>();
   const items = input.lines ? input.lines.map((line, index) => {
-    const next = buildItems(current.salesOrderId, [line], actor, now)[0];
+    const next = buildItems(current.salesOrderId, [{ ...line, discountAmount: order.discountSettings?.mode === "OVERALL" ? 0 : line.discountAmount }], actor, now)[0];
     next.lineNo = index + 1;
     if (!line.salesOrderItemId) return next;
     const existing = existingItems.find(item => item.salesOrderItemId === line.salesOrderItemId);
@@ -340,6 +350,13 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
     return { ...next, salesOrderItemId: existing.salesOrderItemId, fulfilledQty: existing.fulfilledQty, cancelledQty: existing.cancelledQty,
       lineStatus: existing.lineStatus, createdAt: existing.createdAt, createdBy: existing.createdBy };
   }) : existingItems;
+  const discountChanged = JSON.stringify(order.discountSettings ?? effectiveOrderDiscount(current, existingItems)) !== JSON.stringify(current.discountSettings ?? effectiveOrderDiscount(current, existingItems))
+    || items.some(item => { const before = existingItems.find(old => old.salesOrderItemId === item.salesOrderItemId); return !before ? Boolean(item.discountSettings?.value || item.discountAmount) : (JSON.stringify(before.discountSettings) !== JSON.stringify(item.discountSettings) || (!before.discountSettings && !item.discountSettings && order.discountSettings?.mode !== "OVERALL" && before.discountAmount !== item.discountAmount)); });
+  const removedDiscount = input.lines && existingItems.some(before => before.lineStatus === "ACTIVE" && (before.discountSettings?.value || (current.discountSettings?.mode !== "OVERALL" && before.discountAmount)) && !items.some(item => item.salesOrderItemId === before.salesOrderItemId));
+  if (discountChanged || removedDiscount) {
+    if (!input.discountChangeReason?.trim()) throw validationError("A reason is required when changing Sales Order discounts.");
+    changed.discount = { from: current.discountSettings ?? existingItems.map(item => item.discountAmount), to: order.discountSettings ?? items.map(item => item.discountAmount) };
+  }
   if (input.lines) for (const existing of existingItems) {
     if (seen.has(existing.salesOrderItemId)) continue;
     if (existing.fulfilledQty > 0 && existing.lineStatus !== "INACTIVE") throw validationError("A fulfilled line cannot be removed; cancel its remainder instead.");
@@ -349,6 +366,7 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
     const issues = collectConfirmationIssues({ order, items: items.filter(item => item.lineStatus !== "INACTIVE"), assignmentOptional: true });
     if (issues.length) throw validationError("Confirmed order revisions must remain commercially valid.");
   }
+  applyOrderDiscounts(order, items);
   const totals = recalculateOrderTotals(items);
   order.subtotalExTax = totals.subtotalExTax;
   order.discountTotal = totals.discountTotal;
@@ -361,13 +379,16 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
   const commandId = input.commandId;
   const history = [historyEvent({
     orderId: current.salesOrderId, eventType: "ORDER_UPDATED", fromStatus: current.orderStatus,
-    toStatus: order.orderStatus, changedFields: changed, commandId, actor,
+    toStatus: order.orderStatus, changedFields: changed, reason: input.discountChangeReason, commandId, actor,
   })];
   const payload = { salesOrderId: current.salesOrderId, receivedDate: order.receivedDate, order, items, history, hadItems };
   await runWrite<{ version: number }>("so.update", {
     salesOrderId: current.salesOrderId, expectedVersion: input.expectedVersion, commandId, payload, actor,
   });
-  return getOrderDetail(id);
+  const detail = await getOrderDetail(id);
+  const { syncSalesOrderInvoiceDiscounts } = await import("../serviceInvoiceSheets");
+  await syncSalesOrderInvoiceDiscounts(detail);
+  return detail;
 }
 async function confirmOrderImpl(actor: Actor, id: string, input: { commandId: string; expectedVersion: number }): Promise<SalesOrderDetail> {
   const current = await readSalesOrderById(id);
@@ -659,7 +680,7 @@ async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: st
     defaultTaxRate: TAX_RATE_LEGACY_PHI,
     pricingMode: normalizeQuotationPricingMode(quotation.pricingMode),
     singleTotalPrice: singleTotalPriceFromRecord(quotation),
-    discount: quotation.discount,
+    discount: 0,
   });
   const categoryFor = (line: { lineType: string; description: string }): string => {
     if (line.description === SHIPPING_LINE_DESCRIPTION) return SALES_ORDER_SHIPPING_CATEGORY;
@@ -672,6 +693,7 @@ async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: st
 
   return createOrderImpl(actor, {
     commandId: input.commandId,
+    discountSettings: quotation.discountSettings ?? defaultDiscount(quotation.discount),
     sourceQuotationNo: quotation.quotationNo,
     customerId: quotation.customerId ?? "",
     customerNameSnapshot: quotation.customer,
@@ -690,7 +712,8 @@ async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: st
     currency: "PHP",
     initialStatus: input.initialStatus ?? "CONFIRMED",
     remarks: `Converted from quotation ${quotation.quotationNo}; original total ${quotation.amount}.${pricingNote}`,
-    lines: plan.lines.map((line) => ({
+    lines: plan.lines.map((line, index) => ({
+      discountSettings: quotation.discountSettings?.mode === "PER_ITEM" ? quotation.items[index]?.discountSettings : undefined,
       orderCategory: categoryFor(line),
       ...line,
       productNameSnapshot: "",

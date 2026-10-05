@@ -20,9 +20,9 @@ import {
 import { singleTotalPriceFromRecord } from "../../src/lib/quotationPricing.ts";
 
 // ── the complete 21-column mapping ──────────────────────────────────────────
-assert.equal(QUOTATION_ROW_COLUMN_COUNT, 21);
-assert.equal(QUOTATION_ROW_HEADERS.length, 21);
-assert.equal(quotationSheetRange(), "Quotations!A2:U");
+assert.equal(QUOTATION_ROW_COLUMN_COUNT, 22);
+assert.equal(QUOTATION_ROW_HEADERS.length, 22);
+assert.equal(quotationSheetRange(), "Quotations!A2:V");
 assert.equal(columnLetter(0), "A");
 assert.equal(columnLetter(7), "H");
 assert.equal(columnLetter(8), "I");
@@ -52,13 +52,14 @@ const expectedLayout: Array<[string, keyof typeof QUOTATION_ROW, number, string]
   ["CreatedAt", "createdAt", 18, "S"],
   ["UpdatedBy", "updatedBy", 19, "T"],
   ["UpdatedAt", "updatedAt", 20, "U"],
+  ["DiscountSettings", "discountSettings", 21, "V"],
 ];
 for (const [header, key, index, letter] of expectedLayout) {
   assert.equal(QUOTATION_ROW[key], index, `${header} must be index ${index}`);
   assert.equal(QUOTATION_ROW_HEADERS[index], header, `${letter} must be ${header}`);
   assert.equal(columnLetter(index), letter, `index ${index} must be column ${letter}`);
 }
-assert.equal(Object.keys(QUOTATION_ROW).length, 21);
+assert.equal(Object.keys(QUOTATION_ROW).length, 22);
 
 // A full row round-trips through every column in sheet order.
 const savedRow = quotationRowValues({
@@ -84,7 +85,7 @@ const savedRow = quotationRowValues({
   updatedBy: "chris",
   updatedAt: "2026-09-25T01:00:00.000Z",
 });
-assert.equal(savedRow.length, 21);
+assert.equal(savedRow.length, 22);
 const parsedSaved = parseQuotationRowValues(savedRow);
 assert.equal(parsedSaved.quotationNo, "Q-20260925-001");
 assert.equal(parsedSaved.customerId, "COMP-1");

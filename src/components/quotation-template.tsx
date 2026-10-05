@@ -349,6 +349,7 @@ export const QuotationTemplate = forwardRef<HTMLDivElement, QuotationProps>(
                     >
                       <td className="py-4 px-4 font-medium text-slate-900 print:py-2 print:px-2">
                         {item.description}
+                        {item.notes && <div style={{ whiteSpace: "pre-wrap", fontSize: "0.9em" }}>{item.notes}</div>}
                       </td>
                       <td className="py-4 px-4 text-center print:py-2 print:px-2">
                         {item.quantity}

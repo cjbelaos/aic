@@ -1,3 +1,5 @@
+import { parseDiscountJson, validateDiscount, type DiscountSettings } from "./discounts";
+import { quotationTotals } from "./quotationPricing";
 import { randomUUID } from "crypto";
 import { isDraftQuotationReference } from "./quotationReference";
 import {
@@ -30,17 +32,17 @@ const QUOTATIONS_SHEET = "Quotations";
 const QUOTATION_DETAILS_SHEET = "QuotationDetails";
 const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
-// The Quotations tab has exactly 21 columns (A..U) and the layout is owned by
+// The Quotations tab has 22 columns (A..V) and the layout is owned by
 // src/lib/quotationRow.ts:
 //   ... G ShippingFee, H PricingMode, I SingleTotalPrice, J PaymentTermId ...
 //   Q Status, R CreatedBy, S CreatedAt, T UpdatedBy, U UpdatedAt
 // Historical rows have blank H/I: they read back as PER_LINE with no single
 // total, so their stored amounts are never re-derived or rewritten.
 const RANGE_QUOTATIONS = quotationSheetRange(QUOTATIONS_SHEET);
-const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:L`;
+const RANGE_DETAILS = `${QUOTATION_DETAILS_SHEET}!A2:M`;
 const RANGE_NOTATIONS = `${QUOTATION_NOTATIONS_SHEET}!A2:F`;
 
-const DETAILS_COL_COUNT = 12;
+const DETAILS_COL_COUNT = 13;
 const NOTATIONS_COL_COUNT = 6;
 
 // ──────────────── Shared helpers ────────────────
@@ -109,6 +111,8 @@ function parseDetailRow(row: readonly unknown[]): QuotationDetail {
     unitPrice: Number(row[6]) || 0,
     customerId: String(row[7] ?? "") || undefined,
     ...parseAudit(row, 8),
+    notes: String((parseLineMetadata(row[12])).notes ?? ""),
+    discountSettings: parseDiscountJson(parseLineMetadata(row[12]).discountSettings),
   };
 }
 
@@ -156,6 +160,7 @@ function parseQuotationRow(
     description: values.description,
     amount: values.amount,
     discount: values.discount,
+    discountSettings: values.discountSettings,
     shippingFee: values.shippingFee,
     paymentTermId: values.paymentTermId || undefined,
     terms: values.paymentTerms,
@@ -218,6 +223,7 @@ function buildQuotationRow(
     description: values.description,
     amount: values.amount,
     discount: values.discount,
+    discountSettings: values.discountSettings,
     shippingFee: values.shippingFee,
     paymentTermId: values.paymentTermId || undefined,
     terms: values.paymentTerms,
@@ -300,6 +306,7 @@ export async function addQuotation(
   actor: string,
 ): Promise<Quotation> {
   try {
+    payload = normalizedQuotation(payload);
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
@@ -320,6 +327,7 @@ export async function addQuotation(
       description: payload.description || "",
       amount: payload.amount ?? 0,
       discount: payload.discount ?? 0,
+      discountSettings: payload.discountSettings,
       shippingFee: payload.shippingFee || 0,
       pricingMode: payload.pricingMode,
       singleTotalPrice: payload.singleTotalPrice,
@@ -334,7 +342,7 @@ export async function addQuotation(
       ...auditCells,
     });
 
-    const detailValues = (payload.items || []).map(item => [...detailRow(payload.quotationNo, item, payload.customerId), ...audit]);
+    const detailValues = (payload.items || []).map(item => [...detailRow(payload.quotationNo, item, payload.customerId), ...audit, lineMetadata(item)]);
 
     const notationValues = (payload.notation || []).map(
       (note: QuotationNotation) => [payload.quotationNo, note.notation || "", ...audit],
@@ -381,6 +389,7 @@ export async function addQuotation(
       description: payload.description,
       amount: payload.amount,
       discount: payload.discount,
+      discountSettings: payload.discountSettings,
       shippingFee: payload.shippingFee || 0,
       paymentTermId: payload.paymentTermId,
       file: payload.file,
@@ -520,6 +529,7 @@ export async function updateQuotation(
   actor: string,
 ): Promise<Quotation> {
   try {
+    payload = normalizedQuotation(payload);
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
@@ -537,7 +547,7 @@ export async function updateQuotation(
     const auditCells = quotationAuditCells(actor, timestamp, quotRows[quotIdx]);
     const pricing = pricingCellsForWrite(payload, quotRows[quotIdx]);
 
-    // 1. Update the main row (all 21 columns A..U, in sheet order).
+    // 1. Update the main row (all 22 columns A..V, in sheet order).
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `${QUOTATIONS_SHEET}!A${quotRowNum}`,
@@ -551,6 +561,7 @@ export async function updateQuotation(
             description: payload.description || "",
             amount: payload.amount ?? 0,
             discount: payload.discount ?? 0,
+            discountSettings: payload.discountSettings,
             shippingFee: payload.shippingFee || 0,
             pricingMode: pricing[0],
             singleTotalPrice: pricing[1],
@@ -573,6 +584,7 @@ export async function updateQuotation(
     const newDetailValues = (payload.items || []).map((item, index) => [
       ...detailRow(payload.quotationNo || quotationNo, item, payload.customerId),
       ...auditValues(actor, timestamp, matchingDetails[index], 8),
+      lineMetadata(item),
     ]);
 
     const matchingNotations = notationRows.filter(row => String(row[0] ?? "").trim() === quotationNo.trim());
@@ -598,6 +610,7 @@ export async function updateQuotation(
       description: payload.description,
       amount: payload.amount,
       discount: payload.discount,
+      discountSettings: payload.discountSettings,
       shippingFee: payload.shippingFee || 0,
       paymentTermId: payload.paymentTermId,
       file: payload.file,
@@ -674,6 +687,7 @@ export async function saveQuotationData(params: {
   quotationDescription: string;
   grandTotal: number;
   discount: number;
+  discountSettings?: DiscountSettings;
   shippingFee?: number;
   quotationNo: string;
   preparedByName: string;
@@ -688,6 +702,8 @@ export async function saveQuotationData(params: {
     qty: number;
     unit: string;
     priceUnit: number;
+    notes?: string;
+    discountSettings?: DiscountSettings;
   }>;
   notations: string[];
   dateIssued?: string;
@@ -701,6 +717,14 @@ export async function saveQuotationData(params: {
   singleTotalPrice?: number;
 }, actor: string): Promise<{ refNumber: string; date: string }> {
   try {
+    if (params.discountSettings) {
+      params.discountSettings = validateDiscount(params.discountSettings);
+      if (params.discountSettings.mode === "OVERALL" && params.items.some(item => item.discountSettings?.value)) throw new Error("Overall and item discounts cannot be combined.");
+      if (params.discountSettings.mode === "PER_ITEM" && params.pricingMode === "SINGLE_TOTAL") throw new Error("Use overall discounts for a single total price.");
+      const total = quotationTotals(params.pricingMode, { lineItems: params.items.map(item => ({ quantity: item.qty, unitPrice: item.priceUnit, discountSettings: item.discountSettings })), singleTotalPrice: params.singleTotalPrice, discountSettings: params.discountSettings, shippingFee: params.shippingFee });
+      params.grandTotal = total.grandTotal; params.discount = total.discount;
+    }
+
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
@@ -719,6 +743,7 @@ export async function saveQuotationData(params: {
       description: params.quotationDescription,
       amount: params.grandTotal || 0,
       discount: params.discount || 0,
+      discountSettings: params.discountSettings,
       shippingFee: params.shippingFee || 0,
       pricingMode: params.pricingMode,
       singleTotalPrice: params.singleTotalPrice,
@@ -745,7 +770,7 @@ export async function saveQuotationData(params: {
     const detailValues = (params.items || []).map(item => [...detailRow(refNumber, {
       quotationNo: refNumber, productId: item.productId, productCodeSnapshot: item.productCodeSnapshot,
       description: item.description, quantity: item.qty, unit: item.unit, unitPrice: item.priceUnit,
-    }, params.customerId), ...audit]);
+    }, params.customerId), ...audit, lineMetadata(item)]);
 
     if (detailValues.length > 0) {
       writes.push(
@@ -782,4 +807,19 @@ export async function saveQuotationData(params: {
     console.error("Failed to save quotation data:", error);
     throw error;
   }
+}
+
+function parseLineMetadata(value: unknown): { notes?: string; discountSettings?: unknown } {
+  try { const parsed = JSON.parse(String(value || "{}")); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}; } catch { return {}; }
+}
+function lineMetadata(item: { notes?: string; discountSettings?: DiscountSettings }): string {
+  return JSON.stringify({ notes: item.notes || "", discountSettings: item.discountSettings });
+}
+function normalizedQuotation(payload: CreateQuotationPayload): CreateQuotationPayload {
+  if (!payload.discountSettings) return payload;
+  const settings = validateDiscount(payload.discountSettings);
+  if (settings.mode === "OVERALL" && payload.items.some(item => item.discountSettings?.value)) throw new Error("Overall and item discounts cannot be combined.");
+  if (settings.mode === "PER_ITEM" && payload.pricingMode === "SINGLE_TOTAL") throw new Error("Use overall discounts for a single total price.");
+  const totals = quotationTotals(payload.pricingMode, { lineItems: payload.items, singleTotalPrice: payload.singleTotalPrice, discountSettings: settings, shippingFee: payload.shippingFee });
+  return { ...payload, discountSettings: settings, discount: totals.discount, amount: totals.grandTotal };
 }

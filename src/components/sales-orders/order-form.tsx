@@ -1,5 +1,10 @@
 "use client";
 
+import { DatePickerInput } from "@/components/ui/date-picker";
+import { DiscountInput } from "@/components/discount-input";
+import { applyOrderDiscounts } from "@/lib/salesOrders/discounts";
+import type { SalesOrderItem } from "@/types/salesOrder";
+import { defaultDiscount } from "@/lib/discounts";
 import * as React from "react";
 import { FileText, Loader2, Save, ShoppingCart, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +60,8 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
     quotationSource: initial.quotationSource ?? (initial.externalQuotationNo ? "EXTERNAL" : "INTERNAL"),
     externalQuotationNo: initial.externalQuotationNo ?? "",
   });
+  const [discountSettings, setDiscountSettings] = React.useState(initial.discountSettings ?? { ...defaultDiscount(), mode: initial.lines.some(line => line.discountAmount) ? "PER_ITEM" as const : "OVERALL" as const });
+  const [discountChangeReason, setDiscountChangeReason] = React.useState("");
   const [lines, setLines] = React.useState<OrderLineInput[]>(initial.lines);
   const [submitting, setSubmitting] = React.useState(false);
   const [converting, setConverting] = React.useState(false);
@@ -72,7 +79,15 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
   }, []);
 
   const selectedCustomer = options.customers.find((customer) => customer.customerId === header.customerId);
-  const grandTotal = lines.reduce((sum, line) => sum + estimatedTotal(line), 0);
+  const beforeDiscount = lines.reduce((sum, line) => sum + estimatedTotal({ ...line, discountAmount: 0 }), 0);
+  let grandTotal = beforeDiscount;
+  try {
+    const previewItems = lines.map(line => ({ ...line, lineStatus: "ACTIVE", priceSource: line.priceSource || "MANUAL", quotationLineReference: line.quotationLineReference || "", discountAmount: line.discountAmount || 0, taxMode: line.taxMode || "VAT_INCLUSIVE", taxRate: line.taxRate ?? 0.12 })) as SalesOrderItem[];
+    applyOrderDiscounts({ discountSettings }, previewItems);
+    grandTotal = previewItems.reduce((sum, line) => sum + (line.lineTotal || 0), 0);
+  } catch { /* Incomplete lines and invalid discounts are validated on save. */ }
+
+
 
   const submit = async (initialStatus: "DRAFT" | "CONFIRMED" = "DRAFT"): Promise<void> => {
     if (submitting) return;
@@ -97,6 +112,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
         ...initial,
         ...header,
         initialStatus,
+        discountSettings, discountChangeReason,
         customerNameSnapshot: selectedCustomer?.companyName ?? initial.customerNameSnapshot,
         customerTINSnapshot: selectedCustomer?.tin ?? initial.customerTINSnapshot,
         billingAddressSnapshot: selectedCustomer?.address ?? initial.billingAddressSnapshot,
@@ -177,8 +193,8 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-12">
             <Field label="Customer" required className="md:col-span-6"><SearchableSelect value={header.customerId} onValueChange={(value) => patchHeader({ customerId: value })} options={options.customers.map((customer) => ({ value: customer.customerId, label: customer.companyName }))} placeholder="Select customer…" searchPlaceholder="Search customer…" /></Field>
-            <Field label="Received date" required className="md:col-span-3"><Input type="date" value={header.receivedDate} onChange={(event) => patchHeader({ receivedDate: event.target.value })} /></Field>
-            <Field label="Required date" className="md:col-span-3"><Input type="date" value={header.requiredDate} onChange={(event) => patchHeader({ requiredDate: event.target.value })} /></Field>
+            <Field label="Received date" required className="md:col-span-3"><DatePickerInput value={header.receivedDate} onChange={(selectedDate) => patchHeader({ receivedDate: selectedDate })} /></Field>
+            <Field label="Required date" className="md:col-span-3"><DatePickerInput value={header.requiredDate} onChange={(selectedDate) => patchHeader({ requiredDate: selectedDate })} /></Field>
             <Field label="Customer PO No." className="md:col-span-4"><Input value={header.customerPONo} onChange={(event) => patchHeader({ customerPONo: event.target.value })} placeholder="Optional customer reference" /></Field>
             <Field label="Payment terms" className="md:col-span-4"><SearchableSelect value={header.paymentTermId} onValueChange={(value) => patchHeader({ paymentTermId: value })} options={options.terms.map((term) => ({ value: term.paymentTermId, label: term.name }))} placeholder="Select terms…" /></Field>
             <Field label="Assigned PIC" className="md:col-span-4"><SearchableSelect value={header.assignedToUserId} onValueChange={(value) => patchHeader({ assignedToUserId: value })} options={options.users.map((user) => ({ value: user.userId, label: user.fullName }))} placeholder="Assign PIC…" /></Field>
@@ -203,7 +219,11 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
 
       <Card className="gap-4">
         <CardHeader><CardTitle className="text-base">Products / Services</CardTitle></CardHeader>
-        <CardContent><LineEditor lines={lines} onChange={(next) => markDirty(() => setLines(next))} units={options.units} products={options.products} categories={options.categories} orderCategories={options.orderCategories} serviceCategoryName={options.serviceCategoryName} serviceUnitId={options.serviceUnitId} /></CardContent>
+        <CardContent>      <Card><CardHeader><CardTitle className="text-base">Discount</CardTitle></CardHeader><CardContent className="space-y-3">
+        <DiscountInput value={discountSettings} showMode onChange={next => { setDiscountSettings(next); if (next.mode === "OVERALL") setLines(rows => rows.map(row => ({ ...row, discountAmount: 0, discountSettings: undefined }))); dirty.current = true; }} />
+        <Label>Reason for changing discounts on an existing order</Label><Textarea aria-label="Discount change reason" value={discountChangeReason} onChange={e => setDiscountChangeReason(e.target.value)} placeholder="Required when editing an existing discount" />
+      </CardContent></Card>
+<LineEditor allowItemDiscounts={discountSettings.mode === "PER_ITEM"} lines={lines} onChange={(next) => markDirty(() => setLines(next))} units={options.units} products={options.products} categories={options.categories} orderCategories={options.orderCategories} serviceCategoryName={options.serviceCategoryName} serviceUnitId={options.serviceUnitId} /></CardContent>
       </Card>
 
       <Card className="gap-3">

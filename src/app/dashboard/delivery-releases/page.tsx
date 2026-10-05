@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerInput } from "@/components/ui/date-picker";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
@@ -134,6 +135,8 @@ export default function DeliveryReleasePage() {
   const [poNo, setPoNo] = useState("");
   /* Reference: a selected Sales Order, or a manual legacy TR Number */
   const [referenceMode, setReferenceMode] = useState<DeliveryReferenceMode | null>(null);
+  const [contractReleaseCompanyId, setContractReleaseCompanyId] = useState("");
+  const isContractRelease = Boolean(contractReleaseCompanyId && contractReleaseCompanyId === selectedCompany);
   const [trNo, setTrNo] = useState("");
   const [salesOrderId, setSalesOrderId] = useState("");
   const [drNo, setDrNo] = useState("");
@@ -223,6 +226,11 @@ export default function DeliveryReleasePage() {
 
       if (prefill.companyId) {
         setSelectedCompany(prefill.companyId);
+        setContractReleaseCompanyId(prefill.companyId);
+        setReferenceMode(null);
+        setSalesOrderId("");
+        setTrNo("");
+        setPoNo("");
       }
       if (prefill.items && prefill.items.length > 0) {
         setLineItems(
@@ -861,6 +869,7 @@ export default function DeliveryReleasePage() {
 
   /* Create modal handlers */
   const openCreateModal = () => {
+    setContractReleaseCompanyId("");
     setSelectedCompany("");
     setDeliveryDate(new Date().toISOString().split("T")[0]);
     setDrNo("");
@@ -909,7 +918,7 @@ export default function DeliveryReleasePage() {
   };
 
   const handleSaveAndPrint = async () => {
-    if (!referenceMode) {
+    if (!isContractRelease && !referenceMode) {
       toast.error("Choose Sales Order or Legacy TR Number first.");
       return;
     }
@@ -938,7 +947,7 @@ export default function DeliveryReleasePage() {
         date: deliveryDate,
         drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
-        ...referencePayload(referenceMode, salesOrderId, trNo),
+        ...(isContractRelease ? {} : referencePayload(referenceMode, salesOrderId, trNo)),
         preparedBy,
         deliveredBy: selectedDriver.label,
         deliveredById: selectedDriver.userId,
@@ -1000,7 +1009,7 @@ export default function DeliveryReleasePage() {
   };
 
   const handleSaveDraft = async () => {
-    if (!referenceMode) {
+    if (!isContractRelease && !referenceMode) {
       toast.error("Choose Sales Order or Legacy TR Number first.");
       return;
     }
@@ -1016,7 +1025,7 @@ export default function DeliveryReleasePage() {
         date: deliveryDate,
         drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
-        ...referencePayload(referenceMode, salesOrderId, trNo),
+        ...(isContractRelease ? {} : referencePayload(referenceMode, salesOrderId, trNo)),
         preparedBy: preparedBy || "",
         deliveredBy: selectedDriver?.label || "",
         deliveredById: selectedDriver?.userId,
@@ -1268,7 +1277,7 @@ export default function DeliveryReleasePage() {
 
   return (
     <>
-      <div className="p-3 sm:p-6 space-y-6 min-w-0">
+      <div className="space-y-6 min-w-0">
         <DocumentRegisterHeader eyebrow="Delivery management" title="Delivery receipts" description="Review deliveries and manage documents." loading={loading} actions={<Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />New delivery receipt</Button>} cards={["all", "created", "draft"].map(status => ({ label: status === "all" ? "Total" : status === "draft" ? "Draft" : "Created", count: filteredReceipts.filter(receipt => status === "all" || (receipt.status === "draft" ? "draft" : "created") === status).length, selected: registerStatus === status, onClick: () => setRegisterStatus(status) }))} />
         <EntityTable
           mobileLayout={{ primary: ["drNumber", "companyName", "reference", "status", "date", "itemCount"], labels: { drNumber: "DR number", companyName: "Customer", reference: "Sales Order / TR No.", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
@@ -1379,16 +1388,12 @@ export default function DeliveryReleasePage() {
                 <Label>
                   Date <span className="text-destructive">*</span>
                 </Label>
-                <Input
-                  type="date"
-                  value={deliveryDate}
-                  onChange={(e) => setDeliveryDate(e.target.value)}
-                />
+                <DatePickerInput value={deliveryDate} onChange={(selectedDate) => setDeliveryDate(selectedDate)} />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <DeliveryReleaseReferenceField
+              {isContractRelease ? <p className="text-sm text-muted-foreground">This delivery receipt is created from a contract. No Sales Order or TR Number is needed.</p> : <DeliveryReleaseReferenceField
                 mode={referenceMode}
                 onModeChange={(mode) => changeReferenceMode(mode)}
                 salesOrderId={salesOrderId}
@@ -1398,12 +1403,12 @@ export default function DeliveryReleasePage() {
                 onTrNoChange={setTrNo}
                 selectedSalesOrderNo={salesOrderNumberById.get(salesOrderId)}
                 disabled={printing || drafting}
-              />
+              />}
               <div className="space-y-2">
                 <Label>PO NO.</Label>
                 <Input
                   value={poNo}
-                  disabled={referenceMode !== "TR_NUMBER"}
+                  disabled={!isContractRelease && referenceMode !== "TR_NUMBER"}
                   onChange={(e) => setPoNo(e.target.value)}
                   placeholder="e.g. PO-10293"
                 />
@@ -1665,11 +1670,7 @@ export default function DeliveryReleasePage() {
                 <Label>
                   Date <span className="text-destructive">*</span>
                 </Label>
-                <Input
-                  type="date"
-                  value={editDate}
-                  onChange={(e) => setEditDate(e.target.value)}
-                />
+                <DatePickerInput value={editDate} onChange={(selectedDate) => setEditDate(selectedDate)} />
               </div>
             </div>
 

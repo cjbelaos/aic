@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePickerInput } from "@/components/ui/date-picker";
 import { useEffect, useState, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import {
@@ -468,18 +469,12 @@ export default function CollectionsPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="sched-date">Scheduled Target Date *</Label>
-              <Input
-                id="sched-date"
-                type="date"
-                value={scheduleForm.scheduledDate}
-                disabled={scheduleSaving}
-                onChange={(e) =>
+              <DatePickerInput id="sched-date" value={scheduleForm.scheduledDate} disabled={scheduleSaving} onChange={(selectedDate) =>
                   setScheduleForm((f) => ({
                     ...f,
-                    scheduledDate: e.target.value,
+                    scheduledDate: selectedDate,
                   }))
-                }
-              />
+                } />
             </div>
 
             <div className="space-y-1.5">
@@ -570,15 +565,9 @@ export default function CollectionsPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="col-date">Date Collected *</Label>
-              <Input
-                id="col-date"
-                type="date"
-                value={logForm.collectedDate}
-                disabled={logSaving}
-                onChange={(e) =>
-                  setLogForm((f) => ({ ...f, collectedDate: e.target.value }))
-                }
-              />
+              <DatePickerInput id="col-date" value={logForm.collectedDate} disabled={logSaving} onChange={(selectedDate) =>
+                  setLogForm((f) => ({ ...f, collectedDate: selectedDate }))
+                } />
             </div>
           </div>
           <DialogFooter>

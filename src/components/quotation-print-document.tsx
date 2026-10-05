@@ -31,8 +31,8 @@ export function QuotationPrintDocument({ quotation: q, signatureUrls = {} }: { q
         )}
       </thead>
       <tbody>{q.items.map((item, index) => singleTotalMode
-        ? <tr className="item" key={index}><td>{index + 1}</td><td>{item.description}</td><td className="qty">{item.quantity.toLocaleString("en-PH", { maximumFractionDigits: 6 })}</td><td>{item.unit}</td></tr>
-        : <tr className="item" key={index}><td>{index + 1}</td><td>{item.description}</td><td className="qty">{item.quantity.toLocaleString("en-PH", { maximumFractionDigits: 6 })}</td><td>{item.unit}</td><td className="qty">{money(item.unitPrice)}</td><td className="qty">{money(item.quantity * item.unitPrice)}</td></tr>,
+        ? <tr className="item" key={index}><td>{index + 1}</td><td>{item.description}{item.notes && <div style={{ whiteSpace: "pre-wrap", fontSize: "0.9em" }}>{item.notes}</div>}{item.discountSettings?.value ? <div>Discount: {item.discountSettings.type === "PERCENT" ? `${item.discountSettings.value}%` : `PHP ${money(item.discountSettings.value)}`} {item.discountSettings.scope === "PER_UNIT" ? "per unit" : "per line"}</div> : null}</td><td className="qty">{item.quantity.toLocaleString("en-PH", { maximumFractionDigits: 6 })}</td><td>{item.unit}</td></tr>
+        : <tr className="item" key={index}><td>{index + 1}</td><td>{item.description}{item.notes && <div style={{ whiteSpace: "pre-wrap", fontSize: "0.9em" }}>{item.notes}</div>}{item.discountSettings?.value ? <div>Discount: {item.discountSettings.type === "PERCENT" ? `${item.discountSettings.value}%` : `PHP ${money(item.discountSettings.value)}`} {item.discountSettings.scope === "PER_UNIT" ? "per unit" : "per line"}</div> : null}</td><td className="qty">{item.quantity.toLocaleString("en-PH", { maximumFractionDigits: 6 })}</td><td>{item.unit}</td><td className="qty">{money(item.unitPrice)}</td><td className="qty">{money(item.quantity * item.unitPrice)}</td></tr>,
       )}</tbody>
     </table>
     <div className="summary">

@@ -1,3 +1,4 @@
+import type { DiscountSettings } from "../lib/discounts.ts";
 // Sales Order domain types — authoritative schema for the Sales Orders module.
 // This file is intentionally self-contained (no imports) so the pure logic
 // modules in src/lib/salesOrders can be exercised by native-TypeScript test
@@ -39,6 +40,7 @@ export type CurrencyCode = "PHP";
 
 /** SalesOrders — one immutable-ID row per order. */
 export interface SalesOrder {
+  discountSettings?: DiscountSettings;
   salesOrderId: string;
   /** Display reference AIC-SO-YYYY-NNNN; allocated when the order is created. */
   salesOrderNo: string;
@@ -83,6 +85,7 @@ export interface SalesOrder {
 
 /** SalesOrderItems — one stable-ID row per line. */
 export interface SalesOrderItem {
+  discountSettings?: DiscountSettings;
   salesOrderItemId: string;
   salesOrderId: string;
   lineNo: number;
