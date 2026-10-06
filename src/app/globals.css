@@ -226,3 +226,10 @@
   .dt-picker-group { align-items: flex-start; gap: 12px; }
   .dt-picker-group [data-slot="collapsible-trigger"] > .ml-auto { margin-left: 0; }
 }
+
+/* Fixed A4 preview proportions also keep off-screen PDF captures consistent. */
+.liquidation-document { overflow-wrap: normal; }
+.liquidation-table { table-layout: fixed; }
+.liquidation-table th, .liquidation-table td { overflow-wrap: anywhere; }
+.liquidation-table thead { display: table-header-group; }
+.liquidation-table tr, .liquidation-summary, .liquidation-signatures { break-inside: avoid; }

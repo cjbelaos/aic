@@ -131,28 +131,28 @@ export default function LiquidationPrintDocument({
   return (
     <div
       id={id}
-      className="bg-white text-black p-8 rounded border space-y-4 text-xs select-none min-w-[850px] mx-auto shadow-sm"
+      className="liquidation-document bg-white text-black p-5 border space-y-2 text-[11px] leading-snug select-none w-[794px] min-w-[794px] mx-auto shadow-sm"
       style={{ fontFamily: "Arial, sans-serif" }}
     >
       {/* ── Header ── */}
-      <div className="bg-white border-t-4 border-b-2 border-[#00a2e8] py-4 px-6 relative flex items-center justify-between shadow-xs rounded-t">
-        <div className="absolute left-6 top-1/2 -translate-y-1/2 flex items-center">
+      <div className="bg-white border-t-4 border-b-2 border-[#00a2e8] py-2 px-3 relative flex items-center justify-between shadow-xs rounded-t">
+        <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo.png"
             alt="Company Logo"
-            className="h-20 w-auto object-contain"
+            className="h-12 w-auto object-contain"
           />
         </div>
-        <div className="text-center w-full px-28 space-y-0.5">
-          <h1 className="text-2xl font-black tracking-wider text-slate-900 uppercase">
+        <div className="text-center w-full pl-16 pr-2 space-y-0.5">
+          <h1 className="text-lg font-black tracking-wide text-slate-900 uppercase">
             AERICH INNOVATION CORP.
           </h1>
           <p className="text-xs text-slate-700 font-medium">
             BLK 4, LOT 2 Bamboo Orchard Subdivision, Brgy. Banay Banay, Cabuyao
             City, Laguna
           </p>
-          <div className="flex justify-center gap-4 text-[11px] text-slate-600 font-normal pt-0.5">
+          <div className="flex flex-wrap justify-center gap-x-4 text-[11px] text-slate-600 font-normal pt-0.5">
             <p>
               <span className="font-semibold text-slate-800">Email:</span>{" "}
               aerichinnovationcorp@gmail.com
@@ -166,7 +166,7 @@ export default function LiquidationPrintDocument({
       </div>
 
       {/* ── Meta Header ── */}
-      <div className="flex justify-between items-start text-xs pt-2">
+      <div className="flex justify-between gap-3 items-start text-[11px] pt-1">
         <div className="space-y-1">
           <p>
             <span className="inline-block w-20 text-gray-700 font-medium">
@@ -186,7 +186,7 @@ export default function LiquidationPrintDocument({
             <span className="font-semibold text-gray-700 whitespace-nowrap">
               FTI REF
             </span>
-            <div className="bg-gray-100 border border-gray-300 rounded px-3 h-7 flex items-center justify-center text-xs font-mono text-gray-900 min-w-[200px] text-center font-bold leading-none select-text">
+            <div className="bg-gray-100 border border-gray-300 rounded px-3 h-7 flex items-center justify-center text-xs font-mono text-gray-900 min-w-[130px] max-w-[220px] break-all text-center font-bold leading-none select-text">
               {controlNo}
             </div>
           </div>
@@ -194,12 +194,12 @@ export default function LiquidationPrintDocument({
       </div>
 
       {/* ── Title ── */}
-      <h2 className="text-center font-bold text-base pt-2 pb-1 uppercase tracking-wide text-slate-800">
+      <h2 className="text-center font-bold text-sm pt-1 pb-1 uppercase tracking-wide text-slate-800">
         Expense Liquidation Form
       </h2>
 
       {/* ── Pivot Table ── */}
-      <table className="w-full border-collapse border border-black text-[11px]">
+      <table className="liquidation-table w-full border-collapse border border-black text-[11px]">
         <thead>
           <tr className="border-b border-black">
             <th className="border-r border-black px-1.5 py-1 text-center w-[12%] font-medium text-gray-800">
@@ -335,8 +335,8 @@ export default function LiquidationPrintDocument({
       </table>
 
       {/* ── Summary block ── */}
-      <div className="flex justify-end pt-2">
-        <div className="w-72 space-y-1 border border-black rounded-sm px-4 py-3">
+      <div className="liquidation-summary flex justify-end pt-1">
+        <div className="w-72 space-y-1 border border-black rounded-sm px-3 py-2">
           <div className="flex items-center justify-between">
             <span className="text-gray-800 font-medium">Total Expenses</span>
             <span className="font-mono font-semibold">
@@ -370,7 +370,7 @@ export default function LiquidationPrintDocument({
       </div>
 
       {/* ── Signature Section ── */}
-      <div className="pt-12 text-xs flex justify-between items-start">
+      <div className="liquidation-signatures pt-8 pb-2 text-[11px] flex gap-4 justify-between items-start">
         <div className="w-1/3">
           <p className="font-normal text-gray-800">
             Prepared by:{" "}
@@ -399,7 +399,7 @@ export default function LiquidationPrintDocument({
             </div>
           </div>
         </div>
-        <div className="w-1/3 space-y-8">
+        <div className="w-1/3 space-y-6">
           <p className="font-normal text-gray-800">Released Cash by:</p>
           <p className="font-normal text-gray-800">
             Received And Acknowledge by:

@@ -438,33 +438,8 @@ export function LiquidationList() {
   const generatePdfBlob = async (): Promise<Blob> => {
     const element = getLiquidationPrintElement();
     if (!element) throw new Error("Liquidation document not found.");
-    await new Promise((r) => setTimeout(r, 150));
-    const html2canvas = (await import("html2canvas-pro")).default;
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      backgroundColor: "#ffffff",
-    });
-    const { jsPDF } = await import("jspdf");
-    const imgData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF({
-      orientation: "landscape",
-      unit: "mm",
-      format: "a4",
-    });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const imgWidth = pageWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    let position = 0;
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-    let heightLeft = imgHeight - pageHeight;
-    while (heightLeft > 0) {
-      position -= pageHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-    }
-    return pdf.output("blob");
+    const { generateLiquidationPdf } = await import("@/lib/liquidation-print");
+    return generateLiquidationPdf(element);
   };
 
   const handleDownloadPdf = async () => {

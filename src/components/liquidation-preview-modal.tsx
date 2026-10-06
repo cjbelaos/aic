@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
+  Printer,
   Loader2,
   Download,
   ImageIcon,
@@ -16,6 +17,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { printLiquidation } from "@/lib/liquidation-print";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -76,11 +79,35 @@ export default function LiquidationPreviewModal({
   approvedBy,
   approvedBySignatureUrl,
 }: LiquidationPreviewModalProps) {
+  const documentRef = useRef<HTMLDivElement>(null);
+  // Scale only the preview wrapper; the document retains its print dimensions.
+  const fitPreview = useCallback((container: HTMLDivElement | null) => {
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const preview = documentRef.current;
+      if (preview) preview.style.zoom = String(Math.min(1, entry.contentRect.width / 794));
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+  const [printing, setPrinting] = useState(false);
+  const handlePrint = async () => {
+    const element = documentRef.current?.querySelector<HTMLElement>(".liquidation-document");
+    if (!element) return;
+    setPrinting(true);
+    try {
+      await printLiquidation(element);
+    } catch {
+      toast.error("Unable to open the print dialog. Please try again.");
+    } finally {
+      setPrinting(false);
+    }
+  };
   const [comment, setComment] = useState("");
   const [rejectConfirmationOpen, setRejectConfirmationOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-6xl w-[95vw] max-h-[92vh] flex flex-col p-6 overflow-hidden">
+      <DialogContent className="sm:max-w-6xl w-[95vw] max-h-[92vh] flex flex-col gap-3 p-4 sm:p-6 overflow-hidden">
         <DialogHeader className="pb-2 border-b">
           <DialogTitle>
             {readOnly ? "Liquidation Details" : "Preview Expense Liquidation"}
@@ -88,7 +115,8 @@ export default function LiquidationPreviewModal({
         </DialogHeader>
 
         {/* ── Scrollable Document Container ── */}
-        <div className="flex-1 overflow-auto py-2">
+        <div ref={fitPreview} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto rounded-md bg-muted/40 p-2 sm:p-4">
+          <div ref={documentRef} className="w-[794px] mx-auto">
           <LiquidationPrintDocument
             controlNo={controlNo}
             fullName={fullName}
@@ -101,12 +129,17 @@ export default function LiquidationPreviewModal({
             approvedBy={approvedBy}
             approvedBySignatureUrl={approvedBySignatureUrl}
           />
+          </div>
         </div>
 
         {/* ── Actions ── */}
-        {(onDownloadPdf || onDownloadImage || approvalActions || readOnly) && (
+        {(
           <DialogFooter className="flex flex-col items-stretch gap-3 pt-3 border-t">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 [&>button]:flex-1 sm:[&>button]:flex-none">
+              <Button onClick={handlePrint} disabled={printing}>
+                {printing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
+                Print
+              </Button>
               {onDownloadPdf && (
                 <Button
                   variant="outline"
