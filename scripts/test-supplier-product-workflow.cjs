@@ -1,0 +1,28 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const ts = require("typescript");
+const vm = require("node:vm");
+const source = fs.readFileSync("src/lib/supplier-product-workflow.ts", "utf8");
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+const sandbox = { exports: {} };
+vm.runInNewContext(compiled, sandbox);
+const { saveSupplierProductWithProduct: save } = sandbox.exports;
+(async () => {
+  const events = [];
+  const product = { id: "PROD-1", productId: "PROD-1" };
+  let remembered;
+  const result = await save({ productId: "", createProduct: async () => { events.push("create"); return product; }, rememberProduct: (value) => { remembered = value; events.push("remember"); }, saveSupplierProduct: async (id) => { assert.equal(id, "PROD-1"); events.push("link"); return "saved"; } });
+  assert.equal(result, "saved");
+  assert.deepEqual(events, ["create", "remember", "link"]);
+  assert.equal(remembered, product);
+  let retainedId;
+  let creates = 0;
+  await assert.rejects(save({ productId: "", createProduct: async () => { creates++; return product; }, rememberProduct: (value) => { retainedId = value.productId; }, saveSupplierProduct: async () => { throw new Error("Link failed"); } }), /Link failed/);
+  await save({ productId: retainedId, rememberProduct: () => assert.fail("Retry must not create a product"), saveSupplierProduct: async (id) => assert.equal(id, "PROD-1") });
+  assert.equal(creates, 1);
+  await save({ productId: "EXISTING", rememberProduct: () => assert.fail("Existing product must not be recreated"), saveSupplierProduct: async (id) => assert.equal(id, "EXISTING") });
+  await assert.rejects(save({ productId: "", createProduct: async () => { throw new Error("Create failed"); }, rememberProduct: () => assert.fail("Must not remember a failed creation"), saveSupplierProduct: async () => assert.fail("Must not link after creation fails") }), /Create failed/);
+  await assert.rejects(save({ productId: "", createProduct: async () => null, rememberProduct: () => assert.fail(), saveSupplierProduct: async () => assert.fail() }), /did not return/);
+  await assert.rejects(save({ productId: "", rememberProduct: () => assert.fail(), saveSupplierProduct: async () => assert.fail() }), /Select a product/);
+  console.log("Supplier product workflow: 6 scenarios passed.");
+})().catch((error) => { console.error(error); process.exitCode = 1; });

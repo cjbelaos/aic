@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown, Loader2 } from "lucide-react";
+import axios from "axios";
+import { saveSupplierProductWithProduct } from "@/lib/supplier-product-workflow";
+import type { ProductCategoryRecord, ProductUnitRecord } from "@/types/product-reference";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +46,9 @@ const EMPTY_FORM: SupplierProductForm = {
   status: "active",
 };
 
+const EMPTY_PRODUCT = { code: "", name: "", categoryId: "", unitId: "", sellingPrice: "" };
+const normalize = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+
 const currency = (value: number) => value.toLocaleString("en-PH", {
   style: "currency",
   currency: "PHP",
@@ -61,15 +67,21 @@ export default function SupplierProductsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<SupplierProduct | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SupplierProduct | null>(null);
+  const [createNewProduct, setCreateNewProduct] = useState(false);
+  const [newProduct, setNewProduct] = useState(EMPTY_PRODUCT);
+  const [createdProductId, setCreatedProductId] = useState("");
+  const [references, setReferences] = useState<{ categories: ProductCategoryRecord[]; units: ProductUnitRecord[] }>({ categories: [], units: [] });
   const [form, setForm] = useState<SupplierProductForm>(EMPTY_FORM);
 
   const load = useCallback(async () => {
     try {
-      const [supplierProducts, canonicalProducts, companies] = await Promise.all([
+      const [supplierProducts, canonicalProducts, companies, productReferences] = await Promise.all([
         supplierProductService.getAll(),
         productService.getAll(),
         companyService.getAll(),
+        axios.get<{ categories: ProductCategoryRecord[]; units: ProductUnitRecord[] }>("/api/product-references"),
       ]);
+      setReferences(productReferences.data);
       setRows(supplierProducts);
       setProducts(canonicalProducts);
       setSuppliers(companies.filter((company) => company.status === "active" && (company.companyType === "Supplier" || company.companyType === "Both")));
@@ -122,7 +134,22 @@ export default function SupplierProductsPage() {
     { accessorKey: "status", header: "Status", cell: ({ row }) => <Badge variant={row.original.status === "active" ? "default" : "secondary"}>{row.original.status}</Badge> },
   ], [productById, supplierById]);
 
+  const similarProducts = products.filter((product) => {
+    const name = normalize(newProduct.name);
+    const code = normalize(newProduct.code);
+    return (code && normalize(product.code) === code) || (name.length >= 3 && normalize(product.name).includes(name));
+  }).slice(0, 5);
+  const selectProduct = (productId: string) => {
+    const product = productById.get(productId);
+    setForm((current) => ({ ...current, productId, supplierProductName: current.supplierProductName || product?.name || "" }));
+    setCreateNewProduct(false);
+    setFormError("");
+  };
+
   const openCreate = () => {
+    setCreateNewProduct(false);
+    setNewProduct(EMPTY_PRODUCT);
+    setCreatedProductId("");
     setEditTarget(null);
     setForm({ ...EMPTY_FORM, productId: requestedProductId });
     setFormError("");
@@ -130,6 +157,8 @@ export default function SupplierProductsPage() {
   };
 
   const openEdit = (row: SupplierProduct) => {
+    setCreateNewProduct(false);
+    setCreatedProductId("");
     setEditTarget(row);
     setForm({
       productId: row.productId,
@@ -146,11 +175,27 @@ export default function SupplierProductsPage() {
   };
 
   const handleSave = async () => {
-    if (!form.productId || !form.supplierId || !form.supplierProductName.trim()) {
-      setFormError("Canonical product, supplier, and supplier product name are required.");
+    if ((!createNewProduct && !form.productId) || !form.supplierId || !(form.supplierProductName.trim() || (createNewProduct && newProduct.name.trim()))) {
+      setFormError("Product, supplier, and supplier product name are required.");
       return;
     }
-    if (form.costPerUnit < 0) {
+    const category = references.categories.find((item) => item.productCategoryId === newProduct.categoryId && item.status === "active");
+    const unit = references.units.find((item) => item.unitId === newProduct.unitId && item.status === "active");
+    if (createNewProduct && (!newProduct.name.trim() || !category || !unit)) {
+      setFormError("New product name, active category, and unit are required.");
+      return;
+    }
+    if (createNewProduct && newProduct.sellingPrice !== "" && (!Number.isFinite(Number(newProduct.sellingPrice)) || Number(newProduct.sellingPrice) < 0)) {
+      setFormError("Default selling price must be a valid non-negative amount.");
+      return;
+    }
+    if (createNewProduct && products.some((product) =>
+      (newProduct.code.trim() && normalize(product.code) === normalize(newProduct.code)) ||
+      (normalize(product.name) === normalize(newProduct.name) && product.category.id === newProduct.categoryId && product.unit.id === newProduct.unitId))) {
+      setFormError("This product already exists. Choose Select existing product to link it to this supplier.");
+      return;
+    }
+    if (!Number.isFinite(form.costPerUnit) || form.costPerUnit < 0) {
       setFormError("Cost per unit cannot be negative.");
       return;
     }
@@ -160,25 +205,48 @@ export default function SupplierProductsPage() {
       productId: form.productId,
       supplierId: form.supplierId,
       supplierProductCode: form.supplierProductCode.trim() || undefined,
-      supplierProductName: form.supplierProductName.trim(),
+      supplierProductName: form.supplierProductName.trim() || newProduct.name.trim(),
       supplierDescription: form.supplierDescription.trim() || undefined,
       costPerUnit: form.costPerUnit,
       isPreferredSupplier: form.isPreferredSupplier,
       status: form.status,
     };
+    let productCreated = !!createdProductId;
     try {
       if (editTarget) {
         await supplierProductService.update({ supplierProductId: editTarget.supplierProductId, ...payload });
         toast.success("Supplier product updated.");
       } else {
-        await supplierProductService.create(payload);
-        toast.success("Supplier product added.");
+        const supplier = suppliers.find((item) => item.companyId === form.supplierId);
+        if (!supplier) throw new Error("Select an available supplier.");
+        await saveSupplierProductWithProduct({
+          productId: payload.productId,
+          createProduct: createNewProduct && category && unit ? () => productService.create({
+            code: newProduct.code.trim(), name: newProduct.name.trim(),
+            category: { id: category.productCategoryId, code: category.categoryCode, name: category.categoryName },
+            unit: { id: unit.unitId, code: unit.unitCode, name: unit.unitName },
+            description: "", costPerUnit: 0, pricePerUnit: Number(newProduct.sellingPrice) || 0, supplier,
+          }) : undefined,
+          rememberProduct: (product) => {
+            const productId = product.productId ?? product.id;
+            productCreated = true;
+            setCreatedProductId(productId);
+            setProducts((current) => [...current, product]);
+            setForm((current) => ({ ...current, productId, supplierProductName: payload.supplierProductName }));
+            setCreateNewProduct(false);
+          },
+          saveSupplierProduct: (productId) => supplierProductService.create({ ...payload, productId }),
+        });
+        toast.success(productCreated ? "Product and supplier product saved." : "Supplier product added.");
       }
       await load();
       setModalOpen(false);
     } catch (error) {
       console.error("Failed to save supplier product:", error);
-      setFormError(error instanceof Error ? error.message : "Failed to save supplier product.");
+      const message = axios.isAxiosError<{ error?: string }>(error)
+        ? error.response?.data?.error || error.message
+        : error instanceof Error ? error.message : "Failed to save supplier product.";
+      setFormError(productCreated ? `Product already created. Supplier link was not saved: ${message} Retry Save to complete the link.` : message);
     } finally {
       setSaving(false);
     }
@@ -205,11 +273,29 @@ export default function SupplierProductsPage() {
       <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{editTarget ? "Edit Supplier Product" : "Add Supplier Product"}</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
-          {formError && <p className="text-sm text-destructive">{formError}</p>}
-          <div className="space-y-1.5"><Label>Canonical Product *</Label><SearchableSelect value={form.productId} onValueChange={(productId) => setForm((current) => ({ ...current, productId }))} options={productOptions} placeholder="Select product" searchPlaceholder="Search products..." disabled={saving || !!editTarget} /></div>
+          {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
+          {!editTarget && !createdProductId && <div className="flex flex-wrap gap-2">
+            <Button variant={createNewProduct ? "outline" : "default"} disabled={saving} onClick={() => setCreateNewProduct(false)}>Select existing product</Button>
+            <Button variant={createNewProduct ? "default" : "outline"} disabled={saving} onClick={() => { setCreateNewProduct(true); setFormError(""); }}>Create new product</Button>
+          </div>}
+          {createNewProduct ? <section className="space-y-3 rounded-md border p-3">
+            <p className="text-sm text-muted-foreground">Save once to create this product and link it to the supplier below.</p>
+            <div className="space-y-1.5"><Label htmlFor="new-product-name">Product Name *</Label><Input id="new-product-name" value={newProduct.name} onChange={(event) => setNewProduct((current) => ({ ...current, name: event.target.value }))} disabled={saving} /></div>
+            <div className="space-y-1.5"><Label htmlFor="new-product-code">Product Code (optional)</Label><Input id="new-product-code" placeholder="Automatically generated if blank" value={newProduct.code} onChange={(event) => setNewProduct((current) => ({ ...current, code: event.target.value }))} disabled={saving} /></div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5"><Label>Category *</Label><SearchableSelect value={newProduct.categoryId} options={references.categories.filter((item) => item.status === "active").map((item) => ({ value: item.productCategoryId, label: item.categoryName }))} onValueChange={(categoryId) => setNewProduct((current) => ({ ...current, categoryId }))} placeholder="Select category" disabled={saving} /></div>
+              <div className="space-y-1.5"><Label>Unit *</Label><SearchableSelect value={newProduct.unitId} options={references.units.filter((item) => item.status === "active").map((item) => ({ value: item.unitId, label: item.unitName }))} onValueChange={(unitId) => setNewProduct((current) => ({ ...current, unitId }))} placeholder="Select unit" disabled={saving} /></div>
+            </div>
+            <div className="space-y-1.5"><Label htmlFor="new-product-price">Default Selling Price (optional)</Label><Input id="new-product-price" type="number" min="0" step="0.01" value={newProduct.sellingPrice} onChange={(event) => setNewProduct((current) => ({ ...current, sellingPrice: event.target.value }))} disabled={saving} /></div>
+            {similarProducts.length > 0 && <div className="space-y-2 rounded-md bg-muted p-3">
+              <p className="text-sm font-medium">Matching products - select one to reuse it</p>
+              {similarProducts.map((product) => <Button key={product.id} variant="outline" className="h-auto w-full justify-start whitespace-normal text-left" disabled={saving} onClick={() => selectProduct(product.productId ?? product.id)}>{product.code} - {product.name} ({product.unit.name})</Button>)}
+            </div>}
+          </section> : <div className="space-y-1.5"><Label>Product *</Label><SearchableSelect value={form.productId} onValueChange={selectProduct} options={productOptions} placeholder="Select product" searchPlaceholder="Search products..." disabled={saving || !!editTarget || !!createdProductId} /></div>}
+          {createdProductId && <p className="text-sm text-muted-foreground">The product is saved. Save again to complete its supplier link.</p>}
           <div className="space-y-1.5"><Label>Supplier *</Label><SearchableSelect value={form.supplierId} onValueChange={(supplierId) => setForm((current) => ({ ...current, supplierId }))} options={supplierOptions} placeholder="Select supplier" searchPlaceholder="Search suppliers..." disabled={saving} /></div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5"><Label htmlFor="supplier-product-name">Supplier Product Name *</Label><Input id="supplier-product-name" value={form.supplierProductName} onChange={(event) => setForm((current) => ({ ...current, supplierProductName: event.target.value }))} disabled={saving} /></div>
+            <div className="space-y-1.5"><Label htmlFor="supplier-product-name">Supplier Product Name *</Label><Input id="supplier-product-name" placeholder={createNewProduct ? "Uses product name if blank" : undefined} value={form.supplierProductName} onChange={(event) => setForm((current) => ({ ...current, supplierProductName: event.target.value }))} disabled={saving} /></div>
             <div className="space-y-1.5"><Label htmlFor="supplier-product-code">Supplier Product Code</Label><Input id="supplier-product-code" value={form.supplierProductCode} onChange={(event) => setForm((current) => ({ ...current, supplierProductCode: event.target.value }))} disabled={saving} /></div>
           </div>
           <div className="space-y-1.5"><Label htmlFor="supplier-product-description">Supplier Description</Label><Input id="supplier-product-description" value={form.supplierDescription} onChange={(event) => setForm((current) => ({ ...current, supplierDescription: event.target.value }))} disabled={saving} /></div>
