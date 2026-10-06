@@ -7,6 +7,7 @@ import {
   DocumentType,
 } from "@/types/documentHandover";
 import { getUserById } from "@/lib/userSheets";
+import { canReceiveAndVerifyDocuments } from "@/lib/documentHandoverWorkflow";
 
 const SHEET_NAME = "DocumentHandover";
 const RANGE = `${SHEET_NAME}!A2:X`;
@@ -239,6 +240,7 @@ async function updateWorkflowDocumentHandovers(
   fromStatus: DocumentHandover["status"],
   toStatus: DocumentHandover["status"],
   auditStartColumn: "P" | "S" | "V",
+  receiveAndVerify = false,
 ): Promise<void> {
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
@@ -246,7 +248,8 @@ async function updateWorkflowDocumentHandovers(
   const ids = new Set(input.ids);
   const now = new Date().toISOString();
   const requests = (response.data.values || []).flatMap((row, index) => {
-    if (!ids.has(String(row[0] ?? "").trim()) || row[9] !== fromStatus) return [];
+    const combinedReceipt = receiveAndVerify && row[9] === "handed_over";
+    if (!ids.has(String(row[0] ?? "").trim()) || (row[9] !== fromStatus && !combinedReceipt)) return [];
     const rowNumber = index + 2;
     return [
       {
@@ -257,6 +260,10 @@ async function updateWorkflowDocumentHandovers(
         range: `${SHEET_NAME}!${auditStartColumn}${rowNumber}:${String.fromCharCode(auditStartColumn.charCodeAt(0) + 2)}${rowNumber}`,
         values: [[input.actorId, input.actorName, now]],
       },
+      ...(combinedReceipt ? [{
+        range: `${SHEET_NAME}!P${rowNumber}:R${rowNumber}`,
+        values: [[input.actorId, input.actorName, now]],
+      }] : []),
       ...(input.notes ? [{ range: `${SHEET_NAME}!N${rowNumber}`, values: [[input.notes]] }] : []),
     ];
   });
@@ -273,7 +280,7 @@ export function receiveDocumentHandovers(input: WorkflowDocumentHandoverInput): 
 }
 
 export function verifyDocumentHandovers(input: WorkflowDocumentHandoverInput): Promise<void> {
-  return updateWorkflowDocumentHandovers(input, "received_by_after_sales", "returned", "S");
+  return updateWorkflowDocumentHandovers(input, "received_by_after_sales", "returned", "S", canReceiveAndVerifyDocuments({ userId: input.actorId }));
 }
 
 export function unassignDocumentHandovers(input: WorkflowDocumentHandoverInput): Promise<void> {

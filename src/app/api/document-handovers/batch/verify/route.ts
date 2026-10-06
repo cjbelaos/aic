@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminSession } from "@/lib/auth/session";
+import { isAdminUser, requireAuthenticatedSession } from "@/lib/auth/session";
+import { canReceiveAndVerifyDocuments } from "@/lib/documentHandoverWorkflow";
 import { verifyDocumentHandovers } from "@/lib/documentHandoverSheets";
 
 export async function PUT(request: NextRequest) {
-  const session = await requireAdminSession();
+  const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
+  if (!isAdminUser(session) && !canReceiveAndVerifyDocuments(session)) {
+    return NextResponse.json({ error: "Forbidden. Admin access required." }, { status: 403 });
+  }
   try {
     const { ids, notes } = await request.json();
     if (!Array.isArray(ids) || ids.length === 0) return NextResponse.json({ error: "At least one ID is required." }, { status: 400 });

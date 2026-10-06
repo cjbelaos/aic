@@ -49,7 +49,7 @@ import documentHandoverService from "@/lib/services/document-handover.service";
 import deliveryService from "@/lib/services/delivery.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
 import userService from "@/lib/services/user.service";
-import { AFTER_SALES_DOCUMENT_RECEIVER_ID } from "@/lib/documentHandoverWorkflow";
+import { AFTER_SALES_DOCUMENT_RECEIVER_ID, canReceiveAndVerifyDocuments } from "@/lib/documentHandoverWorkflow";
 
 function getHandoverAssigneeKey(handover: DocumentHandover) {
   if (handover.assignedToId) return `user:${handover.assignedToId}`;
@@ -106,15 +106,18 @@ export default function DocumentTrackerPage() {
   const isAdmin = currentUserRoleId === 1 || isSuperAdmin;
   const isAfterSalesReceiver = currentUser.userId === AFTER_SALES_DOCUMENT_RECEIVER_ID;
   const canReceiveDocuments = isAfterSalesReceiver;
-  const canVerifyDocuments = isAdmin && (!isAfterSalesReceiver || isSuperAdmin);
+  const canReceiveAndVerify = canReceiveAndVerifyDocuments(currentUser);
+  const canVerifyDocuments = canReceiveAndVerify || (isAdmin && (!isAfterSalesReceiver || isSuperAdmin));
   const defaultWorkflowAction: "receive" | "verify" | null = canReceiveDocuments
     ? "receive"
     : canVerifyDocuments
       ? "verify"
       : null;
-  const [workflowAction, setWorkflowAction] = useState<
+  const [selectedWorkflowAction, setWorkflowAction] = useState<
     "receive" | "verify" | null
-  >(defaultWorkflowAction);
+  >(null);
+  const workflowAction = selectedWorkflowAction ?? defaultWorkflowAction;
+  const verifyLabel = canReceiveAndVerify ? "Receive & Verify" : "Verify";
   const [myDocsOnly, setMyDocsOnly] = useState<boolean>(
     () => currentUserRoleId !== 1,
   );
@@ -310,8 +313,8 @@ export default function DocumentTrackerPage() {
 
   const assignedDocs = useMemo(() => viewedHandovers.filter((h) =>
     workflowAction === "receive" ? h.status === "handed_over" :
-    workflowAction === "verify" ? h.status === "received_by_after_sales" : false,
-  ), [viewedHandovers, workflowAction]);
+    workflowAction === "verify" ? h.status === "received_by_after_sales" || (canReceiveAndVerify && h.status === "handed_over") : false,
+  ), [viewedHandovers, workflowAction, canReceiveAndVerify]);
 
   const handoverAssigneeOptions = useMemo(() => {
     const assigneesByKey = new Map<string, string>();
@@ -513,10 +516,7 @@ export default function DocumentTrackerPage() {
           selectedHandoverIds.includes(h.id)
             ? {
                 ...h,
-                status: "returned",
-                returnedBy: currentUser.userId,
-                returnedByName: currentUser.fullName,
-                returnedAt: new Date().toISOString(),
+                status: workflowAction === "receive" ? "received_by_after_sales" : "returned",
                 notes: returnNotes || h.notes,
               }
             : h,
@@ -524,7 +524,7 @@ export default function DocumentTrackerPage() {
       );
 
       toast.success(
-        `${selectedHandoverIds.length} document(s) ${workflowAction === "receive" ? "received by After Sales" : "verified by Admin"}`,
+        `${selectedHandoverIds.length} document(s) ${workflowAction === "receive" ? "received by After Sales" : canReceiveAndVerify ? "received and verified" : "verified by Admin"}`,
       );
       setReturnModalOpen(false);
       setSelectedHandoverIds([]);
@@ -573,7 +573,7 @@ export default function DocumentTrackerPage() {
       );
 
       toast.success(
-        `${singleReturnDocument.documentType === "delivery_receipt" ? "DR" : "SR"} #${singleReturnDocument.documentNumber} ${workflowAction === "receive" ? "received by After Sales" : "verified by Admin"}`,
+        `${singleReturnDocument.documentType === "delivery_receipt" ? "DR" : "SR"} #${singleReturnDocument.documentNumber} ${workflowAction === "receive" ? "received by After Sales" : canReceiveAndVerify ? "received and verified" : "verified by Admin"}`,
       );
       setSingleReturnDocument(null);
       setSingleReturnNotes("");
@@ -729,7 +729,7 @@ export default function DocumentTrackerPage() {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => {
-          const canProcess = (canReceiveDocuments && row.original.status === "handed_over") || (canVerifyDocuments && row.original.status === "received_by_after_sales");
+          const canProcess = (canReceiveDocuments && row.original.status === "handed_over") || (canVerifyDocuments && (row.original.status === "received_by_after_sales" || (canReceiveAndVerify && row.original.status === "handed_over")));
           return canProcess ? (
             <div className="flex gap-1">
             <Button
@@ -738,7 +738,7 @@ export default function DocumentTrackerPage() {
               className="h-7 text-xs border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950"
               onClick={() => handleSingleReturn(row.original.id)}
             >
-              <RotateCcw className="h-3 w-3 mr-1" /> {row.original.status === "handed_over" ? "Receive" : "Verify"}
+              <RotateCcw className="h-3 w-3 mr-1" /> {canReceiveAndVerify ? verifyLabel : row.original.status === "handed_over" ? "Receive" : "Verify"}
             </Button>
             {canReceiveDocuments && <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleUnassign(row.original)}>Unassign</Button>}
             </div>
@@ -750,7 +750,7 @@ export default function DocumentTrackerPage() {
         },
       },
     ],
-    [handleSingleReturn, handleUnassign, canReceiveDocuments, canVerifyDocuments],
+    [handleSingleReturn, handleUnassign, canReceiveDocuments, canVerifyDocuments, canReceiveAndVerify, verifyLabel],
   );
 
   const handleExport = useCallback((records: DocumentHandover[]) => {
@@ -850,7 +850,7 @@ export default function DocumentTrackerPage() {
             className="w-full gap-2 border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950 sm:w-auto"
           >
             <BadgeCheck className="h-4 w-4" />
-            {workflowAction === "receive" ? "Receive Documents" : "Verify Received Documents"}
+            {workflowAction === "receive" ? "Receive Documents" : canReceiveAndVerify ? "Receive & Verify Documents" : "Verify Received Documents"}
           </Button>}
           {isAdmin && (
             <Button onClick={() => setModalOpen(true)} className="w-full gap-2 sm:w-auto">
@@ -1283,7 +1283,7 @@ export default function DocumentTrackerPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <BadgeCheck className="h-5 w-5 text-green-600" />
-              {workflowAction === "receive" ? "Receive Documents from Staff" : "Verify Documents Received by After Sales"}
+              {workflowAction === "receive" ? "Receive Documents from Staff" : canReceiveAndVerify ? "Receive & Verify Documents" : "Verify Documents Received by After Sales"}
             </DialogTitle>
           </DialogHeader>
 
@@ -1317,7 +1317,7 @@ export default function DocumentTrackerPage() {
             </div>
 
             <p className="hidden text-xs text-muted-foreground sm:block">
-              {workflowAction === "receive" ? "Select documents physically received from staff." : "Select documents received by After Sales for final admin verification."} {filteredAssignedDocs.length} of {assignedDocs.length} shown.
+              {workflowAction === "receive" ? "Select documents physically received from staff." : canReceiveAndVerify ? "Select documents to confirm physical receipt and verification." : "Select documents received by After Sales for final admin verification."} {filteredAssignedDocs.length} of {assignedDocs.length} shown.
             </p>
             {/* List of assigned documents for batch return */}
             <div className="max-h-[min(42dvh,420px)] overflow-y-auto rounded-lg border">
@@ -1459,7 +1459,7 @@ export default function DocumentTrackerPage() {
               ) : (
                 <CheckCircle className="h-4 w-4 mr-2" />
               )}
-              {workflowAction === "receive" ? "Receive" : "Verify"} {selectedHandoverIds.length} Document{selectedHandoverIds.length !== 1 ? "s" : ""}
+              {workflowAction === "receive" ? "Receive" : verifyLabel} {selectedHandoverIds.length} Document{selectedHandoverIds.length !== 1 ? "s" : ""}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1479,13 +1479,13 @@ export default function DocumentTrackerPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RotateCcw className="h-5 w-5 text-green-600" />
-              {workflowAction === "receive" ? "Receive document" : "Verify document"}
+              {workflowAction === "receive" ? "Receive document" : canReceiveAndVerify ? "Receive & Verify document" : "Verify document"}
             </DialogTitle>
           </DialogHeader>
           {singleReturnDocument && (
             <div className="space-y-4 py-3">
               <p className="text-sm text-muted-foreground">
-                {workflowAction === "receive" ? "Confirm this document was physically received from staff?" : "Confirm this document was physically received by Admin?"}
+                {workflowAction === "receive" ? "Confirm this document was physically received from staff?" : canReceiveAndVerify ? "Confirm this document was physically received and verified?" : "Confirm this document was physically received by Admin?"}
               </p>
               <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
                 <div className="font-mono font-semibold">
@@ -1515,7 +1515,7 @@ export default function DocumentTrackerPage() {
               className="bg-green-600 hover:bg-green-700 text-white"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-              {workflowAction === "receive" ? "Mark as Received" : "Verify Document"}
+              {workflowAction === "receive" ? "Mark as Received" : canReceiveAndVerify ? "Receive & Verify" : "Verify Document"}
             </Button>
           </DialogFooter>
         </DialogContent>
