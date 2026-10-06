@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import {
+  Share2,
   Printer,
   Loader2,
   Download,
@@ -90,6 +91,71 @@ export default function LiquidationPreviewModal({
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareFile, setShareFile] = useState<File | null>(null);
+  const [preparingShare, setPreparingShare] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const shareAttempt = useRef(0);
+  const prepareShare = async () => {
+    const element = documentRef.current?.querySelector<HTMLElement>(".liquidation-document");
+    if (!element) return;
+    const attempt = ++shareAttempt.current;
+    setShareFile(null);
+    setShareOpen(true);
+    setPreparingShare(true);
+    // Capture at full resolution rather than at the mobile preview's zoom level.
+    const container = document.createElement("div");
+    container.style.cssText = "position:fixed;left:-10000px;top:0;width:794px";
+    container.setAttribute("aria-hidden", "true");
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy.removeAttribute("id");
+    container.appendChild(copy);
+    document.body.appendChild(container);
+    try {
+      const { generateLiquidationPdf } = await import("@/lib/liquidation-print");
+      const blob = await generateLiquidationPdf(copy);
+      if (shareAttempt.current !== attempt) return;
+      const reference = (controlNo || "draft").replace(/[^a-zA-Z0-9_-]/g, "_");
+      setShareFile(new File([blob], `LIQUIDATION_${reference}.pdf`, { type: "application/pdf" }));
+    } catch {
+      if (shareAttempt.current === attempt) {
+        setShareOpen(false);
+        toast.error("Unable to prepare the liquidation for sharing. Please try again.");
+      }
+    } finally {
+      container.remove();
+      if (shareAttempt.current === attempt) setPreparingShare(false);
+    }
+  };
+  const canShareFile = !!shareFile && typeof navigator !== "undefined"
+    && !!navigator.share && !!navigator.canShare?.({ files: [shareFile] });
+  const handleShare = async () => {
+    if (!shareFile) return;
+    if (!canShareFile) {
+      const url = URL.createObjectURL(shareFile);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = shareFile.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+      toast.success("PDF downloaded. Attach it in your preferred messaging app.");
+      return;
+    }
+    setSharing(true);
+    try {
+      // Invoke directly from this click: PDF generation can outlast user activation.
+      await navigator.share({ files: [shareFile], title: "Expense Liquidation" });
+      setShareOpen(false);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        toast.error("Unable to share the PDF. You can use Download PDF and attach it manually.");
+      }
+    } finally {
+      setSharing(false);
+    }
+  };
   const [printing, setPrinting] = useState(false);
   const handlePrint = async () => {
     const element = documentRef.current?.querySelector<HTMLElement>(".liquidation-document");
@@ -140,6 +206,12 @@ export default function LiquidationPreviewModal({
                 {printing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
                 Print
               </Button>
+              {onDownloadPdf && (
+                <Button variant="outline" onClick={prepareShare} disabled={preparingShare || sharing}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share
+                </Button>
+              )}
               {onDownloadPdf && (
                 <Button
                   variant="outline"
@@ -250,6 +322,38 @@ export default function LiquidationPreviewModal({
           </div>
         )}
       </DialogContent>
+      <Dialog open={shareOpen && open} onOpenChange={(nextOpen) => {
+        setShareOpen(nextOpen);
+        if (!nextOpen) {
+          shareAttempt.current += 1;
+          setPreparingShare(false);
+          setShareFile(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Expense Liquidation</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {preparingShare
+              ? "Preparing your liquidation PDF?"
+              : canShareFile
+                ? "Choose a supported app from your device?s share menu, such as Messenger, WhatsApp or Viber."
+                : "Download the PDF, then attach it in Facebook, Messenger, WhatsApp, Viber or your preferred app."}
+          </p>
+          {shareFile && <p className="break-all text-sm">{shareFile.name}</p>}
+          <DialogFooter>
+            <Button onClick={handleShare} disabled={!shareFile || preparingShare || sharing}>
+              {preparingShare || sharing
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : canShareFile
+                  ? <Share2 className="mr-2 h-4 w-4" />
+                  : <Download className="mr-2 h-4 w-4" />}
+              {preparingShare ? "Preparing PDF?" : canShareFile ? "Share PDF" : "Download PDF to share"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <ConfirmRejectDialog
         open={rejectConfirmationOpen}
         onClose={() => setRejectConfirmationOpen(false)}
