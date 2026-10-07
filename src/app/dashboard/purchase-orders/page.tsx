@@ -94,9 +94,6 @@ export default function PurchaseOrderPage() {
 
   /* Reference data */
   const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [supplierIdsWithItems, setSupplierIdsWithItems] = useState<Set<string>>(
-    new Set(),
-  );
   const [products, setProducts] = useState<any[]>([]);
   const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
@@ -219,8 +216,7 @@ export default function PurchaseOrderPage() {
       productUnitService.getAll(),
       productCategoryService.getAll(),
       paymentTermService.getAll(),
-      supplierProductService.getAll({ status: "active" }),
-    ]).then(([cData, pData, uData, catData, termsData, offerings]) => {
+    ]).then(([cData, pData, uData, catData, termsData]) => {
       // Filter only suppliers
       const suppliers = Array.isArray(cData)
         ? cData.filter(
@@ -228,9 +224,6 @@ export default function PurchaseOrderPage() {
           )
         : [];
       setSuppliers(suppliers);
-      setSupplierIdsWithItems(
-        new Set((offerings ?? []).map((offering) => offering.supplierId)),
-      );
       setProducts(Array.isArray(pData) ? pData : []);
       setProductUnits(Array.isArray(uData) ? uData : []);
       setProductCategories(Array.isArray(catData) ? catData : []);
@@ -257,16 +250,12 @@ export default function PurchaseOrderPage() {
 
   /* Derived options */
   const supplierOptions = useMemo(() => {
-    // Only show suppliers that carry at least one active item (supplier product).
-    const eligible = suppliers.filter((s) =>
-      supplierIdsWithItems.has(s.companyId),
-    );
+    const eligible = suppliers.filter((s) => s.status !== "inactive");
     const options = eligible.map((s) => ({
       value: s.companyId,
       label: s.companyName,
     }));
-    // When editing, keep the currently-selected supplier visible even if they
-    // no longer have catalog items, so the form does not lose its value.
+    // Preserve the supplier on an existing order even if it is now inactive.
     if (!selectedSupplier || options.some((o) => o.value === selectedSupplier)) {
       return options;
     }
@@ -274,7 +263,7 @@ export default function PurchaseOrderPage() {
     return selected
       ? [{ value: selected.companyId, label: selected.companyName }, ...options]
       : options;
-  }, [suppliers, supplierIdsWithItems, selectedSupplier]);
+  }, [suppliers, selectedSupplier]);
 
   const productOptions = useMemo(
     () => supplierProducts.map((offering) => ({

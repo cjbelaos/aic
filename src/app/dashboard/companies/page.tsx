@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { EntityTable } from "@/components/ui/entity-table";
+import { DocumentRegisterHeader } from "@/components/document-register-header";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import {
   Dialog,
@@ -615,6 +616,21 @@ function CompaniesPageInner() {
 
   return (
     <>
+      <DocumentRegisterHeader
+        eyebrow="Company management"
+        title="Companies"
+        description="Manage customers, suppliers, and company contacts."
+        loading={loading}
+        actions={<Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />Create New</Button>}
+        cards={([
+          ["all", "Total"], ["supplier", "Suppliers"], ["customer", "Customers"], ["both", "Both"],
+        ] as const).map(([type, label]) => ({
+          label,
+          count: data.filter((company) => type === "all" || (type === "both" ? company.companyType === "Both" : company.companyType === "Both" || company.companyType.toLowerCase() === type)).length,
+          selected: typeFilter === type,
+          onClick: () => handleTypeFilterChange(type),
+        }))}
+      />
       <div className="flex items-center gap-2">
         <Label htmlFor="co-filter" className="text-sm whitespace-nowrap">
           Company Type:
@@ -641,7 +657,6 @@ function CompaniesPageInner() {
         columns={columns}
         data={filteredData}
         loading={loading}
-        onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
         onExport={() => exportToExcel(data)}
