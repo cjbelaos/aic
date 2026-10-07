@@ -7,6 +7,7 @@ import { getProductCategories, getProductUnits } from "@/lib/productReferenceShe
 import { getQuotations } from "@/lib/quotationSheets";
 import { SALES_ORDER_CATEGORIES } from "@/types/salesOrder";
 import { getProducts } from "@/lib/productSheets";
+import { findServiceSetUnit } from "@/lib/salesOrders/catalogBinding";
 
 export async function GET() {
   const auth = await requireSalesPermission("so.create");
@@ -38,7 +39,7 @@ export async function GET() {
       categoryName: category.categoryName,
     }));
     const unitRecords = await getProductUnits();
-    const serviceUnit = unitRecords.find((unit) => unit.status === "active" && unit.unitCode.trim().toUpperCase() === "SET");
+    const serviceUnit = findServiceSetUnit(unitRecords);
     const units = unitRecords.map((unit) => ({
       unitId: unit.unitId,
       unitCode: unit.unitCode,

@@ -343,7 +343,7 @@ export function LineEditor({
                         : "md:col-span-4"
                     }
                   >
-                    {line.lineType === "SERVICE" || !!line.productId ? <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm" title="Inherited automatically">{line.lineType === "SERVICE" ? (line.salesOrderItemId && line.unitId !== serviceUnitId ? line.unitSnapshot || line.unitId : setUnit?.unitCode || "SET unit missing from Product Units") : units.find((unit) => unit.unitId === line.unitId)?.unitCode || line.unitSnapshot || line.unitId || "Unit unavailable"}</div> : <SearchableSelect
+                    {line.lineType === "SERVICE" || !!line.productId ? <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm" title="Inherited automatically">{line.lineType === "SERVICE" ? (line.salesOrderItemId && line.unitId !== serviceUnitId ? line.unitSnapshot || line.unitId : setUnit?.unitName || setUnit?.unitCode || "SET unit missing from Product Units") : units.find((unit) => unit.unitId === line.unitId)?.unitCode || line.unitSnapshot || line.unitId || "Unit unavailable"}</div> : <SearchableSelect
                       value={line.unitId}
                       onValueChange={(value) =>
                         update(index, {

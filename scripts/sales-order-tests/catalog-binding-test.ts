@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { bindNewCatalogLines } from "../../src/lib/salesOrders/catalogBinding.ts";
+import { bindNewCatalogLines, findServiceSetUnit } from "../../src/lib/salesOrders/catalogBinding.ts";
 
 const products = [{ productId: "P-1", productCode: "P-1", productName: "Pump", productCategoryId: "C-1", unitId: "U-1", status: "active" }];
 const categories = [{ productCategoryId: "C-1", categoryCode: "PA", categoryName: "Parts", status: "active" }, { productCategoryId: "C-2", categoryCode: "SE", categoryName: "Services/ Repair", status: "active" }];
@@ -17,3 +17,12 @@ assert.equal(service.productId, "");
 assert.throws(() => bindNewCatalogLines([service], { ...catalog, units: units.filter((unit) => unit.unitCode !== "SET") }), /SET/);
 assert.equal(bindNewCatalogLines([product], catalog, () => false)[0], product, "historical line retains its saved references");
 console.log("catalog-binding-test passed.");
+
+const abbreviatedUnits = [{ unitId: "U-ST", unitCode: "ST", unitName: " set ", status: "active" }];
+assert.equal(findServiceSetUnit(abbreviatedUnits)?.unitId, "U-ST");
+const abbreviatedService = bindNewCatalogLines([service], { ...catalog, units: abbreviatedUnits })[0];
+assert.equal(abbreviatedService.unitId, "U-ST");
+assert.equal(abbreviatedService.unitSnapshot, "ST");
+assert.equal(findServiceSetUnit([...abbreviatedUnits, units[1]])?.unitId, "U-2", "exact SET code takes priority");
+assert.equal(findServiceSetUnit([{ ...abbreviatedUnits[0], status: "inactive" }]), undefined);
+assert.throws(() => bindNewCatalogLines([service], { ...catalog, units: [{ ...abbreviatedUnits[0], status: "inactive" }] }), /SET/);

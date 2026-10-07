@@ -2,18 +2,25 @@ import { validationError } from "./errors.ts";
 
 export type CatalogLine = { lineType: "PRODUCT" | "SERVICE"; productId: string; unitId: string; unitSnapshot: string; orderCategory: string };
 
+/** Unit codes may be abbreviated (for example ST for SET). */
+export function findServiceSetUnit<T extends { unitCode: string; unitName?: string; status: string }>(units: T[]): T | undefined {
+  const active = units.filter((unit) => unit.status === "active");
+  return active.find((unit) => unit.unitCode.trim().toUpperCase() === "SET")
+    ?? active.find((unit) => unit.unitName?.trim().toUpperCase() === "SET");
+}
+
 /** Resolve references when a line is first added; historical lines retain their snapshots. */
 export function bindNewCatalogLines<T extends CatalogLine>(
   lines: T[],
   catalog: {
     products: { productId: string; productName: string; productCategoryId: string; unitId: string; status: string }[];
     categories: { productCategoryId: string; categoryName: string; status: string }[];
-    units: { unitId: string; unitCode: string; status: string }[];
+    units: { unitId: string; unitCode: string; unitName?: string; status: string }[];
   },
   shouldBind: (line: T) => boolean = () => true,
 ): T[] {
   const serviceCategory = catalog.categories.find((entry) => entry.status === "active" && /^services?\s*\/\s*repair$/i.test(entry.categoryName.trim()));
-  const setUnit = catalog.units.find((entry) => entry.status === "active" && entry.unitCode.trim().toUpperCase() === "SET");
+  const setUnit = findServiceSetUnit(catalog.units);
   return lines.map((line) => {
     if (!shouldBind(line)) return line;
     if (line.lineType === "SERVICE") {
