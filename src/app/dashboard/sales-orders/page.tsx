@@ -128,7 +128,7 @@ export default function SalesOrdersPage(): React.ReactNode {
       const order = row.original;
       const draft = order.order.orderStatus === "DRAFT";
       const busy = loadingActionId === order.order.salesOrderId;
-      return <div className="flex items-center gap-1">
+      return <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
         <Button variant="ghost" size="icon" title={draft ? "Confirm the order to preview its PDF" : "Preview"} aria-label="Preview Sales Order PDF" disabled={busy || draft} onClick={() => void openPreview(order)}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}</Button>
         <Button variant="ghost" size="icon" title="View PDF" aria-label="View Sales Order PDF" disabled={busy || draft} onClick={() => void openPdf(order)}><ExternalLink className="h-4 w-4 text-blue-600" /></Button>
         <Button variant="ghost" size="icon" title="View Items" aria-label="View Sales Order items" disabled={busy || !order.itemsCount} onClick={() => void openItems(order)}><FileText className="h-4 w-4" /></Button>
