@@ -631,7 +631,7 @@ function CompaniesPageInner() {
           onClick: () => handleTypeFilterChange(type),
         }))}
       />
-      <div className="flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-2">
         <Label htmlFor="co-filter" className="text-sm whitespace-nowrap">
           Company Type:
         </Label>
