@@ -64,6 +64,7 @@ import {
 import { toast } from "sonner";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { liquidationService } from "@/lib/services/liquidation.service";
+import { getVatReferenceError } from "@/lib/liquidation-validation";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import { userService } from "@/lib/services/user.service";
 import { ftiService } from "@/lib/services/fti.service";
@@ -830,6 +831,11 @@ export function LiquidationForm({
       toast.error("Add at least one receipt item before submitting.");
       return;
     }
+    const vatReferenceError = getVatReferenceError(items);
+    if (vatReferenceError) {
+      toast.error(vatReferenceError);
+      return;
+    }
     if (isOther && totalAmountRequested === "") {
       toast.error("Please enter the Total Amount Requested.");
       return;
@@ -1272,8 +1278,9 @@ export function LiquidationForm({
                   Document References
                 </Label>
                 <p className="text-[11px] text-muted-foreground">
-                  Fill in the reference field that matches your receipt or
-                  document.
+                  {draftApplyVat
+                    ? "At least one document reference is required before submitting because VAT is applied."
+                    : "Fill in the reference field that matches your receipt or document."}
                 </p>
               </div>
 

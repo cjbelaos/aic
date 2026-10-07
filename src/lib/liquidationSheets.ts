@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { getVatReferenceError } from "@/lib/liquidation-validation";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import type {
   Liquidation,
@@ -852,6 +853,13 @@ export async function updateLiquidationStatus(
   const all = await getAllLiquidations();
   const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
   if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found`);
+  if (status.toUpperCase() === "SUBMITTED") {
+    const receiptItems = (await getAllReceiptItemsRaw()).filter(
+      (item) => item.liquidationId === liquidationId,
+    );
+    const vatReferenceError = getVatReferenceError(receiptItems);
+    if (vatReferenceError) throw new Error(vatReferenceError);
+  }
   const rowNumber = idx + 2;
   const sheets = await getSheetsClient();
   await touchLiquidationAuditColumns(rowNumber, updatedBy);
