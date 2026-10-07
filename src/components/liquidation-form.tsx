@@ -64,7 +64,7 @@ import {
 import { toast } from "sonner";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { liquidationService } from "@/lib/services/liquidation.service";
-import { getVatReferenceError } from "@/lib/liquidation-validation";
+import { getVatReferenceError, getVatVendorError } from "@/lib/liquidation-validation";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import { userService } from "@/lib/services/user.service";
 import { ftiService } from "@/lib/services/fti.service";
@@ -108,6 +108,7 @@ function FieldWithGuide({
   type = "text",
   hint,
   uppercase = false,
+  required = false,
   subLabel,
   guideImagePath,
   guideTitle,
@@ -120,6 +121,7 @@ function FieldWithGuide({
   type?: string;
   hint?: string;
   uppercase?: boolean;
+  required?: boolean;
   subLabel?: string;
   guideImagePath?: string;
   guideTitle?: string;
@@ -129,7 +131,7 @@ function FieldWithGuide({
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <Label className="text-sm font-medium">{label}</Label>
+          <Label className="text-sm font-medium">{label}{required && <span className="text-destructive"> *</span>}</Label>
 
           {guideImagePath && (
             <Dialog>
@@ -184,6 +186,8 @@ function FieldWithGuide({
       {type === "date" ? <DatePickerInput value={value} onChange={onChange} placeholder={placeholder} className="h-11 text-base" /> : (
       <Input
         type={type}
+        required={required}
+        aria-required={required}
         inputMode={type === "number" ? "decimal" : undefined}
         min={type === "number" ? "0" : undefined}
         step={type === "number" ? "0.01" : undefined}
@@ -645,6 +649,20 @@ export function LiquidationForm({
     const vat = draftApplyVat
       ? Math.round((gross / 1.12) * 0.12 * 100) / 100
       : 0;
+    const vatVendorError = getVatVendorError([{
+      date: draftDate,
+      description: draftDescription,
+      category: draftCategory,
+      amount: gross,
+      vat: draftApplyVat ? 1 : 0,
+      supplierName,
+      address: supplierAddress,
+      tin,
+    }]);
+    if (vatVendorError) {
+      toast.error(vatVendorError);
+      return;
+    }
     const ewt = draftEwtValue;
     const net = Math.max(0, Math.round((gross - vat - ewt) * 100) / 100);
 
@@ -834,6 +852,11 @@ export function LiquidationForm({
     const vatReferenceError = getVatReferenceError(items);
     if (vatReferenceError) {
       toast.error(vatReferenceError);
+      return;
+    }
+    const vatVendorError = getVatVendorError(items);
+    if (vatVendorError) {
+      toast.error(vatVendorError);
       return;
     }
     if (isOther && totalAmountRequested === "") {
@@ -1091,11 +1114,13 @@ export function LiquidationForm({
           <CardTitle className="text-base">Vendor Information</CardTitle>
           <CardDescription>
             Entered once and stamped on every receipt item you add.
+            {" Supplier Name and Supplier Address are always required; TIN is required when VAT is applied."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <FieldWithGuide
             label="Supplier Name"
+            required
             value={supplierName}
             onChange={setSupplierName}
             placeholder="E.G. SHELL GAS STATION"
@@ -1106,6 +1131,7 @@ export function LiquidationForm({
           />
           <FieldWithGuide
             label="Supplier Address"
+            required
             value={supplierAddress}
             onChange={setSupplierAddress}
             placeholder="E.G. BRGY. BANAY BANAY, CABUYAO CITY, LAGUNA"
@@ -1116,6 +1142,7 @@ export function LiquidationForm({
           />
           <FieldWithGuide
             label="TIN"
+            required={draftApplyVat}
             value={tin}
             onChange={setTin}
             placeholder="E.G. 000-000-000-000"

@@ -24,3 +24,17 @@ export function getVatReferenceError(items: ReceiptItemInput[]): string | null {
     ? null
     : `Receipt item ${index + 1}: ${VAT_DOCUMENT_REFERENCE_MESSAGE}`;
 }
+
+export function getVatVendorError(items: ReceiptItemInput[]): string | null {
+  for (const [index, item] of items.entries()) {
+    const missing = [
+      ["Supplier Name", item.supplierName],
+      ["Supplier Address", item.address],
+      ...(Number(item.vat) > 0 ? [["TIN", item.tin]] : []),
+    ].filter(([, value]) => typeof value !== "string" || !value.trim());
+    if (missing.length) {
+      return `Receipt item ${index + 1}: Enter ${missing.map(([label]) => label).join(", ")}. Supplier Name and Supplier Address are always required; TIN is required when VAT is applied.`;
+    }
+  }
+  return null;
+}

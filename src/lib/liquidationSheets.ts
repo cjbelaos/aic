@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { getVatReferenceError } from "@/lib/liquidation-validation";
+import { getVatReferenceError, getVatVendorError } from "@/lib/liquidation-validation";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import type {
   Liquidation,
@@ -362,6 +362,9 @@ function validateItems(items: ReceiptItemInput[]): ReceiptItemInput[] {
   if (!items || items.length === 0) {
     throw new Error("At least one receipt item is required.");
   }
+
+  const vatVendorError = getVatVendorError(items);
+  if (vatVendorError) throw new Error(vatVendorError);
 
   return items.map((item) => {
     const category = (item.category || "").toString().trim();
@@ -859,6 +862,8 @@ export async function updateLiquidationStatus(
     );
     const vatReferenceError = getVatReferenceError(receiptItems);
     if (vatReferenceError) throw new Error(vatReferenceError);
+    const vatVendorError = getVatVendorError(receiptItems);
+    if (vatVendorError) throw new Error(vatVendorError);
   }
   const rowNumber = idx + 2;
   const sheets = await getSheetsClient();
