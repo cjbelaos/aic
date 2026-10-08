@@ -32,6 +32,14 @@ async function main() {
   assert.equal(billing.validateInvoiceBilling(pms, contract).contractId, contract.id);
   assert.equal(billing.validateInvoiceBilling({ ...pms, drNumber: 3856 }, contract).billingMode, "PMS_CONTRACT", "Monthly PMS can retain its delivery receipt");
   assert.equal(pms.items[0].description, "PMS FOR THE MONTH OF OCTOBER 2026");
+  const quarterlyContract = { ...contract, serviceFeeFrequency: "Quarterly" };
+  const quarterlyItem = billing.pmsInvoiceItem("2026-10-08", 17000, "Quarterly");
+  assert.equal(quarterlyItem.description, "PMS FOR THE QUARTER OF Q4 2026");
+  assert.equal(quarterlyItem.unitPrice, 17000, "Quarterly fee is charged as entered");
+  assert.equal(billing.validateInvoiceBilling({ ...pms, items: [quarterlyItem] }, quarterlyContract).contractId, contract.id);
+  assert.throws(() => billing.validateInvoiceBilling(pms, quarterlyContract), /matching the contract frequency/);
+  assert.throws(() => billing.validateInvoiceBilling({ ...pms, items: [quarterlyItem] }, contract), /matching the contract frequency/);
+
   assert.throws(() => billing.validateInvoiceBilling({ ...regular, contractId: contract.id }, contract), /Choose PMS contract billing/);
   assert.throws(() => billing.validateInvoiceBilling({ ...pms, billingMode: undefined }, contract), /Choose PMS contract billing/, "Old clients must not silently attach a contract");
   assert.throws(() => billing.validateInvoiceBilling({ ...regular, manualCategories: [] }), /Select an invoice category/);
@@ -39,8 +47,8 @@ async function main() {
   assert.throws(() => billing.validateInvoiceBilling({ ...pms, customerId: "other" }, contract), /different customer/);
   assert.throws(() => billing.validateInvoiceBilling(pms, { ...contract, status: "Expired" }), /active PMS contract/);
   assert.equal(billing.validateInvoiceBilling(pms, { ...contract, status: "Expired" }, true).contractId, contract.id);
-  assert.throws(() => billing.validateInvoiceBilling({ ...pms, items: [...pms.items, regular.items[0]] }, contract), /one monthly PMS charge/);
-  assert.throws(() => billing.validateInvoiceBilling({ ...pms, items: regular.items }, contract), /one monthly PMS charge/);
+  assert.throws(() => billing.validateInvoiceBilling({ ...pms, items: [...pms.items, regular.items[0]] }, contract), /one PMS charge/);
+  assert.throws(() => billing.validateInvoiceBilling({ ...pms, items: regular.items }, contract), /one PMS charge/);
   assert.throws(() => billing.validateInvoiceBilling({ ...pms, salesOrderId: "SO-1" }, contract), /separate invoice/);
   assert.throws(() => filters.validateManualCategories(["PMS", "Service"]), /separate invoices/);
   assert.throws(() => billing.validateInvoiceBilling({ ...regular, items: [...pms.items, ...regular.items] }), /separate invoice/);
@@ -96,7 +104,7 @@ async function main() {
     row[8] = "draft";
     await assert.rejects(storage.updateServiceInvoice("1721", { status: "created", billingMode: "REGULAR", contractId: "", manualCategories: [] }, "tester"), /Select an invoice category/);
     assert.equal(writes.length, 0, "Draft finalization validates billing before persisting");
-    await assert.rejects(storage.updateServiceInvoice("1721", { ...pms, items: [...pms.items, regular.items[0]] }, "tester"), /one monthly PMS charge/);
+    await assert.rejects(storage.updateServiceInvoice("1721", { ...pms, items: [...pms.items, regular.items[0]] }, "tester"), /one PMS charge/);
     assert.equal(writes.length, 0);
   } finally { console.error = originalError; }
   console.log("PASS explicit billing, category selection, PMS separation, customer/contract validation, legacy correction audit, create/draft/edit persistence and finalization guards");

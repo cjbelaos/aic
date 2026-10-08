@@ -124,9 +124,9 @@ function InvoiceBillingFields({ mode, contractId, customerId, contracts, categor
     </Select>
     {mode === "PMS_CONTRACT" ? <>
       <Label>PMS contract *</Label>
-      <SearchableSelect value={contractId} onValueChange={onContractChange} disabled={!customerId} options={options.map(c => ({ value: c.id, label: `${c.id}${c.description ? ` — ${c.description}` : ""} — ₱${Number(c.monthlyServiceFee).toLocaleString("en-PH")} / month` }))} placeholder="Select PMS contract" />
-      {!options.length && <p className="text-sm text-muted-foreground">No active contract with a monthly service fee is available for this customer.</p>}
-      <p className="text-sm text-muted-foreground">Category: PMS. Selecting a contract replaces the items with its monthly charge. Issue additional services and parts on a separate invoice.</p>
+      <SearchableSelect value={contractId} onValueChange={onContractChange} disabled={!customerId} options={options.map(c => ({ value: c.id, label: `${c.id}${c.description ? ` — ${c.description}` : ""} — ₱${Number(c.monthlyServiceFee).toLocaleString("en-PH")} / ${c.serviceFeeFrequency === "Quarterly" ? "quarter" : "month"}` }))} placeholder="Select PMS contract" />
+      {!options.length && <p className="text-sm text-muted-foreground">No active contract with a service fee is available for this customer.</p>}
+      <p className="text-sm text-muted-foreground">Category: PMS. Selecting a contract replaces the items with its charge for the selected frequency. Issue additional services and parts on a separate invoice.</p>
     </> : automatic ? <p className="text-sm text-muted-foreground">Category follows the linked Sales Order.</p> : <>
       <InvoiceCategoryPicker values={categories} onChange={values => onCategoriesChange(values.includes("PMS") && values.length > 1 ? (values.at(-1) === "PMS" ? ["PMS"] : values.filter(value => value !== "PMS")) : values)} />
       <p className="text-sm text-muted-foreground">Select a category before saving. PMS must be billed separately from other categories.</p>
@@ -411,7 +411,7 @@ export default function ServiceInvoicesClient({
             setCreateCategories([]);
             setReferenceMode("TR_NUMBER");
             setLinkedSalesOrderId("");
-            setLineItems([pmsInvoiceItem(new Date().toISOString().split("T")[0], contract.monthlyServiceFee!)]);
+            setLineItems([pmsInvoiceItem(new Date().toISOString().split("T")[0], contract.monthlyServiceFee!, contract.serviceFeeFrequency)]);
           }
         }
         setLinkedDrNumber(String(prefill.drNumber));
@@ -2111,7 +2111,7 @@ export default function ServiceInvoicesClient({
                 const contract = contracts.find(c => c.id === id && c.companyId === selectedCustomer);
                 if (!contract) return;
                 setSelectedContractId(id);
-                setLineItems([pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!)]);
+                setLineItems([pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency)]);
               }}
             />
 
@@ -2454,13 +2454,13 @@ export default function ServiceInvoicesClient({
                 setEditDrNumber(""); setEditSalesOrderId(""); setEditReferenceMode("TR_NUMBER");
                 // Keep existing charges when detaching an accidental contract link.
                 if (mode === "PMS_CONTRACT") setEditLineItems([]);
-                else setEditLineItems(items => items.filter(item => !/^PMS FOR THE MONTH\b/i.test(item.description.trim())));
+                else setEditLineItems(items => items.filter(item => !/^PMS FOR THE (MONTH|QUARTER)\b/i.test(item.description.trim())));
               }}
               onContractChange={(id) => {
                 const contract = contracts.find(c => c.id === id && c.companyId === editTarget?.customerId);
                 if (!contract) return;
                 setEditContractId(id);
-                setEditLineItems([pmsInvoiceItem(editDate, contract.monthlyServiceFee!)]);
+                setEditLineItems([pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency)]);
                 setEditDiscountSettings(defaultDiscount());
               }}
             />

@@ -20,7 +20,7 @@ export interface Contract {
   startDate: string; // Sheet: StartDate (ISO Date string: "YYYY-MM-DD")
   endDate: string; // Sheet: EndDate (ISO Date string: "YYYY-MM-DD")
   status: ContractStatus; // Sheet: Status
-  monthlyServiceFee?: number; // Sheet: MonthlyServiceFee (numeric, e.g., 20000)
+  monthlyServiceFee?: number; // Legacy Sheet: MonthlyServiceFee; amount per serviceFeeFrequency, e.g., 20000
   serviceFeeFrequency?: ServiceFeeFrequency; // Sheet: M; legacy contracts default to Monthly
   notes?: string; // Sheet: Notes (internal reference)
   softCopyDriveLink?: string; // Sheet: SoftCopyDriveLink

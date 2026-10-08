@@ -106,7 +106,7 @@ function exportToExcel(
     { header: "Start Date", key: "startDate", width: 15 },
     { header: "End Date", key: "endDate", width: 15 },
     { header: "Status", key: "status", width: 12 },
-    { header: "Monthly Service Fee", key: "monthlyServiceFee", width: 20 },
+    { header: "Service Fee", key: "monthlyServiceFee", width: 20 },
     { header: "PMS Service Frequency", key: "serviceFeeFrequency", width: 22 },
     { header: "Entitlement Items", key: "items", width: 60 },
   ];
@@ -319,10 +319,10 @@ export default function CustomerContractsPage() {
       {
         accessorKey: "monthlyServiceFee",
         id: "monthlyServiceFee",
-        header: "Monthly Service Fee",
+        header: "Service Fee",
         cell: ({ row }) => (
           <span className="text-xs font-mono text-foreground">
-            {formatCurrency(row.original.monthlyServiceFee)}
+            {formatCurrency(row.original.monthlyServiceFee)}{(row.original.monthlyServiceFee ?? 0) > 0 && <span className="ml-1 text-xs text-muted-foreground">/ {row.original.serviceFeeFrequency === "Quarterly" ? "quarter" : "month"}</span>}
           </span>
         ),
       },
@@ -535,7 +535,7 @@ export default function CustomerContractsPage() {
       return;
     }
     if (form.items.length === 0 && !form.monthlyServiceFee) {
-      setError("Provide at least one product item or a monthly service fee.");
+      setError("Provide at least one product item or a service fee.");
       return;
     }
 
@@ -796,7 +796,7 @@ export default function CustomerContractsPage() {
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
         onExport={(rows) => exportToExcel(rows, productMap)}
-        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Monthly fee", notes: "Notes", totalProducts: "Entitlements", status: "Status", actions: "Actions" } }}
+        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
       />
 
@@ -852,7 +852,7 @@ export default function CustomerContractsPage() {
                 <div><p className="text-xs text-muted-foreground">Start Date</p><p className="mt-1 font-medium">{viewTarget.startDate || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">End Date</p><p className="mt-1 font-medium">{viewTarget.endDate || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={viewTarget.status === "Active" ? "default" : "destructive"}>{viewTarget.status}</Badge></div></div>
-                <div><p className="text-xs text-muted-foreground">Monthly Service Fee</p><p className="mt-1 font-medium">{formatCurrency(viewTarget.monthlyServiceFee)}</p></div>
+                <div><p className="text-xs text-muted-foreground">{viewTarget.serviceFeeFrequency ?? "Monthly"} Service Fee</p><p className="mt-1 font-medium">{formatCurrency(viewTarget.monthlyServiceFee)}</p></div>
                 {viewTarget.items.length === 0 && (viewTarget.monthlyServiceFee ?? 0) > 0 && <div><p className="text-xs text-muted-foreground">PMS Service Frequency</p><p className="mt-1 font-medium">{viewTarget.serviceFeeFrequency ?? "Monthly"}</p></div>}
                 {viewTarget.description && <div className="col-span-2"><p className="text-xs text-muted-foreground">Description</p><p className="mt-1 font-medium">{viewTarget.description}</p></div>}
                 {viewTarget.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p className="mt-1 whitespace-pre-wrap font-medium">{viewTarget.notes}</p></div>}
@@ -1117,7 +1117,7 @@ export default function CustomerContractsPage() {
               </div>
             </div>
 
-            {form.items.length === 0 && Number(form.monthlyServiceFee) > 0 && (
+            {form.items.length === 0 && (
               <div className="space-y-1.5">
                 <Label htmlFor="cc-service-frequency">PMS Service Frequency</Label>
                 <Select
@@ -1154,7 +1154,7 @@ export default function CustomerContractsPage() {
               {form.items.length === 0 && (
                 <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
                   No product items. This contract is service-only — just set the
-                  monthly service fee above.
+                  service fee and PMS frequency above.
                 </p>
               )}
 
