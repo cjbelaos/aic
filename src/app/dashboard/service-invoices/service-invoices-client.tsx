@@ -64,7 +64,8 @@ import {
 import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
-import { pmsInvoiceItem, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
+import { pmsContractForDelivery, pmsInvoiceItem, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
+import type { ContractRelease } from "@/types/contract-release";
 import type { Contract } from "@/types/contract";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
@@ -392,19 +393,35 @@ export default function ServiceInvoicesClient({
           })),
         );
 
-        setLinkedDrNumber(String(prefill.drNumber));
-        if (prefill.companyName && customers.length > 0) {
-          const match = customers.find(
-            (c: any) => c.companyName === prefill.companyName,
-          );
-          if (match) setSelectedCustomer(match.companyId);
+        const dr = allDrs.find(d => d.drNumber === Number(prefill.drNumber));
+        const customer = customers.find(c => c.companyId === dr?.companyId) ||
+          customers.find(c => c.companyName === prefill.companyName);
+        if (customer && dr && !dr.salesOrderId) {
+          const [response, availableContracts] = await Promise.all([
+            fetch("/api/contract-releases"),
+            contractService.getAll(),
+          ]);
+          if (!response.ok) throw new Error("Failed to load contract releases.");
+          const releases: ContractRelease[] = await response.json();
+          const contract = pmsContractForDelivery(dr.drNumber, customer.companyId, releases, availableContracts);
+          setContracts(availableContracts);
+          if (contract) {
+            setBillingMode("PMS_CONTRACT");
+            setSelectedContractId(contract.id);
+            setCreateCategories([]);
+            setReferenceMode("TR_NUMBER");
+            setLinkedSalesOrderId("");
+            setLineItems([pmsInvoiceItem(new Date().toISOString().split("T")[0], contract.monthlyServiceFee!)]);
+          }
         }
+        setLinkedDrNumber(String(prefill.drNumber));
+        if (customer) setSelectedCustomer(customer.companyId);
 
         // Only clear sessionStorage after the match attempt succeeds
         sessionStorage.removeItem("siPrefill");
         setModalOpen(true);
       } catch {
-        /* ignore malformed */
+        toast.error("Failed to prepare the invoice from the delivery receipt. Please try Create SR again.");
       }
     })();
   }, []);
@@ -465,7 +482,7 @@ export default function ServiceInvoicesClient({
     [companies],
   );
 
-  // Load options only. Contract billing is always selected by the user.
+  // Refresh options without replacing the billing selection or DR prefill.
   useEffect(() => {
     if (!modalOpen && !editTarget) return;
     let cancelled = false;

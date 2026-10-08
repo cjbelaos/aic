@@ -13,6 +13,18 @@ async function main() {
   const billing = load("src/lib/serviceInvoiceBilling.ts");
   const filters = load("src/lib/serviceInvoiceFilters.ts");
   const contract = { id: "CTR-0010", companyId: "COMP-284", status: "Active", monthlyServiceFee: 23000 };
+  const release = { drNumber: 3856, contractId: contract.id, status: "Completed" };
+  const resolve = (releases, contracts = [contract], customerId = contract.companyId) => billing.pmsContractForDelivery(3856, customerId, releases, contracts);
+  assert.equal(resolve([release]), contract, "DR prefill selects its originating PMS contract");
+  assert.equal(resolve([release, release]), contract, "Multiple released items from one contract are unambiguous");
+  assert.equal(resolve([]), undefined, "Regular receipts do not infer a contract from the customer");
+  assert.equal(resolve([{ ...release, drNumber: 1 }]), undefined);
+  assert.equal(resolve([{ ...release, status: "Cancelled" }]), undefined);
+  assert.equal(resolve([{ ...release, status: "Deleted" }]), undefined);
+  assert.equal(resolve([release], [contract], "other"), undefined);
+  assert.equal(resolve([release], [{ ...contract, status: "Expired" }]), undefined);
+  assert.equal(resolve([release], [{ ...contract, monthlyServiceFee: 0 }]), undefined);
+  assert.equal(resolve([release, { ...release, contractId: "CTR-OTHER" }]), undefined, "Do not guess for multiple source contracts");
   const regular = { customerId: "COMP-284", billingMode: "REGULAR", manualCategories: ["Service"], items: [{ description: "SEMI AUTO REPROCESSING MACHINE BASIC PMS", quantity: 1, unitPrice: 4500 }] };
   const pms = { ...regular, billingMode: "PMS_CONTRACT", manualCategories: [], contractId: contract.id, items: [billing.pmsInvoiceItem("2026-10-08", 23000)] };
   assert.deepEqual(billing.validateInvoiceBilling(regular, contract), { billingMode: "REGULAR", contractId: "", manualCategories: ["Service"] });

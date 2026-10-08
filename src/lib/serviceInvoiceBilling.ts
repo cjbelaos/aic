@@ -1,10 +1,27 @@
 import type { Contract } from "../types/contract";
+import type { ContractRelease } from "../types/contract-release";
 import type { ServiceInvoiceItem } from "../types/serviceInvoice";
 import { validateManualCategories } from "./serviceInvoiceFilters";
 
 export type InvoiceBillingMode = "REGULAR" | "PMS_CONTRACT";
 
 export class InvoiceBillingError extends Error {}
+
+export function pmsContractForDelivery(
+  drNumber: number,
+  customerId: string,
+  releases: ContractRelease[],
+  contracts: Contract[],
+): Contract | undefined {
+  const ids = new Set(releases.filter(release =>
+    release.drNumber === drNumber && release.status !== "Cancelled" && release.status !== "Deleted",
+  ).map(release => release.contractId).filter(Boolean));
+  // A receipt spanning multiple contracts needs an explicit billing choice.
+  if (ids.size !== 1) return undefined;
+  return contracts.find(contract => ids.has(contract.id) &&
+    contract.companyId === customerId && contract.status === "Active" &&
+    (contract.monthlyServiceFee ?? 0) > 0);
+}
 
 export function pmsInvoiceItem(date: string, fee: number): ServiceInvoiceItem {
   const month = new Date(`${date.slice(0, 10)}T12:00:00`);
