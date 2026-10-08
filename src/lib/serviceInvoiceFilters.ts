@@ -24,6 +24,7 @@ export const MANUAL_INVOICE_CATEGORIES = ["Service", "Project", "PMS", "Parts", 
 
 export function validateManualCategories(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((category) => typeof category !== "string" || !MANUAL_INVOICE_CATEGORIES.some((allowed) => allowed === category))) throw new Error("Invalid invoice category selection.");
+  if (value.includes("PMS") && value.some(category => category !== "PMS")) throw new Error("Invalid invoice category selection: PMS and other categories require separate invoices.");
   return [...new Set(value)] as string[];
 }
 

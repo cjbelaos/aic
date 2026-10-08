@@ -1,3 +1,4 @@
+import { InvoiceBillingError } from "@/lib/serviceInvoiceBilling";
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import {
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to process service invoice.";
-    const isValidationError = /Delivered By|Delivery Receipt|Sales Order|different customer/i.test(message);
+    const isValidationError = error instanceof InvoiceBillingError || /Invalid invoice category|Delivered By|Delivery Receipt|Sales Order|different customer/i.test(message);
     return NextResponse.json({ error: message }, { status: isValidationError ? 400 : 500 });
   }
 }

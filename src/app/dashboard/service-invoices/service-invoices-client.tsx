@@ -64,6 +64,8 @@ import {
 import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
+import { pmsInvoiceItem, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
+import type { Contract } from "@/types/contract";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
 import userService from "@/lib/services/user.service";
@@ -101,6 +103,36 @@ const EMPTY_LINE_ITEM: LineItem = {
   quantity: 1,
   unitPrice: 0,
 };
+
+function InvoiceBillingFields({ mode, contractId, customerId, contracts, categories, automatic, onModeChange, onContractChange, onCategoriesChange }: {
+  mode: InvoiceBillingMode; contractId: string; customerId: string; contracts: Contract[];
+  categories: string[]; automatic: boolean;
+  onModeChange: (mode: InvoiceBillingMode) => void;
+  onContractChange: (id: string) => void;
+  onCategoriesChange: (categories: string[]) => void;
+}) {
+  const options = contracts.filter(c => c.companyId === customerId && ((c.status === "Active" && (c.monthlyServiceFee ?? 0) > 0) || c.id === contractId));
+  return <div className="space-y-3 rounded-md border p-4">
+    <Label>Billing type</Label>
+    <Select value={mode} onValueChange={value => onModeChange(value as InvoiceBillingMode)}>
+      <SelectTrigger aria-label="Billing type"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="REGULAR">Regular invoice</SelectItem>
+        <SelectItem value="PMS_CONTRACT">PMS contract billing</SelectItem>
+      </SelectContent>
+    </Select>
+    {mode === "PMS_CONTRACT" ? <>
+      <Label>PMS contract *</Label>
+      <SearchableSelect value={contractId} onValueChange={onContractChange} disabled={!customerId} options={options.map(c => ({ value: c.id, label: `${c.id}${c.description ? ` — ${c.description}` : ""} — ₱${Number(c.monthlyServiceFee).toLocaleString("en-PH")} / month` }))} placeholder="Select PMS contract" />
+      {!options.length && <p className="text-sm text-muted-foreground">No active contract with a monthly service fee is available for this customer.</p>}
+      <p className="text-sm text-muted-foreground">Category: PMS. Selecting a contract replaces the items with its monthly charge. Issue additional services and parts on a separate invoice.</p>
+    </> : automatic ? <p className="text-sm text-muted-foreground">Category follows the linked Sales Order.</p> : <>
+      <InvoiceCategoryPicker values={categories} onChange={values => onCategoriesChange(values.includes("PMS") && values.length > 1 ? (values.at(-1) === "PMS" ? ["PMS"] : values.filter(value => value !== "PMS")) : values)} />
+      <p className="text-sm text-muted-foreground">Select a category before saving. PMS must be billed separately from other categories.</p>
+    </>}
+    <p className="text-xs text-muted-foreground">Switching billing type clears the contract selection. Review the items before saving.</p>
+  </div>;
+}
 
 export default function ServiceInvoicesClient({
   isAdmin,
@@ -179,6 +211,13 @@ export default function ServiceInvoicesClient({
   const [linkedDrNumber, setLinkedDrNumber] = useState("");
   const [linkedSalesOrderId, setLinkedSalesOrderId] = useState("");
   const [selectedContractId, setSelectedContractId] = useState("");
+  const [billingMode, setBillingMode] = useState<InvoiceBillingMode>("REGULAR");
+  const [createCategories, setCreateCategories] = useState<string[]>([]);
+  const [drCustomers, setDrCustomers] = useState<Record<string, string>>({});
+  const [drSalesOrders, setDrSalesOrders] = useState<Record<string, string>>({});
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [editBillingMode, setEditBillingMode] = useState<InvoiceBillingMode>("REGULAR");
+  const [editContractId, setEditContractId] = useState("");
   const [drOptions, setDrOptions] = useState<
     { value: string; label: string }[]
   >([]);
@@ -426,75 +465,19 @@ export default function ServiceInvoicesClient({
     [companies],
   );
 
-  /* Auto-populate PMS line item from active contract when customer selected */
+  // Load options only. Contract billing is always selected by the user.
   useEffect(() => {
-    if (!selectedCustomer || !modalOpen) return;
-
-    (async () => {
-      try {
-        // Also load DR options for the Linked DR dropdown
-        const allDrs = await deliveryService.getAll();
-        setDrOptions(
-          allDrs.map((d) => ({
-            value: String(d.drNumber),
-            label: `DR #${d.drNumber} — ${d.companyName} (${d.date})`,
-          })),
-        );
-
-        const contracts = await contractService.getAll();
-        const matching = contracts.filter(
-          (c) =>
-            c.companyId === selectedCustomer &&
-            c.status === "Active" &&
-            c.monthlyServiceFee != null &&
-            c.monthlyServiceFee > 0,
-        );
-
-        // Only auto-fill if exactly one contract has a service fee
-        if (matching.length !== 1) return;
-
-        const fee = matching[0].monthlyServiceFee!;
-        const contractId = matching[0].id;
-
-        // Build month label from invoiceDate (e.g., "AUGUST 2026")
-        const d = new Date(
-          invoiceDate + (invoiceDate.length === 10 ? "T00:00:00" : ""),
-        );
-        const monthLabel = isNaN(d.getTime())
-          ? ""
-          : d
-              .toLocaleDateString("en-US", {
-                month: "long",
-                year: "numeric",
-              })
-              .toUpperCase();
-
-        const desc = monthLabel
-          ? `PMS FOR THE MONTH OF ${monthLabel}`
-          : "PMS FOR THE MONTH";
-
-        // Only auto-add a PMS item if none already exist (avoid duplicates)
-        const alreadyHasPms = lineItems.some((li) =>
-          li.description.toUpperCase().startsWith("PMS FOR THE MONTH"),
-        );
-        if (alreadyHasPms) return;
-
-        setSelectedContractId(contractId);
-        setLineItems((prev) => [
-          ...prev,
-          {
-            description: desc,
-            quantity: 1,
-            unitPrice: fee,
-          },
-        ]);
-      } catch {
-        // non-fatal — contract lookup failed silently
-      }
-    })();
-    // Intentionally only react to selectedCustomer changes, not invoiceDate
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCustomer, modalOpen]);
+    if (!modalOpen && !editTarget) return;
+    let cancelled = false;
+    void Promise.all([deliveryService.getAll(), contractService.getAll()]).then(([drs, available]) => {
+      if (cancelled) return;
+      setDrOptions(drs.map(d => ({ value: String(d.drNumber), label: `DR #${d.drNumber} - ${d.companyName} (${d.date})` })));
+      setContracts(available);
+      setDrSalesOrders(Object.fromEntries(drs.map(d => [String(d.drNumber), d.salesOrderId || ""])));
+      setDrCustomers(Object.fromEntries(drs.map(d => [String(d.drNumber), d.companyId])));
+    }).catch(() => toast.error("Failed to load invoice billing options."));
+    return () => { cancelled = true; };
+  }, [modalOpen, editTarget]);
 
   /* Auto-select customer when user picks a Linked DR */
   useEffect(() => {
@@ -1180,6 +1163,8 @@ export default function ServiceInvoicesClient({
     setPoNo("");
     setTrNo("");
     setSelectedContractId("");
+    setBillingMode("REGULAR");
+    setCreateCategories([]);
     setModalOpen(true);
   };
 
@@ -1210,6 +1195,12 @@ export default function ServiceInvoicesClient({
   };
 
   const handleSaveInvoice = async () => {
+    if (billingMode === "PMS_CONTRACT" && !selectedContractId) {
+      toast.error("Select a PMS contract."); return;
+    }
+    if (billingMode === "REGULAR" && !linkedSalesOrderId && !drSalesOrders[linkedDrNumber] && !createCategories.length) {
+      toast.error("Select an invoice category before saving."); return;
+    }
     if (!referenceMode) {
       toast.error("Choose Sales Order or Legacy TR Number first.");
       return;
@@ -1257,7 +1248,9 @@ export default function ServiceInvoicesClient({
           quantity: Number(li.quantity) || 0,
           unitPrice: Number(li.unitPrice) || 0,
         })),
-        contractId: selectedContractId || undefined,
+        billingMode,
+        manualCategories: billingMode === "REGULAR" ? createCategories : [],
+        contractId: billingMode === "PMS_CONTRACT" ? selectedContractId : "",
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
         referenceMode: referenceMode || "SALES_ORDER",
         salesOrderId: linkedDrNumber
@@ -1285,6 +1278,12 @@ export default function ServiceInvoicesClient({
   };
 
   const handleSaveDraft = async () => {
+    if (billingMode === "PMS_CONTRACT" && !selectedContractId) {
+      toast.error("Select a PMS contract."); return;
+    }
+    if (billingMode === "REGULAR" && !linkedSalesOrderId && !drSalesOrders[linkedDrNumber] && !createCategories.length) {
+      toast.error("Select an invoice category before saving."); return;
+    }
     if (!referenceMode) {
       toast.error("Choose Sales Order or Legacy TR Number first.");
       return;
@@ -1317,7 +1316,9 @@ export default function ServiceInvoicesClient({
           unitPrice: Number(li.unitPrice) || 0,
         })),
         status: "draft",
-        contractId: selectedContractId || undefined,
+        billingMode,
+        manualCategories: billingMode === "REGULAR" ? createCategories : [],
+        contractId: billingMode === "PMS_CONTRACT" ? selectedContractId : "",
         drNumber: linkedDrNumber ? parseInt(linkedDrNumber, 10) : undefined,
         referenceMode: referenceMode || "SALES_ORDER",
         salesOrderId: linkedDrNumber
@@ -1362,6 +1363,8 @@ export default function ServiceInvoicesClient({
       setEditStatus(editTarget.status || "created");
       setVoidReason("");
       setEditManualCategories(editTarget.manualCategories ?? []);
+      setEditBillingMode(editTarget.billingMode ?? (editTarget.contractId ? "PMS_CONTRACT" : "REGULAR"));
+      setEditContractId(editTarget.contractId || "");
       setEditInvoiceNo("");
       setEditDiscountSettings(editTarget.discountSettings ?? defaultDiscount());
       setEditLineItems(
@@ -1375,7 +1378,7 @@ export default function ServiceInvoicesClient({
       );
       setEditDrNumber(editTarget.drNumber?.toString() || "");
       setEditSalesOrderId(editTarget.salesOrderId || "");
-      setEditReferenceMode(editTarget.referenceMode || "SALES_ORDER");
+      setEditReferenceMode(editTarget.contractId && !editTarget.salesOrderId ? "TR_NUMBER" : editTarget.referenceMode || "SALES_ORDER");
       setEditTechnicianId(editTarget.assignedTechnicianUserId || "");
       setEditTechnicianName(editTarget.assignedTechnicianName || "");
       setEditPoNo(editTarget.poNo || "");
@@ -1415,6 +1418,10 @@ export default function ServiceInvoicesClient({
       toast.error("Select a Sales Order or link a Delivery Report.");
       return;
     }
+    if (editStatus !== "void") {
+      if (editBillingMode === "PMS_CONTRACT" && !editContractId) { toast.error("Select a PMS contract."); return; }
+      if (editBillingMode === "REGULAR" && !editSalesOrderId && !drSalesOrders[editDrNumber] && !editManualCategories.length) { toast.error("Select an invoice category before saving."); return; }
+    }
     setEditSubmitting(true);
     try {
       const payload = {
@@ -1425,10 +1432,9 @@ export default function ServiceInvoicesClient({
         date: editDate,
         status: editStatus,
         statusReason: editStatus === "void" ? voidReason : undefined,
-        manualCategories:
-          editTarget.categorySource === "automatic"
-            ? undefined
-            : editManualCategories,
+        billingMode: editBillingMode,
+        contractId: editBillingMode === "PMS_CONTRACT" ? editContractId : "",
+        manualCategories: editBillingMode === "REGULAR" ? editManualCategories : [],
         items: editLineItems
           .filter((li) => li.description.trim())
           .map((li) => ({
@@ -2051,7 +2057,13 @@ export default function ServiceInvoicesClient({
                 </Label>
                 <SearchableSelect
                   value={selectedCustomer}
-                  onValueChange={setSelectedCustomer}
+                  onValueChange={(customer) => {
+                    setSelectedCustomer(customer);
+                    setSelectedContractId("");
+                    if (billingMode === "PMS_CONTRACT") setLineItems([]);
+                    setLinkedDrNumber("");
+                    setLinkedSalesOrderId("");
+                  }}
                   options={customerOptions}
                   placeholder="Select Customer"
                 />
@@ -2068,11 +2080,29 @@ export default function ServiceInvoicesClient({
               {/* The assigned technician is edited next to the Linked DR below. */}
             </div>
 
+            <InvoiceBillingFields
+              mode={billingMode} contractId={selectedContractId} customerId={selectedCustomer}
+              contracts={contracts} categories={createCategories} onCategoriesChange={setCreateCategories}
+              automatic={!!linkedSalesOrderId || !!drSalesOrders[linkedDrNumber]}
+              onModeChange={(mode) => {
+                setBillingMode(mode); setSelectedContractId(""); setCreateCategories([]);
+                setLineItems([]); setLinkedDrNumber(""); setLinkedSalesOrderId("");
+                setReferenceMode("TR_NUMBER"); setPoNo(""); setTrNo("");
+                setDiscountSettings(defaultDiscount());
+              }}
+              onContractChange={(id) => {
+                const contract = contracts.find(c => c.id === id && c.companyId === selectedCustomer);
+                if (!contract) return;
+                setSelectedContractId(id);
+                setLineItems([pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!)]);
+              }}
+            />
+
             {/* Items Section */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Label className="text-base font-semibold">Items</Label>
-                <Button size="sm" variant="outline" onClick={addLineItem}>
+                <Button size="sm" variant="outline" onClick={addLineItem} disabled={billingMode === "PMS_CONTRACT"}>
                   <Plus className="h-4 w-4 mr-1" /> Add Item
                 </Button>
               </div>
@@ -2162,7 +2192,7 @@ export default function ServiceInvoicesClient({
               <div className="md:col-span-2">
                 <InvoiceReferenceTypeSelector
                   mode={referenceMode}
-                  disabled={!!linkedDrNumber}
+                  disabled={!!linkedDrNumber || billingMode === "PMS_CONTRACT"}
                   onChange={(mode) => {
                     setReferenceMode(mode);
                     setLinkedSalesOrderId("");
@@ -2193,7 +2223,7 @@ export default function ServiceInvoicesClient({
                     setLinkedDrNumber(value);
                     if (value) setLinkedSalesOrderId("");
                   }}
-                  options={drOptions}
+                  options={billingMode === "PMS_CONTRACT" ? drOptions.filter(option => drCustomers[option.value] === selectedCustomer && !drSalesOrders[option.value]) : drOptions}
                   placeholder="Select Delivery Receipt"
                 />
               </div>
@@ -2221,7 +2251,7 @@ export default function ServiceInvoicesClient({
                   value={linkedSalesOrderId}
                   onValueChange={setLinkedSalesOrderId}
                   options={salesOrderOptions}
-                  disabled={!!linkedDrNumber || referenceMode !== "SALES_ORDER"}
+                  disabled={!!linkedDrNumber || referenceMode !== "SALES_ORDER" || billingMode === "PMS_CONTRACT"}
                   placeholder={
                     linkedDrNumber
                       ? "Supplied by linked DR"
@@ -2398,18 +2428,25 @@ export default function ServiceInvoicesClient({
             {editTarget?.replacementInvoiceNo && (
               <p>Replacement invoice #{editTarget.replacementInvoiceNo}</p>
             )}
-            {editTarget?.categorySource === "automatic" ? (
-              <p className="text-sm text-muted-foreground">
-                Category: {editTarget.category} (from linked Sales Order or PMS
-                contract)
-              </p>
-            ) : (
-              <InvoiceCategoryPicker
-                values={editManualCategories}
-                onChange={setEditManualCategories}
-                disabled={editSubmitting}
-              />
-            )}
+            <InvoiceBillingFields
+              mode={editBillingMode} contractId={editContractId} customerId={editTarget?.customerId || ""}
+              contracts={contracts} categories={editManualCategories} onCategoriesChange={setEditManualCategories}
+              automatic={!!editSalesOrderId || !!drSalesOrders[editDrNumber]}
+              onModeChange={(mode) => {
+                setEditBillingMode(mode); setEditContractId(""); setEditManualCategories([]);
+                setEditDrNumber(""); setEditSalesOrderId(""); setEditReferenceMode("TR_NUMBER");
+                // Keep existing charges when detaching an accidental contract link.
+                if (mode === "PMS_CONTRACT") setEditLineItems([]);
+                else setEditLineItems(items => items.filter(item => !/^PMS FOR THE MONTH\b/i.test(item.description.trim())));
+              }}
+              onContractChange={(id) => {
+                const contract = contracts.find(c => c.id === id && c.companyId === editTarget?.customerId);
+                if (!contract) return;
+                setEditContractId(id);
+                setEditLineItems([pmsInvoiceItem(editDate, contract.monthlyServiceFee!)]);
+                setEditDiscountSettings(defaultDiscount());
+              }}
+            />
             {/* Row 1: Customer (read-only), Date, Status */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
               <div className="space-y-1.5">
@@ -2461,7 +2498,7 @@ export default function ServiceInvoicesClient({
               <div className="md:col-span-2">
                 <InvoiceReferenceTypeSelector
                   mode={editReferenceMode}
-                  disabled={!!editDrNumber}
+                  disabled={!!editDrNumber || editBillingMode === "PMS_CONTRACT"}
                   onChange={(mode) => {
                     setEditReferenceMode(mode);
                     setEditSalesOrderId("");
@@ -2491,7 +2528,7 @@ export default function ServiceInvoicesClient({
                     setEditDrNumber(value);
                     if (value) setEditSalesOrderId("");
                   }}
-                  options={drOptions}
+                  options={editBillingMode === "PMS_CONTRACT" ? drOptions.filter(option => drCustomers[option.value] === editTarget?.customerId && !drSalesOrders[option.value]) : drOptions}
                   placeholder="Select Delivery Receipt"
                 />
               </div>
@@ -2631,7 +2668,7 @@ export default function ServiceInvoicesClient({
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Label className="text-base font-semibold">Items</Label>
-                <Button size="sm" variant="outline" onClick={addEditLineItem}>
+                <Button size="sm" variant="outline" onClick={addEditLineItem} disabled={editBillingMode === "PMS_CONTRACT"}>
                   <Plus className="h-4 w-4 mr-1" /> Add Item
                 </Button>
               </div>

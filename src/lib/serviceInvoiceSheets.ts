@@ -20,6 +20,8 @@ import { ensureAutomaticDocumentHandover, getDocumentHandovers } from "@/lib/doc
 import { getOrderDetail, postFulfillments, type Actor } from "@/lib/salesOrders/service";
 import { getProducts } from "@/lib/productSheets";
 import { validateManualCategories } from "@/lib/serviceInvoiceFilters";
+import { getContracts } from "@/lib/contractSheets";
+import { validateInvoiceBilling, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
 import { readSalesOrderListSnapshot, readSalesOrderById } from "@/lib/salesOrders/repository";
 
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
@@ -185,6 +187,8 @@ type DeliveredByResolution = {
 };
 
 type ManualCompletionData = InvoiceTrackingData & {
+  billingMode?: InvoiceBillingMode;
+  billingHistory?: Array<{ fromContractId: string; toContractId: string; billingMode: InvoiceBillingMode; changedBy: string; changedAt: string }>;
   manualCategories?: string[];
   replacesInvoiceNo?: string;
   replacementInvoiceNo?: string;
@@ -462,6 +466,7 @@ export async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           referenceMode: row[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
           manualCompletionStatus: manualCompletion.status,
           manualCategories: manualCompletion.manualCategories,
+          billingMode: manualCompletion.billingMode,
           manualCompletionDate: manualCompletion.completionDate,
           manualCompletionTechnicianId: manualCompletion.technicianId,
           manualCompletionTechnicianName: manualCompletion.technicianName,
@@ -616,6 +621,7 @@ async function populateServiceInvoiceTemplate(
 export async function processServiceInvoice(
   payload: CreateServiceInvoicePayload,
   userId = "",
+  copyExistingBilling = false,
 ): Promise<ServiceInvoiceResponse> {
   try {
     if (payload.status && !["draft", "created"].includes(payload.status)) throw new Error("Invalid invoice status for creation.");
@@ -673,6 +679,11 @@ export async function processServiceInvoice(
       ? deliveredBy.deliveredByName || assignedTechnician.assignedTechnicianName || ""
       : assignedTechnician.assignedTechnicianName || deliveredBy.deliveredByName || "";
     const references = await resolveInvoiceReferences(payload);
+    // Corrected copies preserve historical billing in a draft; editing/finalizing
+    // that draft uses the same billing validation as any other invoice.
+    const billing = copyExistingBilling && isDraft
+      ? { billingMode: payload.billingMode ?? (payload.contractId ? "PMS_CONTRACT" : "REGULAR"), contractId: payload.contractId || "", manualCategories: payload.manualCategories ?? [] }
+      : validateInvoiceBilling({ ...payload, salesOrderId: references.salesOrderId }, payload.contractId ? (await getContracts()).find(contract => contract.id === payload.contractId) : undefined);
     if (references.salesOrderId) {
       const order = await getOrderDetail(references.salesOrderId);
       if (order.order.customerId !== payload.customerId) {
@@ -694,7 +705,7 @@ export async function processServiceInvoice(
       createdAt,
       payload.status || "created",
       "",
-      payload.contractId || "",
+      billing.contractId,
       payload.drNumber?.toString() || "",
       technicianId, // M: AssignedTechnicianUserId
       technicianName, // N: AssignedTechnicianName
@@ -703,7 +714,7 @@ export async function processServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      JSON.stringify({ discountData }), // T: metadata
+      JSON.stringify({ discountData, billingMode: billing.billingMode, manualCategories: billing.manualCategories }), // T: metadata
       payload.referenceMode || "SALES_ORDER", // U: ReferenceMode
     ];
     if (headerRow.length !== SERVICE_INVOICES_HEADERS.length) {
@@ -832,6 +843,7 @@ export async function updateServiceInvoiceCategory(invoiceNo: string, value: unk
   const orderId = dr ? (await resolveDeliveryReceiptReferences(Number(dr))).salesOrderId : String(row[18] ?? "").trim();
   const automatic = orderId ? (await readSalesOrderById(orderId)) ? (await getOrderDetail(orderId)).category : "Uncategorized" : row[10] ? "PMS" : "Uncategorized";
   if (automatic && automatic !== "Uncategorized") throw new Error("Invoice category is automatically assigned by its Sales Order or PMS contract.");
+  if (row[20] === "TR_NUMBER" && !manualCategories.length) throw new Error("Invalid invoice category selection: select a category before saving a legacy invoice.");
   await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "RAW", data: [
     { range: `${SERVICE_INVOICES_SHEET}!T${rowNumber}`, values: [[JSON.stringify({ ...parseManualCompletionData(row[19]), manualCategories })]] },
     { range: `${SERVICE_INVOICES_SHEET}!G${rowNumber}:H${rowNumber}`, values: [[userId, new Date().toISOString()]] },
@@ -867,11 +879,13 @@ export async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, 
       customerId: String(row[2] ?? ""), preparedBy: String(row[3] ?? ""),
       items: itemRows.map(({ rowData }) => ({ description: String(rowData[1] ?? ""), quantity: Number(rowData[2]) || 0, unitPrice: Number(rowData[3]) || 0, productId: String(rowData[5] ?? "") || undefined, productCategoryId: String(rowData[6] ?? "") || undefined })),
       contractId: String(row[10] ?? ""), drNumber: Number(row[11]) || undefined,
+      billingMode: metadata.billingMode ?? (row[10] ? "PMS_CONTRACT" : "REGULAR"),
+      manualCategories: metadata.manualCategories,
       assignedTechnicianUserId: String(row[12] ?? "") || undefined,
       referenceMode: row[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
       discountSettings: invoiceDiscountSnapshot(metadata.discountData)?.discountSettings,
       poNo: String(row[16] ?? ""), trNo: String(row[17] ?? ""), salesOrderId: String(row[18] ?? "") || undefined,
-    }, userId);
+    }, userId, true);
     replacementNo = replacement.invoiceNo;
   }
   const replacementRowNumber = await findInvoiceRow(sheets, spreadsheetId, replacementNo);
@@ -957,6 +971,13 @@ export async function updateServiceInvoice(
       }
     }
     const discountItems = payload.items ?? (await findInvoiceItemRows(sheets, spreadsheetId, invoiceNo)).map(({ rowData }) => ({ description: String(rowData[1] ?? ""), quantity: Number(rowData[2]) || 0, unitPrice: Number(rowData[3]) || 0, productId: String(rowData[5] ?? "") || undefined }));
+    const contractId = payload.contractId ?? String(currentRow[10] ?? "").trim();
+    const billingMode = payload.billingMode ?? currentMetadata.billingMode ?? (contractId ? "PMS_CONTRACT" : "REGULAR");
+    const billing = newStatus === "void"
+      ? { billingMode: currentMetadata.billingMode ?? (currentRow[10] ? "PMS_CONTRACT" as const : "REGULAR" as const), contractId: String(currentRow[10] ?? ""), manualCategories: currentMetadata.manualCategories ?? [] }
+      : validateInvoiceBilling({ billingMode, contractId, customerId: payload.customerId ?? String(currentRow[2] ?? ""), salesOrderId: references.salesOrderId, drNumber: linkedDrNumber, manualCategories: payload.manualCategories ?? currentMetadata.manualCategories, items: discountItems }, contractId ? (await getContracts()).find(contract => contract.id === contractId) : undefined, oldStatus !== "draft" && contractId === String(currentRow[10] ?? ""));
+    const billingHistory = [...(currentMetadata.billingHistory ?? [])];
+    if (billing.contractId !== String(currentRow[10] ?? "")) billingHistory.push({ fromContractId: String(currentRow[10] ?? ""), toContractId: billing.contractId, billingMode: billing.billingMode, changedBy: userId, changedAt: updatedAt });
     const previousDiscount = invoiceDiscountSnapshot(currentMetadata.discountData);
     hydrateInvoiceDiscount(discountItems, previousDiscount);
     const discountData = ["draft", "created"].includes(newStatus)
@@ -1012,9 +1033,7 @@ export async function updateServiceInvoice(
       updatedAt,
       payload.status ?? String(currentRow[8] ?? "created").trim(),
       String(currentRow[9] ?? "").trim(),
-      payload.contractId !== undefined
-        ? payload.contractId
-        : String(currentRow[10] ?? "").trim(),
+      billing.contractId,
       payload.drNumber !== undefined
         ? linkedDrNumber?.toString() || ""
         : String(currentRow[11] ?? "").trim(),
@@ -1025,7 +1044,7 @@ export async function updateServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      JSON.stringify({ ...currentMetadata, discountData, paymentStatus: paymentStatusFor(oldStatus, currentMetadata), ...(payload.manualCategories !== undefined ? { manualCategories: validateManualCategories(payload.manualCategories) } : {}), ...(newStatus === "void" ? { statusReason, statusHistory: [...(Array.isArray(currentMetadata.statusHistory) ? currentMetadata.statusHistory : []), { status: "void", reason: statusReason!, changedBy: userId, changedAt: updatedAt }] } : {}) }), // T: metadata
+      JSON.stringify({ ...currentMetadata, billingMode: billing.billingMode, manualCategories: billing.manualCategories, billingHistory, discountData, paymentStatus: paymentStatusFor(oldStatus, currentMetadata), ...(newStatus === "void" ? { statusReason, statusHistory: [...(Array.isArray(currentMetadata.statusHistory) ? currentMetadata.statusHistory : []), { status: "void", reason: statusReason!, changedBy: userId, changedAt: updatedAt }] } : {}) }), // T: metadata
       payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // U: ReferenceMode
     ];
 

@@ -2,11 +2,12 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
+const path = require('node:path');
 
 function load(file, mocks) {
   const fixtureModule = { exports: {} };
   const output = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
-  new Function('require', 'module', 'exports', output)((id) => id in mocks ? mocks[id] : id.startsWith('@/') ? {} : require(id), fixtureModule, fixtureModule.exports);
+  new Function('require', 'module', 'exports', output)((id) => id in mocks ? mocks[id] : id.startsWith('@/') ? {} : id.startsWith(".") ? load(path.resolve(path.dirname(file), id.endsWith(".ts") ? id : `${id}.ts`), mocks) : require(id), fixtureModule, fixtureModule.exports);
   return fixtureModule.exports;
 }
 
@@ -37,6 +38,9 @@ function load(file, mocks) {
   assert.deepEqual(writes[0].requestBody.data.map((entry) => entry.range), ['ServiceInvoices!T2', 'ServiceInvoices!G2:H2']);
   await storage.updateServiceInvoiceCategory('1001', [], 'editor');
   assert.deepEqual(JSON.parse(row[19]).manualCategories, []);
+  row[20] = 'TR_NUMBER';
+  await assert.rejects(storage.updateServiceInvoiceCategory('1001', [], 'editor'), /select a category before saving/);
+  row[20] = '';
   row[8] = 'created'; await storage.updateServiceInvoiceCategory('1001', ['Service'], 'editor');
   row[8] = 'cancelled'; await assert.rejects(storage.updateServiceInvoiceCategory('1001', ['Project'], 'editor'), /no longer be edited/);
   row[8] = 'paid'; row[18] = 'so1'; orderExists = true;

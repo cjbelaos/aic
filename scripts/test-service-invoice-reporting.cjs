@@ -2,10 +2,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
+const path = require('node:path');
 function load(file, mocks = {}) {
   const fixture = { exports: {} };
   const output = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
-  new Function('require', 'module', 'exports', output)(id => Object.hasOwn(mocks, id) ? mocks[id] : require(id), fixture, fixture.exports);
+  new Function('require', 'module', 'exports', output)(id => Object.hasOwn(mocks, id) ? mocks[id] : id.startsWith(".") ? load(path.resolve(path.dirname(file), id.endsWith(".ts") ? id : `${id}.ts`), mocks) : require(id), fixture, fixture.exports);
   return fixture.exports;
 }
 async function main() {

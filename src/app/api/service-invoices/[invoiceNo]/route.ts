@@ -1,3 +1,4 @@
+import { InvoiceBillingError } from "@/lib/serviceInvoiceBilling";
 import { resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot } from "@/lib/serviceInvoiceDiscounts";
 import { parseInvoiceMetadata, paymentStatusFor } from "@/lib/serviceInvoiceTracking";
 import { NextResponse } from "next/server";
@@ -198,7 +199,7 @@ export async function PUT(
       error instanceof Error
         ? error.message
         : "Failed to update service invoice.";
-    const isValidationError = /Assigned Technician|Delivery Receipt|Sales Order|different customer|Invalid invoice category|Invalid invoice status|reason is required|Resolve recorded payments|no longer be edited/i.test(message);
+    const isValidationError = error instanceof InvoiceBillingError || /Assigned Technician|Delivery Receipt|Sales Order|different customer|Invalid invoice category|Invalid invoice status|reason is required|Resolve recorded payments|no longer be edited/i.test(message);
     return NextResponse.json({ error: message }, { status: isValidationError ? 400 : 500 });
   }
 }

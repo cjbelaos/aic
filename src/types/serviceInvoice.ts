@@ -23,6 +23,8 @@ export interface ServiceInvoiceItem {
 }
 
 export interface CreateServiceInvoicePayload {
+  billingMode?: "REGULAR" | "PMS_CONTRACT";
+  manualCategories?: string[];
   discountSettings?: DiscountSettings;
   /** Invoice number typed from the physical paper. Required, must be unique. */
   invoiceNo: string;
@@ -95,6 +97,7 @@ export interface ServiceInvoiceResponse extends InvoiceTrackingFields {
 }
 
 export interface ServiceInvoiceSummary extends InvoiceTrackingFields {
+  billingMode?: "REGULAR" | "PMS_CONTRACT";
   manualCategories?: string[];
   categorySource?: "automatic" | "manual" | "uncategorized";
   /** Derived from the linked Sales Order, or PMS for a contract-only invoice. */
