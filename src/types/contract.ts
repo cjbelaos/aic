@@ -1,5 +1,6 @@
 /* ── Agreement / Contract Header Types ─────────────────────── */
 export type AgreementType = "Contract" | "PO";
+export type ServiceFeeFrequency = "Monthly" | "Quarterly";
 export type ContractStatus = "Active" | "Expired" | "Closed" | "Inactive";
 export type FrequencyType =
   | "Monthly"
@@ -20,6 +21,7 @@ export interface Contract {
   endDate: string; // Sheet: EndDate (ISO Date string: "YYYY-MM-DD")
   status: ContractStatus; // Sheet: Status
   monthlyServiceFee?: number; // Sheet: MonthlyServiceFee (numeric, e.g., 20000)
+  serviceFeeFrequency?: ServiceFeeFrequency; // Sheet: M; legacy contracts default to Monthly
   notes?: string; // Sheet: Notes (internal reference)
   softCopyDriveLink?: string; // Sheet: SoftCopyDriveLink
   scannedSignedCopyDriveLink?: string; // Sheet: ScannedSignedCopyDriveLink
@@ -34,6 +36,7 @@ export interface CreateContractPayload {
   endDate: string;
   status: ContractStatus;
   monthlyServiceFee?: number;
+  serviceFeeFrequency?: ServiceFeeFrequency;
   notes?: string;
 }
 

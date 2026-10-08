@@ -69,6 +69,10 @@ export async function POST(request: Request) {
       );
     }
 
+    if (body.serviceFeeFrequency !== undefined && body.serviceFeeFrequency !== "Monthly" && body.serviceFeeFrequency !== "Quarterly") {
+      return NextResponse.json({ error: "PMS service frequency must be Monthly or Quarterly." }, { status: 400 });
+    }
+
     // Validate customer existence by Company ID
     const customers = await getCustomers();
     const customerExists = customers.some(

@@ -10,8 +10,8 @@ import { ContractConflictError, duplicateContractIds, nextContractId } from "@/l
 import type { sheets_v4 } from "googleapis";
 
 const CONTRACTS_SHEET = "Contracts";
-const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:L`;
-// Columns: A:I contract header, J: Notes, K: SoftCopyDriveLink, L: ScannedSignedCopyDriveLink
+const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:M`;
+// Columns: A:I contract header, J: Notes, K: SoftCopyDriveLink, L: ScannedSignedCopyDriveLink, M: ServiceFeeFrequency
 
 /**
  * GET: Fetches all contract header rows from Google Sheets.
@@ -46,6 +46,7 @@ export async function getContracts(): Promise<Contract[]> {
         notes: String(row[9] ?? "").trim() || undefined,
         softCopyDriveLink: String(row[10] ?? "").trim() || undefined,
         scannedSignedCopyDriveLink: String(row[11] ?? "").trim() || undefined,
+        serviceFeeFrequency: row[12] === "Quarterly" ? "Quarterly" : "Monthly",
       };
     });
   } catch (error) {
@@ -95,6 +96,7 @@ export async function addContract(
       payload.notes ?? "", // J: Notes
       "", // K: SoftCopyDriveLink
       "", // L: ScannedSignedCopyDriveLink
+      payload.serviceFeeFrequency ?? "Monthly", // M: ServiceFeeFrequency
     ];
 
     await sheets.spreadsheets.values.append({
@@ -114,6 +116,7 @@ export async function addContract(
       endDate: payload.endDate,
       status: payload.status,
       monthlyServiceFee: payload.monthlyServiceFee,
+      serviceFeeFrequency: payload.serviceFeeFrequency ?? "Monthly",
       notes: payload.notes,
     };
   } catch (error) {
@@ -174,6 +177,15 @@ export async function updateContractInSheets(
       });
     }
 
+    if (payload.serviceFeeFrequency !== undefined) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${CONTRACTS_SHEET}!M${rowNumber}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[payload.serviceFeeFrequency]] },
+      });
+    }
+
     return {
       id: existing.id,
       companyId: String(updatedValues[1]),
@@ -188,6 +200,7 @@ export async function updateContractInSheets(
           ? Number(updatedValues[8]) || undefined
           : undefined,
       notes: payload.notes !== undefined ? payload.notes || undefined : existing.notes,
+      serviceFeeFrequency: payload.serviceFeeFrequency ?? existing.serviceFeeFrequency,
     };
   } catch (error) {
     console.error(`Failed to update contract ${payload.id}:`, error);

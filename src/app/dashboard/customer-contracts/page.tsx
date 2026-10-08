@@ -107,6 +107,7 @@ function exportToExcel(
     { header: "End Date", key: "endDate", width: 15 },
     { header: "Status", key: "status", width: 12 },
     { header: "Monthly Service Fee", key: "monthlyServiceFee", width: 20 },
+    { header: "PMS Service Frequency", key: "serviceFeeFrequency", width: 22 },
     { header: "Entitlement Items", key: "items", width: 60 },
   ];
 
@@ -120,6 +121,7 @@ function exportToExcel(
       endDate: contract.endDate,
       status: contract.status,
       monthlyServiceFee: contract.monthlyServiceFee ?? "",
+      serviceFeeFrequency: contract.items.length === 0 && (contract.monthlyServiceFee ?? 0) > 0 ? (contract.serviceFeeFrequency ?? "Monthly") : "",
       items: contract.items
         .map((item) => `${productMap.get(item.productId || item.productCode) || item.productCode} (${item.productCode}) — ${item.entitledQty} / ${item.frequency}`)
         .join("; "),
@@ -160,6 +162,7 @@ interface CustomerContractFormState {
   endDate: Date | undefined; // Changed from string to Date
   status: ContractStatus;
   monthlyServiceFee: string;
+  serviceFeeFrequency: "Monthly" | "Quarterly";
   notes: string;
   items: ContractFormItem[];
 }
@@ -180,6 +183,7 @@ const EMPTY_FORM: CustomerContractFormState = {
   endDate: undefined,
   status: "Active",
   monthlyServiceFee: "",
+  serviceFeeFrequency: "Monthly",
   notes: "",
   items: [],
 };
@@ -471,6 +475,7 @@ export default function CustomerContractsPage() {
       status: row.status,
       monthlyServiceFee:
         row.monthlyServiceFee != null ? String(row.monthlyServiceFee) : "",
+      serviceFeeFrequency: row.serviceFeeFrequency ?? "Monthly",
       notes: row.notes || "",
       items: row.items.map((item) => ({
         id: item.id,
@@ -578,6 +583,7 @@ export default function CustomerContractsPage() {
           monthlyServiceFee: form.monthlyServiceFee
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
+          serviceFeeFrequency: form.items.length === 0 ? form.serviceFeeFrequency : "Monthly",
           notes: form.notes.trim(),
         });
 
@@ -661,6 +667,7 @@ export default function CustomerContractsPage() {
           monthlyServiceFee: form.monthlyServiceFee
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
+          serviceFeeFrequency: form.items.length === 0 ? form.serviceFeeFrequency : "Monthly",
           notes: form.notes.trim(),
         });
 
@@ -846,6 +853,7 @@ export default function CustomerContractsPage() {
                 <div><p className="text-xs text-muted-foreground">End Date</p><p className="mt-1 font-medium">{viewTarget.endDate || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={viewTarget.status === "Active" ? "default" : "destructive"}>{viewTarget.status}</Badge></div></div>
                 <div><p className="text-xs text-muted-foreground">Monthly Service Fee</p><p className="mt-1 font-medium">{formatCurrency(viewTarget.monthlyServiceFee)}</p></div>
+                {viewTarget.items.length === 0 && (viewTarget.monthlyServiceFee ?? 0) > 0 && <div><p className="text-xs text-muted-foreground">PMS Service Frequency</p><p className="mt-1 font-medium">{viewTarget.serviceFeeFrequency ?? "Monthly"}</p></div>}
                 {viewTarget.description && <div className="col-span-2"><p className="text-xs text-muted-foreground">Description</p><p className="mt-1 font-medium">{viewTarget.description}</p></div>}
                 {viewTarget.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p className="mt-1 whitespace-pre-wrap font-medium">{viewTarget.notes}</p></div>}
               </div>
@@ -1108,6 +1116,25 @@ export default function CustomerContractsPage() {
                 />
               </div>
             </div>
+
+            {form.items.length === 0 && Number(form.monthlyServiceFee) > 0 && (
+              <div className="space-y-1.5">
+                <Label htmlFor="cc-service-frequency">PMS Service Frequency</Label>
+                <Select
+                  value={form.serviceFeeFrequency}
+                  onValueChange={(value: "Monthly" | "Quarterly") =>
+                    setForm((f) => ({ ...f, serviceFeeFrequency: value }))
+                  }
+                  disabled={saving}
+                >
+                  <SelectTrigger id="cc-service-frequency"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Monthly">Monthly</SelectItem>
+                    <SelectItem value="Quarterly">Quarterly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Product Items Section */}
             <div className="space-y-3">

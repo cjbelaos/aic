@@ -53,6 +53,10 @@ export async function PUT(
     const { id } = await params;
     const body: Partial<UpdateContractPayload> = await request.json();
 
+    if (body.serviceFeeFrequency !== undefined && body.serviceFeeFrequency !== "Monthly" && body.serviceFeeFrequency !== "Quarterly") {
+      return NextResponse.json({ error: "PMS service frequency must be Monthly or Quarterly." }, { status: 400 });
+    }
+
     const payload: UpdateContractPayload = {
       id,
       ...body,
