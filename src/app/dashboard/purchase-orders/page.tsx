@@ -19,6 +19,7 @@ import {
 import { EntityTable, ArrowUpDown } from "@/components/ui/entity-table";
 import { DocumentRegisterHeader } from "@/components/document-register-header";
 import { matchesDocumentSearch } from "@/lib/document-register";
+import { exportPurchaseOrders } from "@/lib/purchaseOrderExport";
 import {
   Plus,
   Trash2,
@@ -29,6 +30,7 @@ import {
   ExternalLink,
   Search,
   FileText,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -91,6 +93,21 @@ export default function PurchaseOrderPage() {
   const [registerSearch, setRegisterSearch] = useState("");
   const [registerStatus, setRegisterStatus] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const filteredOrders = orders.filter(order => matchesDocumentSearch(registerSearch, [order.poNumber, order.date, order.supplierName, order.totalAmount, order.preparedBy, order.status]) && (registerStatus === "all" || (order.status || "created") === registerStatus));
+
+  const handleExport = async () => {
+    if (exporting || loading || !filteredOrders.length) return;
+    setExporting(true);
+    try {
+      await exportPurchaseOrders(filteredOrders, { search: registerSearch, status: registerStatus });
+      toast.success(`Exported ${filteredOrders.length} purchase order(s).`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Purchase order export failed.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   /* Reference data */
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -1010,7 +1027,8 @@ export default function PurchaseOrderPage() {
           mobileLayout={{ primary: ["poNumber", "supplierName", "status", "date", "itemCount", "totalAmount"], labels: { poNumber: "PO number", supplierName: "Supplier", status: "Status", date: "Order date", itemCount: "Items", totalAmount: "Total amount", preparedBy: "Prepared by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Purchase Orders"
           columns={columns}
-          data={orders.filter(order => matchesDocumentSearch(registerSearch, [order.poNumber, order.date, order.supplierName, order.totalAmount, order.preparedBy, order.status]) && (registerStatus === "all" || (order.status || "created") === registerStatus))}
+          data={filteredOrders}
+          toolbarFilters={<Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={loading || exporting || !filteredOrders.length} title="Export all matching purchase orders and their line items"><Download className="mr-2 h-4 w-4" />{exporting ? "Exporting..." : "Export Excel"}</Button>}
           searchValue={registerSearch}
           onSearchChange={setRegisterSearch}
           loading={loading}
