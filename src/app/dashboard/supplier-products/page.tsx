@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Loader2 } from "lucide-react";
+import { ArrowUpDown, Download, Loader2 } from "lucide-react";
+import { matchesDocumentSearch } from "@/lib/document-register";
+import { exportSupplierProducts } from "@/lib/supplierProductExport";
 import axios from "axios";
 import { saveSupplierProductWithProduct } from "@/lib/supplier-product-workflow";
 import type { ProductCategoryRecord, ProductUnitRecord } from "@/types/product-reference";
@@ -62,6 +64,8 @@ export default function SupplierProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -104,9 +108,27 @@ export default function SupplierProductsPage() {
   const supplierOptions = useMemo(() => suppliers.map((supplier) => ({ value: supplier.companyId, label: supplier.companyName })), [suppliers]);
 
   const visibleRows = useMemo(
-    () => requestedProductId ? rows.filter((row) => row.productId === requestedProductId) : rows,
-    [requestedProductId, rows],
+    () => rows.filter((row) => (!requestedProductId || row.productId === requestedProductId) && matchesDocumentSearch(search, [row.supplierProductName, row.supplierProductCode, row.supplierDescription, productById.get(row.productId)?.name ?? row.productId, productById.get(row.productId)?.code, supplierById.get(row.supplierId)?.companyName ?? row.supplierId, row.costPerUnit, row.status])),
+    [requestedProductId, rows, search, productById, supplierById],
   );
+
+  const handleExport = async () => {
+    if (loading || exporting || !visibleRows.length) return;
+    setExporting(true);
+    try {
+      await exportSupplierProducts(visibleRows.map((row) => ({
+        ...row,
+        canonicalProductName: productById.get(row.productId)?.name ?? row.productId,
+        canonicalProductCode: productById.get(row.productId)?.code ?? "",
+        supplierName: supplierById.get(row.supplierId)?.companyName ?? row.supplierId,
+      })));
+      toast.success(`Exported ${visibleRows.length} supplier product(s).`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Supplier product export failed.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const columns = useMemo<ColumnDef<SupplierProduct>[]>(() => [
     {
@@ -267,7 +289,7 @@ export default function SupplierProductsPage() {
   };
 
   return <>
-    <EntityTable title={requestedProductId ? "Supplier Products for Product" : "Supplier Products"} columns={columns} data={visibleRows} loading={loading} onCreateNew={openCreate} onEdit={openEdit} onDelete={setDeleteTarget} mobileLayout={{ primary: ["supplierProductName", "product", "supplier"], labels: { supplierProductName: "Supplier product", product: "Product", supplier: "Supplier", costPerUnit: "Cost / unit", isPreferredSupplier: "Preferred", status: "Status", actions: "Actions" } }} />
+    <EntityTable title={requestedProductId ? "Supplier Products for Product" : "Supplier Products"} columns={columns} data={visibleRows} searchValue={search} onSearchChange={setSearch} toolbarFilters={<Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={loading || exporting || !visibleRows.length} title="Export all matching supplier products"><Download className="mr-2 h-4 w-4" />{exporting ? "Exporting..." : "Export Excel"}</Button>} loading={loading} onCreateNew={openCreate} onEdit={openEdit} onDelete={setDeleteTarget} mobileLayout={{ primary: ["supplierProductName", "product", "supplier"], labels: { supplierProductName: "Supplier product", product: "Product", supplier: "Supplier", costPerUnit: "Cost / unit", isPreferredSupplier: "Preferred", status: "Status", actions: "Actions" } }} />
 
     <Dialog open={modalOpen} onOpenChange={(open) => { if (!saving) setModalOpen(open); }}>
       <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
