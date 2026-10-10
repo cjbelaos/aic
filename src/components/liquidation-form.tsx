@@ -373,6 +373,7 @@ export function LiquidationForm({
   const [draftReceiptName, setDraftReceiptName] = useState("");
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const vendorFormRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isOther = liqType === "other" || restrictToOther;
@@ -832,7 +833,18 @@ export function LiquidationForm({
       it.receiptIsImage ?? (it.receiptImageUrl ? true : true),
     );
     setDraftReceiptName(it.receiptImageUrl ? "Receipt attached" : "");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    requestAnimationFrame(() => {
+      const form = vendorFormRef.current;
+      if (!form) return;
+      form.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+      form.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+        block: "start",
+        inline: "nearest",
+      });
+    });
   };
 
   const handleDeleteItem = async (index: number) => {
@@ -1135,7 +1147,7 @@ export function LiquidationForm({
       </Card>
 
       {/* ── Vendor Information ── */}
-      <Card>
+      <Card ref={vendorFormRef} className="scroll-mt-4">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Vendor Information</CardTitle>
           <CardDescription>
