@@ -38,3 +38,17 @@ export function getVatVendorError(items: ReceiptItemInput[]): string | null {
   }
   return null;
 }
+
+/** Receipt Date is authoritative; never mutate it when clearing references. */
+export function withReceiptReferenceDates<T extends ReceiptItemInput>(item: T): T {
+  const present = (value?: string) => Boolean(value?.trim());
+  return {
+    ...item,
+    siDate: present(item.siNumber) ? item.date : undefined,
+    drDate: present(item.drNumber) ? item.date : undefined,
+    crDate: present(item.crNumber) ? item.date : undefined,
+    bsDate: present(item.bsNumber) ? item.date : undefined,
+    orDate: present(item.orNumber) ? item.date : undefined,
+    othersDate: [item.refNo, item.checkNo, item.cvNo].some(present) ? item.date : undefined,
+  };
+}

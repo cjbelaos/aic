@@ -64,7 +64,7 @@ import {
 import { toast } from "sonner";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { liquidationService } from "@/lib/services/liquidation.service";
-import { getVatReferenceError, getVatVendorError } from "@/lib/liquidation-validation";
+import { getVatReferenceError, getVatVendorError, withReceiptReferenceDates } from "@/lib/liquidation-validation";
 import { miscellaneousService } from "@/lib/services/miscellaneous.service";
 import { userService } from "@/lib/services/user.service";
 import { ftiService } from "@/lib/services/fti.service";
@@ -287,7 +287,6 @@ export function LiquidationForm({
     editingLiquidation?.items[0]?.address || "",
   );
   const [tin, setTin] = useState(editingLiquidation?.items[0]?.tin || "");
-  const [refNo, setRefNo] = useState(editingLiquidation?.items[0]?.refNo || "");
 
   const [categories, setCategories] = useState<string[]>([]);
   const [miscLookup, setMiscLookup] = useState<Map<string, string>>(new Map());
@@ -679,7 +678,7 @@ export function LiquidationForm({
       bsNumber: draftBsNo,
       checkNo: draftCheckNo,
       cvNo: draftCvNo,
-      refNo: draftRefNo.trim() || refNo,
+      refNo: draftRefNo.trim(),
     }]);
     if (vatReferenceError) {
       toast.error(vatReferenceError.replace("Receipt item 1:", `Receipt item ${(editingIndex ?? items.length) + 1}:`));
@@ -713,7 +712,7 @@ export function LiquidationForm({
 
     const miscDescription = miscLookup.get(draftCategory) || draftCategory;
 
-    const item: ReceiptItemInput = {
+    const item: ReceiptItemInput = withReceiptReferenceDates({
       ...(editingIndex !== null ? items[editingIndex] : {}),
       date: draftDate,
       description: draftDescription.trim().toUpperCase(),
@@ -730,14 +729,14 @@ export function LiquidationForm({
       orNumber: draftOrNo.trim().toUpperCase() || undefined,
       checkNo: draftCheckNo.trim().toUpperCase() || undefined,
       cvNo: draftCvNo.trim().toUpperCase() || undefined,
-      refNo: draftRefNo.trim().toUpperCase() || refNo || undefined,
+      refNo: draftRefNo.trim().toUpperCase() || undefined,
       tin: tin || undefined,
       supplierName: supplierName || undefined,
       address: supplierAddress || undefined,
       receiptImageUrl: finalReceiptUrl || undefined,
       receiptPreviewUrl: finalReceiptPreviewUrl || undefined,
       receiptIsImage: finalReceiptUrl ? draftReceiptIsImage : undefined,
-    };
+    });
 
     setUploading(true);
     try {
@@ -766,7 +765,6 @@ export function LiquidationForm({
         setSupplierName("");
         setSupplierAddress("");
         setTin("");
-        setRefNo("");
       }
     } catch (error) {
       console.error("Failed to persist receipt item:", error);
@@ -812,7 +810,6 @@ export function LiquidationForm({
     setSupplierName(it.supplierName || "");
     setSupplierAddress(it.address || "");
     setTin(it.tin || "");
-    setRefNo(it.refNo || "");
     setDraftDate(it.date);
     setDraftCategory(it.category);
     setDraftDescription(it.description);

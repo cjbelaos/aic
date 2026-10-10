@@ -37,3 +37,14 @@ assert.throws(() => validateItems([{ ...valid, vat: 12, tin: '123' }]), /documen
 assert.equal(validateItems([{ ...valid, vat: 12, tin: '123', siNumber: 'SI-1' }]).length, 1);
 assert.equal(validateItems([valid]).length, 1, 'non-VAT receipt needs no TIN or reference');
 console.log('Liquidation receipt edit/add regression checks passed.');
+
+const pairs = [['siNumber','siDate'], ['drNumber','drDate'], ['crNumber','crDate'], ['bsNumber','bsDate'], ['orNumber','orDate'], ['refNo','othersDate'], ['checkNo','othersDate'], ['cvNo','othersDate']];
+for (const [reference, dateField] of pairs) {
+  const saved = validateItems([{ ...valid, [reference]: 'DOC-1', [dateField]: '2000-01-01' }])[0];
+  assert.equal(saved[dateField], valid.date);
+  const cleared = validateItems([{ ...saved, [reference]: ' ' }])[0];
+  assert.equal(cleared[dateField], undefined);
+  assert.equal(cleared.date, valid.date);
+}
+assert.equal(validateItems([{ ...valid, refNo: '', checkNo: 'CHECK' }])[0].othersDate, valid.date);
+console.log('Receipt reference date synchronization checks passed.');

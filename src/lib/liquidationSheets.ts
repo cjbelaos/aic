@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { getVatReferenceError, getVatVendorError } from "@/lib/liquidation-validation";
+import { getVatReferenceError, getVatVendorError, withReceiptReferenceDates } from "@/lib/liquidation-validation";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import type {
   Liquidation,
@@ -379,7 +379,8 @@ function validateItems(items: ReceiptItemInput[], existingItems: ReceiptItemInpu
     if (error) throw new Error(error.replace("Receipt item 1:", `Receipt item ${index + 1}:`));
   }
 
-  return items.map((item) => {
+  return items.map((original) => {
+    const item = withReceiptReferenceDates(original);
     const category = (item.category || "").toString().trim();
     if (!category) {
       throw new Error("Category is required for every receipt item.");
