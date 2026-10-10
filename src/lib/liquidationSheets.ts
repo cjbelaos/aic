@@ -358,13 +358,26 @@ export async function getLiquidationsFullByUser(
 // (same as the FTI page). Hardcoding the old set caused updates with new
 // categories (e.g. "Meal Allowance", "Emergency Cash") to fail — after
 // rows had already been deleted — permanently losing receipt data.
-function validateItems(items: ReceiptItemInput[]): ReceiptItemInput[] {
+function validateItems(items: ReceiptItemInput[], existingItems: ReceiptItemInput[] = []): ReceiptItemInput[] {
   if (!items || items.length === 0) {
     throw new Error("At least one receipt item is required.");
   }
 
-  const vatVendorError = getVatVendorError(items);
-  if (vatVendorError) throw new Error(vatVendorError);
+  // Match persisted receipts by their stored business fields, consuming each
+  // match once so duplicating an incomplete legacy receipt cannot bypass checks.
+  const fingerprint = (item: ReceiptItemInput) => JSON.stringify(
+    mapReceiptItemToRow({ ...item, receiptItemId: "", liquidationId: "", receiptImageUrl: item.receiptImageUrl || "" }).slice(2, 28),
+  );
+  const unchanged = existingItems.map(fingerprint);
+  for (const [index, item] of items.entries()) {
+    const match = unchanged.indexOf(fingerprint(item));
+    if (match !== -1) {
+      unchanged.splice(match, 1);
+      continue;
+    }
+    const error = getVatVendorError([item]) || getVatReferenceError([item]);
+    if (error) throw new Error(error.replace("Receipt item 1:", `Receipt item ${index + 1}:`));
+  }
 
   return items.map((item) => {
     const category = (item.category || "").toString().trim();
@@ -723,7 +736,10 @@ export async function replaceReceiptItems(
   // IMPORTANT: Validate BEFORE deleting any existing rows. If validation
   // fails we must abort with the old data still intact, never wipe rows
   // first (that caused permanent receipt-data loss on failed updates).
-  const validItems = itemsToSave.length > 0 ? validateItems(itemsToSave) : [];
+  const existingItems = (await getAllReceiptItemsRaw()).filter(
+    (item) => item.liquidationId === liquidationId,
+  );
+  const validItems = itemsToSave.length > 0 ? validateItems(itemsToSave, existingItems) : [];
 
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();

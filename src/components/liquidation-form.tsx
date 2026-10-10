@@ -253,6 +253,7 @@ export function LiquidationForm({
   const [items, setItems] = useState<ReceiptItemInput[]>(() =>
     editingLiquidation
       ? editingLiquidation.items.map((it) => ({
+          ...it,
           date: it.date,
           description: it.description,
           category: it.category,
@@ -270,9 +271,9 @@ export function LiquidationForm({
           checkNo: it.checkNo || undefined,
           cvNo: it.cvNo || undefined,
           particulars: it.particulars || undefined,
-          grossAmount: it.grossAmount || undefined,
-          vat: it.vat || undefined,
-          ewt: it.ewt || undefined,
+          grossAmount: it.grossAmount ?? undefined,
+          vat: it.vat ?? undefined,
+          ewt: it.ewt ?? undefined,
         }))
       : [],
   );
@@ -523,6 +524,7 @@ export function LiquidationForm({
           setLiquidationId(existing.liquidationId);
           setItems(
             existing.items.map((it) => ({
+              ...it,
               date: it.date,
               description: it.description,
               category: it.category,
@@ -540,9 +542,9 @@ export function LiquidationForm({
               checkNo: it.checkNo || undefined,
               cvNo: it.cvNo || undefined,
               particulars: it.particulars || undefined,
-              grossAmount: it.grossAmount || undefined,
-              vat: it.vat || undefined,
-              ewt: it.ewt || undefined,
+              grossAmount: it.grossAmount ?? undefined,
+              vat: it.vat ?? undefined,
+              ewt: it.ewt ?? undefined,
             })),
           );
         }
@@ -660,7 +662,26 @@ export function LiquidationForm({
       tin,
     }]);
     if (vatVendorError) {
-      toast.error(vatVendorError);
+      toast.error(vatVendorError.replace("Receipt item 1:", `Receipt item ${(editingIndex ?? items.length) + 1}:`));
+      return;
+    }
+    const vatReferenceError = getVatReferenceError([{
+      date: draftDate,
+      description: draftDescription,
+      category: draftCategory,
+      amount: gross,
+      vat: draftApplyVat ? 1 : 0,
+      siNumber: draftSiNo,
+      orNumber: draftOrNo,
+      drNumber: draftDrNo,
+      crNumber: draftCrNo,
+      bsNumber: draftBsNo,
+      checkNo: draftCheckNo,
+      cvNo: draftCvNo,
+      refNo: draftRefNo.trim() || refNo,
+    }]);
+    if (vatReferenceError) {
+      toast.error(vatReferenceError.replace("Receipt item 1:", `Receipt item ${(editingIndex ?? items.length) + 1}:`));
       return;
     }
     const ewt = draftEwtValue;
@@ -692,6 +713,7 @@ export function LiquidationForm({
     const miscDescription = miscLookup.get(draftCategory) || draftCategory;
 
     const item: ReceiptItemInput = {
+      ...(editingIndex !== null ? items[editingIndex] : {}),
       date: draftDate,
       description: draftDescription.trim().toUpperCase(),
       category: draftCategory,
@@ -786,6 +808,10 @@ export function LiquidationForm({
     setDraftReceiptFile(null);
     setDraftPreviewSrc("");
     setEditingIndex(index);
+    setSupplierName(it.supplierName || "");
+    setSupplierAddress(it.address || "");
+    setTin(it.tin || "");
+    setRefNo(it.refNo || "");
     setDraftDate(it.date);
     setDraftCategory(it.category);
     setDraftDescription(it.description);
