@@ -2240,6 +2240,7 @@ export default function FieldTravelItineraryPage() {
                 description: item.description,
                 category: item.category,
                 amount: item.amount,
+                grossAmount: item.grossAmount,
                 receiptImageUrl: item.receiptImageUrl || undefined,
               })) || []
             }
@@ -2266,6 +2267,7 @@ export default function FieldTravelItineraryPage() {
                 description: item.description,
                 category: item.category,
                 amount: item.amount,
+                grossAmount: item.grossAmount,
                 receiptImageUrl: item.receiptImageUrl || undefined,
               })) || []
             }
