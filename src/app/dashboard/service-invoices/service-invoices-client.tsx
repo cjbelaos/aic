@@ -113,25 +113,29 @@ function InvoiceBillingFields({ mode, contractId, customerId, contracts, categor
   onCategoriesChange: (categories: string[]) => void;
 }) {
   const options = contracts.filter(c => c.companyId === customerId && ((c.status === "Active" && (c.monthlyServiceFee ?? 0) > 0) || c.id === contractId));
-  return <div className="space-y-3 rounded-md border p-4">
+  return <div className="grid grid-cols-1 items-start gap-4 rounded-md border p-4 md:grid-cols-2">
+    <div className="min-w-0 space-y-1.5">
     <Label>Billing type</Label>
     <Select value={mode} onValueChange={value => onModeChange(value as InvoiceBillingMode)}>
-      <SelectTrigger aria-label="Billing type"><SelectValue /></SelectTrigger>
+      <SelectTrigger className="w-full" aria-label="Billing type"><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectItem value="REGULAR">Regular invoice</SelectItem>
         <SelectItem value="PMS_CONTRACT">PMS contract billing</SelectItem>
       </SelectContent>
     </Select>
+    </div>
+    <div className="min-w-0 space-y-1.5">
     {mode === "PMS_CONTRACT" ? <>
       <Label>PMS contract *</Label>
       <SearchableSelect value={contractId} onValueChange={onContractChange} disabled={!customerId} options={options.map(c => ({ value: c.id, label: `${c.id}${c.description ? ` — ${c.description}` : ""} — ₱${Number(c.monthlyServiceFee).toLocaleString("en-PH")} / ${c.serviceFeeFrequency === "Quarterly" ? "quarter" : "month"}` }))} placeholder="Select PMS contract" />
-      {!options.length && <p className="text-sm text-muted-foreground">No active contract with a service fee is available for this customer.</p>}
-      <p className="text-sm text-muted-foreground">Category: PMS. Selecting a contract replaces the items with its charge for the selected frequency. Issue additional services and parts on a separate invoice.</p>
-    </> : automatic ? <p className="text-sm text-muted-foreground">Category follows the linked Sales Order.</p> : <>
+      {contractId && <Button type="button" variant="ghost" size="sm" className="h-6 px-0 text-xs" onClick={() => onContractChange("")}>Clear contract</Button>}
+      {!options.length && <p className="text-xs text-muted-foreground">No active contract with a service fee is available for this customer.</p>}
+      <p className="text-xs text-muted-foreground">Contract charge only. Bill additional services and parts separately.</p>
+    </> : automatic ? <><Label>Invoice category</Label><p className="text-xs text-muted-foreground">Category follows the linked Sales Order.</p></> : <>
       <InvoiceCategoryPicker values={categories} onChange={values => onCategoriesChange(values.includes("PMS") && values.length > 1 ? (values.at(-1) === "PMS" ? ["PMS"] : values.filter(value => value !== "PMS")) : values)} />
-      <p className="text-sm text-muted-foreground">Select a category before saving. PMS must be billed separately from other categories.</p>
+      <p className="text-xs text-muted-foreground">Select one or more. Bill non-contract PMS separately from other categories.</p>
     </>}
-    <p className="text-xs text-muted-foreground">Switching billing type clears the contract selection. Review the items before saving.</p>
+    </div>
   </div>;
 }
 
@@ -2102,12 +2106,14 @@ export default function ServiceInvoicesClient({
               contracts={contracts} categories={createCategories} onCategoriesChange={setCreateCategories}
               automatic={!!linkedSalesOrderId || !!drSalesOrders[linkedDrNumber]}
               onModeChange={(mode) => {
-                setBillingMode(mode); setSelectedContractId(""); setCreateCategories([]);
-                setLineItems([]); setLinkedDrNumber(""); setLinkedSalesOrderId("");
+                setBillingMode(mode);
+                const contract = contracts.find(c => c.id === selectedContractId && c.companyId === selectedCustomer);
+                setLineItems(mode === "PMS_CONTRACT" && contract ? [pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency)] : []); setLinkedDrNumber(""); setLinkedSalesOrderId("");
                 setReferenceMode("TR_NUMBER"); setPoNo(""); setTrNo("");
                 setDiscountSettings(defaultDiscount());
               }}
               onContractChange={(id) => {
+                if (!id) { setSelectedContractId(""); setLineItems([]); return; }
                 const contract = contracts.find(c => c.id === id && c.companyId === selectedCustomer);
                 if (!contract) return;
                 setSelectedContractId(id);
@@ -2450,13 +2456,17 @@ export default function ServiceInvoicesClient({
               contracts={contracts} categories={editManualCategories} onCategoriesChange={setEditManualCategories}
               automatic={!!editSalesOrderId || !!drSalesOrders[editDrNumber]}
               onModeChange={(mode) => {
-                setEditBillingMode(mode); setEditContractId(""); setEditManualCategories([]);
+                setEditBillingMode(mode);
                 setEditDrNumber(""); setEditSalesOrderId(""); setEditReferenceMode("TR_NUMBER");
                 // Keep existing charges when detaching an accidental contract link.
-                if (mode === "PMS_CONTRACT") setEditLineItems([]);
+                if (mode === "PMS_CONTRACT") {
+                  const contract = contracts.find(c => c.id === editContractId && c.companyId === editTarget?.customerId);
+                  setEditLineItems(contract ? [pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency)] : []);
+                }
                 else setEditLineItems(items => items.filter(item => !/^PMS FOR THE (MONTH|QUARTER)\b/i.test(item.description.trim())));
               }}
               onContractChange={(id) => {
+                if (!id) { setEditContractId(""); setEditLineItems([]); return; }
                 const contract = contracts.find(c => c.id === id && c.companyId === editTarget?.customerId);
                 if (!contract) return;
                 setEditContractId(id);
