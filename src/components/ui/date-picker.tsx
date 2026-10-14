@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { format, isValid, parse } from "date-fns";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -155,15 +155,93 @@ export function DatePickerInput({
 export function MonthPickerInput({
   value,
   onChange,
+  disabled,
+  name,
+  required,
+  placeholder = "Select month",
+  className,
   ...props
-}: Omit<DatePickerInputProps, "min" | "max">) {
+}: Omit<DatePickerInputProps, "min" | "max" | "startMonth" | "endMonth" | "displayFormat">) {
+  const [open, setOpen] = React.useState(false);
+  const selectedDate = value ? parseDateValue(`${value}-01`) : undefined;
+  const [year, setYear] = React.useState(() =>
+    selectedDate?.getFullYear() ?? new Date().getFullYear(),
+  );
   return (
-    <DatePickerInput
-      {...props}
-      placeholder="Select month"
-      displayFormat="MMM yyyy"
-      value={value ? `${value}-01` : ""}
-      onChange={(date) => onChange?.(date.slice(0, 7))}
-    />
+    <>
+      {name && (
+        <input type="hidden" name={name} value={value ?? ""} disabled={disabled} />
+      )}
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) {
+            setYear(selectedDate?.getFullYear() ?? new Date().getFullYear());
+          }
+          setOpen(nextOpen);
+        }}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            {...props}
+            type="button"
+            variant="outline"
+            disabled={disabled}
+            aria-required={required}
+            className={cn(
+              "h-9 w-full justify-start font-normal",
+              !selectedDate && "text-muted-foreground",
+              className,
+            )}
+          >
+            <CalendarIcon className="mr-2 size-4" />
+            {selectedDate ? format(selectedDate, "MMM yyyy") : placeholder}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-2" align="start" aria-label="Select invoice month">
+          <div className="mb-2 flex items-center justify-between">
+            <Button type="button" variant="ghost" size="icon-sm" aria-label="Previous year" disabled={year <= 1} onClick={() => setYear(year - 1)}>
+              <ChevronLeft />
+            </Button>
+            <span className="text-sm font-medium" aria-live="polite">{year}</span>
+            <Button type="button" variant="ghost" size="icon-sm" aria-label="Next year" disabled={year >= 9999} onClick={() => setYear(year + 1)}>
+              <ChevronRight />
+            </Button>
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            {Array.from({ length: 12 }, (_, month) => {
+              const date = new Date(2000, month, 1);
+              const monthValue = `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}`;
+              const selected = value === monthValue;
+              return (
+                <Button
+                  key={month}
+                  type="button"
+                  variant={selected ? "default" : "ghost"}
+                  aria-label={`${format(date, "MMMM")} ${year}`}
+                  aria-pressed={selected}
+                  onClick={() => {
+                    onChange?.(monthValue);
+                    setOpen(false);
+                  }}
+                >
+                  {format(date, "MMM")}
+                </Button>
+              );
+            })}
+          </div>
+          {!required && selectedDate && (
+            <div className="mt-2 border-t pt-2">
+              <Button type="button" variant="ghost" size="sm" onClick={() => {
+                onChange?.("");
+                setOpen(false);
+              }}>
+                Clear month
+              </Button>
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
