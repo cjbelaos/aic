@@ -1,4 +1,4 @@
-export type DocumentType = "delivery_receipt" | "service_invoice";
+export type DocumentType = "delivery_receipt" | "service_invoice" | "sales_invoice";
 export type HandoverStatus =
   | "handed_over"
   | "received_by_after_sales"

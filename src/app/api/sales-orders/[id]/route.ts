@@ -85,6 +85,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       try {
         await syncSalesOrderDeliveryReferences(detail.order.salesOrderId);
         await syncSalesOrderServiceInvoiceReferences(detail.order.salesOrderId);
+        const salesInvoices = await import("@/lib/salesInvoiceSheets");
+        await salesInvoices.syncSalesOrderServiceInvoiceReferences(detail.order.salesOrderId);
       } catch (error) {
         // The order write is already durable; document regeneration can safely
         // be retried without rejecting the customer PO update.

@@ -5,7 +5,7 @@ import {
   getServiceInvoiceManualCompletionRecord,
   reverseManualServiceInvoiceCompletion,
 } from "@/lib/serviceInvoiceSheets";
-import { getOrderDetail } from "@/lib/salesOrders/service";
+
 
 function isAdmin(roleId: number): boolean {
   return roleId === 1;
@@ -19,9 +19,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ inv
     const normalized = decodeURIComponent(invoiceNo).trim();
     const body = await request.json() as { completionDate?: string; technicianUserId?: string; notes?: string };
     const record = await getServiceInvoiceManualCompletionRecord(normalized);
-    const order = await getOrderDetail(record.salesOrderId);
-    if (!isAdmin(session.userRoleId) && order.order.assignedToUserId !== session.userId) {
-      return NextResponse.json({ error: "Only an admin or the assigned Sales Order user can record manual service completion." }, { status: 403 });
+    if (!isAdmin(session.userRoleId) && record.assignedTechnicianUserId !== session.userId) {
+      return NextResponse.json({ error: "Only an admin or the assigned service technician can record manual service completion." }, { status: 403 });
     }
     await completeServiceInvoiceManually(normalized, {
       completionDate: String(body.completionDate ?? "").trim(),

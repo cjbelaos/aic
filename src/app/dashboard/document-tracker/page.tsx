@@ -47,9 +47,11 @@ import {
 // ── Services ────────────────────────────────────────────────────────────────
 import documentHandoverService from "@/lib/services/document-handover.service";
 import deliveryService from "@/lib/services/delivery.service";
-import serviceInvoiceService from "@/lib/services/service-invoice.service";
+import serviceInvoiceService, { createInvoiceService } from "@/lib/services/service-invoice.service";
 import userService from "@/lib/services/user.service";
 import { AFTER_SALES_DOCUMENT_RECEIVER_ID, canReceiveAndVerifyDocuments } from "@/lib/documentHandoverWorkflow";
+
+const salesInvoiceService = createInvoiceService("sales");
 
 function getHandoverAssigneeKey(handover: DocumentHandover) {
   if (handover.assignedToId) return `user:${handover.assignedToId}`;
@@ -123,7 +125,7 @@ export default function DocumentTrackerPage() {
   );
   const [handoverAssigneeFilter, setHandoverAssigneeFilter] = useState("all");
   const [handoverDocumentTypeFilter, setHandoverDocumentTypeFilter] = useState<
-    "all" | "delivery_receipt" | "service_invoice"
+    "all" | "delivery_receipt" | "service_invoice" | "sales_invoice"
   >("all");
   const [handoverStatusFilter, setHandoverStatusFilter] = useState<
     "all" | "handed_over" | "received_by_after_sales" | "returned" | "unassigned"
@@ -142,7 +144,7 @@ export default function DocumentTrackerPage() {
   const [selectAll, setSelectAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterDocType, setFilterDocType] = useState<
-    "all" | "delivery_receipt" | "service_invoice"
+    "all" | "delivery_receipt" | "service_invoice" | "sales_invoice"
   >("all");
 
   /* Return modal selection state */
@@ -151,7 +153,7 @@ export default function DocumentTrackerPage() {
   const [singleReturnNotes, setSingleReturnNotes] = useState("");
   const [returnSearchQuery, setReturnSearchQuery] = useState("");
   const [returnDocType, setReturnDocType] = useState<
-    "all" | "delivery_receipt" | "service_invoice"
+    "all" | "delivery_receipt" | "service_invoice" | "sales_invoice"
   >("all");
   const [returnAssignee, setReturnAssignee] = useState("all");
 
@@ -202,16 +204,18 @@ export default function DocumentTrackerPage() {
       let handedOverNumbers = new Set<string>();
       let drs: any[] = [];
       let srs: any[] = [];
+      let sales: any[] = [];
       if (isAdmin) {
         handedOverNumbers = new Set(
           handoversData
             .filter((h) => h.status !== "unassigned")
-            .map((h) => h.documentNumber),
+            .map((h) => `${h.documentType}:${h.documentNumber}`),
         );
         try {
-          [drs, srs] = await Promise.all([
+          [drs, srs, sales] = await Promise.all([
             deliveryService.getAll(),
             serviceInvoiceService.getAll(),
+            salesInvoiceService.getAll(),
           ]);
         } catch {
           // ignore
@@ -220,7 +224,7 @@ export default function DocumentTrackerPage() {
         const drOptions: DocumentOption[] = (drs || [])
           .filter(
             (dr: any) =>
-              !handedOverNumbers.has(String(dr.drNumber)) &&
+              !handedOverNumbers.has(`delivery_receipt:${dr.drNumber}`) &&
               dr.status !== "deleted" &&
               dr.drNumber > 0,
           )
@@ -236,7 +240,7 @@ export default function DocumentTrackerPage() {
         const srOptions: DocumentOption[] = (srs || [])
           .filter(
             (sr: any) =>
-              !handedOverNumbers.has(sr.invoiceNo) &&
+              !handedOverNumbers.has(`service_invoice:${sr.invoiceNo}`) &&
               sr.status !== "deleted" &&
               !sr.invoiceNo.startsWith("DRAFT-"),
           )
@@ -249,7 +253,8 @@ export default function DocumentTrackerPage() {
             label: `SR #${sr.invoiceNo} — ${sr.companyName || ""}`,
           }));
 
-        setDocumentOptions([...drOptions, ...srOptions]);
+        const salesOptions: DocumentOption[] = sales.filter(invoice => !handedOverNumbers.has(`sales_invoice:${invoice.invoiceNo}`) && !["deleted", "cancelled", "void", "draft"].includes(invoice.status)).map(invoice => ({ value: `sales_${invoice.invoiceNo}`, documentType: "sales_invoice", documentNumber: invoice.invoiceNo, customerName: invoice.companyName, date: invoice.date, label: `Sales Invoice #${invoice.invoiceNo} ? ${invoice.companyName}` }));
+        setDocumentOptions([...drOptions, ...srOptions, ...salesOptions]);
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -573,7 +578,7 @@ export default function DocumentTrackerPage() {
       );
 
       toast.success(
-        `${singleReturnDocument.documentType === "delivery_receipt" ? "DR" : "SR"} #${singleReturnDocument.documentNumber} ${workflowAction === "receive" ? "received by After Sales" : canReceiveAndVerify ? "received and verified" : "verified by Admin"}`,
+        `${singleReturnDocument.documentType === "delivery_receipt" ? "DR" : singleReturnDocument.documentType === "sales_invoice" ? "Sales Invoice" : "Service Invoice"} #${singleReturnDocument.documentNumber} ${workflowAction === "receive" ? "received by After Sales" : canReceiveAndVerify ? "received and verified" : "verified by Admin"}`,
       );
       setSingleReturnDocument(null);
       setSingleReturnNotes("");
@@ -643,7 +648,7 @@ export default function DocumentTrackerPage() {
                   : "bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200"
               }
             >
-              {row.original.documentType === "delivery_receipt" ? "DR" : "SR"}
+              {row.original.documentType === "delivery_receipt" ? "DR" : row.original.documentType === "sales_invoice" ? "Sales Invoice" : "Service Invoice"}
             </Badge>
             <span className="font-mono font-semibold tabular-nums">
               #{row.original.documentNumber}
@@ -756,7 +761,7 @@ export default function DocumentTrackerPage() {
   const handleExport = useCallback((records: DocumentHandover[]) => {
     const headers = ["Document Type", "Document Number", "Customer", "Assigned To", "Assigned At", "Status", "Notes"];
     const rows = records.map((record) => [
-      record.documentType === "delivery_receipt" ? "DR" : "SR",
+      record.documentType === "delivery_receipt" ? "DR" : record.documentType === "sales_invoice" ? "Sales Invoice" : "Service Invoice",
       record.documentNumber,
       record.customerName,
       record.assignedToName,
@@ -921,7 +926,7 @@ export default function DocumentTrackerPage() {
           renderTitle: (record) => (
             <span className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className={record.documentType === "delivery_receipt" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border-blue-200" : "bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200"}>
-                {record.documentType === "delivery_receipt" ? "DR" : "SR"}
+                {record.documentType === "delivery_receipt" ? "DR" : record.documentType === "sales_invoice" ? "Sales Invoice" : "Service Invoice"}
               </Badge>
               <span className="font-mono tabular-nums">#{record.documentNumber}</span>
             </span>
@@ -959,12 +964,13 @@ export default function DocumentTrackerPage() {
                     selected as
                       | "all"
                       | "delivery_receipt"
-                      | "service_invoice",
+                      | "service_invoice" | "sales_invoice",
                   )
                 }><SelectTrigger id="handover-document-type-filter" className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm sm:w-[180px]"><SelectValue /></SelectTrigger><SelectContent>
                 <SelectItem value="all">All document types</SelectItem>
                 <SelectItem value="delivery_receipt">Delivery Receipts (DR)</SelectItem>
-                <SelectItem value="service_invoice">Service Reports (SR)</SelectItem>
+                <SelectItem value="service_invoice">Service Invoices</SelectItem>
+                <SelectItem value="sales_invoice">Sales Invoices</SelectItem>
               </SelectContent></Select>
             </div>
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
@@ -1199,7 +1205,7 @@ export default function DocumentTrackerPage() {
                                   variant="outline"
                                   className="bg-purple-50 text-purple-700 border-purple-200 text-xs"
                                 >
-                                  SR
+                                  {doc.documentType === "sales_invoice" ? "Sales Invoice" : "Service Invoice"}
                                 </Badge>
                               )}
                               <span className="font-mono font-semibold">
@@ -1303,7 +1309,8 @@ export default function DocumentTrackerPage() {
               <div className="flex flex-wrap gap-1">
                 <Button size="sm" variant={returnDocType === "all" ? "default" : "outline"} onClick={() => setReturnDocType("all")}>All</Button>
                 <Button size="sm" variant={returnDocType === "delivery_receipt" ? "default" : "outline"} onClick={() => setReturnDocType("delivery_receipt")}>DR</Button>
-                <Button size="sm" variant={returnDocType === "service_invoice" ? "default" : "outline"} onClick={() => setReturnDocType("service_invoice")}>SR</Button>
+                <Button size="sm" variant={returnDocType === "service_invoice" ? "default" : "outline"} onClick={() => setReturnDocType("service_invoice")}>Service Invoice</Button>
+                <Button size="sm" variant={returnDocType === "sales_invoice" ? "default" : "outline"} onClick={() => setReturnDocType("sales_invoice")}>Sales Invoice</Button>
               </div>
               <div className="min-w-0 sm:min-w-48">
                 <Label htmlFor="return-assignee" className="sr-only">Filter by assignee</Label>
@@ -1397,7 +1404,7 @@ export default function DocumentTrackerPage() {
                           variant="outline"
                           className="bg-purple-50 text-purple-700 border-purple-200 text-xs"
                         >
-                          SR
+                          {doc.documentType === "sales_invoice" ? "Sales Invoice" : "Service Invoice"}
                         </Badge>
                       )}
                       <span className="font-mono font-semibold">
@@ -1489,7 +1496,7 @@ export default function DocumentTrackerPage() {
               </p>
               <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
                 <div className="font-mono font-semibold">
-                  {singleReturnDocument.documentType === "delivery_receipt" ? "DR" : "SR"} #{singleReturnDocument.documentNumber}
+                  {singleReturnDocument.documentType === "delivery_receipt" ? "DR" : singleReturnDocument.documentType === "sales_invoice" ? "Sales Invoice" : "Service Invoice"} #{singleReturnDocument.documentNumber}
                 </div>
                 <div><span className="text-muted-foreground">Customer: </span>{singleReturnDocument.customerName || "—"}</div>
                 <div><span className="text-muted-foreground">Assigned to: </span>{singleReturnDocument.assignedToName}</div>

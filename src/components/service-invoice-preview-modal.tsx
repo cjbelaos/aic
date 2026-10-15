@@ -243,6 +243,8 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
           <div className="flex justify-between"><span>Less Discount</span><span>₱{invoiceTotals(si).discount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span></div>
           <div className="flex justify-between"><span>Vatable amount</span><span>₱{invoiceTotals(si).vatableAmount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span></div>
           <div className="flex justify-between"><span>VAT</span><span>₱{invoiceTotals(si).vat.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span></div>
+          <div className="flex justify-between"><span>Less: Withholding Tax</span><span>{money(invoiceTotals(si).lessWithholdingTax)}</span></div>
+          {si.invoiceKind === "sales" && <div className="flex justify-between"><span>Assigned PIC</span><span>{si.assignedPicName || "Unassigned"}</span></div>}
         </div>
         <div className="flex items-center justify-between rounded-lg bg-primary/10 px-4 py-3 sm:ml-auto sm:w-72">
           <span className="text-sm font-medium text-muted-foreground">
@@ -277,7 +279,7 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
         {/* Header */}
         <DialogHeader className="space-y-2 border-b px-4 py-4 pr-12 text-left sm:px-6">
           <DialogTitle className="text-lg sm:text-xl">
-            Service Invoice #{si.invoiceNo}
+            {si.invoiceKind === "sales" ? "Sales Invoice" : "Service Invoice"} #{si.invoiceNo}
           </DialogTitle>
           <DialogDescription className="sr-only">
             Details and print preview for service invoice {si.invoiceNo}

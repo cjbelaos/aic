@@ -272,14 +272,8 @@ export default function ServiceInvoicePrintDocument({
     return sum + (item.amount ?? (item.quantity || 0) * (item.unitPrice || 0));
   }, 0);
 
-  // The total on a Service Invoice is VAT-inclusive. Derive the taxable base
-  // first, then calculate VAT from that base.
-  const totals = invoiceTotals({ items: rows.filter((item): item is ServiceInvoiceItem => Boolean(item)), discountAmount: si.discountAmount });
-  const totalAmount = totals.grandTotal;
-  const netAmount = totals.vatableAmount;
-  const vatAmount = totals.vat;
-  const withholdingTax = vatAmount;
-  const totalDue = totalAmount;
+  const totals = invoiceTotals({ items: rows.filter((item): item is ServiceInvoiceItem => Boolean(item)), discountAmount: si.discountAmount, invoiceKind: si.invoiceKind });
+  const { vatableSales, vat, totalSalesVatInclusive, lessVat, amountNetOfVat, lessDiscount, addVat, lessWithholdingTax, totalAmountDue } = totals;
 
   /* ---------------------------------------------------------------------------
    * PREPARED BY
@@ -363,7 +357,7 @@ export default function ServiceInvoicePrintDocument({
       {totals.discount > 0 && <div style={{ position: "absolute", left: MARGIN_LEFT, top: 882, width: 240, fontSize: 10, fontWeight: 700, lineHeight: "12px" }}>
         <div>Subtotal: PHP {formatNumber(subtotalAmount)}</div>
         <div>Less Discount: PHP {formatNumber(totals.discount)}</div>
-        <div>Final Amount Payable: PHP {formatNumber(totalAmount)}</div>
+        <div>Final Amount Payable: PHP {formatNumber(totalAmountDue)}</div>
       </div>}
       {/* ---------------------------------------------------------------------
        * DATE
@@ -589,7 +583,7 @@ export default function ServiceInvoicePrintDocument({
                   border: "none",
                 }}
               >
-                <DecimalAlignedNumber value={totalAmount} />
+                <DecimalAlignedNumber value={totalSalesVatInclusive} />
               </td>
             </tr>
 
@@ -608,7 +602,7 @@ export default function ServiceInvoicePrintDocument({
                   border: "none",
                 }}
               >
-                <DecimalAlignedNumber value={vatAmount} />
+                <DecimalAlignedNumber value={lessVat} />
               </td>
             </tr>
 
@@ -627,7 +621,7 @@ export default function ServiceInvoicePrintDocument({
                   border: "none",
                 }}
               >
-                <DecimalAlignedNumber value={netAmount} />
+                <DecimalAlignedNumber value={amountNetOfVat} />
               </td>
             </tr>
 
@@ -647,12 +641,12 @@ export default function ServiceInvoicePrintDocument({
                   border: "none",
                 }}
               >
-                -
+                {lessDiscount}
               </td>
             </tr>
 
             {/* ---------------------------------------------------------------
-             * Row 5: Withholding Tax
+             * Row 5: Add VAT
              * -------------------------------------------------------------*/}
 
             <tr
@@ -666,12 +660,12 @@ export default function ServiceInvoicePrintDocument({
                   border: "none",
                 }}
               >
-                <DecimalAlignedNumber value={withholdingTax} />
+                <DecimalAlignedNumber value={addVat} />
               </td>
             </tr>
 
             {/* ---------------------------------------------------------------
-             * Row 6: 0.00
+             * Row 6: Less Withholding Tax
              * -------------------------------------------------------------*/}
 
             <tr
@@ -685,7 +679,7 @@ export default function ServiceInvoicePrintDocument({
                   border: "none",
                 }}
               >
-                <DecimalAlignedNumber value={0} />
+                <DecimalAlignedNumber value={lessWithholdingTax} />
               </td>
             </tr>
 
@@ -705,7 +699,7 @@ export default function ServiceInvoicePrintDocument({
                   border: "none",
                 }}
               >
-                <DecimalAlignedNumber value={totalDue} />
+                <DecimalAlignedNumber value={totalAmountDue} />
               </td>
             </tr>
           </tbody>
@@ -743,7 +737,7 @@ export default function ServiceInvoicePrintDocument({
                   ...additionalCellStyle,
                 }}
               >
-                <DecimalAlignedNumber value={netAmount} />
+                <DecimalAlignedNumber value={vatableSales} />
               </td>
             </tr>
 
@@ -758,7 +752,7 @@ export default function ServiceInvoicePrintDocument({
                   ...additionalCellStyle,
                 }}
               >
-                <DecimalAlignedNumber value={vatAmount} />
+                <DecimalAlignedNumber value={vat} />
               </td>
             </tr>
           </tbody>

@@ -115,6 +115,7 @@ export async function GET(
     return NextResponse.json(
       {
         success: true,
+        invoiceKind: "service",
         invoiceNo: normalized,
         companyName,
         address,

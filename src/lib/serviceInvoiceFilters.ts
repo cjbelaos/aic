@@ -67,3 +67,12 @@ export function matchesInvoiceFilters(invoice: { customerId: string; category?: 
   if (filters.dateTo && date > filters.dateTo) return false;
   return !filters.month || date.slice(0, 7) === filters.month;
 }
+
+export const SALES_INVOICE_CATEGORIES = ["Project", "Parts", "Consumables", "Supplies", "Treatment Package"] as const;
+export function validateSalesInvoiceCategories(value: unknown): string[] {
+  const categories = validateManualCategories(value);
+  if (!categories.length || categories.some(category => !SALES_INVOICE_CATEGORIES.some(allowed => allowed === category))) {
+    throw new Error("Invalid invoice category: select at least one Sales Invoice category (Service and PMS are excluded).");
+  }
+  return categories;
+}

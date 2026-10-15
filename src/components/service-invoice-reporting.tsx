@@ -18,9 +18,11 @@ const groups: { key: InvoiceGroup; label: string }[] = [
 ];
 const money = (value: number) => value.toLocaleString("en-PH", { style: "currency", currency: "PHP" });
 const pdfMoney = (value: number) => `PHP ${value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const name = () => "service-invoices-filtered";
 
-export default function ServiceInvoiceReporting({ report, filters, loading, showSummary }: { report: ServiceInvoiceSummaryReport; filters: string[]; loading: boolean; showSummary: boolean }) {
+
+export default function ServiceInvoiceReporting({ report, filters, loading, showSummary, invoiceKind = "service" }: { invoiceKind?: "service" | "sales"; report: ServiceInvoiceSummaryReport; filters: string[]; loading: boolean; showSummary: boolean }) {
+  const name = () => `${invoiceKind}-invoices-filtered`;
+  const title = invoiceKind === "sales" ? "Sales Invoice Summary" : "Service Invoice Summary";
   const [exporting, setExporting] = useState(false);
 
   const exportExcel = async () => {
@@ -30,7 +32,7 @@ export default function ServiceInvoiceReporting({ report, filters, loading, show
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
       const summary = workbook.addWorksheet("Summary");
-      summary.addRow(["Service Invoice Summary", "Filtered invoices", "Asia/Manila"]);
+      summary.addRow([title, "Filtered invoices", "Asia/Manila"]);
       const filterSheet = workbook.addWorksheet("Filters");
       for (const filter of filters) filterSheet.addRow([filter]);
       filterSheet.getColumn(1).width = 100;
@@ -78,7 +80,7 @@ export default function ServiceInvoiceReporting({ report, filters, loading, show
         lines.forEach((part, index) => pdf.text(part, positions[index], y));
         y += height;
       };
-      line("Service Invoice Summary", 14, 16);
+      line(title, 14, 16);
       line("Filtered invoices | Asia/Manila", 14);
       for (const filter of filters) {
         for (const part of pdf.splitTextToSize(filter, pageWidth - 28)) line(part);

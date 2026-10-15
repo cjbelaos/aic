@@ -6,7 +6,8 @@ import {
 } from "@/types/serviceInvoice";
 import type { UpdateServiceInvoicePayload } from "@/lib/serviceInvoiceSheets";
 
-const API_BASE_URL = "/api/service-invoices";
+export function createInvoiceService(kind: "service" | "sales") {
+const API_BASE_URL = `/api/${kind}-invoices`;
 
 const serviceInvoiceService = {
   updateCategory: async (invoiceNo: string, manualCategories: string[]): Promise<void> => {
@@ -169,4 +170,6 @@ const serviceInvoiceService = {
   },
 };
 
-export default serviceInvoiceService;
+return serviceInvoiceService;
+}
+export default createInvoiceService("service");

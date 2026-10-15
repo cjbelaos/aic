@@ -1,6 +1,9 @@
 import type { DiscountSettings } from "../lib/discounts.ts";
 export type InvoicePaymentStatus = "unpaid" | "partial" | "full";
 export interface InvoiceTrackingFields {
+  invoiceKind?: "service" | "sales";
+  assignedPicUserId?: string;
+  assignedPicName?: string;
   discountSettings?: DiscountSettings;
   discountAmount?: number;
   paymentStatus?: InvoicePaymentStatus;
@@ -23,6 +26,7 @@ export interface ServiceInvoiceItem {
 }
 
 export interface CreateServiceInvoicePayload {
+  assignedPicUserId?: string;
   billingMode?: "REGULAR" | "PMS_CONTRACT";
   manualCategories?: string[];
   discountSettings?: DiscountSettings;

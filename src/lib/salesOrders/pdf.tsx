@@ -69,7 +69,7 @@ function SalesOrderPdfDocument(input: SalesOrderPdfInput) {
           <Text style={styles.blockTitle}>Order Details</Text>
           <Text style={styles.field}>Received: {date(order.receivedDate)} · Required: {date(order.requiredDate)}</Text>
           <Text style={styles.field}>Customer PO: {order.customerPONo || "—"} · Quotation: {order.quotationNo || "—"}</Text>
-          <Text style={styles.field}>Payment terms: {order.paymentTermsSnapshot || "—"} · Assignee: {order.assignedToUserId || "—"}</Text>
+          <Text style={styles.field}>Payment terms: {order.paymentTermsSnapshot || "—"}</Text>
           {order.legacyTrackerNo ? <Text style={styles.field}>Legacy Tracker No: {order.legacyTrackerNo}</Text> : null}
         </View>
 <View style={styles.block}>

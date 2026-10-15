@@ -8,17 +8,38 @@ export interface InvoiceDiscountData {
   discountAmount: number;
   itemDiscounts: Array<{ salesOrderItemId?: string; discountSettings?: DiscountSettings; discountAmount: number }>;
 }
-export function invoiceTotals(invoice: { items: readonly ServiceInvoiceItem[]; discountAmount?: number }) {
+export function invoiceTotals(invoice: { items: readonly ServiceInvoiceItem[]; discountAmount?: number; invoiceKind?: "service" | "sales" }) {
   const subtotal = roundCurrency(invoice.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0));
   const discount = invoice.discountAmount ?? invoice.items.reduce((sum, item) => sum + (item.discountAmount ?? 0), 0);
   const grandTotal = roundCurrency(subtotal - discount);
   const vat = roundCurrency(grandTotal * 12 / 112);
-  return { subtotal, discount, grandTotal, vat, vatableAmount: roundCurrency(grandTotal - vat) };
+  const amountNetOfVat = roundCurrency(grandTotal - vat);
+  return { subtotal, discount, grandTotal, vat, vatableAmount: amountNetOfVat,
+    vatableSales: amountNetOfVat, zeroRatedSales: "", vatExemptSales: "",
+    totalSalesVatInclusive: grandTotal, lessVat: vat, amountNetOfVat,
+    lessDiscount: "-", addVat: vat,
+    lessWithholdingTax: roundCurrency(amountNetOfVat * (invoice.invoiceKind === "sales" ? 0.01 : 0.02)),
+    // Business rule: withholding is disclosed without changing receivables.
+    totalAmountDue: grandTotal,
+  };
 }
 
 /** Linked orders always win over client-supplied discounts. Snapshot for other statuses. */
-export function resolveInvoiceDiscount(items: readonly ServiceInvoiceItem[], manual?: DiscountSettings, source?: { order: SalesOrder; items: readonly SalesOrderItem[] }): InvoiceDiscountData {
+export function resolveInvoiceDiscount(items: readonly ServiceInvoiceItem[], manual?: DiscountSettings, source?: { order: SalesOrder; items: readonly SalesOrderItem[] }, invoiceKind: "service" | "sales" = "service"): InvoiceDiscountData {
   const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  if (source && invoiceKind === "sales") {
+    const active = source.items.filter(item => item.lineStatus === "ACTIVE" && item.priceSource !== "NOT_PRICED" && !item.quotationLineReference.endsWith(":SHIPPING"));
+    const itemDiscounts = items.map(item => {
+      if (!item.salesOrderItemId) return { discountAmount: 0 };
+      const line = active.find(line => line.salesOrderItemId === item.salesOrderItemId);
+      if (!line) throw new Error("The selected Sales Order item is not available for invoicing.");
+      const inclusive = line.taxMode === "VAT_EXCLUSIVE" ? 1 + line.taxRate : 1;
+      const gross = (line.quantity ?? 0) * (line.unitPrice ?? 0) * inclusive;
+      const deduction = gross > 0 ? roundCurrency(line.discountAmount * inclusive * item.quantity * item.unitPrice / gross) : 0;
+      return { salesOrderItemId: line.salesOrderItemId, discountSettings: line.discountSettings, discountAmount: deduction };
+    });
+    return { sourceVersion: source.order.version, discountSettings: source.order.discountSettings ?? defaultDiscount(), discountAmount: roundCurrency(itemDiscounts.reduce((sum, item) => sum + item.discountAmount, 0)), itemDiscounts };
+  }
   if (!source) {
     const settings = manual ?? defaultDiscount();
     if (settings.mode !== "OVERALL") throw new Error("Manual service invoices use an overall discount.");
@@ -53,11 +74,11 @@ export function hydrateInvoiceDiscount(items: ServiceInvoiceItem[], snapshot?: I
   if (snapshot) items.forEach((item, index) => Object.assign(item, snapshot.itemDiscounts?.[index]));
 }
 
-export function allocateInvoiceDiscounts(source: { order: SalesOrder; items: readonly SalesOrderItem[] }, invoices: readonly { items: ServiceInvoiceItem[]; status?: string; discountData?: InvoiceDiscountData }[]): InvoiceDiscountData[] {
+export function allocateInvoiceDiscounts(source: { order: SalesOrder; items: readonly SalesOrderItem[] }, invoices: readonly { items: ServiceInvoiceItem[]; status?: string; discountData?: InvoiceDiscountData }[], invoiceKind: "service" | "sales" = "service"): InvoiceDiscountData[] {
   const frozen = (invoice: (typeof invoices)[number]) => invoice.status !== undefined && !["draft", "created"].includes(invoice.status);
-  const snapshots = invoices.map(invoice => frozen(invoice) ? invoice.discountData ?? { discountAmount: 0, itemDiscounts: [] } : resolveInvoiceDiscount(invoice.items, undefined, source));
+  const snapshots = invoices.map(invoice => frozen(invoice) ? invoice.discountData ?? { discountAmount: 0, itemDiscounts: [] } : resolveInvoiceDiscount(invoice.items, undefined, source, invoiceKind));
   const mode = source.order.discountSettings?.mode ?? (source.items.some(item => item.discountAmount) ? "PER_ITEM" : "OVERALL");
-  if (!snapshots.length || mode !== "OVERALL") return snapshots;
+  if (invoiceKind === "sales" || !snapshots.length || mode !== "OVERALL") return snapshots;
   const eligible = source.items.filter(item => item.lineStatus === "ACTIVE" && item.priceSource !== "NOT_PRICED" && !item.quotationLineReference.endsWith(":SHIPPING"));
   const multiplier = (item: SalesOrderItem) => item.taxMode === "VAT_EXCLUSIVE" ? 1 + item.taxRate : 1;
   const gross = eligible.reduce((sum, item) => sum + (item.quantity ?? 0) * (item.unitPrice ?? 0) * multiplier(item), 0);

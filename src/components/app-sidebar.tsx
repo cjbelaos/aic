@@ -491,6 +491,18 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+<SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/sales-invoices")}
+                  tooltip="Sales Invoices"
+                >
+                  <Link href="/dashboard/sales-invoices">
+                    <Receipt />
+                    <span>Sales Invoices</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               {!showServiceReportsInTechnicianGroup && (
                 <SidebarMenuItem>
                   <SidebarMenuButton

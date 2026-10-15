@@ -388,6 +388,8 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
   const detail = await getOrderDetail(id);
   const { syncSalesOrderInvoiceDiscounts } = await import("../serviceInvoiceSheets");
   await syncSalesOrderInvoiceDiscounts(detail);
+  const salesInvoices = await import("../salesInvoiceSheets");
+  await salesInvoices.syncSalesOrderInvoiceDiscounts(detail);
   return detail;
 }
 async function confirmOrderImpl(actor: Actor, id: string, input: { commandId: string; expectedVersion: number }): Promise<SalesOrderDetail> {

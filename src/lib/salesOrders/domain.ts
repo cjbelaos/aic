@@ -164,9 +164,6 @@ export function collectConfirmationIssues(input: ConfirmReadinessInput): string[
   if (!input.order.customerId?.trim()) issues.push("A customer is required before confirmation.");
   if (!input.order.receivedDate?.trim()) issues.push("Received date is required before confirmation.");
   if (!input.order.currency?.trim()) issues.push("Currency is required before confirmation.");
-  if (!input.assignmentOptional && !input.order.assignedToUserId?.trim()) {
-    issues.push("An assignee (PIC) is required before confirmation when assignment is mandatory.");
-  }
   const active = input.items.filter((item) => item.lineStatus === "ACTIVE");
   if (active.length === 0) issues.push("At least one active line is required before confirmation.");
   active.forEach((item, index) => {

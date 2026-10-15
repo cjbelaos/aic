@@ -26,6 +26,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PAYMENT_LABELS } from "@/lib/serviceInvoiceTracking";
 import {
   MANUAL_INVOICE_CATEGORIES,
+  SALES_INVOICE_CATEGORIES,
   matchesInvoiceFilters,
 } from "@/lib/serviceInvoiceFilters";
 import {
@@ -70,7 +71,7 @@ import type { Contract } from "@/types/contract";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
 import userService from "@/lib/services/user.service";
-import serviceInvoiceService from "@/lib/services/service-invoice.service";
+import { createInvoiceService } from "@/lib/services/service-invoice.service";
 import serviceReportService from "@/lib/services/service-report.service";
 import salesOrderService, {
   type OrderRowView,
@@ -105,7 +106,8 @@ const EMPTY_LINE_ITEM: LineItem = {
   unitPrice: 0,
 };
 
-function InvoiceBillingFields({ mode, contractId, customerId, contracts, categories, automatic, onModeChange, onContractChange, onCategoriesChange }: {
+function InvoiceBillingFields({ invoiceKind = "service", mode, contractId, customerId, contracts, categories, automatic, onModeChange, onContractChange, onCategoriesChange }: {
+  invoiceKind?: "service" | "sales";
   mode: InvoiceBillingMode; contractId: string; customerId: string; contracts: Contract[];
   categories: string[]; automatic: boolean;
   onModeChange: (mode: InvoiceBillingMode) => void;
@@ -120,7 +122,7 @@ function InvoiceBillingFields({ mode, contractId, customerId, contracts, categor
       <SelectTrigger className="w-full" aria-label="Billing type"><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectItem value="REGULAR">Regular invoice</SelectItem>
-        <SelectItem value="PMS_CONTRACT">PMS contract billing</SelectItem>
+        {invoiceKind === "service" && <SelectItem value="PMS_CONTRACT">PMS contract billing</SelectItem>}
       </SelectContent>
     </Select>
     </div>
@@ -131,19 +133,29 @@ function InvoiceBillingFields({ mode, contractId, customerId, contracts, categor
       {contractId && <Button type="button" variant="ghost" size="sm" className="h-6 px-0 text-xs" onClick={() => onContractChange("")}>Clear contract</Button>}
       {!options.length && <p className="text-xs text-muted-foreground">No active contract with a service fee is available for this customer.</p>}
       <p className="text-xs text-muted-foreground">Contract charge only. Bill additional services and parts separately.</p>
-    </> : automatic ? <><Label>Invoice category</Label><p className="text-xs text-muted-foreground">Category follows the linked Sales Order.</p></> : <>
-      <InvoiceCategoryPicker values={categories} onChange={values => onCategoriesChange(values.includes("PMS") && values.length > 1 ? (values.at(-1) === "PMS" ? ["PMS"] : values.filter(value => value !== "PMS")) : values)} />
-      <p className="text-xs text-muted-foreground">Select one or more. Bill non-contract PMS separately from other categories.</p>
+    </> : automatic && invoiceKind === "service" ? <><Label>Invoice category</Label><p className="text-xs text-muted-foreground">Category follows the linked Sales Order.</p></> : <>
+      <InvoiceCategoryPicker categories={invoiceKind === "sales" ? SALES_INVOICE_CATEGORIES : MANUAL_INVOICE_CATEGORIES} values={categories} onChange={values => onCategoriesChange(values.includes("PMS") && values.length > 1 ? (values.at(-1) === "PMS" ? ["PMS"] : values.filter(value => value !== "PMS")) : values)} />
+      <p className="text-xs text-muted-foreground">{invoiceKind === "sales" ? "Select one or more categories (required)." : "Select one or more. Bill non-contract PMS separately from other categories."}</p>
     </>}
     </div>
   </div>;
 }
 
 export default function ServiceInvoicesClient({
-  isAdmin,
+  isAdmin, invoiceKind = "service",
 }: {
-  isAdmin: boolean;
+  isAdmin: boolean; invoiceKind?: "service" | "sales";
 }) {
+  const isSales = invoiceKind === "sales";
+  const invoiceLabel = isSales ? "Sales Invoice" : "Service Invoice";
+  const invoicePath = `/dashboard/${invoiceKind}-invoices`;
+  const serviceInvoiceService = useMemo(() => createInvoiceService(invoiceKind), [invoiceKind]);
+  const categoryChoices = isSales ? SALES_INVOICE_CATEGORIES : MANUAL_INVOICE_CATEGORIES;
+  const [loadedOrderItemsId, setLoadedOrderItemsId] = useState("");
+  const [loadedEditOrderItemsId, setLoadedEditOrderItemsId] = useState("");
+  const [orderItemsError, setOrderItemsError] = useState("");
+  const [assignedPicUserId, setAssignedPicUserId] = useState("");
+  const [editAssignedPicUserId, setEditAssignedPicUserId] = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
   const viewDrRaw = searchParams.get("viewDR");
@@ -154,7 +166,7 @@ export default function ServiceInvoicesClient({
     if (tab === "summary") query.set("tab", tab);
     else query.delete("tab");
     router.replace(
-      `/dashboard/service-invoices${query.size ? `?${query}` : ""}`,
+      `${invoicePath}${query.size ? `?${query}` : ""}`,
       { scroll: false },
     );
   };
@@ -310,7 +322,7 @@ export default function ServiceInvoicesClient({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [serviceInvoiceService]);
 
   /* Upload a scanned Service Invoice for a specific invoice number */
   const handleUploadClick = (invoiceNo: string) => {
@@ -328,7 +340,7 @@ export default function ServiceInvoicesClient({
         uploadTarget,
         file,
       );
-      toast.success(`Scanned Service Invoice uploaded for ${uploadTarget}.`);
+      toast.success(`Scanned ${invoiceLabel} uploaded for ${uploadTarget}.`);
       setInvoices((prev) =>
         prev.map((inv) =>
           inv.invoiceNo === uploadTarget
@@ -377,7 +389,7 @@ export default function ServiceInvoicesClient({
   useEffect(() => {
     (async () => {
       try {
-        const raw = sessionStorage.getItem("siPrefill");
+        const raw = sessionStorage.getItem(isSales ? "salesInvoicePrefill" : "siPrefill");
         if (!raw) return;
         const prefill = JSON.parse(raw);
         if (!prefill.drNumber) return;
@@ -409,7 +421,7 @@ export default function ServiceInvoicesClient({
           const releases: ContractRelease[] = await response.json();
           const contract = pmsContractForDelivery(dr.drNumber, customer.companyId, releases, availableContracts);
           setContracts(availableContracts);
-          if (contract) {
+          if (!isSales && contract) {
             setBillingMode("PMS_CONTRACT");
             setSelectedContractId(contract.id);
             setCreateCategories([]);
@@ -422,13 +434,13 @@ export default function ServiceInvoicesClient({
         if (customer) setSelectedCustomer(customer.companyId);
 
         // Only clear sessionStorage after the match attempt succeeds
-        sessionStorage.removeItem("siPrefill");
+        sessionStorage.removeItem(isSales ? "salesInvoicePrefill" : "siPrefill");
         setModalOpen(true);
       } catch {
         toast.error("Failed to prepare the invoice from the delivery receipt. Please try Create SR again.");
       }
     })();
-  }, []);
+  }, [isSales]);
 
   /* Eligible application users for manual Service Invoice handover. */
   useEffect(() => {
@@ -500,6 +512,37 @@ export default function ServiceInvoicesClient({
     return () => { cancelled = true; };
   }, [modalOpen, editTarget]);
 
+  useEffect(() => {
+    if (!isSales || !modalOpen || !linkedSalesOrderId) return;
+    let active = true;
+    salesOrderService.get(linkedSalesOrderId).then(detail => {
+      if (!active) return;
+      setOrderItemsError("");
+      setLineItems(detail.items.filter(item => item.lineStatus === "ACTIVE" && item.priceSource !== "NOT_PRICED" && !item.quotationLineReference.endsWith(":SHIPPING")).map(item => ({
+        salesOrderItemId: item.salesOrderItemId, productId: item.productId,
+        description: item.description, quantity: Math.max(0, (item.quantity ?? 0) - item.cancelledQty),
+        unitPrice: (item.unitPrice ?? 0) * (item.taxMode === "VAT_EXCLUSIVE" ? 1 + item.taxRate : 1),
+      })).filter(item => item.quantity > 0));
+      setCreateCategories(detail.category.split(" / ").filter(category => SALES_INVOICE_CATEGORIES.some(allowed => allowed === category)));
+    }).catch(() => { if (active) { setOrderItemsError("Failed to load Sales Order items. Reselect the order to retry."); toast.error("Failed to load Sales Order items. Reselect the order to retry."); } }).finally(() => { if (active) setLoadedOrderItemsId(linkedSalesOrderId); });
+    return () => { active = false; };
+  }, [isSales, modalOpen, linkedSalesOrderId]);
+
+  useEffect(() => {
+    if (!isSales || !editTarget || !editSalesOrderId || editSalesOrderId === editTarget.salesOrderId) return;
+    let active = true;
+    salesOrderService.get(editSalesOrderId).then(detail => {
+      if (!active) return;
+      setOrderItemsError("");
+      setEditLineItems(detail.items.filter(item => item.lineStatus === "ACTIVE" && item.priceSource !== "NOT_PRICED" && !item.quotationLineReference.endsWith(":SHIPPING")).map(item => ({ salesOrderItemId: item.salesOrderItemId, productId: item.productId, description: item.description, quantity: Math.max(0, (item.quantity ?? 0) - item.cancelledQty), unitPrice: (item.unitPrice ?? 0) * (item.taxMode === "VAT_EXCLUSIVE" ? 1 + item.taxRate : 1) })).filter(item => item.quantity > 0));
+      setEditManualCategories(detail.category.split(" / ").filter(category => SALES_INVOICE_CATEGORIES.some(allowed => allowed === category)));
+    }).catch(() => { if (active) { setOrderItemsError("Failed to load Sales Order items. Reselect the order to retry."); toast.error("Failed to load Sales Order items."); } }).finally(() => { if (active) setLoadedEditOrderItemsId(editSalesOrderId); });
+    return () => { active = false; };
+  }, [isSales, editTarget, editSalesOrderId]);
+
+  const loadingOrderItems = isSales && modalOpen && !!linkedSalesOrderId && loadedOrderItemsId !== linkedSalesOrderId;
+  const loadingEditOrderItems = isSales && !!editTarget && !!editSalesOrderId && editSalesOrderId !== editTarget.salesOrderId && loadedEditOrderItemsId !== editSalesOrderId;
+
   /* Auto-select customer when user picks a Linked DR */
   useEffect(() => {
     if (!linkedDrNumber || companies.length === 0) return;
@@ -551,7 +594,7 @@ export default function ServiceInvoicesClient({
   useEffect(() => {
     if (!modalOpen && !editTarget) return;
     salesOrderService
-      .list({ pageSize: 1000, view: "services" })
+      .list({ pageSize: 1000, view: "all" })
       .then((result) => {
         const orders = result.rows
           .filter(
@@ -723,7 +766,7 @@ export default function ServiceInvoicesClient({
           const invoice = row.original;
           const label = String(getValue() || "Uncategorized");
           const editable =
-            invoice.categorySource !== "automatic" &&
+            (isSales || invoice.categorySource !== "automatic") &&
             (label === "Uncategorized" ||
               invoice.categorySource === "manual") &&
             !["cancelled", "void", "deleted"].includes(invoice.status);
@@ -745,6 +788,11 @@ export default function ServiceInvoicesClient({
             label
           );
         },
+      },
+      {
+        accessorKey: isSales ? "assignedPicName" : "assignedTechnicianName",
+        header: isSales ? "Assigned PIC" : "Assigned Technician",
+        cell: ({ getValue }) => String(getValue() || "Unassigned"),
       },
       {
         accessorKey: "preparedBy",
@@ -922,7 +970,7 @@ export default function ServiceInvoicesClient({
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 onClick={() => handleUploadClick(row.original.invoiceNo)}
                 disabled={uploading}
-                title="Upload scanned Service Invoice"
+                title={`Upload scanned ${invoiceLabel}`}
               >
                 {uploading && uploadTarget === row.original.invoiceNo ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -930,7 +978,7 @@ export default function ServiceInvoicesClient({
                   <Upload className="h-4 w-4" />
                 )}
               </Button>
-              {row.original.salesOrderId &&
+              {!isSales && row.original.salesOrderId &&
                 (row.original.manualCompletionStatus === "COMPLETED" ? (
                   <Button
                     variant="ghost"
@@ -956,7 +1004,7 @@ export default function ServiceInvoicesClient({
                     <CheckCircle2 className="h-4 w-4" />
                   </Button>
                 ))}
-              {row.original.serviceReportId ? (
+              {!isSales && (row.original.serviceReportId ? (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1008,7 +1056,7 @@ export default function ServiceInvoicesClient({
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              )}
+              ))}
               {!locked && (
                 <>
                   {row.original.status === "created" &&
@@ -1061,7 +1109,7 @@ export default function ServiceInvoicesClient({
         },
       },
     ],
-    [
+    [invoiceLabel, isSales, serviceInvoiceService,
       previewing,
       uploading,
       uploadTarget,
@@ -1174,6 +1222,9 @@ export default function ServiceInvoicesClient({
     setInvoiceNo("");
     setSelectedCustomer("");
     setInvoiceDate(new Date().toISOString().split("T")[0]);
+    setOrderItemsError("");
+    setLoadedOrderItemsId("");
+    setAssignedPicUserId("");
     setLineItems([]);
     setDiscountSettings(defaultDiscount());
     setLinkedDrNumber("");
@@ -1216,10 +1267,12 @@ export default function ServiceInvoicesClient({
   };
 
   const handleSaveInvoice = async () => {
+    if (loadingOrderItems || loadingEditOrderItems || orderItemsError) { toast.error(orderItemsError || "Wait for Sales Order items to load."); return; }
+    if (isSales && !assignedPicUserId) { toast.error("Assigned PIC is required for invoice delivery."); return; }
     if (billingMode === "PMS_CONTRACT" && !selectedContractId) {
       toast.error("Select a PMS contract."); return;
     }
-    if (billingMode === "REGULAR" && !linkedSalesOrderId && !drSalesOrders[linkedDrNumber] && !createCategories.length) {
+    if (billingMode === "REGULAR" && (isSales || (!linkedSalesOrderId && !drSalesOrders[linkedDrNumber])) && !createCategories.length) {
       toast.error("Select an invoice category before saving."); return;
     }
     if (!referenceMode) {
@@ -1250,11 +1303,9 @@ export default function ServiceInvoicesClient({
       toast.error("Please add at least one item.");
       return;
     }
-    if (!linkedDrNumber && !technicianId) {
-      toast.error("Assigned Technician is required before finalizing.");
-      return;
-    }
 
+
+    if (!isSales && !linkedDrNumber && !technicianId) { toast.error("Assigned Technician is required before finalizing."); return; }
     setPrinting(true);
     try {
       const payload = {
@@ -1279,6 +1330,7 @@ export default function ServiceInvoicesClient({
           : linkedSalesOrderId || undefined,
         poNo,
         trNo,
+        ...(isSales ? { assignedPicUserId } : {}),
         assignedTechnicianUserId: technicianId || undefined,
       };
       const res = await serviceInvoiceService.createAndPopulateSheet(payload);
@@ -1299,10 +1351,12 @@ export default function ServiceInvoicesClient({
   };
 
   const handleSaveDraft = async () => {
+    if (loadingOrderItems || loadingEditOrderItems || orderItemsError) { toast.error(orderItemsError || "Wait for Sales Order items to load."); return; }
+    if (isSales && !assignedPicUserId) { toast.error("Assigned PIC is required for invoice delivery."); return; }
     if (billingMode === "PMS_CONTRACT" && !selectedContractId) {
       toast.error("Select a PMS contract."); return;
     }
-    if (billingMode === "REGULAR" && !linkedSalesOrderId && !drSalesOrders[linkedDrNumber] && !createCategories.length) {
+    if (billingMode === "REGULAR" && (isSales || (!linkedSalesOrderId && !drSalesOrders[linkedDrNumber])) && !createCategories.length) {
       toast.error("Select an invoice category before saving."); return;
     }
     if (!referenceMode) {
@@ -1347,6 +1401,7 @@ export default function ServiceInvoicesClient({
           : linkedSalesOrderId || undefined,
         poNo,
         trNo,
+        ...(isSales ? { assignedPicUserId } : {}),
         assignedTechnicianUserId: technicianId || undefined,
       };
       await serviceInvoiceService.createAndPopulateSheet(payload);
@@ -1380,6 +1435,8 @@ export default function ServiceInvoicesClient({
   /* Populate edit form when target changes */
   useEffect(() => {
     if (editTarget) {
+      setOrderItemsError("");
+      setEditAssignedPicUserId(editTarget.assignedPicUserId || "");
       setEditDate(editTarget.date);
       setEditStatus(editTarget.status || "created");
       setVoidReason("");
@@ -1430,6 +1487,8 @@ export default function ServiceInvoicesClient({
 
   /* Edit save handler */
   const handleEditSave = async () => {
+    if (loadingOrderItems || loadingEditOrderItems || orderItemsError) { toast.error(orderItemsError || "Wait for Sales Order items to load."); return; }
+    if (isSales && !editAssignedPicUserId) { toast.error("Assigned PIC is required for invoice delivery."); return; }
     if (!editTarget) return;
     if (
       editReferenceMode === "SALES_ORDER" &&
@@ -1441,17 +1500,18 @@ export default function ServiceInvoicesClient({
     }
     if (editStatus !== "void") {
       if (editBillingMode === "PMS_CONTRACT" && !editContractId) { toast.error("Select a PMS contract."); return; }
-      if (editBillingMode === "REGULAR" && !editSalesOrderId && !drSalesOrders[editDrNumber] && !editManualCategories.length) { toast.error("Select an invoice category before saving."); return; }
+      if (editBillingMode === "REGULAR" && (isSales || (!editSalesOrderId && !drSalesOrders[editDrNumber])) && !editManualCategories.length) { toast.error("Select an invoice category before saving."); return; }
     }
     setEditSubmitting(true);
     try {
       const payload = {
         invoiceNo:
-          editTarget.replacesInvoiceNo && editStatus !== "draft"
+          editTarget.invoiceNo.startsWith("DRAFT-") && editStatus !== "draft"
             ? editInvoiceNo.trim()
             : undefined,
         date: editDate,
         status: editStatus,
+        discountSettings: editDiscountSettings,
         statusReason: editStatus === "void" ? voidReason : undefined,
         billingMode: editBillingMode,
         contractId: editBillingMode === "PMS_CONTRACT" ? editContractId : "",
@@ -1470,6 +1530,7 @@ export default function ServiceInvoicesClient({
         salesOrderId: editDrNumber ? null : editSalesOrderId || null,
         poNo: editPoNo,
         trNo: editTrNo,
+        ...(isSales ? { assignedPicUserId: editAssignedPicUserId } : {}),
         assignedTechnicianUserId: editTechnicianId || undefined,
       };
       const res = await serviceInvoiceService.update(
@@ -1646,7 +1707,7 @@ export default function ServiceInvoicesClient({
   const toolbarActions = (
     <>
       {isAdmin && (
-        <ServiceInvoiceReporting
+        <ServiceInvoiceReporting invoiceKind={invoiceKind}
           report={report}
           filters={appliedFilters}
           loading={loading || invalidRange}
@@ -1752,7 +1813,7 @@ export default function ServiceInvoicesClient({
             <FilterMultiSelect
               label="Invoice category"
               values={filterCategories}
-              options={[...MANUAL_INVOICE_CATEGORIES, "Uncategorized"].map(
+              options={[...categoryChoices, "Uncategorized"].map(
                 (value) => ({ value, label: value }),
               )}
               onChange={setFilterCategories}
@@ -1874,7 +1935,7 @@ export default function ServiceInvoicesClient({
       <div className="space-y-6 min-w-0">
         <DocumentRegisterHeader
           eyebrow="Invoice management"
-          title="Service Invoices"
+          title={`${invoiceLabel}s`}
           description="Review invoices, scanned copies, and payment labels."
           loading={loading}
           actions={
@@ -1903,7 +1964,7 @@ export default function ServiceInvoicesClient({
         />
         <Tabs value={activeTab} onValueChange={changeTab}>
           {isAdmin && (
-            <TabsList aria-label="Service invoice views">
+            <TabsList aria-label={`${invoiceLabel} views`}>
               <TabsTrigger value="invoices">Invoices</TabsTrigger>
               <TabsTrigger value="summary">Summary</TabsTrigger>
             </TabsList>
@@ -1912,7 +1973,7 @@ export default function ServiceInvoicesClient({
             {viewDrRaw && (
               <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-blue-800">
-                  Showing Service Invoices (SRs) linked to DR #
+                  Showing {invoiceLabel}s linked to DR #
                   <span className="font-semibold">{viewDrRaw}</span>
                   <span className="text-blue-700/70">
                     {" "}
@@ -1923,7 +1984,7 @@ export default function ServiceInvoicesClient({
                   variant="outline"
                   size="sm"
                   className="border-blue-300 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
-                  onClick={() => router.replace("/dashboard/service-invoices")}
+                  onClick={() => router.replace(invoicePath)}
                 >
                   Show All SRs
                 </Button>
@@ -1931,7 +1992,7 @@ export default function ServiceInvoicesClient({
             )}
 
             <EntityTable
-              title="Service Invoices"
+              title={`${invoiceLabel}s`}
               columns={columns}
               data={displayInvoices}
               hideHeader
@@ -1951,7 +2012,7 @@ export default function ServiceInvoicesClient({
                   invoiceNo: "Invoice",
                   date: "Date",
                   companyName: "Customer",
-                  preparedBy: "Prepared by",
+                  assignedPicName: "Assigned PIC", preparedBy: "Prepared by",
                   total: "Total",
                   status: "Status",
                   lastUpdated: "Updated",
@@ -1968,7 +2029,7 @@ export default function ServiceInvoicesClient({
                     {toolbarActions}
                   </div>
                   <Input
-                    aria-label="Search Service Invoices"
+                    aria-label={`Search ${invoiceLabel}s`}
                     placeholder="Search..."
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
@@ -1977,7 +2038,7 @@ export default function ServiceInvoicesClient({
                 </div>
                 {filterPanel}
               </div>
-              <ServiceInvoiceReporting
+              <ServiceInvoiceReporting invoiceKind={invoiceKind}
                 report={report}
                 filters={appliedFilters}
                 loading={loading}
@@ -2001,7 +2062,7 @@ export default function ServiceInvoicesClient({
               Category for invoice #{categoryTarget?.invoiceNo}
             </DialogTitle>
           </DialogHeader>
-          <InvoiceCategoryPicker
+          <InvoiceCategoryPicker categories={categoryChoices}
             values={manualCategories}
             onChange={setManualCategories}
             disabled={savingCategory}
@@ -2053,7 +2114,7 @@ export default function ServiceInvoicesClient({
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle>Create Service Invoice</DialogTitle>
+            <DialogTitle>Create {invoiceLabel}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-6">
@@ -2101,7 +2162,7 @@ export default function ServiceInvoicesClient({
               {/* The assigned technician is edited next to the Linked DR below. */}
             </div>
 
-            <InvoiceBillingFields
+            <InvoiceBillingFields invoiceKind={invoiceKind}
               mode={billingMode} contractId={selectedContractId} customerId={selectedCustomer}
               contracts={contracts} categories={createCategories} onCategoriesChange={setCreateCategories}
               automatic={!!linkedSalesOrderId || !!drSalesOrders[linkedDrNumber]}
@@ -2279,14 +2340,14 @@ export default function ServiceInvoicesClient({
                     linkedDrNumber
                       ? "Supplied by linked DR"
                       : referenceMode === "SALES_ORDER"
-                        ? "Select Service Sales Order"
+                        ? "Select Sales Order"
                         : "Not needed for legacy SO / TR number"
                   }
                 />
               </div>
               <div className="space-y-2">
                 <Label>Overall discount</Label>
-                <InvoiceDiscountEditor
+                <InvoiceDiscountEditor invoiceKind={invoiceKind}
                   orderId={
                     referenceMode === "SALES_ORDER"
                       ? linkedSalesOrderId
@@ -2333,12 +2394,15 @@ export default function ServiceInvoicesClient({
                   placeholder="Sales Order or Legacy TR Number"
                 />
               </div>
-              <div className="space-y-1.5 w-full">
+              {isSales && <div className="space-y-1.5">
+                <Label>Assigned PIC *</Label>
+                <SearchableSelect value={assignedPicUserId} onValueChange={setAssignedPicUserId} options={deliveryUsers} disabled={deliveryUsersLoading || !!deliveryUsersError} placeholder="Select invoice delivery PIC" />
+                <p className="text-xs text-muted-foreground">Responsible for delivering this invoice to the client.</p>
+                {deliveryUsersError && <p role="alert" className="text-xs text-destructive">{deliveryUsersError}</p>}
+              </div>}
+              <div hidden={isSales} className="space-y-1.5 w-full">
                 <Label>
-                  Assigned Technician{" "}
-                  {!linkedDrNumber && (
-                    <span className="text-destructive">*</span>
-                  )}
+                  Assigned Technician{" "}{!linkedDrNumber && <span className="text-destructive">*</span>}
                 </Label>
                 {linkedDrNumber ? (
                   <>
@@ -2426,15 +2490,15 @@ export default function ServiceInvoicesClient({
         >
           <DialogHeader>
             <DialogTitle>
-              Edit Service Invoice #{editTarget?.invoiceNo}
+              Edit {invoiceLabel} #{editTarget?.invoiceNo}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-6">
-            {editTarget?.replacesInvoiceNo && (
+            {editTarget?.invoiceNo.startsWith("DRAFT-") && (
               <div className="space-y-2">
                 <p>
-                  Replaces cancelled invoice #{editTarget.replacesInvoiceNo}
+                  {editTarget.replacesInvoiceNo ? `Replaces cancelled invoice #${editTarget.replacesInvoiceNo}` : "Enter the number from the physical invoice before finalizing."}
                 </p>
                 {editTarget.status === "draft" && (
                   <>
@@ -2451,7 +2515,7 @@ export default function ServiceInvoicesClient({
             {editTarget?.replacementInvoiceNo && (
               <p>Replacement invoice #{editTarget.replacementInvoiceNo}</p>
             )}
-            <InvoiceBillingFields
+            <InvoiceBillingFields invoiceKind={invoiceKind}
               mode={editBillingMode} contractId={editContractId} customerId={editTarget?.customerId || ""}
               contracts={contracts} categories={editManualCategories} onCategoriesChange={setEditManualCategories}
               automatic={!!editSalesOrderId || !!drSalesOrders[editDrNumber]}
@@ -2590,14 +2654,14 @@ export default function ServiceInvoicesClient({
                     editDrNumber
                       ? "Supplied by linked DR"
                       : editReferenceMode === "SALES_ORDER"
-                        ? "Select Service Sales Order"
+                        ? "Select Sales Order"
                         : "Not needed for legacy SO / TR number"
                   }
                 />
               </div>
               <div className="space-y-2">
                 <Label>Overall discount</Label>
-                <InvoiceDiscountEditor
+                <InvoiceDiscountEditor invoiceKind={invoiceKind}
                   orderId={
                     editReferenceMode === "SALES_ORDER"
                       ? editSalesOrderId
@@ -2644,7 +2708,13 @@ export default function ServiceInvoicesClient({
                   placeholder="Sales Order or Legacy TR Number"
                 />
               </div>
-              <div className="space-y-1.5">
+              {isSales && <div className="space-y-1.5">
+                <Label>Assigned PIC *</Label>
+                <SearchableSelect value={editAssignedPicUserId} onValueChange={setEditAssignedPicUserId} options={deliveryUsers} disabled={deliveryUsersLoading || !!deliveryUsersError} placeholder="Select invoice delivery PIC" />
+                <p className="text-xs text-muted-foreground">Responsible for delivering this invoice to the client.</p>
+                {deliveryUsersError && <p role="alert" className="text-xs text-destructive">{deliveryUsersError}</p>}
+              </div>}
+              <div hidden={isSales} className="space-y-1.5">
                 <Label>
                   Assigned Technician{" "}
                   {editDrNumber === "" && (
@@ -3056,7 +3126,7 @@ export default function ServiceInvoicesClient({
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}
-        description={`Delete service invoice "${deleteTarget?.invoiceNo}"? This cannot be undone.`}
+        description={`Delete ${invoiceLabel} "${deleteTarget?.invoiceNo}"? This cannot be undone.`}
         onConfirm={handleDeleteConfirm}
         onClose={() => setDeleteTarget(null)}
       />
