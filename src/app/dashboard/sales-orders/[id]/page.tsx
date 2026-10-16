@@ -11,6 +11,7 @@ import salesOrderService, { type SalesOrderDetail } from "@/lib/services/sales-o
 import type { SalesOrderItem } from "@/types/salesOrder";
 import { salesOrderQuotationDisplay } from "@/lib/salesOrders/quotationReference";
 import { isNotPricedLine, priceSourceLabel } from "@/lib/salesOrders/domain";
+import { SalesOrderProformaSummary } from "@/components/sales-orders/proforma-summary";
 import { money, formatDate, orderStatusBadge, fulfillmentBadge } from "@/components/sales-orders/badges";
 /**
  * A descriptive line of a single-total quotation carries no price of its own:
@@ -119,6 +120,7 @@ function DetailInner({ orderId }: { orderId: string }) {
         </CardContent>
       </Card>
       <ItemsSection detail={detail} orderId={orderId} expectedVersion={version} run={run} busy={busy} />
+      <SalesOrderProformaSummary orderId={orderId} canCreate={!["DRAFT", "CANCELLED"].includes(order.orderStatus)} />
       <ActivitySection detail={detail} />
     </div>
   );

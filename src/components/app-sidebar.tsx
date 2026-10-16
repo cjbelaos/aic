@@ -503,6 +503,11 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isItemActive("/dashboard/proforma-invoices")} tooltip="Proforma Invoices">
+                  <Link href="/dashboard/proforma-invoices"><FileText /><span>Proforma Invoices</span></Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               {!showServiceReportsInTechnicianGroup && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
