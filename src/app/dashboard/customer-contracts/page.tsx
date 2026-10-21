@@ -30,11 +30,6 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DatePicker } from "@/components/ui/date-picker"; // Import the DatePicker component
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { CompanyContactsDrawer } from "@/components/company-contacts-drawer";
 import {
   Table,
@@ -367,16 +362,14 @@ export default function CustomerContractsPage() {
           };
           if (hasNotes) {
             return (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" onClick={openNotes}>
-                    Notes
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-sm whitespace-pre-wrap break-words text-left">
+              <div className="w-64 max-w-full space-y-2">
+                <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
                   {row.original.notes}
-                </TooltipContent>
-              </Tooltip>
+                </p>
+                <Button variant="outline" size="sm" onClick={openNotes}>
+                  Edit Notes
+                </Button>
+              </div>
             );
           }
           return (
@@ -836,7 +829,7 @@ export default function CustomerContractsPage() {
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
         onExport={(rows) => exportToExcel(rows, productMap)}
-        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", paperworkStatus: "Paperwork", notarizedHardcopyStatus: "Notarized Hardcopy on File", status: "Status", actions: "Actions" } }}
+        mobileLayout={{ primary: ["companyName", "agreementType", "status", "notes"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", paperworkStatus: "Paperwork", notarizedHardcopyStatus: "Notarized Hardcopy on File", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
       />
 
