@@ -56,7 +56,10 @@ export function validateInvoiceBilling(input: {
     if (input.salesOrderId) fail("PMS contract billing must be a separate invoice without a Sales Order link.");
     if (categories.some(category => category !== "PMS")) fail("PMS and other categories must be billed on separate invoices.");
     const item = input.items[0];
-    if (input.items.length !== 1 || !item || !(contract!.serviceFeeFrequency === "Quarterly" ? /^PMS FOR THE QUARTER\b/i : /^PMS FOR THE MONTH\b/i).test(item.description.trim()) || item.quantity !== 1 || !Number.isFinite(item.unitPrice) || item.unitPrice <= 0 || item.productId || item.salesOrderItemId) fail("PMS contract billing requires one PMS charge matching the contract frequency. Bill additional services or parts separately.");
+    // Existing issued invoices retain their original frequency after a contract correction.
+    const descriptionPattern = allowInactiveContract ? /^PMS FOR THE (MONTH|QUARTER)\b/i
+      : contract!.serviceFeeFrequency === "Quarterly" ? /^PMS FOR THE QUARTER\b/i : /^PMS FOR THE MONTH\b/i;
+    if (input.items.length !== 1 || !item || !descriptionPattern.test(item.description.trim()) || item.quantity !== 1 || !Number.isFinite(item.unitPrice) || item.unitPrice <= 0 || item.productId || item.salesOrderItemId) fail("PMS contract billing requires one PMS charge matching the contract frequency. Bill additional services or parts separately.");
     if (!allowInactiveContract && contract!.serviceFeeFrequency === "Quarterly" && input.date) {
       let expected: string;
       try { expected = pmsInvoiceItem(input.date, item.unitPrice, "Quarterly", contract!.startDate).description; }

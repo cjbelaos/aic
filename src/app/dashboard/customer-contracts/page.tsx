@@ -42,6 +42,8 @@ import {
 
 import { contractRowClass, effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
 
+import { serviceFrequencyForItems } from "@/lib/contractServiceFrequency";
+
 // Services
 import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
@@ -520,6 +522,9 @@ export default function CustomerContractsPage() {
     }));
   };
 
+  const effectiveServiceFrequency = serviceFrequencyForItems(form.items, form.serviceFeeFrequency);
+  const allItemsQuarterly = form.items.length > 0 && form.items.every(item => item.frequency === "Quarterly");
+
   const removeProductRow = (index: number) => {
     setForm((prev) => ({
       ...prev,
@@ -607,7 +612,7 @@ export default function CustomerContractsPage() {
           monthlyServiceFee: form.monthlyServiceFee
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
-          serviceFeeFrequency: form.serviceFeeFrequency,
+          serviceFeeFrequency: effectiveServiceFrequency,
           paperworkStatus: form.paperworkStatus,
           notarizedHardcopyStatus: form.notarizedHardcopyStatus,
           notes: form.notes.trim(),
@@ -693,7 +698,7 @@ export default function CustomerContractsPage() {
           monthlyServiceFee: form.monthlyServiceFee
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
-          serviceFeeFrequency: form.serviceFeeFrequency,
+          serviceFeeFrequency: effectiveServiceFrequency,
           paperworkStatus: form.paperworkStatus,
           notarizedHardcopyStatus: form.notarizedHardcopyStatus,
           notes: form.notes.trim(),
@@ -1136,7 +1141,7 @@ export default function CustomerContractsPage() {
 
               {/* Monthly Service Fee */}
               <div className="space-y-1.5">
-                <Label htmlFor="cc-monthly-fee">{form.serviceFeeFrequency} Service Fee (₱)</Label>
+                <Label htmlFor="cc-monthly-fee">{effectiveServiceFrequency} Service Fee (₱)</Label>
                 <Input
                   id="cc-monthly-fee"
                   type="number"
@@ -1156,13 +1161,13 @@ export default function CustomerContractsPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="cc-service-frequency">Contract Billing Frequency</Label>
                 <Select
-                  value={form.serviceFeeFrequency}
+                  value={effectiveServiceFrequency}
                   onValueChange={(value: "Monthly" | "Quarterly") =>
                     setForm((f) => ({ ...f, serviceFeeFrequency: value }))
                   }
                   disabled={saving}
                 >
-                  <SelectTrigger id="cc-service-frequency"><SelectValue /></SelectTrigger>
+                  <SelectTrigger disabled={allItemsQuarterly} id="cc-service-frequency"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Monthly">Monthly</SelectItem>
                     <SelectItem value="Quarterly">Quarterly</SelectItem>
@@ -1171,6 +1176,7 @@ export default function CustomerContractsPage() {
               </div>
             </div>
 
+            {allItemsQuarterly && <p className="text-xs text-muted-foreground">The service fee is charged quarterly because all entitlement items are quarterly.</p>}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5"><Label htmlFor="cc-paperwork">Paperwork Status</Label><Select value={form.paperworkStatus} onValueChange={(value: PaperworkStatus) => setForm(f => ({ ...f, paperworkStatus: value }))} disabled={saving}><SelectTrigger id="cc-paperwork"><SelectValue /></SelectTrigger><SelectContent>{["Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-1.5"><Label htmlFor="cc-hardcopy">Notarized Hardcopy on File</Label><Select value={form.notarizedHardcopyStatus} onValueChange={(value: NotarizedHardcopyStatus) => setForm(f => ({ ...f, notarizedHardcopyStatus: value }))} disabled={saving}><SelectTrigger id="cc-hardcopy"><SelectValue /></SelectTrigger><SelectContent>{["Unknown", "Yes", "No"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>

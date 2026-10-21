@@ -8,6 +8,7 @@ import {
 } from "@/types/contract";
 import { ContractConflictError, duplicateContractIds, nextContractId } from "@/lib/contractIntegrity";
 import type { sheets_v4 } from "googleapis";
+import { serviceFrequencyForItems } from "./contractServiceFrequency";
 
 const CONTRACTS_SHEET = "Contracts";
 const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:O`;
@@ -29,6 +30,15 @@ export async function getContracts(): Promise<Contract[]> {
     const rows = response.data.values;
     if (!rows || rows.length === 0) return [];
 
+    const itemResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractItems!A2:G" });
+    const itemsByContract = new Map<string, { frequency: string }[]>();
+    for (const item of itemResponse.data.values ?? []) {
+      if (!item[0] || !item[1]) continue;
+      const items = itemsByContract.get(String(item[1])) ?? [];
+      items.push({ frequency: String(item[5] ?? "Monthly") });
+      itemsByContract.set(String(item[1]), items);
+    }
+
     return rows.map((row, index): Contract => {
       return {
         id: row[0] || `CTR-${String(index + 1).padStart(4, "0")}`,
@@ -48,7 +58,7 @@ export async function getContracts(): Promise<Contract[]> {
         scannedSignedCopyDriveLink: String(row[11] ?? "").trim() || undefined,
         paperworkStatus: row[13] === "Complete" ? "Complete" : "Pending",
         notarizedHardcopyStatus: row[14] === "Yes" ? "Yes" : row[14] === "No" ? "No" : "Unknown",
-        serviceFeeFrequency: row[12] === "Quarterly" ? "Quarterly" : "Monthly",
+        serviceFeeFrequency: serviceFrequencyForItems(itemsByContract.get(String(row[0])) ?? [], row[12] === "Quarterly" ? "Quarterly" : "Monthly"),
       };
     });
   } catch (error) {

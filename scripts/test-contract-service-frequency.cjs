@@ -12,8 +12,9 @@ function load(file, mocks = {}) {
 async function main() {
   let rows = [["CTR-0001", "COMP-1", "", "Contract", "", "2026-01-01", "2026-12-31", "Active", 20000, "Notes", "soft-link", "signed-link"]];
   const writes = [];
+  let itemRows = [];
   const sheets = { spreadsheets: { values: {
-    get: async ({ range }) => ({ data: { values: range === "Contracts!A2:A" ? rows.map(row => [row[0]]) : rows } }),
+    get: async ({ range }) => ({ data: { values: range === "ContractItems!A2:G" ? itemRows : range === "Contracts!A2:A" ? rows.map(row => [row[0]]) : rows } }),
     append: async request => { rows.push(request.requestBody.values[0]); },
     update: async request => {
       writes.push(request.range);
@@ -49,6 +50,12 @@ async function main() {
   assert.equal((await storage.getContracts())[1].serviceFeeFrequency, "Quarterly", "Creation persists frequency through a fresh read");
   await storage.updateContractInSheets({ id: created.id, serviceFeeFrequency: "Monthly" });
   assert.equal((await storage.getContracts())[1].serviceFeeFrequency, "Monthly");
+  itemRows = [["CTI-1", created.id, "", "PRODUCT-1", 1, "Quarterly", "Active"]];
+  assert.equal((await storage.getContracts())[1].serviceFeeFrequency, "Quarterly", "All quarterly items override stored monthly frequency");
+  itemRows.push(["CTI-2", created.id, "", "PRODUCT-2", 1, "Monthly", "Active"]);
+  assert.equal((await storage.getContracts())[1].serviceFeeFrequency, "Monthly", "Mixed items retain selected frequency");
+  itemRows = [];
+  assert.equal((await storage.getContracts())[1].serviceFeeFrequency, "Monthly", "Service-only contracts retain selected frequency");
   console.log("Contract service frequency tests passed.");
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

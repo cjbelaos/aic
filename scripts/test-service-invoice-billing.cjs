@@ -38,6 +38,7 @@ async function main() {
   assert.equal(quarterlyItem.unitPrice, 17000, "Quarterly fee is charged as entered");
   assert.equal(billing.validateInvoiceBilling({ ...pms, items: [quarterlyItem] }, quarterlyContract).contractId, contract.id);
   assert.throws(() => billing.validateInvoiceBilling(pms, quarterlyContract), /matching the contract frequency/);
+  assert.equal(billing.validateInvoiceBilling(pms, quarterlyContract, true).contractId, contract.id, "Issued monthly invoices remain editable after correcting the contract to quarterly");
   assert.throws(() => billing.validateInvoiceBilling({ ...pms, items: [quarterlyItem] }, contract), /matching the contract frequency/);
 
   assert.throws(() => billing.validateInvoiceBilling({ ...regular, contractId: contract.id }, contract), /Choose PMS contract billing/);
