@@ -10,8 +10,8 @@ import { ContractConflictError, duplicateContractIds, nextContractId } from "@/l
 import type { sheets_v4 } from "googleapis";
 
 const CONTRACTS_SHEET = "Contracts";
-const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:M`;
-// Columns: A:I contract header, J: Notes, K: SoftCopyDriveLink, L: ScannedSignedCopyDriveLink, M: ServiceFeeFrequency
+const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:O`;
+// Columns: A:I contract header, J: Notes, K: SoftCopyDriveLink, L: ScannedSignedCopyDriveLink, M: ServiceFeeFrequency, N: PaperworkStatus, O: NotarizedHardcopyStatus
 
 /**
  * GET: Fetches all contract header rows from Google Sheets.
@@ -46,6 +46,8 @@ export async function getContracts(): Promise<Contract[]> {
         notes: String(row[9] ?? "").trim() || undefined,
         softCopyDriveLink: String(row[10] ?? "").trim() || undefined,
         scannedSignedCopyDriveLink: String(row[11] ?? "").trim() || undefined,
+        paperworkStatus: row[13] === "Complete" ? "Complete" : "Pending",
+        notarizedHardcopyStatus: row[14] === "Yes" ? "Yes" : row[14] === "No" ? "No" : "Unknown",
         serviceFeeFrequency: row[12] === "Quarterly" ? "Quarterly" : "Monthly",
       };
     });
@@ -96,7 +98,9 @@ export async function addContract(
       payload.notes ?? "", // J: Notes
       "", // K: SoftCopyDriveLink
       "", // L: ScannedSignedCopyDriveLink
-      payload.serviceFeeFrequency ?? "Monthly", // M: ServiceFeeFrequency
+      payload.serviceFeeFrequency ?? "Monthly", // M
+      payload.paperworkStatus ?? "Pending", // N
+      payload.notarizedHardcopyStatus ?? "Unknown", // O
     ];
 
     await sheets.spreadsheets.values.append({
@@ -117,6 +121,8 @@ export async function addContract(
       status: payload.status,
       monthlyServiceFee: payload.monthlyServiceFee,
       serviceFeeFrequency: payload.serviceFeeFrequency ?? "Monthly",
+      paperworkStatus: payload.paperworkStatus ?? "Pending",
+      notarizedHardcopyStatus: payload.notarizedHardcopyStatus ?? "Unknown",
       notes: payload.notes,
     };
   } catch (error) {
@@ -186,8 +192,15 @@ export async function updateContractInSheets(
       });
     }
 
+    for (const [column, value] of [["N", payload.paperworkStatus], ["O", payload.notarizedHardcopyStatus]] as const) {
+      if (value !== undefined) await sheets.spreadsheets.values.update({ spreadsheetId, range: `${CONTRACTS_SHEET}!${column}${rowNumber}`, valueInputOption: "RAW", requestBody: { values: [[value]] } });
+    }
+
     return {
+      ...existing,
       id: existing.id,
+      paperworkStatus: payload.paperworkStatus ?? existing.paperworkStatus,
+      notarizedHardcopyStatus: payload.notarizedHardcopyStatus ?? existing.notarizedHardcopyStatus,
       companyId: String(updatedValues[1]),
       description: String(updatedValues[2]) || undefined,
       agreementType: updatedValues[3] as AgreementType,

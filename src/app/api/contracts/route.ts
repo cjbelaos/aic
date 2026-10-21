@@ -69,6 +69,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (body.paperworkStatus !== undefined && !["Pending", "Complete"].includes(body.paperworkStatus)) {
+      return NextResponse.json({ error: "Paperwork status must be Pending or Complete." }, { status: 400 });
+    }
+    if (body.notarizedHardcopyStatus !== undefined && !["Unknown", "Yes", "No"].includes(body.notarizedHardcopyStatus)) {
+      return NextResponse.json({ error: "Notarized hardcopy must be Unknown, Yes, or No." }, { status: 400 });
+    }
+
     if (body.serviceFeeFrequency !== undefined && body.serviceFeeFrequency !== "Monthly" && body.serviceFeeFrequency !== "Quarterly") {
       return NextResponse.json({ error: "PMS service frequency must be Monthly or Quarterly." }, { status: 400 });
     }

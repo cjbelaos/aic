@@ -33,8 +33,8 @@ async function main() {
   assert.equal(billing.validateInvoiceBilling({ ...pms, drNumber: 3856 }, contract).billingMode, "PMS_CONTRACT", "Monthly PMS can retain its delivery receipt");
   assert.equal(pms.items[0].description, "PMS FOR THE MONTH OF OCTOBER 2026");
   const quarterlyContract = { ...contract, serviceFeeFrequency: "Quarterly" };
-  const quarterlyItem = billing.pmsInvoiceItem("2026-10-08", 17000, "Quarterly");
-  assert.equal(quarterlyItem.description, "PMS FOR THE QUARTER OF Q4 2026");
+  const quarterlyItem = billing.pmsInvoiceItem("2026-10-08", 17000, "Quarterly", "2026-02-15");
+  assert.equal(quarterlyItem.description, "PMS FOR THE QUARTER OF 2026-08-15 TO 2026-11-14");
   assert.equal(quarterlyItem.unitPrice, 17000, "Quarterly fee is charged as entered");
   assert.equal(billing.validateInvoiceBilling({ ...pms, items: [quarterlyItem] }, quarterlyContract).contractId, contract.id);
   assert.throws(() => billing.validateInvoiceBilling(pms, quarterlyContract), /matching the contract frequency/);

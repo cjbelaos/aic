@@ -1,6 +1,8 @@
 /* ── Agreement / Contract Header Types ─────────────────────── */
 export type AgreementType = "Contract" | "PO";
 export type ServiceFeeFrequency = "Monthly" | "Quarterly";
+export type PaperworkStatus = "Pending" | "Complete";
+export type NotarizedHardcopyStatus = "Unknown" | "Yes" | "No";
 export type ContractStatus = "Active" | "Expired" | "Closed" | "Inactive";
 export type FrequencyType =
   | "Monthly"
@@ -20,6 +22,8 @@ export interface Contract {
   startDate: string; // Sheet: StartDate (ISO Date string: "YYYY-MM-DD")
   endDate: string; // Sheet: EndDate (ISO Date string: "YYYY-MM-DD")
   status: ContractStatus; // Sheet: Status
+  paperworkStatus?: PaperworkStatus; // Sheet: N; legacy rows default to Pending
+  notarizedHardcopyStatus?: NotarizedHardcopyStatus; // Sheet: O; legacy rows default to Unknown
   monthlyServiceFee?: number; // Legacy Sheet: MonthlyServiceFee; amount per serviceFeeFrequency, e.g., 20000
   serviceFeeFrequency?: ServiceFeeFrequency; // Sheet: M; legacy contracts default to Monthly
   notes?: string; // Sheet: Notes (internal reference)
@@ -35,6 +39,8 @@ export interface CreateContractPayload {
   startDate: string;
   endDate: string;
   status: ContractStatus;
+  paperworkStatus?: PaperworkStatus;
+  notarizedHardcopyStatus?: NotarizedHardcopyStatus;
   monthlyServiceFee?: number;
   serviceFeeFrequency?: ServiceFeeFrequency;
   notes?: string;

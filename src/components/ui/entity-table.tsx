@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { cn } from "@/lib/utils";
 import {
   ColumnDef,
   flexRender,
@@ -66,6 +67,7 @@ interface EntityTableProps<TData> {
   onExport?: (data: TData[]) => void;
   onImport?: (file: File) => void;
   onRowClick?: (row: TData) => void;
+  getRowClassName?: (row: TData) => string;
   getRowId?: (row: TData) => string;
   mobileLayout?: {
     primary: string[];
@@ -96,6 +98,7 @@ export function EntityTable<TData>({
   onExport,
   onImport,
   onRowClick,
+  getRowClassName,
   getRowId,
   mobileLayout,
 }: EntityTableProps<TData>) {
@@ -369,7 +372,7 @@ export function EntityTable<TData>({
             const field = (cell: typeof cells[number]) => <div key={cell.id} className="min-w-0 space-y-1"><dt className="text-xs text-muted-foreground">{mobileLayout.labels[cell.column.id] ?? cell.column.id}</dt><dd className="break-words text-sm [overflow-wrap:anywhere]">{flexRender(cell.column.columnDef.cell, cell.getContext())}</dd></div>;
             const statusCell = cells.find(cell => cell.column.id === "status");
             const extra = cells.filter(cell => !mobileLayout.primary.includes(cell.column.id) && cell.column.id !== "actions");
-            return <article key={row.id} className="rounded-lg border bg-background p-4 space-y-3">
+            return <article key={row.id} className={cn("rounded-lg border bg-background p-4 space-y-3", getRowClassName?.(row.original))}>
               {statusCell && <div className="flex items-start justify-between gap-3"><span className="min-w-0 text-base font-semibold">{mobileLayout.renderTitle ? mobileLayout.renderTitle(row.original) : mobileLayout.labels[mobileLayout.primary[0]] ? String(row.getValue(mobileLayout.primary[0]) ?? "") : "Record"}</span><span className="shrink-0">{flexRender(statusCell.column.columnDef.cell, statusCell.getContext())}</span></div>}
               <dl className="grid grid-cols-1 gap-3">{mobileLayout.primary.filter(id => id !== "status" && !(statusCell && id === mobileLayout.primary[0])).map(id => cells.find(cell => cell.column.id === id)).filter(cell => !!cell).map(field)}</dl>
               {extra.length > 0 && <details><summary className="cursor-pointer py-3 text-sm font-medium">More details</summary><dl className="grid gap-3">{extra.map(field)}</dl></details>}
@@ -411,7 +414,7 @@ export function EntityTable<TData>({
                   <TableRow
                     key={row.id}
                     onClick={() => onRowClick?.(row.original)}
-                    className={onRowClick ? "cursor-pointer" : undefined}
+                    className={`${onRowClick ? "cursor-pointer" : ""} ${getRowClassName?.(row.original) ?? ""}`}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id}>

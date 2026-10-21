@@ -45,6 +45,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { contractRowClass, effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
+
 // Services
 import companyService from "@/lib/services/company.service";
 import productService from "@/lib/services/product.service";
@@ -56,6 +58,8 @@ import {
   ContractWithItems,
   AgreementType,
   ContractStatus,
+  PaperworkStatus,
+  NotarizedHardcopyStatus,
   FrequencyType,
 } from "@/types/contract";
 import { Company } from "@/types/company";
@@ -106,8 +110,10 @@ function exportToExcel(
     { header: "Start Date", key: "startDate", width: 15 },
     { header: "End Date", key: "endDate", width: 15 },
     { header: "Status", key: "status", width: 12 },
+    { header: "Paperwork", key: "paperworkStatus", width: 16 },
+    { header: "Notarized Hardcopy on File", key: "notarizedHardcopyStatus", width: 28 },
     { header: "Service Fee", key: "monthlyServiceFee", width: 20 },
-    { header: "PMS Service Frequency", key: "serviceFeeFrequency", width: 22 },
+    { header: "Contract Billing Frequency", key: "serviceFeeFrequency", width: 22 },
     { header: "Entitlement Items", key: "items", width: 60 },
   ];
 
@@ -119,9 +125,11 @@ function exportToExcel(
       poNumber: contract.poNumber || "",
       startDate: contract.startDate,
       endDate: contract.endDate,
-      status: contract.status,
+      status: effectiveContractStatus(contract),
+      paperworkStatus: contract.paperworkStatus ?? "Pending",
+      notarizedHardcopyStatus: contract.notarizedHardcopyStatus ?? "Unknown",
       monthlyServiceFee: contract.monthlyServiceFee ?? "",
-      serviceFeeFrequency: contract.items.length === 0 && (contract.monthlyServiceFee ?? 0) > 0 ? (contract.serviceFeeFrequency ?? "Monthly") : "",
+      serviceFeeFrequency: contract.serviceFeeFrequency ?? "Monthly",
       items: contract.items
         .map((item) => `${productMap.get(item.productId || item.productCode) || item.productCode} (${item.productCode}) — ${item.entitledQty} / ${item.frequency}`)
         .join("; "),
@@ -161,6 +169,8 @@ interface CustomerContractFormState {
   startDate: Date | undefined; // Changed from string to Date
   endDate: Date | undefined; // Changed from string to Date
   status: ContractStatus;
+  paperworkStatus: PaperworkStatus;
+  notarizedHardcopyStatus: NotarizedHardcopyStatus;
   monthlyServiceFee: string;
   serviceFeeFrequency: "Monthly" | "Quarterly";
   notes: string;
@@ -182,6 +192,8 @@ const EMPTY_FORM: CustomerContractFormState = {
   startDate: undefined,
   endDate: undefined,
   status: "Active",
+  paperworkStatus: "Pending",
+  notarizedHardcopyStatus: "Unknown",
   monthlyServiceFee: "",
   serviceFeeFrequency: "Monthly",
   notes: "",
@@ -195,6 +207,15 @@ interface GroupedCustomerContract extends ContractWithItems {
 
 /* ── Page ───────────────────────────────────────────────── */
 export default function CustomerContractsPage() {
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [paperworkFilter, setPaperworkFilter] = useState("All");
+  const [today, setToday] = useState(() => manilaToday());
+  useEffect(() => {
+    const refresh = () => setToday(manilaToday());
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, []);
   const [data, setData] = useState<ContractWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [referencesLoaded, setReferencesLoaded] = useState(false);
@@ -249,6 +270,11 @@ export default function CustomerContractsPage() {
   }, [data, companyMap]);
 
   /* ── Columns Definition ───────────────────────────────── */
+  const filteredContracts = useMemo(() => groupedContracts.filter(contract =>
+    (statusFilter === "All" || effectiveContractStatus(contract, today) === statusFilter) &&
+    (paperworkFilter === "All" || (contract.paperworkStatus ?? "Pending") === paperworkFilter)
+  ), [groupedContracts, statusFilter, paperworkFilter, today]);
+
   const columns = useMemo<ColumnDef<GroupedCustomerContract>[]>(
     () => [
       {
@@ -308,14 +334,17 @@ export default function CustomerContractsPage() {
         ),
       },
       {
-        accessorKey: "status",
+        id: "status",
+        accessorFn: contract => effectiveContractStatus(contract, today),
         header: "Status",
         cell: ({ row }) => {
-          const status = row.original.status;
+          const status = effectiveContractStatus(row.original, today);
           const variant = status === "Active" ? "default" : "destructive";
           return <Badge variant={variant}>{status}</Badge>;
         },
       },
+      { accessorKey: "paperworkStatus", header: "Paperwork", cell: ({ row }) => <Badge variant="outline">{row.original.paperworkStatus ?? "Pending"}</Badge> },
+      { accessorKey: "notarizedHardcopyStatus", header: "Notarized Hardcopy on File", cell: ({ row }) => row.original.notarizedHardcopyStatus ?? "Unknown" },
       {
         accessorKey: "monthlyServiceFee",
         id: "monthlyServiceFee",
@@ -375,7 +404,7 @@ export default function CustomerContractsPage() {
         ),
       },
     ],
-    [productMap],
+    [today],
   );
 
   const loadContracts = useCallback(async () => {
@@ -473,6 +502,8 @@ export default function CustomerContractsPage() {
       startDate: row.startDate ? new Date(row.startDate) : undefined,
       endDate: row.endDate ? new Date(row.endDate) : undefined,
       status: row.status,
+      paperworkStatus: row.paperworkStatus ?? "Pending",
+      notarizedHardcopyStatus: row.notarizedHardcopyStatus ?? "Unknown",
       monthlyServiceFee:
         row.monthlyServiceFee != null ? String(row.monthlyServiceFee) : "",
       serviceFeeFrequency: row.serviceFeeFrequency ?? "Monthly",
@@ -583,7 +614,9 @@ export default function CustomerContractsPage() {
           monthlyServiceFee: form.monthlyServiceFee
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
-          serviceFeeFrequency: form.items.length === 0 ? form.serviceFeeFrequency : "Monthly",
+          serviceFeeFrequency: form.serviceFeeFrequency,
+          paperworkStatus: form.paperworkStatus,
+          notarizedHardcopyStatus: form.notarizedHardcopyStatus,
           notes: form.notes.trim(),
         });
 
@@ -667,7 +700,9 @@ export default function CustomerContractsPage() {
           monthlyServiceFee: form.monthlyServiceFee
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
-          serviceFeeFrequency: form.items.length === 0 ? form.serviceFeeFrequency : "Monthly",
+          serviceFeeFrequency: form.serviceFeeFrequency,
+          paperworkStatus: form.paperworkStatus,
+          notarizedHardcopyStatus: form.notarizedHardcopyStatus,
           notes: form.notes.trim(),
         });
 
@@ -789,14 +824,19 @@ export default function CustomerContractsPage() {
       <EntityTable
         title="Customer Contracts"
         columns={columns}
-        data={groupedContracts}
+        data={filteredContracts}
+        getRowClassName={contractRowClass}
+        toolbarFilters={<div className="flex flex-wrap gap-3">
+          <div><Label htmlFor="contract-status-filter">Contract Status</Label><Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger id="contract-status-filter"><SelectValue /></SelectTrigger><SelectContent>{["All", ...CONTRACT_STATUS_OPTIONS].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label htmlFor="paperwork-status-filter">Paperwork Status</Label><Select value={paperworkFilter} onValueChange={setPaperworkFilter}><SelectTrigger id="paperwork-status-filter"><SelectValue /></SelectTrigger><SelectContent>{["All", "Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
+        </div>}
         loading={loading}
         onCreateNew={openCreate}
         onView={setViewTarget}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
         onExport={(rows) => exportToExcel(rows, productMap)}
-        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", status: "Status", actions: "Actions" } }}
+        mobileLayout={{ primary: ["companyName", "agreementType", "status"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", paperworkStatus: "Paperwork", notarizedHardcopyStatus: "Notarized Hardcopy on File", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
       />
 
@@ -851,9 +891,11 @@ export default function CustomerContractsPage() {
                 <div><p className="text-xs text-muted-foreground">PO Number</p><p className="mt-1 font-medium">{viewTarget.poNumber || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Start Date</p><p className="mt-1 font-medium">{viewTarget.startDate || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">End Date</p><p className="mt-1 font-medium">{viewTarget.endDate || "—"}</p></div>
-                <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={viewTarget.status === "Active" ? "default" : "destructive"}>{viewTarget.status}</Badge></div></div>
+                <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={effectiveContractStatus(viewTarget, today) === "Active" ? "default" : "destructive"}>{effectiveContractStatus(viewTarget, today)}</Badge></div></div>
+                <div><p className="text-xs text-muted-foreground">Paperwork</p><p>{viewTarget.paperworkStatus ?? "Pending"}</p></div>
+                <div><p className="text-xs text-muted-foreground">Notarized Hardcopy on File</p><p>{viewTarget.notarizedHardcopyStatus ?? "Unknown"}</p></div>
                 <div><p className="text-xs text-muted-foreground">{viewTarget.serviceFeeFrequency ?? "Monthly"} Service Fee</p><p className="mt-1 font-medium">{formatCurrency(viewTarget.monthlyServiceFee)}</p></div>
-                {viewTarget.items.length === 0 && (viewTarget.monthlyServiceFee ?? 0) > 0 && <div><p className="text-xs text-muted-foreground">PMS Service Frequency</p><p className="mt-1 font-medium">{viewTarget.serviceFeeFrequency ?? "Monthly"}</p></div>}
+                {(viewTarget.monthlyServiceFee ?? 0) > 0 && <div><p className="text-xs text-muted-foreground">Contract Billing Frequency</p><p className="mt-1 font-medium">{viewTarget.serviceFeeFrequency ?? "Monthly"}</p></div>}
                 {viewTarget.description && <div className="col-span-2"><p className="text-xs text-muted-foreground">Description</p><p className="mt-1 font-medium">{viewTarget.description}</p></div>}
                 {viewTarget.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p className="mt-1 whitespace-pre-wrap font-medium">{viewTarget.notes}</p></div>}
               </div>
@@ -1101,7 +1143,7 @@ export default function CustomerContractsPage() {
 
               {/* Monthly Service Fee */}
               <div className="space-y-1.5">
-                <Label htmlFor="cc-monthly-fee">Monthly Service Fee (₱)</Label>
+                <Label htmlFor="cc-monthly-fee">{form.serviceFeeFrequency} Service Fee (₱)</Label>
                 <Input
                   id="cc-monthly-fee"
                   type="number"
@@ -1117,9 +1159,9 @@ export default function CustomerContractsPage() {
               </div>
             </div>
 
-            {form.items.length === 0 && (
+            <div>
               <div className="space-y-1.5">
-                <Label htmlFor="cc-service-frequency">PMS Service Frequency</Label>
+                <Label htmlFor="cc-service-frequency">Contract Billing Frequency</Label>
                 <Select
                   value={form.serviceFeeFrequency}
                   onValueChange={(value: "Monthly" | "Quarterly") =>
@@ -1134,8 +1176,12 @@ export default function CustomerContractsPage() {
                   </SelectContent>
                 </Select>
               </div>
-            )}
+            </div>
 
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5"><Label htmlFor="cc-paperwork">Paperwork Status</Label><Select value={form.paperworkStatus} onValueChange={(value: PaperworkStatus) => setForm(f => ({ ...f, paperworkStatus: value }))} disabled={saving}><SelectTrigger id="cc-paperwork"><SelectValue /></SelectTrigger><SelectContent>{["Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-1.5"><Label htmlFor="cc-hardcopy">Notarized Hardcopy on File</Label><Select value={form.notarizedHardcopyStatus} onValueChange={(value: NotarizedHardcopyStatus) => setForm(f => ({ ...f, notarizedHardcopyStatus: value }))} disabled={saving}><SelectTrigger id="cc-hardcopy"><SelectValue /></SelectTrigger><SelectContent>{["Unknown", "Yes", "No"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
+            </div>
             {/* Product Items Section */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">

@@ -993,7 +993,7 @@ async function updateServiceInvoice(
     const billingMode = payload.billingMode ?? currentMetadata.billingMode ?? (contractId ? "PMS_CONTRACT" : "REGULAR");
     const billing = newStatus === "void"
       ? { billingMode: currentMetadata.billingMode ?? (currentRow[10] ? "PMS_CONTRACT" as const : "REGULAR" as const), contractId: String(currentRow[10] ?? ""), manualCategories: currentMetadata.manualCategories ?? [] }
-      : validateBilling({ billingMode, contractId, customerId: payload.customerId ?? String(currentRow[2] ?? ""), salesOrderId: references.salesOrderId, drNumber: linkedDrNumber, manualCategories: payload.manualCategories ?? currentMetadata.manualCategories, items: discountItems }, contractId ? (await getContracts()).find(contract => contract.id === contractId) : undefined, oldStatus !== "draft" && contractId === String(currentRow[10] ?? ""));
+      : validateBilling({ date: payload.date ?? String(currentRow[1] ?? "").trim(), billingMode, contractId, customerId: payload.customerId ?? String(currentRow[2] ?? ""), salesOrderId: references.salesOrderId, drNumber: linkedDrNumber, manualCategories: payload.manualCategories ?? currentMetadata.manualCategories, items: discountItems }, contractId ? (await getContracts()).find(contract => contract.id === contractId) : undefined, oldStatus !== "draft" && contractId === String(currentRow[10] ?? ""));
     const billingHistory = [...(currentMetadata.billingHistory ?? [])];
     if (billing.contractId !== String(currentRow[10] ?? "")) billingHistory.push({ fromContractId: String(currentRow[10] ?? ""), toContractId: billing.contractId, billingMode: billing.billingMode, changedBy: userId, changedAt: updatedAt });
     const previousDiscount = invoiceDiscountSnapshot(currentMetadata.discountData);
