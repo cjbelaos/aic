@@ -15,7 +15,7 @@ import {
 } from "@/types/deliveryReceipt";
 import { getDeliveryItems, renameDeliveryItemReferences, replaceDeliveryItems } from "@/lib/transactionItemSheets";
 import { getUserById, getUsers } from "@/lib/userSheets";
-import { ensureAutomaticDocumentHandover } from "@/lib/documentHandoverSheets";
+import { commitDocumentWithHandover } from "@/lib/documentHandoverCommit";
 import {
   deliveryReferenceFromRow,
   deliveryReferenceRowValues,
@@ -455,12 +455,21 @@ export async function processDeliveryReceipt(
       referenceRow.salesOrderId, // S: immutable SalesOrderId
     ];
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: DELIVERY_RECEIPTS_RANGE,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [headerRow] },
-    });
+    if (!isDraft) {
+      await commitDocumentWithHandover(
+        { sheet: "DeliveryReceipts", row: headerRow },
+        { documentType: "delivery_receipt", documentNumber: String(drNumber), customerName: companyName,
+          assignedToId: payload.deliveredById, assignedToName: payload.deliveredBy,
+          assigneeType: payload.deliveredByType || "internal", assignedBy: userId, assignedByName: payload.preparedBy || userId },
+      );
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: DELIVERY_RECEIPTS_RANGE,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [headerRow] },
+      });
+    }
 
     // 3b. Log item rows to DeliveryReceiptItems sheet
     await replaceDeliveryItems(drNumber, payload.items);
@@ -532,11 +541,6 @@ export async function processDeliveryReceipt(
       } catch (e) {
         console.warn("PDF export failed (will use print URL fallback):", e);
       }
-    }
-
-    if (!isDraft) {
-      const assignment = await ensureAutomaticDocumentHandover({ documentType: "delivery_receipt", documentNumber: String(drNumber), customerName: companyName, assignedToId: payload.deliveredById, assignedToName: payload.deliveredBy, assigneeType: payload.deliveredByType || "internal", assignedBy: userId, assignedByName: payload.preparedBy || userId });
-      if (assignment.outcome === "unassigned") throw new Error("Delivery Receipt was saved, but its Document Tracker assignment could not be created because no valid Delivered By user was found.");
     }
 
     return {
@@ -695,12 +699,24 @@ export async function updateDeliveryReceipt(
       referenceRow.salesOrderId, // S: immutable SalesOrderId (cleared for a legacy TR Number)
     ];
 
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [updatedRow] },
-    });
+    const companies = await getCompanies().catch(() => []);
+    const company = companies.find(c => c.companyId === updatedRow[2] || c.id === updatedRow[2]);
+    if (!["draft", "deleted", "cancelled", "void"].includes(newStatus)) {
+      await commitDocumentWithHandover(
+        { sheet: "DeliveryReceipts", row: updatedRow, rowNumber: drRowNumber },
+        { documentType: "delivery_receipt", documentNumber: String(effectiveDrNumber), customerName: company?.companyName || updatedRow[2],
+          assignedToId: String(updatedRow[15] || ""), assignedToName: String(updatedRow[8] || ""),
+          assigneeType: updatedRow[16] === "external" ? "external" : "internal",
+          assignedBy: userId, assignedByName: String(updatedRow[7] || userId) },
+      );
+    } else {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [updatedRow] },
+      });
+    }
 
     // ── Log status change to DRStatusHistory if status actually changed ──
     if (newStatus !== oldStatus) {
@@ -730,16 +746,6 @@ export async function updateDeliveryReceipt(
       await replaceDeliveryItems(effectiveDrNumber, payload.items);
     }
 
-    const companies = await getCompanies().catch(() => []);
-    const company = companies.find(
-      (c) => c.companyId === updatedRow[2] || c.id === updatedRow[2],
-    );
-    if (newStatus !== "draft") {
-      let deliveredById = String(updatedRow[15] ?? "").trim();
-      if (!deliveredById) { const matches = (await getUsers()).filter((user) => user.fullName.trim().toLowerCase() === String(updatedRow[8] ?? "").trim().toLowerCase()); if (matches.length === 1) deliveredById = matches[0].userId; }
-      const assigneeType = String(updatedRow[16] ?? "internal") === "external" ? "external" : "internal";
-      if (deliveredById || assigneeType === "external") await ensureAutomaticDocumentHandover({ documentType: "delivery_receipt", documentNumber: String(effectiveDrNumber), customerName: company?.companyName || updatedRow[2], assignedToId: deliveredById || undefined, assignedToName: String(updatedRow[8] ?? ""), assigneeType, assignedBy: userId, assignedByName: String(updatedRow[7] ?? userId) });
-    }
     return {
       drNumber: effectiveDrNumber,
       date: updatedRow[1],

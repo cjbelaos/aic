@@ -1,3 +1,4 @@
+import { commitDocumentWithHandover } from "@/lib/documentHandoverCommit";
 import { allocateInvoiceDiscounts, resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot, type InvoiceDiscountData } from "./serviceInvoiceDiscounts";
 import { parseInvoiceMetadata, paymentStatusFor, validatePaymentStatus, assertUnpaid, requireStatusReason, type InvoiceTrackingData } from "./serviceInvoiceTracking";
 import {
@@ -749,14 +750,27 @@ async function processServiceInvoice(
     if (SERVICE_INVOICES_HEADERS.some((expected, index) => actualHeaders[index] !== expected)) {
       throw new Error("ServiceInvoices headers do not match the expected A:U columns. Invoice was not saved.");
     }
-    const appendResponse = await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: SERVICE_INVOICES_APPEND_RANGE,
-      valueInputOption: "USER_ENTERED",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: [headerRow] },
-    });
-    const appendedRow = appendedRowNumber(appendResponse.data.updates?.updatedRange, SERVICE_INVOICES_SHEET, "U", 1);
+    let trackerAssignmentOutcome: ServiceInvoiceResponse["trackerAssignmentOutcome"];
+    let trackerAssignmentWarning: string | undefined;
+    let appendedRow: number;
+    if (invoiceKind === "service" && !isDraft) {
+      trackerAssignmentOutcome = await commitDocumentWithHandover(
+        { sheet: "ServiceInvoices", row: headerRow },
+        { documentType: "service_invoice", documentNumber: invoiceNo, customerName: companyName,
+          assignedToId: technicianId, assignedToName: technicianName, assignedBy: userId,
+          assignedByName: payload.preparedBy || userId },
+      );
+      appendedRow = await findInvoiceRow(sheets, spreadsheetId, invoiceNo);
+    } else {
+      const appendResponse = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: SERVICE_INVOICES_APPEND_RANGE,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [headerRow] },
+      });
+      appendedRow = appendedRowNumber(appendResponse.data.updates?.updatedRange, SERVICE_INVOICES_SHEET, "U", 1);
+    }
     const savedRow = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${SERVICE_INVOICES_SHEET}!A${appendedRow}:U${appendedRow}`,
@@ -790,9 +804,7 @@ async function processServiceInvoice(
       discountData = allocations[invoiceNo] ?? discountData;
       hydrateInvoiceDiscount(payload.items, discountData);
     }
-    let trackerAssignmentOutcome: ServiceInvoiceResponse["trackerAssignmentOutcome"];
-    let trackerAssignmentWarning: string | undefined;
-    if (!isDraft && deliveryPic.assignedPicUserId) {
+    if (invoiceKind === "sales" && !isDraft && deliveryPic.assignedPicUserId) {
       try {
         const assignment = await ensureAutomaticDocumentHandover({
           documentType: (invoiceKind === "sales" ? "sales_invoice" : "service_invoice"),
@@ -1067,12 +1079,25 @@ async function updateServiceInvoice(
       payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // U: ReferenceMode
     ];
 
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:U${rowNumber}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [updatedRow] },
-    });
+    let trackerAssignmentOutcome: ServiceInvoiceSummary["trackerAssignmentOutcome"];
+    let trackerAssignmentWarning: string | undefined;
+    const companies = await getCompanies().catch(() => []);
+    const company = companies.find(c => c.companyId === updatedRow[2] || c.id === updatedRow[2]);
+    if (invoiceKind === "service" && ["created", "paid"].includes(newStatus)) {
+      trackerAssignmentOutcome = await commitDocumentWithHandover(
+        { sheet: "ServiceInvoices", row: updatedRow, rowNumber },
+        { documentType: "service_invoice", documentNumber: effectiveInvoiceNo, customerName: company?.companyName || updatedRow[2],
+          assignedToId: technicianIdForRow, assignedToName: technicianNameForRow,
+          assignedBy: userId, assignedByName: updatedRow[3] || userId },
+      );
+    } else {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:U${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [updatedRow] },
+      });
+    }
 
     // If a draft was promoted but items were not included in this update,
     // re-key the existing item rows so they point at the new invoice number
@@ -1123,13 +1148,7 @@ async function updateServiceInvoice(
       }
     }
 
-    const companies = await getCompanies().catch(() => []);
-    const company = companies.find(
-      (c) => c.companyId === updatedRow[2] || c.id === updatedRow[2],
-    );
-    let trackerAssignmentOutcome: ServiceInvoiceSummary["trackerAssignmentOutcome"];
-    let trackerAssignmentWarning: string | undefined;
-    if (isFinal && deliveryPic.assignedPicUserId) {
+    if (invoiceKind === "sales" && isFinal && deliveryPic.assignedPicUserId) {
       try {
         const assignment = await ensureAutomaticDocumentHandover({
           documentType: (invoiceKind === "sales" ? "sales_invoice" : "service_invoice"),

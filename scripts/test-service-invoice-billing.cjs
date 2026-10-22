@@ -69,8 +69,9 @@ async function main() {
     update: async request => { writes.push(request.requestBody.values[0]); throw stop; },
   } } };
   const storage = load("src/lib/serviceInvoiceSheets.ts", {
+    "@/lib/documentHandoverCommit": { commitDocumentWithHandover: async source => { writes.push(source.row); throw stop; } },
     "@/lib/googleSheets": { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => "fixture" },
-    "@/lib/companySheets": { getCustomers: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }] },
+    "@/lib/companySheets": { getCompanies: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }], getCustomers: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }] },
     "@/lib/userSheets": { getUserById: async id => ({ userId: id, fullName: "Technician" }) },
     "@/lib/contractSheets": { getContracts: async () => [contract] },
     "@/lib/serviceInvoiceBilling": billing,

@@ -70,6 +70,11 @@ async function main() {
     update, batchUpdate: async ({ requestBody }) => { for (const data of requestBody.data) await update({ range: data.range, requestBody: { values: data.values } }); return { data: {} }; },
   } } };
   const repository = load("src/lib/invoiceRepository.ts", {
+    "@/lib/documentHandoverCommit": { commitDocumentWithHandover: async (source, entry) => {
+      if (source.rowNumber) await update({ range: `${source.sheet}!A${source.rowNumber}:U${source.rowNumber}`, requestBody: { values: [source.row] } });
+      else db[source.sheet].push([...source.row]);
+      handovers.push(entry); return "created";
+    } },
     "@/lib/googleSheets": { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => "in-memory" },
     "@/lib/companySheets": { getCustomers: async () => [{ companyId: "C1", companyName: "Fixture Customer" }], getCompanies: async () => [{ companyId: "C1", companyName: "Fixture Customer" }] },
     "@/lib/userSheets": { getUserById: async id => id === "invalid" ? undefined : { userId: id, fullName: `User ${id}` } },
