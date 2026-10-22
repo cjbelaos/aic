@@ -40,7 +40,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { contractRowClass, effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
+import { effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
 
 import { serviceFrequencyForItems } from "@/lib/contractServiceFrequency";
 
@@ -287,14 +287,14 @@ export default function CustomerContractsPage() {
           </Button>
         ),
         cell: ({ row }) => (
-          <span className="font-semibold">{row.original.companyName}</span>
+          <span className="block min-w-52 max-w-72 whitespace-normal font-semibold leading-relaxed">{row.original.companyName}</span>
         ),
       },
       {
         accessorKey: "agreementType",
-        header: "Agreement Type",
+        header: "Agreement",
         cell: ({ row }) => (
-          <Badge variant="secondary" className="text-[10px]">
+          <Badge variant="secondary" className="text-xs">
             {row.original.agreementType}
           </Badge>
         ),
@@ -336,18 +336,22 @@ export default function CustomerContractsPage() {
         header: "Status",
         cell: ({ row }) => {
           const status = effectiveContractStatus(row.original, today);
-          const variant = status === "Active" ? "default" : "destructive";
-          return <Badge variant={variant}>{status}</Badge>;
+          const tone = status === "Active"
+            ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+            : status === "Expired"
+              ? "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-400"
+              : "bg-muted text-muted-foreground";
+          return <Badge variant="outline" className={tone}>{status}</Badge>;
         },
       },
-      { accessorKey: "paperworkStatus", header: "Paperwork", cell: ({ row }) => <Badge variant="outline">{row.original.paperworkStatus ?? "Pending"}</Badge> },
-      { accessorKey: "notarizedHardcopyStatus", header: "Notarized Hardcopy on File", cell: ({ row }) => row.original.notarizedHardcopyStatus ?? "Unknown" },
+      { accessorKey: "paperworkStatus", header: "Paperwork", cell: ({ row }) => <Badge variant="outline" className={row.original.paperworkStatus === "Complete" ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-400"}>{row.original.paperworkStatus ?? "Pending"}</Badge> },
+      { accessorKey: "notarizedHardcopyStatus", header: () => <span className="block whitespace-normal leading-tight">Notarized copy<br /><span className="font-normal text-muted-foreground">on file</span></span>, cell: ({ row }) => row.original.notarizedHardcopyStatus ?? "Unknown" },
       {
         accessorKey: "monthlyServiceFee",
         id: "monthlyServiceFee",
         header: "Service Fee",
         cell: ({ row }) => (
-          <span className="text-xs font-mono text-foreground">
+          <span className="text-sm font-medium tabular-nums text-foreground">
             {formatCurrency(row.original.monthlyServiceFee)}{(row.original.monthlyServiceFee ?? 0) > 0 && <span className="ml-1 text-xs text-muted-foreground">/ {row.original.serviceFeeFrequency === "Quarterly" ? "quarter" : "month"}</span>}
           </span>
         ),
@@ -362,26 +366,20 @@ export default function CustomerContractsPage() {
             setNotesTarget(row.original);
             setNotesDraft(row.original.notes || "");
           };
-          if (hasNotes) {
-            return (
-              <div className="w-64 max-w-full space-y-2">
-                <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
-                  {row.original.notes}
-                </p>
-                <Button variant="outline" size="sm" onClick={openNotes}>
-                  Edit Notes
-                </Button>
-              </div>
-            );
-          }
           return (
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
               onClick={openNotes}
+              aria-label={`${hasNotes ? "Edit" : "Add"} notes for ${row.original.companyName}`}
+              className="group block w-48 max-w-full rounded-md p-2 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              Add Notes
-            </Button>
+              {hasNotes ? (
+                <>
+                  <span className="line-clamp-2 whitespace-normal break-words leading-relaxed">{row.original.notes}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground group-hover:text-foreground">Edit notes</span>
+                </>
+              ) : <span className="text-muted-foreground group-hover:text-foreground">+ Add notes</span>}
+            </button>
           );
         },
       },
@@ -819,15 +817,41 @@ export default function CustomerContractsPage() {
 
   return (
     <>
+      <div className="space-y-6 [&_td]:py-3 [&_th]:bg-muted/40 [&_th]:text-xs [&_th]:text-muted-foreground">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Customer Contracts</h1>
+          <p className="text-sm text-muted-foreground">Manage customer agreements, paperwork, and product entitlements.</p>
+        </div>
+        <Button onClick={openCreate} className="shrink-0 gap-2"><Plus className="size-4" />New contract</Button>
+      </header>
       <EntityTable
         title="Customer Contracts"
+        hideHeader
+        hideImportButton
         columns={columns}
         data={filteredContracts}
-        getRowClassName={contractRowClass}
-        toolbarFilters={<div className="flex flex-wrap gap-3">
-          <div><Label htmlFor="contract-status-filter">Contract Status</Label><Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger id="contract-status-filter"><SelectValue /></SelectTrigger><SelectContent>{["All", ...CONTRACT_STATUS_OPTIONS].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label htmlFor="paperwork-status-filter">Paperwork Status</Label><Select value={paperworkFilter} onValueChange={setPaperworkFilter}><SelectTrigger id="paperwork-status-filter"><SelectValue /></SelectTrigger><SelectContent>{["All", "Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
-        </div>}
+        belowToolbar={
+          <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="space-y-2 sm:w-48">
+              <Label htmlFor="contract-status-filter" className="text-xs font-medium text-muted-foreground">Contract status</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger id="contract-status-filter" className="w-full bg-background"><SelectValue /></SelectTrigger>
+                <SelectContent>{["All", ...CONTRACT_STATUS_OPTIONS].map(value => <SelectItem key={value} value={value}>{value === "All" ? "All statuses" : value}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 sm:w-48">
+              <Label htmlFor="paperwork-status-filter" className="text-xs font-medium text-muted-foreground">Paperwork status</Label>
+              <Select value={paperworkFilter} onValueChange={setPaperworkFilter}>
+                <SelectTrigger id="paperwork-status-filter" className="w-full bg-background"><SelectValue /></SelectTrigger>
+                <SelectContent>{["All", "Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value === "All" ? "All paperwork" : value}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            {(statusFilter !== "All" || paperworkFilter !== "All") && (
+              <Button variant="ghost" onClick={() => { setStatusFilter("All"); setPaperworkFilter("All"); }}>Clear filters</Button>
+            )}
+          </div>
+        }
         loading={loading}
         onCreateNew={openCreate}
         onView={setViewTarget}
@@ -837,6 +861,7 @@ export default function CustomerContractsPage() {
         mobileLayout={{ primary: ["companyName", "agreementType", "status", "notes"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", paperworkStatus: "Paperwork", notarizedHardcopyStatus: "Notarized Hardcopy on File", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
       />
+      </div>
 
       <Dialog
         open={!!notesTarget}
@@ -991,11 +1016,11 @@ export default function CustomerContractsPage() {
         }}
       >
         <DialogContent
-          className="sm:max-w-6xl max-h-[90vh] overflow-y-auto"
+          className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
-          <DialogHeader>
+          <DialogHeader className="shrink-0 border-b px-4 py-5 pr-12 text-left sm:px-6">
             <DialogTitle>
               {editTarget ? "Edit Customer Contract" : "Add Customer Contract"}
             </DialogTitle>
@@ -1004,15 +1029,17 @@ export default function CustomerContractsPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5 py-2">
-            {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="min-h-0 overflow-y-auto space-y-5 px-4 py-5 sm:px-6">
+            {error && <p role="alert" className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
 
-            {/* Contract Header Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <section className="space-y-4 rounded-xl border bg-muted/10 p-4 sm:p-5">
+              <h3 className="text-sm font-semibold">Agreement details</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* Customer Name */}
               <div className="space-y-1.5">
                 <Label htmlFor="cc-customer">Customer *</Label>
                 <SearchableSelect
+                  triggerProps={{ id: "cc-customer" }}
                   value={form.customerId}
                   onValueChange={(v) =>
                     setForm((f) => ({ ...f, customerId: v }))
@@ -1023,7 +1050,6 @@ export default function CustomerContractsPage() {
                   disabled={saving || !!editTarget}
                 />
               </div>
-
               {/* Agreement Type */}
               <div className="space-y-1.5">
                 <Label htmlFor="cc-agreement-type">Agreement Type *</Label>
@@ -1046,35 +1072,6 @@ export default function CustomerContractsPage() {
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Description */}
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="cc-description">Description (Optional)</Label>
-                <Input
-                  id="cc-description"
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, description: e.target.value }))
-                  }
-                  disabled={saving}
-                  placeholder="Contract description"
-                />
-              </div>
-
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="cc-notes">Notes (Internal)</Label>
-                <Textarea
-                  id="cc-notes"
-                  value={form.notes}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, notes: e.target.value }))
-                  }
-                  disabled={saving}
-                  placeholder="Follow-up reminders, renewal discussions, or other internal notes"
-                  rows={3}
-                />
-              </div>
-
               {/* PO Number */}
               <div className="space-y-1.5">
                 <Label htmlFor="cc-po-number">PO Number (Optional)</Label>
@@ -1088,34 +1085,6 @@ export default function CustomerContractsPage() {
                   placeholder="Purchase Order Number"
                 />
               </div>
-
-              {/* Start Date - Updated to use DatePicker */}
-              <div className="space-y-1.5">
-                <Label htmlFor="cc-start-date">Start Date *</Label>
-                <DatePicker
-                  value={form.startDate}
-                  onChange={(date) =>
-                    setForm((f) => {
-                      const nextYear = date ? new Date(date) : undefined;
-                      if (nextYear) nextYear.setFullYear(nextYear.getFullYear() + 1);
-                      return { ...f, startDate: date, endDate: nextYear };
-                    })
-                  }
-                />
-              </div>
-
-              {/* End Date - Updated to use DatePicker */}
-              <div className="space-y-1.5">
-                <Label htmlFor="cc-end-date">End Date *</Label>
-                <DatePicker
-                  value={form.endDate}
-                  onChange={(date) => setForm((f) => ({ ...f, endDate: date }))}
-                  disabled={form.startDate ? { before: form.startDate } : undefined}
-                  startMonth={todayStart}
-                  endMonth={endDateMax}
-                />
-              </div>
-
               {/* Status */}
               <div className="space-y-1.5">
                 <Label htmlFor="cc-status">Status *</Label>
@@ -1138,7 +1107,59 @@ export default function CustomerContractsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* Description */}
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="cc-description">Description (Optional)</Label>
+                <Input
+                  id="cc-description"
+                  value={form.description}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, description: e.target.value }))
+                  }
+                  disabled={saving}
+                  placeholder="Contract description"
+                />
+              </div>
+              </div>
+            </section>
 
+            <section className="space-y-4 rounded-xl border bg-muted/10 p-4 sm:p-5">
+              <h3 className="text-sm font-semibold">Contract period</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Start Date - Updated to use DatePicker */}
+              <div className="space-y-1.5">
+                <Label htmlFor="cc-start-date">Start Date *</Label>
+                <DatePicker
+                  id="cc-start-date"
+                  disabled={saving}
+                  value={form.startDate}
+                  onChange={(date) =>
+                    setForm((f) => {
+                      const nextYear = date ? new Date(date) : undefined;
+                      if (nextYear) nextYear.setFullYear(nextYear.getFullYear() + 1);
+                      return { ...f, startDate: date, endDate: nextYear };
+                    })
+                  }
+                />
+              </div>
+              {/* End Date - Updated to use DatePicker */}
+              <div className="space-y-1.5">
+                <Label htmlFor="cc-end-date">End Date *</Label>
+                <DatePicker
+                  id="cc-end-date"
+                  value={form.endDate}
+                  onChange={(date) => setForm((f) => ({ ...f, endDate: date }))}
+                  disabled={saving || (form.startDate ? { before: form.startDate } : undefined)}
+                  startMonth={todayStart}
+                  endMonth={endDateMax}
+                />
+              </div>
+              </div>
+            </section>
+
+            <section className="space-y-4 rounded-xl border bg-muted/10 p-4 sm:p-5">
+              <h3 className="text-sm font-semibold">Service billing</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* Monthly Service Fee */}
               <div className="space-y-1.5">
                 <Label htmlFor="cc-monthly-fee">{effectiveServiceFrequency} Service Fee (₱)</Label>
@@ -1155,9 +1176,6 @@ export default function CustomerContractsPage() {
                   placeholder="e.g., 20000"
                 />
               </div>
-            </div>
-
-            <div>
               <div className="space-y-1.5">
                 <Label htmlFor="cc-service-frequency">Contract Billing Frequency</Label>
                 <Select
@@ -1167,24 +1185,42 @@ export default function CustomerContractsPage() {
                   }
                   disabled={saving}
                 >
-                  <SelectTrigger disabled={allItemsQuarterly} id="cc-service-frequency"><SelectValue /></SelectTrigger>
+                  <SelectTrigger disabled={allItemsQuarterly} id="cc-service-frequency" className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Monthly">Monthly</SelectItem>
                     <SelectItem value="Quarterly">Quarterly</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            </div>
+              {allItemsQuarterly && <p className="text-xs text-muted-foreground sm:col-span-2">Billing is quarterly because every product entitlement renews quarterly.</p>}
+              </div>
+            </section>
 
-            {allItemsQuarterly && <p className="text-xs text-muted-foreground">The service fee is charged quarterly because all entitlement items are quarterly.</p>}
+            <section className="space-y-4 rounded-xl border bg-muted/10 p-4 sm:p-5">
+              <h3 className="text-sm font-semibold">Paperwork &amp; internal notes</h3>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5"><Label htmlFor="cc-paperwork">Paperwork Status</Label><Select value={form.paperworkStatus} onValueChange={(value: PaperworkStatus) => setForm(f => ({ ...f, paperworkStatus: value }))} disabled={saving}><SelectTrigger id="cc-paperwork"><SelectValue /></SelectTrigger><SelectContent>{["Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
-              <div className="space-y-1.5"><Label htmlFor="cc-hardcopy">Notarized Hardcopy on File</Label><Select value={form.notarizedHardcopyStatus} onValueChange={(value: NotarizedHardcopyStatus) => setForm(f => ({ ...f, notarizedHardcopyStatus: value }))} disabled={saving}><SelectTrigger id="cc-hardcopy"><SelectValue /></SelectTrigger><SelectContent>{["Unknown", "Yes", "No"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-1.5"><Label htmlFor="cc-paperwork">Paperwork Status</Label><Select value={form.paperworkStatus} onValueChange={(value: PaperworkStatus) => setForm(f => ({ ...f, paperworkStatus: value }))} disabled={saving}><SelectTrigger id="cc-paperwork" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{["Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-1.5"><Label htmlFor="cc-hardcopy">Notarized Hardcopy on File</Label><Select value={form.notarizedHardcopyStatus} onValueChange={(value: NotarizedHardcopyStatus) => setForm(f => ({ ...f, notarizedHardcopyStatus: value }))} disabled={saving}><SelectTrigger id="cc-hardcopy" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{["Unknown", "Yes", "No"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
             </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="cc-notes">Notes (Internal)</Label>
+                <Textarea
+                  id="cc-notes"
+                  value={form.notes}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, notes: e.target.value }))
+                  }
+                  disabled={saving}
+                  placeholder="Follow-up reminders, renewal discussions, or other internal notes"
+                  rows={3}
+                />
+              </div>
+            </section>
+
             {/* Product Items Section */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-base font-semibold">Product Items</Label>
+                <h3 className="text-sm font-semibold">Product entitlements <span className="ml-1 text-muted-foreground">({form.items.length})</span></h3>
                 <Button
                   type="button"
                   variant="outline"
@@ -1199,14 +1235,14 @@ export default function CustomerContractsPage() {
               {form.items.length === 0 && (
                 <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
                   No product items. This contract is service-only — just set the
-                  service fee and PMS frequency above.
+                  service fee and billing frequency above.
                 </p>
               )}
 
               {form.items.map((item, index) => (
                 <div
                   key={item.id || `new-${index}`}
-                  className="p-3 border rounded-lg bg-card/50 space-y-3 relative"
+                  className="rounded-xl border bg-muted/10 p-4 space-y-4"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-muted-foreground">
@@ -1220,14 +1256,15 @@ export default function CustomerContractsPage() {
                       onClick={() => removeProductRow(index)}
                       disabled={saving}
                       title="Remove item"
+                      aria-label={`Remove item ${index + 1}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {/* Product Selection */}
-                    <div className="space-y-1 sm:col-span-2">
+                    <div className="space-y-1.5 sm:col-span-3">
                       <Label className="text-xs">Product *</Label>
                       <SearchableSelect
                         value={item.productId}
@@ -1284,7 +1321,7 @@ export default function CustomerContractsPage() {
                     </div>
 
                     {/* Status */}
-                    <div className="space-y-1 sm:col-span-2">
+                    <div className="space-y-1.5">
                       <Label className="text-xs">Item Status</Label>
                       <Select
                         value={item.status}
@@ -1308,7 +1345,7 @@ export default function CustomerContractsPage() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t bg-background px-4 py-4 sm:px-6">
             <Button
               variant="outline"
               onClick={() => setModalOpen(false)}

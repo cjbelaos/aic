@@ -53,6 +53,7 @@ interface EntityTableProps<TData> {
   onSearchChange?: (value: string) => void;
   belowToolbar?: React.ReactNode;
   hideTransferButtons?: boolean;
+  hideImportButton?: boolean;
   columns: ColumnDef<TData>[];
   data: TData[];
   loading?: boolean;
@@ -86,6 +87,7 @@ export function EntityTable<TData>({
   onSearchChange,
   belowToolbar,
   hideTransferButtons = false,
+  hideImportButton = false,
   columns,
   data,
   loading = false,
@@ -319,7 +321,7 @@ export function EntityTable<TData>({
             </Button>
 
             {/* Import */}
-            <>
+            {!hideImportButton && <>
               <input
                 ref={importRef}
                 type="file"
@@ -337,7 +339,7 @@ export function EntityTable<TData>({
                 <Upload className="h-3.5 w-3.5" />
                 Import
               </Button>
-            </>
+            </>}
             </>}
           </div>
 
