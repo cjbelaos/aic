@@ -44,6 +44,8 @@ export interface DocumentHandover {
   unassignedBy?: string;
   unassignedByName?: string;
   unassignedAt?: string;
+  /** Derived from the source invoice at read time; not persisted. */
+  sourceStatusNote?: string;
   notes?: string;
 }
 

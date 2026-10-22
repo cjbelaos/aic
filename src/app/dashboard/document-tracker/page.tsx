@@ -717,18 +717,16 @@ export default function DocumentTrackerPage() {
         },
       },
       {
-        accessorKey: "notes",
+        id: "notes",
+        accessorFn: record => [record.sourceStatusNote, record.notes].filter(Boolean).join("\n"),
         header: "Notes",
-        cell: ({ getValue }) => {
-          const val = String(getValue() ?? "").trim();
-          return val ? (
-            <span className="text-xs text-muted-foreground truncate max-w-[200px] block">
-              {val}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground italic">—</span>
-          );
-        },
+        cell: ({ row }) => (
+          <div className="max-w-[260px] space-y-1 whitespace-normal break-words text-xs">
+            {row.original.sourceStatusNote && <p className="font-medium text-amber-700 dark:text-amber-400">{row.original.sourceStatusNote}</p>}
+            {row.original.notes && <p className="whitespace-pre-wrap text-muted-foreground">{row.original.notes}</p>}
+            {!row.original.sourceStatusNote && !row.original.notes && <span className="text-muted-foreground">?</span>}
+          </div>
+        ),
       },
       {
         id: "actions",
@@ -767,7 +765,7 @@ export default function DocumentTrackerPage() {
       record.assignedToName,
       record.assignedAt,
       record.status,
-      record.notes,
+      [record.sourceStatusNote, record.notes].filter(Boolean).join("\n"),
     ]);
     const csv = [headers, ...rows].map((row) => row.map(escapeCsvValue).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));

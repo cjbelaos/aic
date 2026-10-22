@@ -5,6 +5,8 @@ import {
 } from "@/lib/auth/session";
 import { getDocumentHandovers } from "@/lib/documentHandoverSheets";
 import { isAfterSalesDocumentReceiver } from "@/lib/documentHandoverWorkflow";
+import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
+import { annotateInvoiceStatuses } from "@/lib/documentTrackerNotes";
 
 /**
  * GET /api/document-handovers
@@ -36,6 +38,13 @@ export async function GET(request: NextRequest) {
       }
     } else {
       handovers = handovers.filter((h) => h.assignedToId === session.userId);
+    }
+
+    if (filter !== "stats" && handovers.some(h => h.documentType === "service_invoice")) {
+      const sheets = await getSheetsClient();
+      const spreadsheetId = await getDatabaseSpreadsheetId();
+      const invoices = await sheets.spreadsheets.values.get({ spreadsheetId, range: "ServiceInvoices!A2:I" });
+      handovers = annotateInvoiceStatuses(handovers, invoices.data.values ?? []);
     }
 
     let data;
