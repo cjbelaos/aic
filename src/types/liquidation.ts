@@ -63,6 +63,15 @@ export interface Liquidation {
   approvedBySignatureUrl?: string;
   approvedDate?: string;
   approvalComment?: string;
+  /** Cash return metadata is independent of approval (Liquidations P:T). */
+  returnDate?: string;
+  returnEvidenceFileId?: string;
+  returnEvidenceName?: string;
+  returnUpdatedBy?: string;
+  returnUpdatedAt?: string;
+  /** Capabilities computed by the server, never trusted for authorization. */
+  canViewReturn?: boolean;
+  canRecordReturn?: boolean;
   // ── Audit columns (appended at the end of the Liquidations sheet) ──
   createdBy?: string;
   createdAt?: string;

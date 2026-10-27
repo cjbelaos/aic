@@ -11,7 +11,7 @@ import type {
 // ── Constants ──
 const LIQUIDATIONS_SHEET = "Liquidations";
 const RECEIPT_ITEMS_SHEET = "ReceiptItems";
-const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:O`; // A=liquidationId, B=controlNo, C=userId, D=totalAmount, E=status, F=approvedByUserId, G=approvedByName, H=approvedBySignatureUrl, I=approvedDate, J=approvalComment, K=totalAmountRequested, L=createdBy, M=createdAt, N=updatedBy, O=updatedAt
+const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:T`; // A:O existing fields; P:T return date, evidence ID/name, return updated by/at
 const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:AF`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=miscellaneousCode, F=amount, G=receiptImageUrl, …:AB extended receipt columns, AC=createdBy, AD=createdAt, AE=updatedBy, AF=updatedAt
 
 // ── Simple TTL Cache (matches ftiSheets.ts pattern) ──
@@ -35,7 +35,7 @@ function cacheSet(key: string, value: unknown): void {
   cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
 }
 
-function invalidateLiquidationCache(): void {
+export function invalidateLiquidationCache(): void {
   for (const [key] of cache) {
     if (
       key.startsWith("liq:liquidations") ||
@@ -138,6 +138,11 @@ async function getAllLiquidationsRaw(): Promise<Liquidation[]> {
       createdAt: (row[12] || "").toString().trim() || undefined,
       updatedBy: (row[13] || "").toString().trim() || undefined,
       updatedAt: (row[14] || "").toString().trim() || undefined,
+      returnDate: (row[15] || "").toString().trim() || undefined,
+      returnEvidenceFileId: (row[16] || "").toString().trim() || undefined,
+      returnEvidenceName: (row[17] || "").toString().trim() || undefined,
+      returnUpdatedBy: (row[18] || "").toString().trim() || undefined,
+      returnUpdatedAt: (row[19] || "").toString().trim() || undefined,
     }))
     .filter((entry) => entry.liquidationId.length > 0);
 }
@@ -605,9 +610,13 @@ export async function updateLiquidationRequestedAmount(
   updatedBy = "System",
 ): Promise<void> {
   const spreadsheetId = await getDatabaseSpreadsheetId();
-  const all = await getAllLiquidations();
+  const all = await getAllLiquidationsRaw();
   const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
   if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found`);
+  if (all[idx].userId !== updatedBy) throw new Error("You can only update your own liquidation.");
+  if (!["SAVED", "REQUESTED_FOR_CHANGE"].includes(all[idx].status.toUpperCase())) {
+    throw new Error("The cash advance can only be changed before approval.");
+  }
   const sheets = await getSheetsClient();
   const safe = Math.max(0, parseFloat(String(totalAmountRequested)) || 0);
   await sheets.spreadsheets.values.update({
