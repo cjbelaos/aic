@@ -1,6 +1,7 @@
 import type { DiscountSettings } from "../lib/discounts.ts";
 export type InvoicePaymentStatus = "unpaid" | "partial" | "full";
 export interface InvoiceTrackingFields {
+  serviceContext?: import("../lib/serviceInvoicePresentation").ServiceInvoiceContext;
   invoiceKind?: "service" | "sales";
   assignedPicUserId?: string;
   assignedPicName?: string;
@@ -14,6 +15,9 @@ export interface InvoiceTrackingFields {
 }
 
 export interface ServiceInvoiceItem {
+  includedInPackage?: boolean;
+  /** Render-only row; never persisted as an invoice charge. */
+  notation?: boolean;
   salesOrderItemId?: string;
   discountSettings?: DiscountSettings;
   discountAmount?: number;

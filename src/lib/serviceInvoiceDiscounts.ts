@@ -6,11 +6,11 @@ export interface InvoiceDiscountData {
   sourceVersion?: number;
   discountSettings?: DiscountSettings;
   discountAmount: number;
-  itemDiscounts: Array<{ salesOrderItemId?: string; discountSettings?: DiscountSettings; discountAmount: number }>;
+  itemDiscounts: Array<{ includedInPackage?: boolean; salesOrderItemId?: string; discountSettings?: DiscountSettings; discountAmount: number }>;
 }
 export function invoiceTotals(invoice: { items: readonly ServiceInvoiceItem[]; discountAmount?: number; invoiceKind?: "service" | "sales" }) {
-  const subtotal = roundCurrency(invoice.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0));
-  const discount = invoice.discountAmount ?? invoice.items.reduce((sum, item) => sum + (item.discountAmount ?? 0), 0);
+  const subtotal = roundCurrency(invoice.items.reduce((sum, item) => sum + (item.includedInPackage ? 0 : item.quantity * item.unitPrice), 0));
+  const discount = invoice.discountAmount ?? invoice.items.reduce((sum, item) => sum + (item.includedInPackage ? 0 : item.discountAmount ?? 0), 0);
   const grandTotal = roundCurrency(subtotal - discount);
   const vat = roundCurrency(grandTotal * 12 / 112);
   const amountNetOfVat = roundCurrency(grandTotal - vat);
@@ -25,11 +25,12 @@ export function invoiceTotals(invoice: { items: readonly ServiceInvoiceItem[]; d
 }
 
 /** Linked orders always win over client-supplied discounts. Snapshot for other statuses. */
-export function resolveInvoiceDiscount(items: readonly ServiceInvoiceItem[], manual?: DiscountSettings, source?: { order: SalesOrder; items: readonly SalesOrderItem[] }, invoiceKind: "service" | "sales" = "service"): InvoiceDiscountData {
-  const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+function resolveInvoiceDiscountInternal(items: readonly ServiceInvoiceItem[], manual?: DiscountSettings, source?: { order: SalesOrder; items: readonly SalesOrderItem[] }, invoiceKind: "service" | "sales" = "service"): InvoiceDiscountData {
+  const subtotal = items.reduce((sum, item) => sum + (item.includedInPackage ? 0 : item.quantity * item.unitPrice), 0);
   if (source && invoiceKind === "sales") {
     const active = source.items.filter(item => item.lineStatus === "ACTIVE" && item.priceSource !== "NOT_PRICED" && !item.quotationLineReference.endsWith(":SHIPPING"));
     const itemDiscounts = items.map(item => {
+    if (item.includedInPackage) return { discountAmount: 0 };
       if (!item.salesOrderItemId) return { discountAmount: 0 };
       const line = active.find(line => line.salesOrderItemId === item.salesOrderItemId);
       if (!line) throw new Error("The selected Sales Order item is not available for invoicing.");
@@ -55,6 +56,7 @@ export function resolveInvoiceDiscount(items: readonly ServiceInvoiceItem[], man
   }
   const key = (value: string) => value.trim().toUpperCase().replace(/\s+/g, " ");
   const itemDiscounts = items.map(item => {
+    if (item.includedInPackage) return { discountAmount: 0 };
     const matches = eligible.filter(line => item.salesOrderItemId ? line.salesOrderItemId === item.salesOrderItemId
       : item.productId ? line.productId === item.productId : key(line.description) === key(item.description));
     if (matches.length !== 1) throw new Error(`Select the matching Sales Order item for "${item.description}" to inherit its discount.`);
@@ -63,6 +65,11 @@ export function resolveInvoiceDiscount(items: readonly ServiceInvoiceItem[], man
     return { salesOrderItemId: line.salesOrderItemId, discountSettings: line.discountSettings ?? defaultDiscount(line.discountAmount), discountAmount: lineGross > 0 ? roundCurrency(line.discountAmount * item.quantity * item.unitPrice / lineGross) : 0 };
   });
   return { sourceVersion: source.order.version, discountSettings: settings, discountAmount: roundCurrency(itemDiscounts.reduce((sum, item) => sum + item.discountAmount, 0)), itemDiscounts };
+}
+
+export function resolveInvoiceDiscount(items: readonly ServiceInvoiceItem[], manual?: DiscountSettings, source?: { order: SalesOrder; items: readonly SalesOrderItem[] }, invoiceKind: "service" | "sales" = "service"): InvoiceDiscountData {
+  const result = resolveInvoiceDiscountInternal(items, manual, source, invoiceKind);
+  return { ...result, itemDiscounts: result.itemDiscounts.map((entry, index) => ({ ...entry, ...(items[index].includedInPackage ? { includedInPackage: true } : {}) })) };
 }
 
 export function invoiceDiscountSnapshot(value: unknown): InvoiceDiscountData | undefined {

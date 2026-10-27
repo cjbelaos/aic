@@ -123,6 +123,7 @@ export async function GET(
         date,
         preparedBy,
         preparedByPosition,
+        serviceContext: metadata.serviceContext,
         items,
         discountSettings: discountData?.discountSettings,
         discountAmount: discountData?.discountAmount,

@@ -1,6 +1,6 @@
 // ServiceInvoices row -> coarse invoice mapping — pure module.
 //
-// Column layout (16 columns, A:P) — must match the live sheet exactly:
+// Column layout (21 columns, A:U) — must match the live sheet exactly:
 //   A InvoiceNo          B Date            C CustomerId     D PreparedBy
 //   E CreatedBy          F CreatedAt       G UpdatedBy      H UpdatedAt
 //   I Status             J DriveFileLink   K ContractId     L DRNo
@@ -15,6 +15,7 @@
 // focused Node tests, which run the compiled output without the Next.js "@/" path
 // alias. Never import Google or node-only APIs here.
 
+import { parseInvoiceMetadata } from "../serviceInvoiceTracking.ts";
 import type { ServiceInvoiceCoarseRow } from "../../types/serviceReport.ts";
 import { SERVICE_INVOICES_ROW_WIDTH } from "./constants.ts";
 
@@ -24,7 +25,7 @@ export function invoiceCoarseFromRow(row: unknown[]): ServiceInvoiceCoarseRow {
   const text = (value: unknown): string => String(value ?? "").trim();
   return {
     invoiceNo: text(r[0]),
-    customerId: text(r[2]),
+    customerId: parseInvoiceMetadata(r[19]).serviceContext?.serviceCompanyId || text(r[2]),
     companyName: text(r[0]),
     address: "",
     assignedTechnicianUserId: text(r[12]), // M

@@ -357,6 +357,7 @@ function CompaniesPageInner() {
   const openEdit = (row: Company) => {
     setEditTarget(row);
     setForm({
+      billingCompanyId: row.billingCompanyId || "",
       companyId: row.companyId, // kept in state for import only, not shown in form
       companyType: row.companyType,
       companyName: row.companyName,
@@ -726,6 +727,8 @@ function CompaniesPageInner() {
               />
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="co-billing">Default Service Invoice billing company (DR-linked)</Label>
+              <Input id="co-billing" value={form.billingCompanyId || ""} placeholder="Company ID, e.g. COMP-114; blank uses this company" onChange={e => setForm(f => ({ ...f, billingCompanyId: e.target.value.trim() }))} />
               <Label htmlFor="co-address">Address</Label>
               <div className="flex gap-2">
                 <Input

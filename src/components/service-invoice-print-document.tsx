@@ -1,4 +1,5 @@
 "use client";
+import { invoicePrintItems } from "@/lib/serviceInvoicePresentation";
 import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 
 import type { CSSProperties } from "react";
@@ -252,7 +253,7 @@ export default function ServiceInvoicePrintDocument({
   id = "si-html-content",
   preparedBySignatureUrl,
 }: ServiceInvoicePrintDocumentProps) {
-  const sourceItems: ServiceInvoiceItem[] = (si.items || []).slice(
+  const sourceItems: ServiceInvoiceItem[] = invoicePrintItems(si.items || [], si.serviceContext).slice(
     0,
     MAX_ITEM_ROWS,
   );
@@ -490,6 +491,7 @@ export default function ServiceInvoicePrintDocument({
                   }}
                 >
                   {item &&
+                  !item.notation &&
                   typeof item.quantity === "number" &&
                   item.quantity !== 0
                     ? item.quantity
@@ -504,6 +506,7 @@ export default function ServiceInvoicePrintDocument({
                   }}
                 >
                   {item &&
+                  !item.notation && !item.includedInPackage &&
                   typeof item.unitPrice === "number" &&
                   item.unitPrice !== 0
                     ? formatNumber(item.unitPrice)
@@ -517,7 +520,7 @@ export default function ServiceInvoicePrintDocument({
                     paddingRight: `${AMOUNT_SHIFT}px`,
                   }}
                 >
-                  {item ? (
+                  {item && !item.notation && !item.includedInPackage ? (
                     <DecimalAlignedNumber
                       value={
                         item.amount ??

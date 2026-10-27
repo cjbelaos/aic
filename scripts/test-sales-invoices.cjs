@@ -12,7 +12,7 @@ function load(file, mocks = {}) {
 
 async function main() {
   const { invoiceTotals, resolveInvoiceDiscount } = load("src/lib/serviceInvoiceDiscounts.ts");
-  const PrintDocument = load("src/components/service-invoice-print-document.tsx", { "@/lib/serviceInvoiceDiscounts": { invoiceTotals } }).default;
+  const PrintDocument = load("src/components/service-invoice-print-document.tsx", { "@/lib/serviceInvoiceDiscounts": { invoiceTotals }, "@/lib/serviceInvoicePresentation": load("src/lib/serviceInvoicePresentation.ts") }).default;
   const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
   for (const kind of ["service", "sales"]) {
     const si = { success: true, invoiceKind: kind, invoiceNo: "TEST", date: "2026-10-15", companyName: "TEST CUSTOMER", address: "TEST ADDRESS", tin: "", preparedBy: "PREPARER", assignedPicName: "HIDDEN DELIVERY PIC", status: "created", items: [{ description: "TEST ITEM", quantity: 1, unitPrice: 14000 }] };
@@ -22,7 +22,7 @@ async function main() {
     const text = html.replace(/<[^>]+>/g, "");
     assert.ok(text.includes(kind === "sales" ? "125.00" : "250.00"), "Withholding occupies the former zero row");
     fs.mkdirSync("tmp/invoice-print-check", { recursive: true });
-    fs.writeFileSync(`tmp/invoice-print-check/${kind}.html`, `<!doctype html><html><body style="margin:0;background:white">${html}</body></html>`);
+    fs.writeFileSync(`tmp/invoice-print-check/${kind}.html`, `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:white">${html}</body></html>`);
   }
   const filters = load("src/lib/serviceInvoiceFilters.ts");
   const billing = load("src/lib/serviceInvoiceBilling.ts");

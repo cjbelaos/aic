@@ -3,6 +3,7 @@ export type CompanyType = "Supplier" | "Customer" | "Both";
 export interface Company {
   id: string; // comp_<rowNumber>
   row: number; // spreadsheet data row (row 1 = header)
+  billingCompanyId?: string;
   companyId: string; // COMP-1, COMP-2, ...
   companyType: CompanyType;
   companyName: string;

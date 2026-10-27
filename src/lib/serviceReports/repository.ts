@@ -159,7 +159,7 @@ export async function listServiceInvoiceRows(): Promise<ServiceInvoiceCoarseRow[
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SERVICE_INVOICES_TAB}!A2:P`,
+    range: `${SERVICE_INVOICES_TAB}!A2:U`,
   });
   const rows = (response.data.values ?? [])
     .map(invoiceCoarseFromRow)

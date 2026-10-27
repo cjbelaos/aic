@@ -1,3 +1,4 @@
+import { invoicePrintItems, type ServiceInvoiceContext } from "./serviceInvoicePresentation";
 import { commitDocumentWithHandover } from "@/lib/documentHandoverCommit";
 import { allocateInvoiceDiscounts, resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot, type InvoiceDiscountData } from "./serviceInvoiceDiscounts";
 import { parseInvoiceMetadata, paymentStatusFor, validatePaymentStatus, assertUnpaid, requireStatusReason, type InvoiceTrackingData } from "./serviceInvoiceTracking";
@@ -16,7 +17,7 @@ import {
 } from "@/types/serviceInvoice";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
 import { getUserById } from "@/lib/userSheets";
-import { resolveDeliveryReceiptDeliveredBy, resolveDeliveryReceiptReferences } from "@/lib/deliverySheets";
+import { getDeliveryReceipts, resolveDeliveryReceiptDeliveredBy, resolveDeliveryReceiptReferences } from "@/lib/deliverySheets";
 import { ensureAutomaticDocumentHandover } from "@/lib/documentHandoverSheets";
 import { getOrderDetail, postFulfillments, type Actor } from "@/lib/salesOrders/service";
 import { getProducts } from "@/lib/productSheets";
@@ -50,7 +51,17 @@ export function createInvoiceRepository(invoiceKind: "service" | "sales") {
   };
   function validateInvoiceItems(items: ServiceInvoiceItem[], draft: boolean) {
     if (!Array.isArray(items) || (!draft && !items.length)) throw new InvoiceBillingError("At least one invoice item is required.");
+    if (items.some(item => item.notation || (item.includedInPackage !== undefined && typeof item.includedInPackage !== "boolean"))) throw new InvoiceBillingError("Invalid invoice line type.");
+    if (invoiceKind === "sales" && items.some(item => item.includedInPackage)) throw new InvoiceBillingError("Package inclusions belong to Service Invoices.");
+    for (const item of items) if (item.includedInPackage) { item.unitPrice = 0; item.amount = 0; item.discountAmount = 0; }
+    if (!draft && items.some(item => item.includedInPackage) && !items.some(item => !item.includedInPackage && item.unitPrice > 0)) throw new InvoiceBillingError("A package needs a priced item.");
     if (items.some(item => !item.description?.trim() || !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unitPrice) || item.unitPrice < 0)) throw new InvoiceBillingError("Invoice items need a description, positive quantity, and a non-negative price.");
+  }
+  async function serviceContextForDr(drNumber?: number | null): Promise<ServiceInvoiceContext> {
+    if (!drNumber) return { version: 1 };
+    const dr = (await getDeliveryReceipts()).find(row => row.drNumber === drNumber);
+    if (!dr) throw new InvoiceBillingError("The selected Delivery Receipt was not found.");
+    return { version: 1, serviceCompanyId: dr.companyId, serviceCompanyName: dr.companyName };
   }
   async function resolveInvoicePic(id: string | undefined) {
     if (!id?.trim()) throw new InvoiceBillingError("Assigned PIC is required for invoice delivery.");
@@ -456,6 +467,7 @@ async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
         return {
           invoiceNo,
           date: String(row[1] ?? "").trim(),
+          serviceContext: manualCompletion.serviceContext,
           customerId: String(row[2] ?? "").trim(),
           preparedBy: String(row[3] ?? "").trim(),
           createdBy: String(row[4] ?? "").trim() || undefined,
@@ -571,27 +583,31 @@ async function populateServiceInvoiceTemplate(
     poNo?: string;
     trNo?: string;
     items: ServiceInvoiceItem[];
+    serviceContext?: ServiceInvoiceContext;
     discountSettings?: import("./discounts").DiscountSettings;
     discountAmount?: number;
   },
 ): Promise<void> {
-  // Clear ONLY the item data area (rows 10-28, columns B-D)
-  // Column E (Amount) holds formula =Cx*Dx, so we exclude it from clear/write
+  // Write amounts explicitly so package inclusions and notation have blank cells.
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
-    range: `${PRINT_TEMPLATE_SHEET}!B${TEMPLATE_ITEM_START_ROW}:D${TEMPLATE_ITEM_END_ROW}`,
+    range: `${PRINT_TEMPLATE_SHEET}!B${TEMPLATE_ITEM_START_ROW}:E${TEMPLATE_ITEM_END_ROW}`,
   });
 
   const formattedDate = formatDateMMDDYYYY(data.date);
 
+  const amounts: Array<[string]> = [];
   const descriptions: Array<[string]> = [];
   const quantities: Array<[string]> = [];
   const unitPrices: Array<[string]> = [];
   const maxItems = TEMPLATE_ITEM_END_ROW - TEMPLATE_ITEM_START_ROW + 1;
-  data.items.slice(0, maxItems).forEach((item) => {
+  const printItems = invoicePrintItems(data.items, data.serviceContext);
+  if (printItems.length > maxItems) throw new InvoiceBillingError("Invoice exceeds the printable item rows, including service location.");
+  printItems.forEach((item) => {
     descriptions.push([normalizeDescription(item.description)]);
-    quantities.push([String(item.quantity)]);
-    unitPrices.push([String(item.unitPrice)]);
+    quantities.push([item.notation ? "" : String(item.quantity)]);
+    amounts.push([item.notation || item.includedInPackage ? "" : String(item.quantity * item.unitPrice)]);
+    unitPrices.push([item.notation || item.includedInPackage ? "" : String(item.unitPrice)]);
   });
 
   const itemCount = descriptions.length;
@@ -610,6 +626,7 @@ async function populateServiceInvoiceTemplate(
   if (itemCount > 0) {
     const lastRow = TEMPLATE_ITEM_START_ROW + itemCount - 1;
     dataValues.push(
+      { range: `${PRINT_TEMPLATE_SHEET}!E${TEMPLATE_ITEM_START_ROW}:E${lastRow}`, values: amounts },
       {
         range: `${PRINT_TEMPLATE_SHEET}!B${TEMPLATE_ITEM_START_ROW}:B${lastRow}`,
         values: descriptions,
@@ -641,6 +658,7 @@ async function processServiceInvoice(
   payload: CreateServiceInvoicePayload,
   userId = "",
   copyExistingBilling = false,
+  copiedServiceContext?: ServiceInvoiceContext,
 ): Promise<ServiceInvoiceResponse> {
   try {
     validateInvoiceItems(payload.items, payload.status === "draft");
@@ -675,6 +693,7 @@ async function processServiceInvoice(
       }
     }
 
+    const serviceContext = invoiceKind === "service" ? (copyExistingBilling ? copiedServiceContext : await serviceContextForDr(payload.drNumber)) : undefined;
     const customers = await getCustomers();
     const company = customers.find((c) => c.companyId === payload.customerId);
     if (!company)
@@ -705,15 +724,16 @@ async function processServiceInvoice(
     // that draft uses the same billing validation as any other invoice.
     const billing = copyExistingBilling && isDraft
       ? { billingMode: payload.billingMode ?? (payload.contractId ? "PMS_CONTRACT" : "REGULAR"), contractId: payload.contractId || "", manualCategories: payload.manualCategories ?? [] }
-      : validateBilling({ ...payload, salesOrderId: references.salesOrderId }, payload.contractId ? (await getContracts()).find(contract => contract.id === payload.contractId) : undefined);
+      : validateBilling({ ...payload, customerId: serviceContext?.serviceCompanyId ?? payload.customerId, salesOrderId: references.salesOrderId }, payload.contractId ? (await getContracts()).find(contract => contract.id === payload.contractId) : undefined);
     if (references.salesOrderId) {
       const order = await getOrderDetail(references.salesOrderId);
-      if (order.order.customerId !== payload.customerId) {
+      if (order.order.customerId !== (serviceContext?.serviceCompanyId ?? payload.customerId)) {
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
     let discountData = resolveDiscount(payload.items, payload.discountSettings, references.salesOrderId ? await getOrderDetail(references.salesOrderId) : undefined);
     hydrateInvoiceDiscount(payload.items, discountData);
+    if (invoicePrintItems(payload.items, serviceContext).length > TEMPLATE_ITEM_END_ROW - TEMPLATE_ITEM_START_ROW + 1) throw new InvoiceBillingError("Too many invoice lines, including the service location notation.");
     const catalogReferences = await itemCatalogReferences(payload.items);
     if (catalogReferences.some((entry) => entry.productId)) await ensureServiceInvoiceItemCatalogHeaders(sheets, spreadsheetId);
     const headerRow = [
@@ -736,7 +756,7 @@ async function processServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      JSON.stringify({ ...(invoiceKind === "sales" ? assignedPic : {}), discountData, billingMode: billing.billingMode, manualCategories: billing.manualCategories }), // T: metadata
+      JSON.stringify({ serviceContext, ...(invoiceKind === "sales" ? assignedPic : {}), discountData, billingMode: billing.billingMode, manualCategories: billing.manualCategories }), // T: metadata
       payload.referenceMode || "SALES_ORDER", // U: ReferenceMode
     ];
     if (headerRow.length !== SERVICE_INVOICES_HEADERS.length) {
@@ -836,6 +856,7 @@ async function processServiceInvoice(
       tin,
       date: payload.date,
       preparedBy: payload.preparedBy || "",
+      serviceContext,
       items: payload.items,
       discountSettings: discountData.discountSettings,
       discountAmount: discountData.discountAmount,
@@ -905,10 +926,12 @@ async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, userId:
   let replacementNo = String(existing?.[0] ?? "").trim();
   if (!replacementNo) {
     const itemRows = await findInvoiceItemRows(sheets, spreadsheetId, invoiceNo);
+    const copiedItems = itemRows.map(({ rowData }) => ({ description: String(rowData[1] ?? ""), quantity: Number(rowData[2]) || 0, unitPrice: Number(rowData[3]) || 0, productId: String(rowData[5] ?? "") || undefined, productCategoryId: String(rowData[6] ?? "") || undefined }));
+    hydrateInvoiceDiscount(copiedItems, invoiceDiscountSnapshot(metadata.discountData));
     const replacement = await processServiceInvoice({
       invoiceNo: "", status: "draft", date: String(row[1] ?? ""),
       customerId: String(row[2] ?? ""), preparedBy: String(row[3] ?? ""),
-      items: itemRows.map(({ rowData }) => ({ description: String(rowData[1] ?? ""), quantity: Number(rowData[2]) || 0, unitPrice: Number(rowData[3]) || 0, productId: String(rowData[5] ?? "") || undefined, productCategoryId: String(rowData[6] ?? "") || undefined })),
+      items: copiedItems,
       contractId: String(row[10] ?? ""), drNumber: Number(row[11]) || undefined,
       billingMode: metadata.billingMode ?? (row[10] ? "PMS_CONTRACT" : "REGULAR"),
       manualCategories: metadata.manualCategories,
@@ -917,7 +940,7 @@ async function cancelAndCreateCorrectedServiceInvoice(invoiceNo: string, userId:
       referenceMode: row[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER",
       discountSettings: invoiceDiscountSnapshot(metadata.discountData)?.discountSettings,
       poNo: String(row[16] ?? ""), trNo: String(row[17] ?? ""), salesOrderId: String(row[18] ?? "") || undefined,
-    }, userId, true);
+    }, userId, true, metadata.serviceContext);
     replacementNo = replacement.invoiceNo;
   }
   const replacementRowNumber = await findInvoiceRow(sheets, spreadsheetId, replacementNo);
@@ -983,6 +1006,9 @@ async function updateServiceInvoice(
     const linkedDrNumber = typeof requestedDrNumber === "number" && !isNaN(requestedDrNumber)
       ? requestedDrNumber
       : undefined;
+    const serviceContext = invoiceKind === "service" && currentMetadata.serviceContext
+      ? (linkedDrNumber === Number(currentRow[11]) ? currentMetadata.serviceContext : await serviceContextForDr(linkedDrNumber)) : undefined;
+    if (serviceContext && payload.customerId && payload.customerId !== String(currentRow[2]) && !(await getCustomers()).some(c => c.companyId === payload.customerId && c.status === "active")) throw new InvoiceBillingError("Choose an active billing customer.");
     const references = await resolveInvoiceReferences({
       drNumber: linkedDrNumber,
       referenceMode: payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"),
@@ -995,24 +1021,27 @@ async function updateServiceInvoice(
     if (references.salesOrderId) {
       const order = await getOrderDetail(references.salesOrderId);
       const customerId = payload.customerId ?? String(currentRow[2] ?? "").trim();
-      if (order.order.customerId !== customerId) {
+      if (order.order.customerId !== (serviceContext?.serviceCompanyId ?? customerId)) {
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
+    if (!currentMetadata.serviceContext && payload.items?.some(item => item.includedInPackage)) throw new InvoiceBillingError("Package presentation is available for new invoices only.");
     if (payload.items) validateInvoiceItems(payload.items, newStatus === "draft");
     const discountItems = payload.items ?? (await findInvoiceItemRows(sheets, spreadsheetId, invoiceNo)).map(({ rowData }) => ({ description: String(rowData[1] ?? ""), quantity: Number(rowData[2]) || 0, unitPrice: Number(rowData[3]) || 0, productId: String(rowData[5] ?? "") || undefined }));
+    if (serviceContext && invoicePrintItems(discountItems, serviceContext).length > TEMPLATE_ITEM_END_ROW - TEMPLATE_ITEM_START_ROW + 1) throw new InvoiceBillingError("Too many invoice lines, including the service location notation.");
     const contractId = payload.contractId ?? String(currentRow[10] ?? "").trim();
     const billingMode = payload.billingMode ?? currentMetadata.billingMode ?? (contractId ? "PMS_CONTRACT" : "REGULAR");
     const billing = newStatus === "void"
       ? { billingMode: currentMetadata.billingMode ?? (currentRow[10] ? "PMS_CONTRACT" as const : "REGULAR" as const), contractId: String(currentRow[10] ?? ""), manualCategories: currentMetadata.manualCategories ?? [] }
-      : validateBilling({ date: payload.date ?? String(currentRow[1] ?? "").trim(), billingMode, contractId, customerId: payload.customerId ?? String(currentRow[2] ?? ""), salesOrderId: references.salesOrderId, drNumber: linkedDrNumber, manualCategories: payload.manualCategories ?? currentMetadata.manualCategories, items: discountItems }, contractId ? (await getContracts()).find(contract => contract.id === contractId) : undefined, oldStatus !== "draft" && contractId === String(currentRow[10] ?? ""));
+      : validateBilling({ date: payload.date ?? String(currentRow[1] ?? "").trim(), billingMode, contractId, customerId: serviceContext?.serviceCompanyId ?? payload.customerId ?? String(currentRow[2] ?? ""), salesOrderId: references.salesOrderId, drNumber: linkedDrNumber, manualCategories: payload.manualCategories ?? currentMetadata.manualCategories, items: discountItems }, contractId ? (await getContracts()).find(contract => contract.id === contractId) : undefined, oldStatus !== "draft" && contractId === String(currentRow[10] ?? ""));
     const billingHistory = [...(currentMetadata.billingHistory ?? [])];
     if (billing.contractId !== String(currentRow[10] ?? "")) billingHistory.push({ fromContractId: String(currentRow[10] ?? ""), toContractId: billing.contractId, billingMode: billing.billingMode, changedBy: userId, changedAt: updatedAt });
     const previousDiscount = invoiceDiscountSnapshot(currentMetadata.discountData);
-    if (invoiceKind !== "sales" || !payload.items) hydrateInvoiceDiscount(discountItems, previousDiscount);
-    const discountData = ["draft", "created"].includes(newStatus)
+    if (!payload.items) hydrateInvoiceDiscount(discountItems, previousDiscount);
+    let discountData = ["draft", "created"].includes(newStatus)
       ? resolveDiscount(discountItems, payload.discountSettings ?? previousDiscount?.discountSettings, references.salesOrderId ? await getOrderDetail(references.salesOrderId) : undefined)
       : previousDiscount;
+    if (payload.items && discountData) discountData = { ...discountData, itemDiscounts: payload.items.map((item, index) => ({ ...discountData!.itemDiscounts[index], includedInPackage: !!item.includedInPackage, discountAmount: item.includedInPackage ? 0 : discountData!.itemDiscounts[index]?.discountAmount ?? 0 })) };
     hydrateInvoiceDiscount(discountItems, discountData);
 
     let deliveredBy: DeliveredByResolution;
@@ -1075,7 +1104,7 @@ async function updateServiceInvoice(
       references.poNo, // Q: PONumber
       references.trNo, // R: TRNumber
       references.salesOrderId || "", // S: direct SalesOrderId
-      JSON.stringify({ ...currentMetadata, ...(invoiceKind === "sales" ? assignedPic : {}), billingMode: billing.billingMode, manualCategories: billing.manualCategories, billingHistory, discountData, paymentStatus: paymentStatusFor(oldStatus, currentMetadata), ...(newStatus === "void" ? { statusReason, statusHistory: [...(Array.isArray(currentMetadata.statusHistory) ? currentMetadata.statusHistory : []), { status: "void", reason: statusReason!, changedBy: userId, changedAt: updatedAt }] } : {}) }), // T: metadata
+      JSON.stringify({ ...currentMetadata, serviceContext, ...(invoiceKind === "sales" ? assignedPic : {}), billingMode: billing.billingMode, manualCategories: billing.manualCategories, billingHistory, discountData, paymentStatus: paymentStatusFor(oldStatus, currentMetadata), ...(newStatus === "void" ? { statusReason, statusHistory: [...(Array.isArray(currentMetadata.statusHistory) ? currentMetadata.statusHistory : []), { status: "void", reason: statusReason!, changedBy: userId, changedAt: updatedAt }] } : {}) }), // T: metadata
       payload.referenceMode ?? (currentRow[20] === "TR_NUMBER" ? "TR_NUMBER" : "SALES_ORDER"), // U: ReferenceMode
     ];
 
@@ -1176,6 +1205,7 @@ async function updateServiceInvoice(
     return {
       invoiceKind,
       ...(invoiceKind === "sales" ? assignedPic : {}),
+      serviceContext,
       invoiceNo: effectiveInvoiceNo,
       date: updatedRow[1],
       customerId: updatedRow[2],
@@ -1356,6 +1386,7 @@ async function populateAndExportServiceInvoiceFormPdf(
     poNo: references.poNo,
     trNo: references.trNo,
     items,
+    serviceContext: parseInvoiceMetadata(invRow[19]).serviceContext,
     discountSettings: discountData?.discountSettings,
     discountAmount: discountData?.discountAmount,
   });

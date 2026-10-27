@@ -72,6 +72,8 @@ async function main() {
     "@/lib/documentHandoverCommit": { commitDocumentWithHandover: async source => { writes.push(source.row); throw stop; } },
     "@/lib/googleSheets": { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => "fixture" },
     "@/lib/companySheets": { getCompanies: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }], getCustomers: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }] },
+    "@/lib/deliverySheets": { getDeliveryReceipts: async () => [{ drNumber: 3941, companyId: "COMP-336", companyName: "HEMOTEK CABANATUAN" }], resolveDeliveryReceiptReferences: async () => ({ salesOrderId: "SO-TEST", poNo: "PO", trNo: "SO" }), resolveDeliveryReceiptDeliveredBy: async () => ({ deliveredById: "tech", deliveredByName: "Technician" }) },
+    "@/lib/salesOrders/service": { getOrderDetail: async () => ({ order: { customerId: "COMP-336" }, items: [] }) },
     "@/lib/userSheets": { getUserById: async id => ({ userId: id, fullName: "Technician" }) },
     "@/lib/contractSheets": { getContracts: async () => [contract] },
     "@/lib/serviceInvoiceBilling": billing,
@@ -102,6 +104,10 @@ async function main() {
     assert.deepEqual(metadata.manualCategories, ["Service"]);
     assert.equal(metadata.billingHistory[0].fromContractId, contract.id);
     assert.equal(metadata.billingHistory[0].changedBy, "tester");
+    writes = [];
+    await assert.rejects(storage.processServiceInvoice({ ...regular, invoiceNo: "1773", date: row[1], drNumber: 3941, status: "draft" }, "tester"), error => error === stop);
+    assert.equal(writes[0][2], regular.customerId, "Explicit payer override survives even when SO belongs to the service branch");
+    assert.equal(JSON.parse(writes[0][19]).serviceContext.serviceCompanyId, "COMP-336");
     writes = [];
     row[8] = "draft";
     await assert.rejects(storage.updateServiceInvoice("1721", { status: "created", billingMode: "REGULAR", contractId: "", manualCategories: [] }, "tester"), /Select an invoice category/);

@@ -7,7 +7,7 @@ import {
 } from "@/types/company";
 
 const COMPANIES_SHEET = "Companies";
-const COMPANIES_RANGE = `${COMPANIES_SHEET}!A2:H`; // A:companyId, B:companyType, C:companyName, D:tin, E:address, F:latitude, G:longitude, H:status
+const COMPANIES_RANGE = `${COMPANIES_SHEET}!A2:I`; // A:companyId, B:companyType, C:companyName, D:tin, E:address, F:latitude, G:longitude, H:status
 
 function getRowFromId(id: string): number {
   const rowStr = id.replace("comp_", "");
@@ -79,6 +79,7 @@ export async function getCompanies(): Promise<Company[]> {
             latitude: row[5] ? parseFloat(row[5]) : undefined,
             longitude: row[6] ? parseFloat(row[6]) : undefined,
             status: parseStatus(row[7]),
+            billingCompanyId: String(row[8] || "").trim() || undefined,
           };
         })
         // Hide stale/blank rows (e.g. leftover rows containing only an ID and no
@@ -108,12 +109,26 @@ export async function getCustomers(): Promise<Company[]> {
   );
 }
 
+async function validateBillingCompany(id: string | undefined, ownId?: string) {
+  if (!id) return;
+  const payer = (await getCustomers()).find(c => c.companyId === id);
+  if (!payer || payer.status !== "active" || id === ownId) throw new Error("Choose another active customer as the billing company.");
+}
+async function ensureBillingColumn(sheets: Awaited<ReturnType<typeof getSheetsClient>>, spreadsheetId: string) {
+  const header = await sheets.spreadsheets.values.get({ spreadsheetId, range: "Companies!I1" });
+  const value = String(header.data.values?.[0]?.[0] || "");
+  if (value && value !== "BillingCompanyId") throw new Error("Companies column I is already in use.");
+  if (!value) await sheets.spreadsheets.values.update({ spreadsheetId, range: "Companies!I1", valueInputOption: "RAW", requestBody: { values: [["BillingCompanyId"]] } });
+}
+
 export async function addCompany(
   payload: CreateCompanyPayload,
 ): Promise<Company> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
+    await validateBillingCompany(payload.billingCompanyId, payload.companyId);
+    await ensureBillingColumn(sheets, spreadsheetId);
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -144,7 +159,7 @@ export async function addCompany(
         existingType === payload.companyType ? existingType : "Both";
 
       const rowNumber = matchIndex + 2; // +2 because row 1 is header
-      const updateRange = `${COMPANIES_SHEET}!A${rowNumber}:H${rowNumber}`;
+      const updateRange = `${COMPANIES_SHEET}!A${rowNumber}:I${rowNumber}`;
       const updatedValues = [
         existingRow[0] || "", // keep existing CompanyId
         mergedType,
@@ -158,6 +173,8 @@ export async function addCompany(
           ? String(payload.longitude)
           : existingRow[6] || "",
         payload.status === "active" ? "Active" : existingRow[7] || "Active",
+      payload.billingCompanyId ?? existingRow[8] ?? "",
+        payload.billingCompanyId ?? existingRow[8] ?? "",
       ];
 
       await sheets.spreadsheets.values.update({
@@ -182,6 +199,7 @@ export async function addCompany(
           ? parseFloat(updatedValues[6])
           : undefined,
         status: parseStatus(updatedValues[7]),
+        billingCompanyId: updatedValues[8] || undefined,
       };
     }
 
@@ -205,6 +223,7 @@ export async function addCompany(
         ? String(payload.longitude)
         : "",
       payload.status === "active" ? "Active" : "Inactive",
+      payload.billingCompanyId || "",
     ];
 
     await sheets.spreadsheets.values.append({
@@ -227,6 +246,7 @@ export async function addCompany(
       latitude: payload.latitude,
       longitude: payload.longitude,
       status: payload.status,
+      billingCompanyId: payload.billingCompanyId,
     };
   } catch (error) {
     console.error(`Failed to create company row in Google Sheets:`, error);
@@ -240,9 +260,11 @@ export async function updateCompanyInSheets(
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
+    await validateBillingCompany(payload.billingCompanyId, payload.companyId);
+    await ensureBillingColumn(sheets, spreadsheetId);
 
     const rowNumber = getRowFromId(payload.id);
-    const updateRange = `${COMPANIES_SHEET}!A${rowNumber}:H${rowNumber}`;
+    const updateRange = `${COMPANIES_SHEET}!A${rowNumber}:I${rowNumber}`;
 
     const currentDataResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -306,6 +328,7 @@ export async function updateCompanyInSheets(
           ? "Active"
           : "Inactive"
         : existingRow[7] || "Active",
+      payload.billingCompanyId ?? existingRow[8] ?? "",
     ];
 
     await sheets.spreadsheets.values.update({
@@ -330,6 +353,7 @@ export async function updateCompanyInSheets(
         ? parseFloat(updatedValues[6])
         : undefined,
       status: parseStatus(updatedValues[7]),
+        billingCompanyId: updatedValues[8] || undefined,
     };
   } catch (error) {
     console.error(

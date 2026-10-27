@@ -2,6 +2,7 @@ import type { InvoicePaymentStatus } from "../types/serviceInvoice";
 
 export const PAYMENT_LABELS: Record<InvoicePaymentStatus, string> = { unpaid: "Unpaid", partial: "Partially paid", full: "Fully paid" };
 export interface InvoiceTrackingData {
+  serviceContext?: import("./serviceInvoicePresentation").ServiceInvoiceContext;
   assignedPicUserId?: string;
   assignedPicName?: string;
   paymentStatus?: InvoicePaymentStatus;

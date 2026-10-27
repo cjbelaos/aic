@@ -2,6 +2,7 @@
 import { DatePickerInput, MonthPickerInput } from "@/components/ui/date-picker";
 import { InvoiceDiscountEditor } from "@/components/invoice-discount-editor";
 import { defaultDiscount } from "@/lib/discounts";
+import { invoiceItemsFromDelivery } from "@/lib/serviceInvoicePresentation";
 import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 
 import { InvoiceReferenceTypeSelector } from "@/components/delivery-release-reference-field";
@@ -93,6 +94,7 @@ import {
 } from "@/types/serviceInvoice";
 
 interface LineItem {
+  includedInPackage?: boolean;
   salesOrderItemId?: string;
   productId?: string;
   description: string;
@@ -214,6 +216,13 @@ export default function ServiceInvoicesClient({
   const [discountSettings, setDiscountSettings] = useState(defaultDiscount());
   const [editDiscountSettings, setEditDiscountSettings] =
     useState(defaultDiscount());
+  const [editDrLoading, setEditDrLoading] = useState(false);
+  const [editServiceBranch, setEditServiceBranch] = useState<{ companyId: string; companyName: string } | null>(null);
+  const [editBillingCustomer, setEditBillingCustomer] = useState("");
+  const [drLoading, setDrLoading] = useState(false);
+  const [drLoadError, setDrLoadError] = useState("");
+  const [serviceBranch, setServiceBranch] = useState<{ companyId: string; companyName: string } | null>(null);
+  const loadedDr = useRef("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [drafting, setDrafting] = useState(false);
@@ -544,27 +553,28 @@ export default function ServiceInvoicesClient({
   const loadingOrderItems = isSales && modalOpen && !!linkedSalesOrderId && loadedOrderItemsId !== linkedSalesOrderId;
   const loadingEditOrderItems = isSales && !!editTarget && !!editSalesOrderId && editSalesOrderId !== editTarget.salesOrderId && loadedEditOrderItemsId !== editSalesOrderId;
 
-  /* Auto-select customer when user picks a Linked DR */
+  /* Defaults apply once per selection; re-renders must not overwrite user edits. */
   useEffect(() => {
-    if (!linkedDrNumber || companies.length === 0) return;
-    const drNum = parseInt(linkedDrNumber, 10);
-    if (isNaN(drNum)) return;
-    // Look up the selected DR from the current DR list to get its company
-    deliveryService
-      .getAll()
-      .then((allDrs) => {
-        const matchedDr = allDrs.find((d) => d.drNumber === drNum);
-        if (matchedDr) {
-          const customer = companies.find(
-            (c: any) => c.companyId === matchedDr.companyId,
-          );
-          if (customer) setSelectedCustomer(customer.companyId);
-        }
-      })
-      .catch(() => {
-        /* non-critical */
-      });
-  }, [linkedDrNumber, companies]);
+    if (!linkedDrNumber) { loadedDr.current = ""; setServiceBranch(null); setDrLoadError(""); setDrLoading(false); return; }
+    if (!modalOpen || !companies.length || loadedDr.current === linkedDrNumber) return;
+    let active = true;
+    setDrLoading(true); setDrLoadError("");
+    deliveryService.getAll().then(async drs => {
+      const dr = drs.find(d => d.drNumber === Number(linkedDrNumber));
+      if (!dr) throw new Error("Delivery Receipt not found.");
+      const branch = companies.find(c => c.companyId === dr.companyId);
+      const payerId = !isSales ? branch?.billingCompanyId || dr.companyId : dr.companyId;
+      if (!companies.some(c => c.companyId === payerId && c.status === "active" && c.companyType !== "Supplier")) throw new Error("The DR billing customer is unavailable. Update the company mapping.");
+      const order = !isSales && billingMode !== "PMS_CONTRACT" && dr.salesOrderId ? await salesOrderService.get(dr.salesOrderId) : undefined;
+      if (!active) return;
+      setSelectedCustomer(payerId);
+      setServiceBranch({ companyId: dr.companyId, companyName: dr.companyName });
+      if (!isSales && billingMode !== "PMS_CONTRACT") setLineItems(invoiceItemsFromDelivery(dr.items, order?.items));
+      loadedDr.current = linkedDrNumber;
+    }).catch(error => { if (active) { setDrLoadError(error.message); toast.error(error.message); } })
+      .finally(() => { if (active) setDrLoading(false); });
+    return () => { active = false; };
+  }, [linkedDrNumber, companies, modalOpen, isSales, billingMode]);
 
   /* Linked DR owns the assigned technician; show its current user immediately.
      The server re-resolves the technician from the DR on save. */
@@ -1227,6 +1237,7 @@ export default function ServiceInvoicesClient({
     setLoadedOrderItemsId("");
     setAssignedPicUserId("");
     setLineItems([]);
+    loadedDr.current = ""; setServiceBranch(null);
     setDiscountSettings(defaultDiscount());
     setLinkedDrNumber("");
     setLinkedSalesOrderId("");
@@ -1248,7 +1259,7 @@ export default function ServiceInvoicesClient({
   const updateLineItem = (
     index: number,
     field: keyof LineItem,
-    value: string | number,
+    value: string | number | boolean,
   ) => {
     setLineItems((prev) =>
       prev.map((item, i) =>
@@ -1256,6 +1267,7 @@ export default function ServiceInvoicesClient({
           ? {
               ...item,
               [field]: value,
+              ...(field === "includedInPackage" && value ? { unitPrice: 0 } : {}),
               ...(field === "description" ? { productId: undefined } : {}),
             }
           : item,
@@ -1300,6 +1312,7 @@ export default function ServiceInvoicesClient({
       toast.error("Prepared by is required.");
       return;
     }
+    if (drLoading || drLoadError) { toast.error(drLoadError || "Wait for the DR items to load."); return; }
     if (lineItems.length === 0) {
       toast.error("Please add at least one item.");
       return;
@@ -1318,8 +1331,9 @@ export default function ServiceInvoicesClient({
         items: lineItems.map((li) => ({
           productId: li.productId,
           description: li.description,
+          includedInPackage: li.includedInPackage,
           quantity: Number(li.quantity) || 0,
-          unitPrice: Number(li.unitPrice) || 0,
+          unitPrice: li.includedInPackage ? 0 : Number(li.unitPrice) || 0,
         })),
         billingMode,
         manualCategories: billingMode === "REGULAR" ? createCategories : [],
@@ -1352,6 +1366,7 @@ export default function ServiceInvoicesClient({
   };
 
   const handleSaveDraft = async () => {
+    if (drLoading || drLoadError) { toast.error(drLoadError || "Wait for the DR items to load."); return; }
     if (loadingOrderItems || loadingEditOrderItems || orderItemsError) { toast.error(orderItemsError || "Wait for Sales Order items to load."); return; }
     if (isSales && !assignedPicUserId) { toast.error("Assigned PIC is required for invoice delivery."); return; }
     if (billingMode === "PMS_CONTRACT" && !selectedContractId) {
@@ -1388,8 +1403,9 @@ export default function ServiceInvoicesClient({
         items: lineItems.map((li) => ({
           productId: li.productId,
           description: li.description,
+          includedInPackage: li.includedInPackage,
           quantity: Number(li.quantity) || 0,
-          unitPrice: Number(li.unitPrice) || 0,
+          unitPrice: li.includedInPackage ? 0 : Number(li.unitPrice) || 0,
         })),
         status: "draft",
         billingMode,
@@ -1438,6 +1454,9 @@ export default function ServiceInvoicesClient({
     if (editTarget) {
       setOrderItemsError("");
       setEditAssignedPicUserId(editTarget.assignedPicUserId || "");
+      setEditDrLoading(false);
+      setEditServiceBranch(editTarget.serviceContext?.serviceCompanyId ? { companyId: editTarget.serviceContext.serviceCompanyId, companyName: editTarget.serviceContext.serviceCompanyName || "" } : null);
+      setEditBillingCustomer(editTarget.customerId);
       setEditDate(editTarget.date);
       setEditStatus(editTarget.status || "created");
       setVoidReason("");
@@ -1451,6 +1470,7 @@ export default function ServiceInvoicesClient({
           productId: item.productId,
           salesOrderItemId: item.salesOrderItemId,
           description: item.description,
+          includedInPackage: item.includedInPackage,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
         })),
@@ -1472,7 +1492,7 @@ export default function ServiceInvoicesClient({
   const updateEditLineItem = (
     idx: number,
     field: keyof LineItem,
-    value: string | number,
+    value: string | number | boolean,
   ) =>
     setEditLineItems((prev) =>
       prev.map((item, i) =>
@@ -1480,6 +1500,7 @@ export default function ServiceInvoicesClient({
           ? {
               ...item,
               [field]: value,
+              ...(field === "includedInPackage" && value ? { unitPrice: 0 } : {}),
               ...(field === "description" ? { productId: undefined } : {}),
             }
           : item,
@@ -1488,6 +1509,7 @@ export default function ServiceInvoicesClient({
 
   /* Edit save handler */
   const handleEditSave = async () => {
+    if (editDrLoading) { toast.error("Wait for DR items to load."); return; }
     if (loadingOrderItems || loadingEditOrderItems || orderItemsError) { toast.error(orderItemsError || "Wait for Sales Order items to load."); return; }
     if (isSales && !editAssignedPicUserId) { toast.error("Assigned PIC is required for invoice delivery."); return; }
     if (!editTarget) return;
@@ -1510,6 +1532,7 @@ export default function ServiceInvoicesClient({
           editTarget.invoiceNo.startsWith("DRAFT-") && editStatus !== "draft"
             ? editInvoiceNo.trim()
             : undefined,
+        customerId: editTarget?.serviceContext ? editBillingCustomer : undefined,
         date: editDate,
         status: editStatus,
         discountSettings: editDiscountSettings,
@@ -1523,8 +1546,9 @@ export default function ServiceInvoicesClient({
             productId: li.productId,
             salesOrderItemId: li.salesOrderItemId,
             description: li.description,
-            quantity: Number(li.quantity) || 0,
-            unitPrice: Number(li.unitPrice) || 0,
+            includedInPackage: li.includedInPackage,
+          quantity: Number(li.quantity) || 0,
+            unitPrice: li.includedInPackage ? 0 : Number(li.unitPrice) || 0,
           })),
         drNumber: editDrNumber ? parseInt(editDrNumber, 10) : null,
         referenceMode: editReferenceMode,
@@ -2142,6 +2166,7 @@ export default function ServiceInvoicesClient({
                   value={selectedCustomer}
                   onValueChange={(customer) => {
                     setSelectedCustomer(customer);
+                    if (!isSales && linkedDrNumber) return;
                     setSelectedContractId("");
                     if (billingMode === "PMS_CONTRACT") setLineItems([]);
                     setLinkedDrNumber("");
@@ -2170,12 +2195,12 @@ export default function ServiceInvoicesClient({
             </div>
 
             <InvoiceBillingFields invoiceKind={invoiceKind}
-              mode={billingMode} contractId={selectedContractId} customerId={selectedCustomer}
+              mode={billingMode} contractId={selectedContractId} customerId={serviceBranch?.companyId || selectedCustomer}
               contracts={contracts} categories={createCategories} onCategoriesChange={setCreateCategories}
               automatic={!!linkedSalesOrderId || !!drSalesOrders[linkedDrNumber]}
               onModeChange={(mode) => {
                 try {
-                  const contract = contracts.find(c => c.id === selectedContractId && c.companyId === selectedCustomer);
+                  const contract = contracts.find(c => c.id === selectedContractId && c.companyId === (serviceBranch?.companyId || selectedCustomer));
                   const items = mode === "PMS_CONTRACT" && contract ? [pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate)] : [];
                   setBillingMode(mode);
                   setLineItems(items);
@@ -2186,7 +2211,7 @@ export default function ServiceInvoicesClient({
               }}
               onContractChange={(id) => {
                 if (!id) { setSelectedContractId(""); setLineItems([]); return; }
-                const contract = contracts.find(c => c.id === id && c.companyId === selectedCustomer);
+                const contract = contracts.find(c => c.id === id && c.companyId === (serviceBranch?.companyId || selectedCustomer));
                 if (!contract) return;
                 try {
                   const item = pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate);
@@ -2219,6 +2244,7 @@ export default function ServiceInvoicesClient({
 
               {lineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
+                  <div className="flex-1 min-w-[200px]">
                   <Input
                     className="flex-1 uppercase"
                     value={item.description}
@@ -2231,6 +2257,8 @@ export default function ServiceInvoicesClient({
                       )
                     }
                   />
+                    {!isSales && <label className="flex items-center gap-2 text-xs mt-1"><input type="checkbox" checked={!!item.includedInPackage} onChange={e => updateLineItem(idx, "includedInPackage", e.target.checked)} />Included in package</label>}
+                  </div>
                   <Input
                     className="w-24 shrink-0"
                     type="number"
@@ -2249,7 +2277,8 @@ export default function ServiceInvoicesClient({
                     type="number"
                     min="0"
                     step="0.01"
-                    value={item.unitPrice}
+                    disabled={item.includedInPackage}
+                    value={item.includedInPackage ? "" : item.unitPrice}
                     onChange={(e) =>
                       updateLineItem(
                         idx,
@@ -2259,7 +2288,7 @@ export default function ServiceInvoicesClient({
                     }
                   />
                   <div className="w-28 shrink-0 text-right tabular-nums text-sm text-muted-foreground">
-                    {(item.quantity * item.unitPrice).toLocaleString("en-PH", {
+                    {item.includedInPackage ? "" : (item.quantity * item.unitPrice).toLocaleString("en-PH", {
                       style: "currency",
                       currency: "PHP",
                     })}
@@ -2276,6 +2305,9 @@ export default function ServiceInvoicesClient({
               ))}
             </div>
 
+            {!isSales && serviceBranch && <p className="text-sm">Service location: {serviceBranch.companyName}</p>}
+            {drLoading && <p role="status">Loading DR items...</p>}
+            {drLoadError && <p role="alert" className="text-destructive">{drLoadError}</p>}
             {/* Prepared By and Date */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -2318,10 +2350,11 @@ export default function ServiceInvoicesClient({
                   value={linkedDrNumber}
                   disabled={!referenceMode}
                   onValueChange={(value) => {
+                    if (!isSales && value !== linkedDrNumber && lineItems.length && !window.confirm("Replace the current items with the selected DR items?")) return;
                     setLinkedDrNumber(value);
                     if (value) setLinkedSalesOrderId("");
                   }}
-                  options={billingMode === "PMS_CONTRACT" ? drOptions.filter(option => drCustomers[option.value] === selectedCustomer && !drSalesOrders[option.value]) : drOptions}
+                  options={billingMode === "PMS_CONTRACT" ? drOptions.filter(option => drCustomers[option.value] === (serviceBranch?.companyId || selectedCustomer) && !drSalesOrders[option.value]) : drOptions}
                   placeholder="Select Delivery Receipt"
                 />
               </div>
@@ -2530,12 +2563,12 @@ export default function ServiceInvoicesClient({
               <p>Replacement invoice #{editTarget.replacementInvoiceNo}</p>
             )}
             <InvoiceBillingFields invoiceKind={invoiceKind}
-              mode={editBillingMode} contractId={editContractId} customerId={editTarget?.customerId || ""}
+              mode={editBillingMode} contractId={editContractId} customerId={editServiceBranch?.companyId || editTarget?.customerId || ""}
               contracts={contracts} categories={editManualCategories} onCategoriesChange={setEditManualCategories}
               automatic={!!editSalesOrderId || !!drSalesOrders[editDrNumber]}
               onModeChange={(mode) => {
                 try {
-                  const contract = contracts.find(c => c.id === editContractId && c.companyId === editTarget?.customerId);
+                  const contract = contracts.find(c => c.id === editContractId && c.companyId === (editServiceBranch?.companyId || editTarget?.customerId));
                   // Keep existing non-PMS charges when detaching an accidental contract link.
                   const items = mode === "PMS_CONTRACT"
                     ? (contract ? [pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate)] : [])
@@ -2547,7 +2580,7 @@ export default function ServiceInvoicesClient({
               }}
               onContractChange={(id) => {
                 if (!id) { setEditContractId(""); setEditLineItems([]); return; }
-                const contract = contracts.find(c => c.id === id && c.companyId === editTarget?.customerId);
+                const contract = contracts.find(c => c.id === id && c.companyId === (editServiceBranch?.companyId || editTarget?.customerId));
                 if (!contract) return;
                 try {
                   const item = pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate);
@@ -2561,11 +2594,8 @@ export default function ServiceInvoicesClient({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
               <div className="space-y-1.5">
                 <Label>Customer</Label>
-                <Input
-                  value={editTarget?.companyName ?? ""}
-                  readOnly
-                  className="bg-muted"
-                />
+                {editTarget?.serviceContext ? <SearchableSelect value={editBillingCustomer} options={customerOptions} onValueChange={setEditBillingCustomer} /> : <Input value={editTarget?.companyName ?? ""} readOnly className="bg-muted" />}
+                {editServiceBranch && <p className="text-xs">Service location: {editServiceBranch.companyName}</p>}
               </div>
               <div className="space-y-2">
                 <Label>Date</Label>
@@ -2632,7 +2662,7 @@ export default function ServiceInvoicesClient({
                       variant="ghost"
                       size="sm"
                       className="h-auto px-1 text-xs"
-                      onClick={() => setEditDrNumber("")}
+                      onClick={() => { setEditDrNumber(""); setEditServiceBranch(null); }}
                     >
                       Remove DR
                     </Button>
@@ -2640,11 +2670,28 @@ export default function ServiceInvoicesClient({
                 </div>
                 <SearchableSelect
                   value={editDrNumber}
-                  onValueChange={(value) => {
+                  disabled={editDrLoading}
+                  onValueChange={async (value) => {
+                    if (value && value !== editDrNumber && !isSales && editTarget?.serviceContext) {
+                      if (editLineItems.length && !window.confirm("Replace the current items with the selected DR items?")) return;
+                      setEditDrLoading(true);
+                      try {
+                        const dr = (await deliveryService.getAll()).find(row => row.drNumber === Number(value));
+                        if (!dr) throw new Error("Delivery Receipt not found.");
+                        const branch = companies.find(company => company.companyId === dr.companyId);
+                        const payerId = branch?.billingCompanyId || dr.companyId;
+                        if (!companies.some(c => c.companyId === payerId && c.status === "active" && c.companyType !== "Supplier")) throw new Error("The DR billing customer is unavailable.");
+                        const order = editBillingMode !== "PMS_CONTRACT" && dr.salesOrderId ? await salesOrderService.get(dr.salesOrderId) : undefined;
+                        if (editBillingMode !== "PMS_CONTRACT") setEditLineItems(invoiceItemsFromDelivery(dr.items, order?.items));
+                        setEditServiceBranch({ companyId: dr.companyId, companyName: dr.companyName });
+                        setEditBillingCustomer(payerId);
+                      } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to load DR."); return; }
+                      finally { setEditDrLoading(false); }
+                    }
                     setEditDrNumber(value);
                     if (value) setEditSalesOrderId("");
                   }}
-                  options={editBillingMode === "PMS_CONTRACT" ? drOptions.filter(option => drCustomers[option.value] === editTarget?.customerId && !drSalesOrders[option.value]) : drOptions}
+                  options={editBillingMode === "PMS_CONTRACT" ? drOptions.filter(option => drCustomers[option.value] === (editServiceBranch?.companyId || editTarget?.customerId) && !drSalesOrders[option.value]) : drOptions}
                   placeholder="Select Delivery Receipt"
                 />
               </div>
@@ -2809,6 +2856,7 @@ export default function ServiceInvoicesClient({
 
               {editLineItems.map((item, idx) => (
                 <div key={idx} className="flex gap-2 items-center">
+                  <div className="flex-1 min-w-[200px]">
                   <Input
                     className="flex-1 uppercase"
                     value={item.description}
@@ -2821,6 +2869,8 @@ export default function ServiceInvoicesClient({
                       )
                     }
                   />
+                    {!isSales && editTarget?.serviceContext && <label className="flex items-center gap-2 text-xs mt-1"><input type="checkbox" checked={!!item.includedInPackage} onChange={e => updateEditLineItem(idx, "includedInPackage", e.target.checked)} />Included in package</label>}
+                  </div>
                   <Input
                     className="w-24 shrink-0"
                     type="number"
@@ -2839,7 +2889,8 @@ export default function ServiceInvoicesClient({
                     type="number"
                     min="0"
                     step="0.01"
-                    value={item.unitPrice}
+                    disabled={item.includedInPackage}
+                    value={item.includedInPackage ? "" : item.unitPrice}
                     onChange={(e) =>
                       updateEditLineItem(
                         idx,
@@ -2849,7 +2900,7 @@ export default function ServiceInvoicesClient({
                     }
                   />
                   <div className="w-28 shrink-0 text-right tabular-nums text-sm text-muted-foreground">
-                    {(item.quantity * item.unitPrice).toLocaleString("en-PH", {
+                    {item.includedInPackage ? "" : (item.quantity * item.unitPrice).toLocaleString("en-PH", {
                       style: "currency",
                       currency: "PHP",
                     })}
