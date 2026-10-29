@@ -65,3 +65,32 @@ export async function postFinalizedDeliveryReleaseFulfillment(
   });
   return { state: "POSTED", posted: entries.length, alreadyPosted };
 }
+
+/** Restores demand from deleted receipts, even after their item rows have been removed. */
+export async function reverseDeletedDeliveryReleaseFulfillment(drNumber: number, actor: Actor): Promise<void> {
+  const release = (await getDeliveryReceipts()).find((item) => item.drNumber === drNumber);
+  if (!release?.salesOrderId || release.status.trim().toLowerCase() !== "deleted") return;
+
+  const detail = await getOrderDetail(release.salesOrderId);
+  const entries = detail.fulfillments.flatMap((source) => {
+    if (source.status !== "POSTED" || source.fulfillmentType !== "DELIVERY" ||
+        source.sourceDocumentType !== "DELIVERY_RECEIPT" || source.sourceDocumentId !== String(drNumber)) return [];
+    const reversed = detail.fulfillments
+      .filter((entry) => entry.status === "POSTED" && entry.fulfillmentType === "REVERSAL" && entry.reversesFulfillmentId === source.fulfillmentId)
+      .reduce((sum, entry) => sum + entry.quantity, 0);
+    const quantity = Number((source.quantity - reversed).toFixed(2));
+    if (quantity <= 0) return [];
+    return [{
+      salesOrderItemId: source.salesOrderItemId, type: "REVERSAL" as const, quantity,
+      effectiveDate: source.effectiveDate, sourceDocumentType: "DELIVERY_RECEIPT",
+      sourceDocumentId: String(drNumber), sourceLineId: source.sourceLineId,
+      evidenceDriveFileId: "", reversesFulfillmentId: source.fulfillmentId,
+    }];
+  });
+  if (!entries.length) return;
+  await postFulfillments(actor, release.salesOrderId, {
+    commandId: stableCommandId(`delivery-release-deletion:${drNumber}:${entries.map((entry) => `${entry.reversesFulfillmentId}:${entry.quantity}`).sort().join(",")}`),
+    expectedVersion: detail.order.version,
+    entries,
+  });
+}

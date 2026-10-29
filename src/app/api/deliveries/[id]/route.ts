@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { SalesOrderError } from "@/lib/salesOrders/errors";
 import {
   updateDeliveryReceipt,
   deleteDeliveryReceipt,
@@ -192,11 +193,11 @@ export async function DELETE(
       return NextResponse.json({ error: "Invalid DR number." }, { status: 400 });
     }
 
-    await deleteDeliveryReceipt(drNumber);
+    await deleteDeliveryReceipt(drNumber, { userId: session.userId, displayName: session.fullName }, session.userRoleId);
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to delete delivery receipt.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof SalesOrderError ? error.status : 500 });
   }
 }

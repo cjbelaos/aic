@@ -58,6 +58,10 @@ const deliveryService = {
         "Failed to create delivery receipt in service layer:",
         error,
       );
+      if (axios.isAxiosError(error)) {
+        const message = error.response?.data?.error;
+        if (typeof message === "string" && message.trim()) throw new Error(message);
+      }
       throw error;
     }
   },
@@ -74,6 +78,10 @@ const deliveryService = {
       return response.data;
     } catch (error) {
       console.error("Failed to update delivery receipt:", error);
+      if (axios.isAxiosError(error)) {
+        const message = error.response?.data?.error;
+        if (typeof message === "string" && message.trim()) throw new Error(message);
+      }
       throw error;
     }
   },
@@ -97,6 +105,10 @@ const deliveryService = {
       await axios.delete(`${API_BASE_URL}/${drNumber}`);
     } catch (error) {
       console.error("Failed to delete delivery receipt:", error);
+      if (axios.isAxiosError(error)) {
+        const message = error.response?.data?.error;
+        if (typeof message === "string" && message.trim()) throw new Error(message);
+      }
       throw error;
     }
   },

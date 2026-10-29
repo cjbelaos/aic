@@ -23,7 +23,7 @@
     ,"test:quotations": "npx tsc -p scripts/quotation-tests/tsconfig.json && node tmp/quotation-tests/out/scripts/quotation-tests/run.js"
 
     ,"test:service-reports": "npx tsc -p scripts/service-reports-tests/tsconfig.json && node tmp/service-reports-tests/out/scripts/service-reports-tests/run.js"
-    ,"test:delivery-releases": "npx tsc -p scripts/delivery-release-tests/tsconfig.json && node tmp/delivery-release-tests/out/scripts/delivery-release-tests/run.js"
+    ,"test:delivery-releases": "npx tsc -p scripts/delivery-release-tests/tsconfig.json && node tmp/delivery-release-tests/out/scripts/delivery-release-tests/run.js && node scripts/test-delivery-deletion.cjs && node scripts/test-delivery-service-errors.cjs"
     ,"test:proforma-invoices": "node scripts/test-proforma-invoices.cjs"
     ,"audit:proforma-migration": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs"
     ,"migrate:proforma-invoices": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs --apply"

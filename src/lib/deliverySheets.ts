@@ -20,7 +20,9 @@ import {
   deliveryReferenceFromRow,
   deliveryReferenceRowValues,
 } from "@/lib/deliveryReference";
-import { getOrderDetail } from "@/lib/salesOrders/service";
+import { getOrderDetail, type Actor } from "@/lib/salesOrders/service";
+import { can } from "@/lib/salesOrders/permissions";
+import { forbidden } from "@/lib/salesOrders/errors";
 
 const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
@@ -780,7 +782,7 @@ export async function updateDeliveryReceipt(
  * Also cancels linked ContractRelease rows and recalculates ContractPeriodSummary.
  * DR number is preserved (no gaps) for BIR compliance.
  */
-export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
+export async function deleteDeliveryReceipt(drNumber: number, actor: Actor, roleId: number): Promise<void> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
@@ -791,21 +793,27 @@ export async function deleteDeliveryReceipt(drNumber: number): Promise<void> {
     // ── 1. Soft-delete DR: set status to "deleted" (preserve all data) ──
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
-    const updatedRow = [...currentRow];
-    while (updatedRow.length < 15) updatedRow.push("");
-    updatedRow[10] = "deleted"; // Column K: Status
-
+    const salesOrderId = String(currentRow[18] ?? "").trim();
+    if (salesOrderId) {
+      const permission = can("so.fulfill", { roleId, actorUserId: actor.userId });
+      if (!permission.allowed) throw forbidden(permission.reason || "Sales Order fulfillment permission is required to delete a linked receipt.");
+    }
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!K${drRowNumber}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [updatedRow] },
+      requestBody: { values: [["deleted"]] },
     });
 
     // ── 1b. Remove the DR's item rows (canonical DeliveryReceiptItems tab) ──
+    if (salesOrderId) {
+      // A failed reversal stays retryable from the deleted source before its items are removed.
+      const { reverseDeletedDeliveryReleaseFulfillment } = await import("@/lib/deliverySalesOrderIntegration");
+      await reverseDeletedDeliveryReleaseFulfillment(drNumber, actor);
+    }
     await replaceDeliveryItems(drNumber, []);
 
     // ── 2. Fetch all ContractReleases linked to this DR ──
