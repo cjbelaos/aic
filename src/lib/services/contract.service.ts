@@ -3,6 +3,7 @@ import {
   Contract,
   CreateContractPayload,
   UpdateContractPayload,
+  ContractNote,
 } from "@/types/contract";
 
 const API_BASE_URL = "/api/contracts";
@@ -17,7 +18,7 @@ const contractService = {
       return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.error("Failed to fetch contracts in service layer:", error);
-      return [];
+      throw error;
     }
   },
 
@@ -92,6 +93,20 @@ const contractService = {
       );
       throw error;
     }
+  },
+
+  addNote: async (contractId: string, text: string): Promise<ContractNote> => {
+    const response = await axios.post<ContractNote>(`${API_BASE_URL}/${encodeURIComponent(contractId)}/notes`, { text });
+    return response.data;
+  },
+
+  updateNote: async (contractId: string, noteId: string, text: string): Promise<ContractNote> => {
+    const response = await axios.put<ContractNote>(`${API_BASE_URL}/${encodeURIComponent(contractId)}/notes/${encodeURIComponent(noteId)}`, { text });
+    return response.data;
+  },
+
+  deleteNote: async (contractId: string, noteId: string): Promise<void> => {
+    await axios.delete(`${API_BASE_URL}/${encodeURIComponent(contractId)}/notes/${encodeURIComponent(noteId)}`);
   },
 
   /**

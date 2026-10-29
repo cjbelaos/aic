@@ -3,6 +3,7 @@ import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { getContracts, addContract } from "@/lib/contractSheets";
 import { getCustomers } from "@/lib/companySheets";
 import { CreateContractPayload } from "@/types/contract";
+import { ContractNoteError, validateContractNoteText } from "@/lib/contractNoteSheets";
 
 /**
  * GET /api/contracts
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
 
   try {
     const body: CreateContractPayload = await request.json();
+    if (body.notes !== undefined && body.notes !== "") validateContractNoteText(body.notes);
 
     if (!body.companyId?.trim()) {
       return NextResponse.json(
@@ -97,6 +99,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to create contract.";
-    return NextResponse.json({ error: message }, { status: error instanceof Error && error.name === "ContractConflictError" ? 409 : 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof ContractNoteError ? error.status : error instanceof Error && error.name === "ContractConflictError" ? 409 : 500 });
   }
 }

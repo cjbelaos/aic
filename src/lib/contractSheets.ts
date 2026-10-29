@@ -9,6 +9,8 @@ import {
 import { ContractConflictError, duplicateContractIds, nextContractId } from "@/lib/contractIntegrity";
 import type { sheets_v4 } from "googleapis";
 import { serviceFrequencyForItems } from "./contractServiceFrequency";
+import { appendContractWithInitialNote, getContractNotes, ContractNoteError, CONTRACT_NOTES_TAB } from "./contractNoteSheets";
+import { sortContractNotes } from "./contractNotes";
 
 const CONTRACTS_SHEET = "Contracts";
 const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:O`;
@@ -39,7 +41,13 @@ export async function getContracts(): Promise<Contract[]> {
       itemsByContract.set(String(item[1]), items);
     }
 
+    const notes = await getContractNotes();
     return rows.map((row, index): Contract => {
+      const legacyText = String(row[9] ?? "").trim();
+      const noteHistory = sortContractNotes([
+        ...notes.filter(note => note.contractId === String(row[0])),
+        ...(legacyText ? [{ id: `legacy:${row[0]}`, contractId: String(row[0]), text: legacyText }] : []),
+      ]);
       return {
         id: row[0] || `CTR-${String(index + 1).padStart(4, "0")}`,
         companyId: row[1] || "",
@@ -53,7 +61,8 @@ export async function getContracts(): Promise<Contract[]> {
           row[8] !== undefined && row[8] !== ""
             ? parseFloat(String(row[8]).replace(/[₱$,]/g, "")) || undefined
             : undefined,
-        notes: String(row[9] ?? "").trim() || undefined,
+        notes: noteHistory.map(note => note.text).join("\n\n") || undefined,
+        noteHistory,
         softCopyDriveLink: String(row[10] ?? "").trim() || undefined,
         scannedSignedCopyDriveLink: String(row[11] ?? "").trim() || undefined,
         paperworkStatus: row[13] === "Complete" ? "Complete" : "Pending",
@@ -105,7 +114,7 @@ export async function addContract(
       payload.endDate || "",
       payload.status || "Active",
       payload.monthlyServiceFee ?? "",
-      payload.notes ?? "", // J: Notes
+      "", // J: Legacy notes; new entries live in ContractNotes.
       "", // K: SoftCopyDriveLink
       "", // L: ScannedSignedCopyDriveLink
       payload.serviceFeeFrequency ?? "Monthly", // M
@@ -113,7 +122,10 @@ export async function addContract(
       payload.notarizedHardcopyStatus ?? "Unknown", // O
     ];
 
-    await sheets.spreadsheets.values.append({
+    const noteHistory = payload.notes?.trim()
+      ? await appendContractWithInitialNote(newRowValues, payload.notes)
+      : [];
+    if (!noteHistory.length) await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: CONTRACTS_RANGE,
       valueInputOption: "USER_ENTERED",
@@ -134,6 +146,7 @@ export async function addContract(
       paperworkStatus: payload.paperworkStatus ?? "Pending",
       notarizedHardcopyStatus: payload.notarizedHardcopyStatus ?? "Unknown",
       notes: payload.notes,
+      noteHistory,
     };
   } catch (error) {
     console.error("Failed to create contract in Google Sheets:", error);
@@ -147,6 +160,7 @@ export async function addContract(
 export async function updateContractInSheets(
   payload: UpdateContractPayload,
 ): Promise<Contract> {
+  if (payload.notes !== undefined) throw new ContractNoteError("Use individual note actions to add, edit, or delete notes.");
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
@@ -184,15 +198,6 @@ export async function updateContractInSheets(
       requestBody: { values: [updatedValues] },
     });
 
-    if (payload.notes !== undefined) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${CONTRACTS_SHEET}!J${rowNumber}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[payload.notes]] },
-      });
-    }
-
     if (payload.serviceFeeFrequency !== undefined) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
@@ -222,7 +227,8 @@ export async function updateContractInSheets(
         updatedValues[8] !== undefined && updatedValues[8] !== ""
           ? Number(updatedValues[8]) || undefined
           : undefined,
-      notes: payload.notes !== undefined ? payload.notes || undefined : existing.notes,
+      notes: existing.notes,
+      noteHistory: existing.noteHistory,
       serviceFeeFrequency: payload.serviceFeeFrequency ?? existing.serviceFeeFrequency,
     };
   } catch (error) {
@@ -276,15 +282,19 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
 
     const itemSheetId = resolveSheetId("ContractItems");
     const releaseSheetId = resolveSheetId("ContractReleases");
+    const noteSheetId = resolveSheetId(CONTRACT_NOTES_TAB);
 
     // Read all raw rows so indices map 1:1 to the sheet.
-    const [contractRes, itemRes, releaseRes] = await Promise.all([
+    const [contractRes, itemRes, releaseRes, noteRes] = await Promise.all([
       sheets.spreadsheets.values.get({ spreadsheetId, range: CONTRACTS_RANGE }),
       itemSheetId !== undefined
         ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractItems!A2:F" })
         : Promise.resolve(null),
       releaseSheetId !== undefined
         ? sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractReleases!A2:M" })
+        : Promise.resolve(null),
+      noteSheetId !== undefined
+        ? sheets.spreadsheets.values.get({ spreadsheetId, range: `${CONTRACT_NOTES_TAB}!A2:E` })
         : Promise.resolve(null),
     ]);
 
@@ -358,6 +368,14 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
         });
     }
 
+    // Retain note IDs so appends cannot reuse rows held by older in-flight requests.
+    if (noteSheetId !== undefined) (noteRes?.data.values ?? []).forEach((row, i) => {
+      if (String(row[1] ?? "") === id) requests.push({ updateCells: {
+        range: { sheetId: noteSheetId, startRowIndex: i + 1, endRowIndex: i + 2, startColumnIndex: 0, endColumnIndex: 5 },
+        rows: [{ values: [String(row[0]), "", "", "", ""].map(value => ({ userEnteredValue: { stringValue: value } })) }],
+        fields: "userEnteredValue",
+      } });
+    });
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: { requests },

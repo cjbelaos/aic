@@ -4,6 +4,13 @@ export type ServiceFeeFrequency = "Monthly" | "Quarterly";
 export type PaperworkStatus = "Pending" | "Complete";
 export type NotarizedHardcopyStatus = "Unknown" | "Yes" | "No";
 export type ContractStatus = "Active" | "Expired" | "Closed" | "Inactive";
+export interface ContractNote {
+  id: string;
+  contractId: string;
+  text: string;
+  createdAt?: string; // Absent for notes imported without a known date.
+  updatedAt?: string;
+}
 export type FrequencyType =
   | "Monthly"
   | "Quarterly"
@@ -26,7 +33,8 @@ export interface Contract {
   notarizedHardcopyStatus?: NotarizedHardcopyStatus; // Sheet: O; legacy rows default to Unknown
   monthlyServiceFee?: number; // Legacy Sheet: MonthlyServiceFee; amount per serviceFeeFrequency, e.g., 20000
   serviceFeeFrequency?: ServiceFeeFrequency; // Sheet: M; legacy contracts default to Monthly
-  notes?: string; // Sheet: Notes (internal reference)
+  notes?: string; // Read-only summary; legacy text is stored in column J until migrated.
+  noteHistory?: ContractNote[];
   softCopyDriveLink?: string; // Sheet: SoftCopyDriveLink
   scannedSignedCopyDriveLink?: string; // Sheet: ScannedSignedCopyDriveLink
 }

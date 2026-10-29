@@ -13,7 +13,7 @@ async function main() {
   let rows = [["CTR-0001", "COMP-1", "", "Contract", "", "2026-01-01", "2026-12-31", "Active", 20000, "Notes", "soft-link", "signed-link"]];
   const writes = [];
   let itemRows = [];
-  const sheets = { spreadsheets: { values: {
+  const sheets = { spreadsheets: { get: async () => ({ data: { sheets: [] } }), values: {
     get: async ({ range }) => ({ data: { values: range === "ContractItems!A2:G" ? itemRows : range === "Contracts!A2:A" ? rows.map(row => [row[0]]) : rows } }),
     append: async request => { rows.push(request.requestBody.values[0]); },
     update: async request => {
@@ -26,6 +26,7 @@ async function main() {
   const storage = load("src/lib/contractSheets.ts", {
     "@/lib/googleSheets": { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => "fixture" },
     "@/lib/contractIntegrity": load("src/lib/contractIntegrity.ts"),
+    "@/lib/contractNotes": load("src/lib/contractNotes.ts"),
   });
   assert.equal((await storage.getContracts())[0].serviceFeeFrequency, "Monthly", "Legacy rows default to monthly");
   await storage.updateContractInSheets({ id: "CTR-0001", serviceFeeFrequency: "Quarterly" });

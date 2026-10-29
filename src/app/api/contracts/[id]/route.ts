@@ -6,6 +6,7 @@ import {
   deleteContractFromSheets,
 } from "@/lib/contractSheets";
 import { UpdateContractPayload } from "@/types/contract";
+import { ContractNoteError } from "@/lib/contractNoteSheets";
 
 /**
  * GET /api/contracts/[id]
@@ -52,6 +53,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body: Partial<UpdateContractPayload> = await request.json();
+    if (body.notes !== undefined) return NextResponse.json({ error: "Use individual note actions to add, edit, or delete notes." }, { status: 400 });
 
     if (body.paperworkStatus !== undefined && !["Pending", "Complete"].includes(body.paperworkStatus)) {
       return NextResponse.json({ error: "Paperwork status must be Pending or Complete." }, { status: 400 });
@@ -65,8 +67,8 @@ export async function PUT(
     }
 
     const payload: UpdateContractPayload = {
-      id,
       ...body,
+      id,
     };
 
     const updated = await updateContractInSheets(payload);
@@ -74,7 +76,7 @@ export async function PUT(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to update contract.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof ContractNoteError ? error.status : 500 });
   }
 }
 

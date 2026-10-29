@@ -9,6 +9,10 @@ export function effectiveContractStatus(contract: Pick<Contract, "status" | "end
     ? "Expired" : contract.status;
 }
 
+export function contractReady(contract: Pick<Contract, "status" | "endDate" | "paperworkStatus">, today = manilaToday()): boolean {
+  return effectiveContractStatus(contract, today) === "Active" && contract.paperworkStatus === "Complete";
+}
+
 export function contractRowClass(contract: Contract): string {
   const status = effectiveContractStatus(contract);
   if (status === "Expired") return "bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-950/60";

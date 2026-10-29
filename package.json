@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:contracts": "node scripts/test-contract-lifecycle.cjs && node scripts/test-contract-service-frequency.cjs && node scripts/test-service-invoice-billing.cjs",
+    "test:contracts": "node scripts/test-contract-lifecycle.cjs && node scripts/test-contract-service-frequency.cjs && node scripts/test-service-invoice-billing.cjs && node scripts/test-contract-notes.cjs",
+    "test:contract-notes": "node scripts/test-contract-notes.cjs",
 "audit:contracts": "node --env-file=.env.local scripts/audit-contract-integrity.mjs"
     ,"audit:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs"
     ,"migrate:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs --apply"

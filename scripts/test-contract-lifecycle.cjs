@@ -46,6 +46,7 @@ async function main() {
 
   let writes = 0;
   const mocks = {
+    "@/lib/contractNoteSheets": require("./proforma-runtime.cjs").createLoader({ "@/lib/googleSheets": {} })("src/lib/contractNoteSheets.ts"),
     "next/server": { NextResponse: { json: (body, init) => Response.json(body, init) } },
     "@/lib/auth/session": { requireAuthenticatedSession: async () => ({}) },
     "@/lib/contractSheets": { addContract: async body => { writes++; return body; }, updateContractInSheets: async body => { writes++; return body; } },

@@ -31,6 +31,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DatePicker } from "@/components/ui/date-picker"; // Import the DatePicker component
 import { Textarea } from "@/components/ui/textarea";
 import { CompanyContactsDrawer } from "@/components/company-contacts-drawer";
+import { ContractNoteHistory, ContractNotesDialog } from "@/components/contract-note-history";
 import {
   Table,
   TableBody,
@@ -40,7 +41,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
+import { contractReady, effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
+import { exportContractNotes, formatNoteDate } from "@/lib/contractNotes";
 
 import { serviceFrequencyForItems } from "@/lib/contractServiceFrequency";
 
@@ -112,6 +114,7 @@ function exportToExcel(
     { header: "Service Fee", key: "monthlyServiceFee", width: 20 },
     { header: "Contract Billing Frequency", key: "serviceFeeFrequency", width: 22 },
     { header: "Entitlement Items", key: "items", width: 60 },
+    { header: "Note History", key: "notes", width: 65 },
   ];
 
   rows.forEach((contract) => {
@@ -127,6 +130,7 @@ function exportToExcel(
       notarizedHardcopyStatus: contract.notarizedHardcopyStatus ?? "Unknown",
       monthlyServiceFee: contract.monthlyServiceFee ?? "",
       serviceFeeFrequency: contract.serviceFeeFrequency ?? "Monthly",
+      notes: exportContractNotes(contract.noteHistory ?? []),
       items: contract.items
         .map((item) => `${productMap.get(item.productId || item.productCode) || item.productCode} (${item.productCode}) — ${item.entitledQty} / ${item.frequency}`)
         .join("; "),
@@ -134,6 +138,7 @@ function exportToExcel(
   });
   worksheet.getRow(1).font = { bold: true };
   worksheet.getColumn("monthlyServiceFee").numFmt = '₱#,##0.00';
+  worksheet.getColumn("notes").alignment = { wrapText: true, vertical: "top" };
 
   workbook.xlsx.writeBuffer().then((buffer) => {
     const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -202,6 +207,10 @@ interface GroupedCustomerContract extends ContractWithItems {
   companyName: string; // Denormalized for display
 }
 
+function ContractCompanyBadge({ contract, today }: { contract: GroupedCustomerContract; today: string }) {
+  return <Badge variant="outline" title={`Status: ${effectiveContractStatus(contract, today)}; Paperwork: ${contract.paperworkStatus ?? "Pending"}`} className={`max-w-full whitespace-normal break-words px-3 py-1.5 text-left text-sm font-semibold leading-relaxed sm:max-w-72 ${contractReady(contract, today) ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300" : "border-red-500/30 bg-red-500/10 text-red-800 dark:text-red-300"}`}>{contract.companyName}</Badge>;
+}
+
 /* ── Page ───────────────────────────────────────────────── */
 export default function CustomerContractsPage() {
   const [statusFilter, setStatusFilter] = useState("All");
@@ -230,8 +239,6 @@ export default function CustomerContractsPage() {
   const [contactCompany, setContactCompany] = useState<Company | null>(null);
   const [uploadingDocument, setUploadingDocument] = useState<"soft" | "signed" | null>(null);
   const [notesTarget, setNotesTarget] = useState<GroupedCustomerContract | null>(null);
-  const [notesDraft, setNotesDraft] = useState("");
-  const [notesSaving, setNotesSaving] = useState(false);
 
   // Reference data
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -287,7 +294,7 @@ export default function CustomerContractsPage() {
           </Button>
         ),
         cell: ({ row }) => (
-          <span className="block min-w-52 max-w-72 whitespace-normal font-semibold leading-relaxed">{row.original.companyName}</span>
+          <ContractCompanyBadge contract={row.original} today={today} />
         ),
       },
       {
@@ -360,23 +367,24 @@ export default function CustomerContractsPage() {
         id: "notes",
         header: "Notes",
         cell: ({ row }) => {
-          const hasNotes = Boolean(row.original.notes?.trim());
+          const notes = row.original.noteHistory ?? [];
+          const hasNotes = notes.length > 0;
           const openNotes = (event: React.MouseEvent) => {
             event.stopPropagation();
             setNotesTarget(row.original);
-            setNotesDraft(row.original.notes || "");
           };
           return (
             <button
               type="button"
               onClick={openNotes}
-              aria-label={`${hasNotes ? "Edit" : "Add"} notes for ${row.original.companyName}`}
+              aria-label={`${hasNotes ? "Manage" : "Add"} notes for ${row.original.companyName}`}
               className="group block w-48 max-w-full rounded-md p-2 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {hasNotes ? (
                 <>
-                  <span className="line-clamp-2 whitespace-normal break-words leading-relaxed">{row.original.notes}</span>
-                  <span className="mt-1 block text-xs text-muted-foreground group-hover:text-foreground">Edit notes</span>
+                  <span className="line-clamp-2 whitespace-normal break-words leading-relaxed">{notes[0].text}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">{formatNoteDate(notes[0].createdAt)}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground group-hover:text-foreground">{notes.length} {notes.length === 1 ? "note" : "notes"} · Manage notes</span>
                 </>
               ) : <span className="text-muted-foreground group-hover:text-foreground">+ Add notes</span>}
             </button>
@@ -500,7 +508,7 @@ export default function CustomerContractsPage() {
       monthlyServiceFee:
         row.monthlyServiceFee != null ? String(row.monthlyServiceFee) : "",
       serviceFeeFrequency: row.serviceFeeFrequency ?? "Monthly",
-      notes: row.notes || "",
+      notes: "",
       items: row.items.map((item) => ({
         id: item.id,
         productId: item.productId || item.productCode,
@@ -613,7 +621,6 @@ export default function CustomerContractsPage() {
           serviceFeeFrequency: effectiveServiceFrequency,
           paperworkStatus: form.paperworkStatus,
           notarizedHardcopyStatus: form.notarizedHardcopyStatus,
-          notes: form.notes.trim(),
         });
 
         // Handle items: compare and sync
@@ -795,26 +802,6 @@ export default function CustomerContractsPage() {
     }
   };
 
-  const handleSaveNotes = async () => {
-    if (!notesTarget) return;
-    setNotesSaving(true);
-    try {
-      await contractService.update({
-        id: notesTarget.id,
-        notes: notesDraft.trim(),
-      });
-      await loadContracts();
-      toast.success(notesDraft.trim() ? "Contract notes saved." : "Contract notes cleared.");
-      setNotesTarget(null);
-      setNotesDraft("");
-    } catch (error) {
-      console.error("Failed to save contract notes:", error);
-      toast.error("Failed to save contract notes.");
-    } finally {
-      setNotesSaving(false);
-    }
-  };
-
   return (
     <>
       <div className="space-y-6 [&_td]:py-3 [&_th]:bg-muted/40 [&_th]:text-xs [&_th]:text-muted-foreground">
@@ -858,43 +845,23 @@ export default function CustomerContractsPage() {
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
         onExport={(rows) => exportToExcel(rows, productMap)}
-        mobileLayout={{ primary: ["companyName", "agreementType", "status", "notes"], labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", paperworkStatus: "Paperwork", notarizedHardcopyStatus: "Notarized Hardcopy on File", status: "Status", actions: "Actions" } }}
+        mobileLayout={{ primary: ["companyName", "agreementType", "status", "notes"], renderTitle: contract => <ContractCompanyBadge contract={contract} today={today} />, labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", paperworkStatus: "Paperwork", notarizedHardcopyStatus: "Notarized Hardcopy on File", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
       />
       </div>
 
-      <Dialog
-        open={!!notesTarget}
-        onOpenChange={(open) => {
-          if (!open && !notesSaving) {
-            setNotesTarget(null);
-            setNotesDraft("");
-          }
+      {notesTarget && <ContractNotesDialog
+        key={notesTarget.id}
+        contractId={notesTarget.id}
+        companyName={notesTarget.companyName}
+        notes={data.find(contract => contract.id === notesTarget.id)?.noteHistory ?? []}
+        onClose={() => setNotesTarget(null)}
+        onChange={noteHistory => {
+          const notes = noteHistory.map(note => note.text).join("\n\n") || undefined;
+          setData(current => current.map(contract => contract.id === notesTarget.id ? { ...contract, noteHistory, notes } : contract));
+          setViewTarget(current => current?.id === notesTarget.id ? { ...current, noteHistory, notes } : current);
         }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Contract Notes</DialogTitle>
-            <DialogDescription>
-              {notesTarget ? `${notesTarget.companyName} · ${notesTarget.id}` : "Internal contract notes"}
-            </DialogDescription>
-          </DialogHeader>
-          <Textarea
-            value={notesDraft}
-            onChange={(event) => setNotesDraft(event.target.value)}
-            placeholder="Add follow-up reminders, renewal discussions, or other internal notes"
-            rows={7}
-            disabled={notesSaving}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNotesTarget(null)} disabled={notesSaving}>Cancel</Button>
-            <Button onClick={handleSaveNotes} disabled={notesSaving}>
-              {notesSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Notes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      />}
 
       <Dialog open={!!viewTarget} onOpenChange={(open) => !open && setViewTarget(null)}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -920,7 +887,7 @@ export default function CustomerContractsPage() {
                 <div><p className="text-xs text-muted-foreground">{viewTarget.serviceFeeFrequency ?? "Monthly"} Service Fee</p><p className="mt-1 font-medium">{formatCurrency(viewTarget.monthlyServiceFee)}</p></div>
                 {(viewTarget.monthlyServiceFee ?? 0) > 0 && <div><p className="text-xs text-muted-foreground">Contract Billing Frequency</p><p className="mt-1 font-medium">{viewTarget.serviceFeeFrequency ?? "Monthly"}</p></div>}
                 {viewTarget.description && <div className="col-span-2"><p className="text-xs text-muted-foreground">Description</p><p className="mt-1 font-medium">{viewTarget.description}</p></div>}
-                {viewTarget.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p className="mt-1 whitespace-pre-wrap font-medium">{viewTarget.notes}</p></div>}
+                <div className="col-span-2 space-y-2"><p className="text-xs text-muted-foreground">Note history</p><ContractNoteHistory notes={viewTarget.noteHistory ?? []} /><Button type="button" variant="outline" size="sm" onClick={() => setNotesTarget(viewTarget)}>Manage notes</Button></div>
               </div>
 
               <div className="space-y-2">
@@ -1202,8 +1169,12 @@ export default function CustomerContractsPage() {
               <div className="space-y-1.5"><Label htmlFor="cc-paperwork">Paperwork Status</Label><Select value={form.paperworkStatus} onValueChange={(value: PaperworkStatus) => setForm(f => ({ ...f, paperworkStatus: value }))} disabled={saving}><SelectTrigger id="cc-paperwork" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{["Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-1.5"><Label htmlFor="cc-hardcopy">Notarized Hardcopy on File</Label><Select value={form.notarizedHardcopyStatus} onValueChange={(value: NotarizedHardcopyStatus) => setForm(f => ({ ...f, notarizedHardcopyStatus: value }))} disabled={saving}><SelectTrigger id="cc-hardcopy" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{["Unknown", "Yes", "No"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
             </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="cc-notes">Notes (Internal)</Label>
+              {editTarget ? <div className="space-y-3">
+                <Label>Note history</Label>
+                <ContractNoteHistory notes={data.find(contract => contract.id === editTarget.id)?.noteHistory ?? []} />
+                <Button type="button" variant="outline" disabled={saving} onClick={() => setNotesTarget(editTarget)}>Manage notes</Button>
+              </div> : <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="cc-notes">Initial note (Internal)</Label>
                 <Textarea
                   id="cc-notes"
                   value={form.notes}
@@ -1213,8 +1184,10 @@ export default function CustomerContractsPage() {
                   disabled={saving}
                   placeholder="Follow-up reminders, renewal discussions, or other internal notes"
                   rows={3}
+                  maxLength={10000}
                 />
-              </div>
+                <p className="text-xs text-muted-foreground">The date and time are recorded when the contract is created.</p>
+              </div>}
             </section>
 
             {/* Product Items Section */}
