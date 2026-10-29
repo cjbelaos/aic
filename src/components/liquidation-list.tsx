@@ -55,6 +55,8 @@ import LiquidationPrintDocument, {
   type LiquidationFtiComparison,
 } from "@/components/liquidation-print-document";
 import type { LiquidationFull } from "@/types/liquidation";
+import { LiquidationReturnDialog } from "@/components/liquidation-return-dialog";
+import { getLiquidationReturnAmount, getLiquidationReturnStatus, RETURN_STATUS_LABELS } from "@/lib/liquidation-returns";
 
 interface StoredUser {
   userId?: string;
@@ -122,6 +124,8 @@ export function LiquidationList() {
   const [storedUser] = useState<StoredUser>(getStoredUser);
   const [userFilter, setUserFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [returnFilter, setReturnFilter] = useState("ALL");
+  const [returnTarget, setReturnTarget] = useState<LiquidationFull | null>(null);
 
   const [previewLiquidation, setPreviewLiquidation] =
     useState<LiquidationFull | null>(null);
@@ -339,6 +343,7 @@ export function LiquidationList() {
   const filteredLiquidations = useMemo(() => {
     return liquidations.filter((l) => {
       if (userFilter !== "ALL" && l.userId !== userFilter) return false;
+      if (returnFilter !== "ALL" && (!l.canViewReturn || getLiquidationReturnStatus(l) !== returnFilter)) return false;
       if (
         statusFilter !== "ALL" &&
         (l.status || "").toUpperCase() !== statusFilter.toUpperCase()
@@ -348,7 +353,7 @@ export function LiquidationList() {
       return true;
     });
     // Default listing order: newest activity first (Date = UpdatedAt).
-  }, [liquidations, userFilter, statusFilter]);
+  }, [liquidations, userFilter, statusFilter, returnFilter]);
 
   // Display order: latest first based on UpdatedAt (falling back to CreatedAt).
   const sortedLiquidations = useMemo(() => {
@@ -589,12 +594,34 @@ export function LiquidationList() {
       ),
     },
     {
+      id: "returnStatus",
+      header: "Cash Return",
+      accessorFn: liquidation => liquidation.canViewReturn ? RETURN_STATUS_LABELS[getLiquidationReturnStatus(liquidation)!] || "" : "",
+      cell: ({ row }) => {
+        const l = row.original;
+        if (l.canViewReturn && l.status.toUpperCase() === "APPROVED" && l.returnAmountUnavailable) {
+          return <span className="text-sm text-muted-foreground">Cash advance unavailable</span>;
+        }
+        const status = l.canViewReturn ? getLiquidationReturnStatus(l) : undefined;
+        if (!status) return <span className="text-muted-foreground">—</span>;
+        return <div className="space-y-1">
+          <Badge variant="outline" className={status === "RETURNED" ? "bg-green-100 text-green-800" : ""}>{RETURN_STATUS_LABELS[status]}</Badge>
+          {status !== "NOT_APPLICABLE" && <div className="text-xs">{formatCurrency(getLiquidationReturnAmount(l))}{l.returnDate ? ` · ${l.returnDate}` : ""}</div>}
+        </div>;
+      },
+    },
+    {
       id: "actions",
       header: "Actions",
       cell: ({ row }) => {
         const liquidation = row.original;
         return (
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
+            {liquidation.canViewReturn && liquidation.status.toUpperCase() === "APPROVED" && getLiquidationReturnAmount(liquidation) > 0 && (
+              <Button variant="outline" size="sm" onClick={() => setReturnTarget(liquidation)}>
+                {liquidation.canRecordReturn ? (getLiquidationReturnStatus(liquidation) === "RETURNED" ? "Edit Return" : "Record Return") : "View Return"}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -687,6 +714,13 @@ export function LiquidationList() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={returnFilter} onValueChange={setReturnFilter}>
+          <SelectTrigger className="h-9 w-[190px]" aria-label="Filter by cash return status"><SelectValue placeholder="Cash Return" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All Return Statuses</SelectItem>
+            {Object.entries(RETURN_STATUS_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       <EntityTable
@@ -695,8 +729,15 @@ export function LiquidationList() {
         data={sortedLiquidations}
         loading={false}
         headerActions={createNewElement}
-        mobileLayout={{ primary: ["controlNo", "requesterName", "status"], labels: { controlNo: "Control no.", requesterName: "Requester", totalAmount: "Total", status: "Status", updatedAt: "Updated", actions: "Actions" } }}
+        mobileLayout={{ primary: ["controlNo", "requesterName", "status", "returnStatus"], labels: { controlNo: "Control no.", requesterName: "Requester", totalAmount: "Total", status: "Status", returnStatus: "Cash Return", updatedAt: "Updated", actions: "Actions" } }}
       />
+      {returnTarget && <LiquidationReturnDialog key={returnTarget.liquidationId} liquidation={returnTarget}
+        onClose={() => setReturnTarget(null)} onSaved={updated => {
+          setLiquidations(previous => previous.map(l => l.liquidationId === updated.liquidationId ? { ...l, ...updated } : l));
+          setReturnTarget(null);
+          toast.success("Cash return recorded.");
+          refreshList().catch(() => toast.error("Return saved, but the list could not refresh. Reload to see the latest details."));
+        }} />}
 
       {/* Items Modal - Table View */}
       <Dialog open={itemsModalOpen} onOpenChange={setItemsModalOpen}>

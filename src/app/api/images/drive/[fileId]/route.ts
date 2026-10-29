@@ -13,6 +13,10 @@ export async function GET(
     const { fileId } = await params;
 
     const drive = await getDriveUploadClient();
+    const metadata = await drive.files.get({ fileId, fields: "properties" });
+    if (metadata.data.properties?.purpose === "liquidation-return") {
+      return NextResponse.json({ error: "Use the protected liquidation return endpoint." }, { status: 403 });
+    }
 
     // Download the file content from Drive
     const response = await drive.files.get(

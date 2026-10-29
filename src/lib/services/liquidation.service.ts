@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { LiquidationFull, ReceiptItemInput } from "@/types/liquidation";
+import type { Liquidation, LiquidationFull, ReceiptItemInput } from "@/types/liquidation";
 
 const api = axios.create({
   baseURL: "/api",
@@ -95,6 +95,16 @@ async function compressImage(file: File): Promise<File> {
 }
 
 export const liquidationService = {
+  async recordReturn(liquidationId: string, returnDate: string, file?: File) {
+    const form = new FormData();
+    form.append("liquidationId", liquidationId);
+    form.append("returnDate", returnDate);
+    if (file) form.append("file", await compressImage(file));
+    const response = await api.post<{ success: boolean; liquidation: Liquidation }>(
+      "/liquidations/returns", form, { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    return response.data.liquidation;
+  },
   /**
    * Creates a new liquidation batch. UserId is captured server-side.
    * controlNo links the liquidation to the technician's FTI request.

@@ -15,6 +15,7 @@ export function getLiquidationReturnAmount(liquidation: Liquidation): number {
 }
 
 export function getLiquidationReturnStatus(liquidation: Liquidation): LiquidationReturnStatus | undefined {
+  if (liquidation.returnAmountUnavailable) return undefined;
   if (liquidation.status.toUpperCase() !== "APPROVED") return undefined;
   if (getLiquidationReturnAmount(liquidation) <= 0) return "NOT_APPLICABLE";
   return liquidation.returnDate && liquidation.returnEvidenceFileId ? "RETURNED" : "NOT_RECORDED";
@@ -38,5 +39,6 @@ export function validateReturnDate(value: string, now = new Date()): void {
 export function assertCanRecordReturn(liquidation: Liquidation, userId: string): void {
   if (liquidation.userId !== userId) throw new Error("Only the requestor can record or edit this return.");
   if (liquidation.status.toUpperCase() !== "APPROVED") throw new Error("Only approved liquidations can have a return recorded.");
+  if (liquidation.returnAmountUnavailable) throw new Error("The original cash advance could not be loaded. Please try again or contact an administrator.");
   if (getLiquidationReturnAmount(liquidation) <= 0) throw new Error("This liquidation has no amount to return.");
 }

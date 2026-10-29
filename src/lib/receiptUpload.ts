@@ -79,5 +79,9 @@ export async function uploadReceiptFile(params: {
 export async function deleteReceiptFile(fileId: string): Promise<void> {
   if (!fileId) return;
   const drive = await getDriveUploadClient();
+  const metadata = await drive.files.get({ fileId, fields: "properties" });
+  if (metadata.data.properties?.purpose === "liquidation-return") {
+    throw new Error("Return evidence cannot be deleted through receipt uploads.");
+  }
   await drive.files.delete({ fileId });
 }

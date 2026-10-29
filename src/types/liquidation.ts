@@ -72,6 +72,8 @@ export interface Liquidation {
   /** Capabilities computed by the server, never trusted for authorization. */
   canViewReturn?: boolean;
   canRecordReturn?: boolean;
+  /** Legacy FTI cash advance could not be resolved; never imply no return is due. */
+  returnAmountUnavailable?: boolean;
   // ── Audit columns (appended at the end of the Liquidations sheet) ──
   createdBy?: string;
   createdAt?: string;

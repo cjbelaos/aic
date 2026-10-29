@@ -11,7 +11,7 @@ import type {
 // ── Constants ──
 const LIQUIDATIONS_SHEET = "Liquidations";
 const RECEIPT_ITEMS_SHEET = "ReceiptItems";
-const RANGE_LIQUIDATIONS = `${LIQUIDATIONS_SHEET}!A2:T`; // A:O existing fields; P:T return date, evidence ID/name, return updated by/at
+const RANGE_LIQUIDATIONS = LIQUIDATIONS_SHEET; // Read the used range, including legacy sheets with fewer than 20 columns.
 const RANGE_RECEIPT_ITEMS = `${RECEIPT_ITEMS_SHEET}!A2:AF`; // A=receiptItemId, B=liquidationId, C=date, D=description, E=miscellaneousCode, F=amount, G=receiptImageUrl, …:AB extended receipt columns, AC=createdBy, AD=createdAt, AE=updatedBy, AF=updatedAt
 
 // ── Simple TTL Cache (matches ftiSheets.ts pattern) ──
@@ -117,7 +117,7 @@ async function getAllLiquidationsRaw(): Promise<Liquidation[]> {
     spreadsheetId,
     range: RANGE_LIQUIDATIONS,
   });
-  const rows = res.data.values || [];
+  const rows = (res.data.values || []).slice(1);
   return rows
     .map((row) => ({
       liquidationId: (row[0] || "").toString().trim(),
@@ -879,9 +879,12 @@ export async function updateLiquidationStatus(
   updatedBy = "System",
 ): Promise<void> {
   const spreadsheetId = await getDatabaseSpreadsheetId();
-  const all = await getAllLiquidations();
+  const all = await getAllLiquidationsRaw();
   const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
   if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found`);
+  if (all[idx].status.toUpperCase() === "APPROVED") {
+    throw new Error("Approved liquidations cannot be resubmitted or reopened.");
+  }
   if (status.toUpperCase() === "SUBMITTED") {
     const receiptItems = (await getAllReceiptItemsRaw()).filter(
       (item) => item.liquidationId === liquidationId,
@@ -979,9 +982,12 @@ export async function updateLiquidationApproval(
   comment?: string,
 ): Promise<void> {
   const spreadsheetId = await getDatabaseSpreadsheetId();
-  const all = await getAllLiquidations();
+  const all = await getAllLiquidationsRaw();
   const idx = all.findIndex((entry) => entry.liquidationId === liquidationId);
   if (idx === -1) throw new Error(`Liquidation ${liquidationId} not found`);
+  if (all[idx].status.toUpperCase() !== "SUBMITTED") {
+    throw new Error("Only submitted liquidations can receive an approval decision.");
+  }
   const rowNumber = idx + 2;
   const sheets = await getSheetsClient();
 
@@ -993,6 +999,14 @@ export async function updateLiquidationApproval(
         : "REJECTED";
   const dateApproved = new Date().toISOString().replace("T", " ").slice(0, 19);
   const isApprove = action === "approve";
+
+  // Retain the actual deciding approver, including a BOD override, for return visibility.
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${LIQUIDATIONS_SHEET}!F${rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[approvedByUserId]] },
+  });
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,

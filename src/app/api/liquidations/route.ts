@@ -8,7 +8,6 @@ import {
   getAllReceiptItems,
   getLiquidationById,
   getLiquidationFullByControlNoForUser,
-  getLiquidationsFullByUser,
   replaceReceiptItems,
   updateLiquidationApproval,
   updateLiquidationControlNo,
@@ -16,10 +15,10 @@ import {
   updateLiquidationStatus,
   withdrawLiquidation,
 } from "@/lib/liquidationSheets";
-import { getAllFTIRequests } from "@/lib/ftiSheets";
+import { enrichLiquidationAdvances } from "@/lib/liquidationReturnSheets";
+import { getReturnAccess, withReturnAccess } from "@/lib/liquidation-return-access";
 import { getUsers } from "@/lib/userSheets";
 import { getUserApprovers } from "@/lib/userApproverSheets";
-import type { LiquidationFull } from "@/types/liquidation";
 import type { ReceiptItemInput } from "@/types/liquidation";
 
 interface LiquidationActionBody {
@@ -290,45 +289,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * Enriches liquidations that have a controlNo (FTI-linked) but no
- * totalAmountRequested by looking up the FTI request's totalAmount.
- * This ensures clients always see the correct cash advances value even
- * when column K in the Liquidations sheet was not persisted (e.g. if
- * the FTI lookup failed at draft creation time).
- */
-async function enrichMissingTotalAmountRequested(
-  liquidations: LiquidationFull[],
-): Promise<LiquidationFull[]> {
-  const needsEnrichment = liquidations.filter(
-    (l) => l.controlNo && (!l.totalAmountRequested || l.totalAmountRequested <= 0),
-  );
-  if (needsEnrichment.length === 0) return liquidations;
-
-  let ftiMap: Map<string, number> | null = null;
-  try {
-    const ftiRequests = await getAllFTIRequests();
-    ftiMap = new Map(
-      ftiRequests
-        .filter((r): r is typeof r & { totalAmount: number } => r.totalAmount != null)
-        .map((r) => [r.controlNo, r.totalAmount]),
-    );
-  } catch {
-    // Non-critical: return original data if FTI fetch fails
-    return liquidations;
-  }
-
-  return liquidations.map((l) => {
-    if (l.controlNo && (!l.totalAmountRequested || l.totalAmountRequested <= 0)) {
-      const ftiAmount = ftiMap?.get(l.controlNo);
-      if (ftiAmount != null && ftiAmount > 0) {
-        return { ...l, totalAmountRequested: ftiAmount };
-      }
-    }
-    return l;
-  });
-}
-
 export async function GET(req: NextRequest) {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
@@ -353,8 +313,8 @@ export async function GET(req: NextRequest) {
         controlNo,
       );
       if (liquidation) {
-        const enriched = await enrichMissingTotalAmountRequested([liquidation]);
-        liquidation = enriched[0];
+        const enriched = await enrichLiquidationAdvances([liquidation]);
+        liquidation = withReturnAccess(enriched[0], await getReturnAccess(session));
       }
       return NextResponse.json({
         success: true,
@@ -369,91 +329,27 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ?all=true — Admin (userRoleId === 1) sees ALL liquidations
-  const allParam = req.nextUrl.searchParams.get("all") === "true";
-  // ?bod=true — BOD (departmentId === 4) sees all SUBMITTED liquidations
   const bodParam = req.nextUrl.searchParams.get("bod") === "true";
-
   try {
-    const [mine, all, items, approvers, users] = await Promise.all([
-      getLiquidationsFullByUser(session.userId),
-      getAllLiquidations(),
-      getAllReceiptItems(),
-      getUserApprovers("LIQUIDATION").catch(() => []),
-      import("@/lib/userSheets").then((m) => m.getUsers()).catch(() => []),
+    const [all, items, users, access] = await Promise.all([
+      getAllLiquidations(), getAllReceiptItems(), getUsers(), getReturnAccess(session),
     ]);
-
-    // Build userId → fullName and userId → departmentId maps for display/filtering
-    const userNames = new Map<string, string>();
-    const userDepts = new Map<string, number>();
-    for (const u of users) {
-      if (u.userId) {
-        userNames.set(u.userId, u.fullName || u.userId);
-        if (u.departmentId != null) userDepts.set(u.userId, u.departmentId);
-      }
-    }
-
-    // Admin: return ALL liquidations
-    if (allParam && session.userRoleId === 1) {
-      const allFull = all.map((liquidation) => ({
-        ...liquidation,
-        requesterName: userNames.get(liquidation.userId) || "",
-        requesterDepartmentId: userDepts.get(liquidation.userId),
-        items: items.filter(
-          (item) => item.liquidationId === liquidation.liquidationId,
-        ),
-      }));
-      allFull.sort((a, b) => b.controlNo.localeCompare(a.controlNo));
-      const enriched = await enrichMissingTotalAmountRequested(allFull);
-      return NextResponse.json({ success: true, liquidations: enriched });
-    }
-
-    // BOD: return all SUBMITTED liquidations
-    if (bodParam && session.departmentId === 4) {
-      const submitted = all
-        .filter((l) => (l.status || "").toUpperCase() === "SUBMITTED")
-        .map((liquidation) => ({
-          ...liquidation,
-          requesterName: userNames.get(liquidation.userId) || "",
-          requesterDepartmentId: userDepts.get(liquidation.userId),
-          items: items.filter(
-            (item) => item.liquidationId === liquidation.liquidationId,
-          ),
-        }));
-      submitted.sort((a, b) => b.controlNo.localeCompare(a.controlNo));
-      const enriched = await enrichMissingTotalAmountRequested(submitted);
-      return NextResponse.json({ success: true, liquidations: enriched });
-    }
-
-    const mappedRequesterIds = new Set<string>();
-    for (const m of approvers)
-      if (m.approverUserId === session.userId)
-        mappedRequesterIds.add(m.requesterUserId);
-
-    const visible = mine.map((liquidation) => ({
-      ...liquidation,
-      requesterName: userNames.get(liquidation.userId) || "",
+    const userNames = new Map(users.map(u => [u.userId, u.fullName || u.userId]));
+    const userDepts = new Map(users.map(u => [u.userId, u.departmentId]));
+    const visible = all.filter(l =>
+      access.isAdmin || l.userId === session.userId || l.approvedByUserId === session.userId ||
+      access.requesterIds.has(l.userId) ||
+      (access.isCfo && l.status.toUpperCase() === "APPROVED") ||
+      (bodParam && session.departmentId === 4 && l.status.toUpperCase() === "SUBMITTED"),
+    ).map(l => ({
+      ...l, requesterName: userNames.get(l.userId) || "",
+      requesterDepartmentId: userDepts.get(l.userId),
+      items: items.filter(item => item.liquidationId === l.liquidationId),
     }));
-    for (const liquidation of all) {
-      const isApprover =
-        liquidation.approvedByUserId === session.userId ||
-        mappedRequesterIds.has(liquidation.userId);
-      if (
-        isApprover &&
-        !visible.some((v) => v.liquidationId === liquidation.liquidationId)
-      ) {
-        visible.push({
-          ...liquidation,
-          requesterName: userNames.get(liquidation.userId) || "",
-          items: items.filter(
-            (item) => item.liquidationId === liquidation.liquidationId,
-          ),
-        });
-      }
-    }
     visible.sort((a, b) => b.controlNo.localeCompare(a.controlNo));
-    const enriched = await enrichMissingTotalAmountRequested(visible);
-    return NextResponse.json({ success: true, liquidations: enriched });
+    const enriched = await enrichLiquidationAdvances(visible);
+    return NextResponse.json({ success: true, liquidations: enriched.map(l => withReturnAccess(l, access)) },
+      { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Liquidations list error:", error);
     return NextResponse.json(
