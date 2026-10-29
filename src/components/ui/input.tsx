@@ -1,8 +1,9 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { handleTextChange } from "@/lib/input-caret"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+function Input({ className, type, onChange, ...props }: React.ComponentProps<"input">) {
   return (
     <input
       type={type}
@@ -14,6 +15,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
         className
       )}
       {...props}
+      onChange={onChange ? (event) => handleTextChange(event, onChange) : undefined}
     />
   )
 }

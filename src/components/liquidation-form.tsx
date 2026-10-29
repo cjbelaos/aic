@@ -193,9 +193,7 @@ function FieldWithGuide({
         step={type === "number" ? "0.01" : undefined}
         placeholder={placeholder}
         value={value}
-        onChange={(e) =>
-          onChange(uppercase ? e.target.value.toUpperCase() : e.target.value)
-        }
+        onChange={(e) => onChange(e.target.value)}
         className={uppercase ? "h-11 text-base uppercase" : "h-11 text-base"}
       />)}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
@@ -730,9 +728,9 @@ export function LiquidationForm({
       checkNo: draftCheckNo.trim().toUpperCase() || undefined,
       cvNo: draftCvNo.trim().toUpperCase() || undefined,
       refNo: draftRefNo.trim().toUpperCase() || undefined,
-      tin: tin || undefined,
-      supplierName: supplierName || undefined,
-      address: supplierAddress || undefined,
+      tin: tin.trim().toUpperCase() || undefined,
+      supplierName: supplierName.trim().toUpperCase() || undefined,
+      address: supplierAddress.trim().toUpperCase() || undefined,
       receiptImageUrl: finalReceiptUrl || undefined,
       receiptPreviewUrl: finalReceiptPreviewUrl || undefined,
       receiptIsImage: finalReceiptUrl ? draftReceiptIsImage : undefined,
@@ -1026,7 +1024,7 @@ export function LiquidationForm({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 max-w-full space-y-4">
       {/* ── Liquidation Type ── */}
       <Card>
         <CardHeader className="pb-3">
@@ -1644,7 +1642,7 @@ export function LiquidationForm({
             </p>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              <div className="min-w-0 max-w-full overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1854,8 +1852,10 @@ export function LiquidationForm({
       </div>
 
       {/* ── Sticky bottom submit bar ── */}
-      <div className="sticky bottom-0 z-10 -mx-1 border-t bg-background/95 px-3 py-3 backdrop-blur">
-        <div className="flex items-center justify-between gap-3">
+      <div className={isEditing
+        ? "z-10 border-t bg-background/95 px-3 py-3 backdrop-blur sm:sticky sm:bottom-0"
+        : "sticky bottom-0 z-10 -mx-1 border-t bg-background/95 px-3 py-3 backdrop-blur"}>
+        <div className={isEditing ? "flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between" : "flex items-center justify-between gap-3"}>
           <div className="shrink-0">
             <p className="text-[10px] text-muted-foreground">Total Amount</p>
             <p className="text-lg font-bold leading-tight">
@@ -1864,7 +1864,7 @@ export function LiquidationForm({
           </div>
           <Button
             size="lg"
-            className="h-12 flex-1 max-w-xs text-base"
+            className={isEditing ? "min-h-12 w-full min-w-0 whitespace-normal text-base sm:h-12 sm:max-w-xs sm:flex-1" : "h-12 flex-1 max-w-xs text-base"}
             onClick={handleSubmit}
             disabled={submitting || items.length === 0 || isLocked}
           >

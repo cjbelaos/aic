@@ -1,8 +1,9 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { handleTextChange } from "@/lib/input-caret"
 
-function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+function Textarea({ className, onChange, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea
       data-slot="textarea"
@@ -11,6 +12,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
         className
       )}
       {...props}
+      onChange={onChange ? (event) => handleTextChange(event, onChange) : undefined}
     />
   )
 }

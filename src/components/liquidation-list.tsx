@@ -1042,25 +1042,27 @@ export function LiquidationList() {
         }}
       >
         <DialogContent
-          className="sm:max-w-5xl max-h-[92vh] overflow-y-auto"
+          className="flex min-w-0 max-h-[92dvh] flex-col overflow-hidden sm:max-w-5xl"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
-          <DialogHeader>
+          <DialogHeader className="shrink-0">
             <DialogTitle>Edit Expense Liquidation</DialogTitle>
           </DialogHeader>
-          <LiquidationForm
-            key={editingLiquidation?.liquidationId || "edit-liquidations"}
-            userId={currentUserId}
-            editingLiquidation={editingLiquidation}
-            restrictToOther={
-              editingLiquidation ? !editingLiquidation.controlNo : false
-            }
-            onCancel={() => {
-              setEditingLiquidation(null);
-              refreshList();
-            }}
-          />
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+            <LiquidationForm
+              key={editingLiquidation?.liquidationId || "edit-liquidations"}
+              userId={currentUserId}
+              editingLiquidation={editingLiquidation}
+              restrictToOther={
+                editingLiquidation ? !editingLiquidation.controlNo : false
+              }
+              onCancel={() => {
+                setEditingLiquidation(null);
+                refreshList();
+              }}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 
