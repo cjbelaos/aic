@@ -1311,7 +1311,7 @@ export default function FieldTravelItineraryPage() {
       await ftiService.updateRequest(ref, {
         status: "SENT",
       });
-      toast.success(`FTI ${ref} submitted and PDF saved to Drive.`);
+      toast.success(`FTI ${ref} submitted successfully.`);
       setBatchItems([]);
       setEditingItemId(null);
       setPreviewOpen(false);

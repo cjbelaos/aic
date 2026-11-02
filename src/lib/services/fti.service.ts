@@ -14,6 +14,17 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const message = error?.response?.data?.error;
+    if (typeof message === "string" && message.trim()) {
+      error.message = message;
+    }
+    return Promise.reject(error);
+  },
+);
+
 export const ftiService = {
   // ── FTIRequests ──
   async getRequests(): Promise<FTIRequestSummary[]> {

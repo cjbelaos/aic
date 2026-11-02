@@ -7,6 +7,7 @@ import {
   updateFTIApproval,
   saveFullFTIRequest,
   withdrawFTIRequest,
+  FTIApproverRequiredError,
 } from "@/lib/ftiSheets";
 import { getUserApprovers } from "@/lib/userApproverSheets";
 import { getSession } from "@/lib/auth/session";
@@ -249,7 +250,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
             ? error.message
             : "Failed to update FTI request",
       },
-      { status: 500 },
+      { status: error instanceof FTIApproverRequiredError ? 422 : 500 },
     );
   }
 }

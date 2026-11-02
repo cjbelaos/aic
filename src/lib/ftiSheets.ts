@@ -491,6 +491,8 @@ export async function updateFTIApproval(
   invalidateFTICache();
 }
 
+export class FTIApproverRequiredError extends Error {}
+
 export async function updateFTIRequestStatus(
   controlNo: string,
   status: string,
@@ -546,7 +548,7 @@ export async function updateFTIRequestStatus(
 
       const approver = await resolveApproverForRequester(req.userId);
       if (!approver) {
-        throw new Error(
+        throw new FTIApproverRequiredError(
           "No approver is configured for this user. Contact your administrator before submitting.",
         );
       }
