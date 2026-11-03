@@ -12,6 +12,7 @@ import {
 import { getUserApprovers } from "@/lib/userApproverSheets";
 import { getSession } from "@/lib/auth/session";
 import type { FTIDetailInput } from "@/types/fti";
+import { isEditableStatus } from "@/types/fti";
 
 type RouteContext = { params: Promise<{ controlNo: string }> };
 
@@ -103,73 +104,22 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       }
     }
 
-    // ── Withdraw action (self-service or admin force) ──
-    if (body.action === 'withdraw') {
-      if (!full) {
-        return NextResponse.json(
-          { error: 'Request not found' },
-          { status: 404 },
-        );
-      }
-      const isAdmin = session.userRoleId === 1;
-      const isOwner = full.userId === session.userId;
-      if (!isAdmin && !isOwner) {
-        return NextResponse.json(
-          { error: 'Only the request owner or an admin can withdraw a request.' },
-          { status: 403 },
-        );
-      }
-      const force = body.force === true;
-      await withdrawFTIRequest(decoded, session.userId, force);
-      const updated = await getFTIRequestFull(decoded);
-      return NextResponse.json(updated);
-    }
-
-    // ── Withdraw action (self-service or admin force) ──
+    // Only administrators may reopen a submitted request.
     if (body.action === "withdraw") {
       if (!full) {
-        return NextResponse.json(
-          { error: "Request not found" },
-          { status: 404 },
-        );
+        return NextResponse.json({ error: "Request not found" }, { status: 404 });
       }
-      const isAdmin = session.userRoleId === 1;
-      const isOwner = full.userId === session.userId;
-      if (!isAdmin && !isOwner) {
+      if (session.userRoleId !== 1) {
         return NextResponse.json(
-          { error: "Only the request owner or an admin can withdraw a request." },
+          { error: "Submitted FTI requests are read-only." },
           { status: 403 },
         );
       }
-      const force = body.force === true;
-      await withdrawFTIRequest(decoded, session.userId, force);
-      const updated = await getFTIRequestFull(decoded);
-      return NextResponse.json(updated);
+      await withdrawFTIRequest(decoded, session.userId, body.force === true);
+      return NextResponse.json(await getFTIRequestFull(decoded));
     }
 
-    // ── Withdraw action (self-service or admin force) ──
-    if (body.action === "withdraw") {
-      if (!full) {
-        return NextResponse.json(
-          { error: "Request not found" },
-          { status: 404 },
-        );
-      }
-      const isAdmin = session.userRoleId === 1;
-      const isOwner = full.userId === session.userId;
-      if (!isAdmin && !isOwner) {
-        return NextResponse.json(
-          { error: "Only the request owner or an admin can withdraw a request." },
-          { status: 403 },
-        );
-      }
-      const force = body.force === true;
-      await withdrawFTIRequest(decoded, session.userId, force);
-      const updated = await getFTIRequestFull(decoded);
-      return NextResponse.json(updated);
-    }
-
-    // ── Approval actions (approver flow) ──
+    // Approval actions remain available to authorized approvers.
     if (body.action) {
       if (!full) {
         return NextResponse.json(
@@ -214,6 +164,13 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       }
       const updated = await getFTIRequestFull(decoded);
       return NextResponse.json(updated);
+    }
+
+    if (full && !isEditableStatus(full.status)) {
+      return NextResponse.json(
+        { error: "Submitted FTI requests are read-only." },
+        { status: 403 },
+      );
     }
 
     if (body.details && Array.isArray(body.details)) {
@@ -276,6 +233,13 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     const isAdmin = session.userRoleId === 1;
     if (!isAdmin && full.userId !== session.userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    if (!isEditableStatus(full.status)) {
+      return NextResponse.json(
+        { error: "Submitted FTI requests cannot be deleted." },
+        { status: 403 },
+      );
     }
 
     await deleteFTIRequest(decoded);

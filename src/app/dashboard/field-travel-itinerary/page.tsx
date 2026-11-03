@@ -257,14 +257,7 @@ export default function FieldTravelItineraryPage() {
     if (formInfo?.isAdmin) return true;
     const currentUserId = formInfo?.currentUserId;
     if (!currentUserId) return false;
-    // Owners (technicians) may view the PDF and items of their own FTI once
-    // the request has been approved.
-    if (
-      item.userId === currentUserId &&
-      item.status.toUpperCase() === "APPROVED"
-    ) {
-      return true;
-    }
+    if (item.userId === currentUserId) return true;
     if (item.approvedByUserId === currentUserId) return true;
     return approvers.some(
       (m) =>
@@ -1983,26 +1976,28 @@ export default function FieldTravelItineraryPage() {
                   <Eye className="h-4 w-4" />
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => handleEditListItem(item)}
-                disabled={!editable}
-                title="Edit"
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-destructive"
-                onClick={() => handleDeleteListItem(item)}
-                disabled={!editable}
-                title="Delete"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              {editable && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => handleEditListItem(item)}
+                  title="Edit"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              )}
+              {editable && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive"
+                  onClick={() => handleDeleteListItem(item)}
+                  title="Delete"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           );
         },
