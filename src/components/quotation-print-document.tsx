@@ -1,3 +1,4 @@
+import { addDays, format, isValid, parseISO } from "date-fns";
 import { isDraftQuotationReference } from "@/lib/quotationReference";
 import {
   SINGLE_TOTAL_PRICE_LABEL,
@@ -15,6 +16,10 @@ export function QuotationPrintDocument({ quotation: q, signatureUrls = {} }: { q
   const singleTotalMode = isSingleTotalPricing(q.pricingMode);
   const combinedPrice = singleTotalPriceFromRecord(q);
   const subtotal = q.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const vatableAmount = q.amount / 1.12;
+  const vat = vatableAmount * 0.12;
+  const issuedDate = /^\d{4}-\d{2}-\d{2}/.test(q.date) ? parseISO(q.date) : new Date(q.date);
+  const validity = isValid(issuedDate) ? format(addDays(issuedDate, 90), "MMM d, yyyy") : "—";
   const lineWidths = singleTotalMode ? [6, 62, 14, 18] : [6, 42, 10, 10, 16, 16];
   return <main className="receipt">
     <table aria-label="Quotation items">
@@ -22,7 +27,7 @@ export function QuotationPrintDocument({ quotation: q, signatureUrls = {} }: { q
       <thead>
         <tr><th colSpan={lineWidths.length} className="heading-cell">
           <BusinessDocumentHeader title="QUOTATION" number={isDraftQuotationReference(q.quotationNo) ? "" : q.quotationNo} draft={isDraftQuotationReference(q.quotationNo)} />
-          <div className="details"><div><div className="label">Prepared for</div><div className="customer">{q.customer}</div><div className="multiline">{q.description}</div></div><div><b>Date:</b> {q.date}</div></div>
+          <div className="details"><div><div className="label">Prepared for</div><div className="customer">{q.customer}</div><div className="multiline">{q.description}</div></div><div><div><b>Date:</b> {q.date}</div><div><b>Quotation Validity:</b> {validity}</div></div></div>
         </th></tr>
         {singleTotalMode ? (
           <tr className="columns"><th scope="col">#</th><th scope="col">Description</th><th scope="col" className="qty">Qty</th><th scope="col">Unit</th></tr>
@@ -39,17 +44,19 @@ export function QuotationPrintDocument({ quotation: q, signatureUrls = {} }: { q
       End of items · {q.items.length} line items<br />
       {singleTotalMode
         ? <>{SINGLE_TOTAL_PRICE_LABEL} (PHP): {money(combinedPrice)}<br /><span>Quoted as one combined price for the work described above; individual line prices are not itemized.</span></>
-        : <>Subtotal (PHP): {money(subtotal)}</>}
+        : <>Sub Total (PHP): {money(subtotal)}</>}
       {(q.shippingFee || 0) > 0 && <><br />Shipping fee (PHP): {money(q.shippingFee || 0)}</>}
-      {q.discount > 0 && <><br />Discount (PHP): {money(q.discount)}</>}
-      <br /><strong>Grand total (PHP): {money(q.amount)}</strong>
+      <br />Less Discount (PHP): {money(q.discount || 0)}
+      <br /><strong>Grand Total VAT Inc. (PHP): {money(q.amount)}</strong>
+      <br /><i>Vatable Amount (PHP): {money(vatableAmount)}</i>
+      <br /><i>VAT (PHP): {money(vat)}</i>
     </div>
     {(q.terms || q.delivery || q.warranty) && <div className="notes multiline">{q.terms && <div><b>Payment terms:</b> {q.terms}</div>}{q.delivery && <div><b>Delivery:</b> {q.delivery}</div>}{q.warranty && <div><b>Warranty:</b> {q.warranty}</div>}</div>}
     {q.notation.length > 0 && <div className="notes"><div className="label">Notes &amp; notations</div><ol>{q.notation.map((note, index) => <li className="multiline" key={index}>{note.notation}</li>)}</ol></div>}
     <div className="signatures">
       <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(q.preparedBy)]} alt="Prepared by signature" /><strong>{q.preparedBy || "\u00a0"}</strong><span>Prepared by</span></div>
       <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(q.approvedBy)]} alt="Approved by signature" /><strong>{q.approvedBy || "\u00a0"}</strong><span>Approved by</span></div>
-      <div className="signature"><strong>{"\u00a0"}</strong><span>Client acceptance / date</span></div>
+      <div className="signature"><strong>{"\u00a0"}</strong><span>Conforme by / date</span></div>
     </div>
   </main>;
 }
