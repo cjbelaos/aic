@@ -1,0 +1,63 @@
+{
+  "status": "verified",
+  "newProducts": 250,
+  "newSupplierProducts": 255,
+  "existingProductUnitCorrection": {
+    "productId": "PROD-000588",
+    "unit": "SACK"
+  },
+  "existingDataPreservedExceptApprovedUpdate": true,
+  "problems": [],
+  "holdRows": [
+    {
+      "row": 7,
+      "name": "10SL EMPTY CARTRIDGE TRANSPARENT",
+      "reason": "Possible existing PROD-000219: source adds TRANSPARENT; confirm whether same cartridge."
+    },
+    {
+      "row": 45,
+      "name": "BRINE TANK 80L BLUE W/ ACCS.",
+      "reason": "Possible existing PROD-000247; source specifies accessories and BUNDLE, existing is PC."
+    },
+    {
+      "row": 158,
+      "name": "MEMBRANE VONTRON 40X21",
+      "reason": "Possible existing PROD-000281 or PROD-000289; source omits model/ULP."
+    },
+    {
+      "row": 159,
+      "name": "MEMBRANE VONTRON 40X40",
+      "reason": "Possible existing PROD-000290 via SP-000263; source omits model."
+    },
+    {
+      "row": 184,
+      "name": "RUNXIN DIGITAL HEAD F67C1 SEDIMENT (4M3/H)",
+      "reason": "Possible existing PROD-000041 via SP-000038; source omits TIMER and existing Product unit is BUNDLE."
+    },
+    {
+      "row": 201,
+      "name": "SS304 CHECK VALVE 3/4\"",
+      "reason": "Possible existing PROD-000333 via SP-000306; source does not specify swing type."
+    },
+    {
+      "row": 764,
+      "name": "DELTA PLC MPU Ss2 Series 8di/6do, RELAY OUTPUT/CPU MODULE",
+      "reason": "Possible existing PROD-000478; source description omits specific model. HENENG supplier differs from existing COMP-53."
+    },
+    {
+      "row": 765,
+      "name": "DELTA PLC Expansion Module/IO Module",
+      "reason": "Possible existing PROD-000479 or PROD-000670; source omits model. HENENG supplier differs from existing COMP-53."
+    },
+    {
+      "row": 766,
+      "name": "DELTA PLC Power Supply",
+      "reason": "Possible existing PROD-000480; source omits model. HENENG supplier differs from existing COMP-53."
+    }
+  ],
+  "destinationRanges": {
+    "Products": "Products!A760:K1009",
+    "SupplierProducts": "SupplierProducts!A556:M810"
+  },
+  "verifiedAt": "2026-11-04 05:48:42 UTC"
+}

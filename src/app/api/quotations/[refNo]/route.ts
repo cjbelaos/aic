@@ -6,6 +6,7 @@ import {
 } from "@/lib/quotationSheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { CreateQuotationPayload } from "@/types/quotation";
+import { QuotationError } from "@/lib/quotationTerms";
 
 export async function GET(
   _request: Request,
@@ -27,7 +28,7 @@ export async function GET(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to fetch quotation.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof QuotationError ? error.status : 500 });
   }
 }
 
@@ -48,7 +49,7 @@ export async function DELETE(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to delete quotation.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof QuotationError ? error.status : 500 });
   }
 }
 
@@ -76,6 +77,6 @@ export async function PUT(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to update quotation.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof QuotationError ? error.status : 500 });
   }
 }

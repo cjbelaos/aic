@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { updateQuotationStatus } from "@/lib/quotationSheets";
+import { QuotationError } from "@/lib/quotationTerms";
 
 export async function PUT(
   request: NextRequest,
@@ -30,6 +31,6 @@ export async function PUT(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to update status.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof QuotationError ? error.status : 500 });
   }
 }

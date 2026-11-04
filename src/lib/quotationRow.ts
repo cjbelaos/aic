@@ -1,6 +1,6 @@
 import { parseDiscountJson, type DiscountSettings } from "./discounts.ts";
 /**
- * Quotations tab column contract — the sheet has 22 columns, A..V (V is additive DiscountSettings):
+ * Quotations tab column contract — the sheet has 27 columns, A..AA (V is additive DiscountSettings):
  *
  *   A QuotationNo        B CustomerId          C Customer
  *   D Description        E Amount              F Discount
@@ -9,6 +9,8 @@ import { parseDiscountJson, type DiscountSettings } from "./discounts.ts";
  *   M Date               N PreparedBy          O ApprovedBy
  *   P SentBy             Q Status
  *   R CreatedBy          S CreatedAt           T UpdatedBy   U UpdatedAt
+ *   V DiscountSettings   W Delivery            X Warranty
+ *   Y Revision           Z RevisionPending     AA LastSentAt
  *
  * H and I are blank on historical quotations. A blank PricingMode is PER_LINE and
  * no SingleTotalPrice is ever inferred for such a row: its stored Amount,
@@ -23,8 +25,8 @@ import { asMoney, normalizeQuotationPricingMode } from "./quotationPricing.ts";
 
 export const QUOTATION_SHEET_NAME = "Quotations";
 
-/** 22 columns (A..V) are written and read for every quotation. */
-export const QUOTATION_ROW_COLUMN_COUNT = 22;
+/** 27 columns (A..AA) are written and read for every quotation. */
+export const QUOTATION_ROW_COLUMN_COUNT = 27;
 
 /** Zero-based index of every Quotations column. */
 export const QUOTATION_ROW = {
@@ -50,6 +52,11 @@ export const QUOTATION_ROW = {
   updatedBy: 19,
   updatedAt: 20,
   discountSettings: 21,
+  delivery: 22,
+  warranty: 23,
+  revision: 24,
+  revisionPending: 25,
+  lastSentAt: 26,
 } as const;
 
 export type QuotationColumnKey = keyof typeof QUOTATION_ROW;
@@ -77,6 +84,11 @@ export interface ParsedQuotationRowValues {
   createdAt: string;
   updatedBy: string;
   updatedAt: string;
+  delivery: string;
+  warranty: string;
+  revision: number;
+  revisionPending: boolean;
+  lastSentAt: string;
 }
 
 function cellText(row: readonly unknown[], index: number): string {
@@ -98,6 +110,11 @@ function cellNumber(row: readonly unknown[], index: number): number {
 export function parseQuotationRowValues(row: readonly unknown[]): ParsedQuotationRowValues {
   return {
     discountSettings: parseDiscountJson(row[21]),
+    delivery: cellText(row, QUOTATION_ROW.delivery),
+    warranty: cellText(row, QUOTATION_ROW.warranty),
+    revision: Math.max(0, Math.floor(cellNumber(row, QUOTATION_ROW.revision))),
+    revisionPending: String(row[QUOTATION_ROW.revisionPending] ?? "").toLowerCase() === "true",
+    lastSentAt: cellText(row, QUOTATION_ROW.lastSentAt),
     quotationNo: cellText(row, QUOTATION_ROW.quotationNo).trim(),
     customerId: cellText(row, QUOTATION_ROW.customerId),
     customer: cellText(row, QUOTATION_ROW.customer),
@@ -160,6 +177,11 @@ export function quotationAuditCells(actor: string, timestamp: string, existingRo
 }
 
 export interface QuotationRowWriteInput extends Partial<QuotationAuditCells> {
+  delivery?: string;
+  warranty?: string;
+  revision?: number;
+  revisionPending?: boolean;
+  lastSentAt?: string;
   discountSettings?: DiscountSettings;
   quotationNo?: string | null;
   customerId?: string | null;
@@ -181,8 +203,8 @@ export interface QuotationRowWriteInput extends Partial<QuotationAuditCells> {
   status?: string | null;
 }
 
-/** Builds the 22-cell row in the exact A..V order the sheet uses. */
-export function quotationRowValues(input: QuotationRowWriteInput): Array<string | number> {
+/** Builds the 27-cell row in the exact A..AA order the sheet uses. */
+export function quotationRowValues(input: QuotationRowWriteInput): Array<string | number | boolean> {
   return [
     input.quotationNo ?? "",
     input.customerId ?? "",
@@ -206,6 +228,11 @@ export function quotationRowValues(input: QuotationRowWriteInput): Array<string 
     input.updatedBy ?? "",
     input.updatedAt ?? "",
     input.discountSettings ? JSON.stringify(input.discountSettings) : "",
+    input.delivery ?? "",
+    input.warranty ?? "",
+    input.revision ?? 0,
+    input.revisionPending ?? false,
+    input.lastSentAt ?? "",
   ];
 }
 
@@ -215,6 +242,7 @@ export const QUOTATION_ROW_HEADERS: readonly string[] = [
   "ShippingFee", "PricingMode", "SingleTotalPrice", "PaymentTermId", "PaymentTerms",
   "File", "Date", "PreparedBy", "ApprovedBy", "SentBy", "Status", "CreatedBy",
   "CreatedAt", "UpdatedBy", "UpdatedAt", "DiscountSettings",
+  "Delivery", "Warranty", "Revision", "RevisionPending", "LastSentAt",
 ];
 
 /** A1 column letter for a zero-based index (0 → A, 20 → U, 26 → AA). */

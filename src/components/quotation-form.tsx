@@ -76,6 +76,7 @@ import type {
   QuotationPricingMode,
 } from "@/types/quotation";
 import { upperText, upperTextList } from "@/lib/quotationText";
+import { quotationTermsError } from "@/lib/quotationTerms";
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -190,6 +191,9 @@ export type QuotationFormPayload = {
   pricingMode: QuotationPricingMode;
   /** One combined price for the whole job (SINGLE_TOTAL mode only). */
   singleTotalPrice?: number;
+  revision?: number;
+  revisionPending?: boolean;
+  lastSentAt?: string;
 };
 
 export function QuotationForm({
@@ -264,10 +268,10 @@ export function QuotationForm({
 
   const [paymentTerms, setPaymentTerms] = useState(initialData?.terms || "");
   const [deliveryTerms, setDeliveryTerms] = useState(
-    initialData?.delivery || DELIVERY_TERMS[0],
+    initialData ? initialData.delivery : DELIVERY_TERMS[0],
   );
   const [warrantyTerms, setWarrantyTerms] = useState(
-    initialData?.warranty || WARRANTY_TERMS[0],
+    initialData ? initialData.warranty : WARRANTY_TERMS[0],
   );
 
   const [preparedBy, setPreparedBy] = useState(initialData?.preparedBy || "");
@@ -286,6 +290,7 @@ export function QuotationForm({
   const customerRef = useRef<HTMLDivElement>(null);
   const descriptionRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<HTMLDivElement>(null);
+  const termsRef = useRef<HTMLDivElement>(null);
   const notationInputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   // Derive the approvedBy display name from the selected username
@@ -706,6 +711,13 @@ export function QuotationForm({
 
   /** One validation path for every save action; highlights and scrolls to the first problem. */
   const validateBeforeSave = (): boolean => {
+    const termsError = quotationTermsError({ terms: paymentTerms, delivery: deliveryTerms, warranty: warrantyTerms });
+    if (termsError) {
+      setShowErrors(true);
+      toast.error(termsError);
+      scrollToField(termsRef);
+      return false;
+    }
     if (!selectedCustomer) {
       setShowErrors(true);
       toast.error("Please select a customer.");
@@ -1072,7 +1084,7 @@ export function QuotationForm({
         ) : (
           <Save className="h-4 w-4" />
         )}
-        {isDraft ? "Save draft" : "Save"}
+        {isDraft ? "Save draft" : initialData?.revisionPending || initialData?.lastSentAt || initialData?.status === "SENT" ? "Save revision" : "Save"}
       </Button>
       {isDraft && (
         <Button
@@ -1655,7 +1667,7 @@ export function QuotationForm({
           </SectionCard>
 
           {/* Terms & signature */}
-          <SectionCard title="Terms & signature">
+          <SectionCard title="Terms & signature" innerRef={termsRef}>
             <div className="grid gap-4 sm:grid-cols-2">
               <TermsSelect
                 label="Terms of payment"
@@ -1668,11 +1680,15 @@ export function QuotationForm({
                   ]),
                 ].filter(Boolean)}
                 disabled={isSaving || readOnly}
+                required
+                error={showErrors && !paymentTerms.trim() ? "Payment terms are required, including for drafts." : undefined}
               />
               <TermsSelect
                 label="Warranty"
                 value={warrantyTerms}
                 onChange={setWarrantyTerms}
+                required
+                error={showErrors && !warrantyTerms.trim() ? "Warranty is required." : undefined}
                 options={WARRANTY_TERMS}
                 disabled={isSaving || readOnly}
               />
@@ -1681,6 +1697,8 @@ export function QuotationForm({
                 className="sm:col-span-2"
                 value={deliveryTerms}
                 onChange={setDeliveryTerms}
+                required
+                error={showErrors && !deliveryTerms.trim() ? "Delivery is required." : undefined}
                 options={DELIVERY_TERMS}
                 disabled={isSaving || readOnly}
               />
@@ -1800,7 +1818,7 @@ export function QuotationForm({
               ) : (
                 <Eye className="h-4 w-4" />
               )}
-              Save &amp; preview
+              {initialData?.revisionPending || initialData?.lastSentAt || initialData?.status === "SENT" ? "Save revision & preview" : "Save & preview"}
             </Button>
           </div>
         </div>
@@ -2009,6 +2027,8 @@ function TermsSelect({
   options,
   disabled,
   className,
+  required,
+  error,
 }: {
   className?: string;
   label: string;
@@ -2016,12 +2036,14 @@ function TermsSelect({
   onChange: (v: string) => void;
   options: string[];
   disabled?: boolean;
+  required?: boolean;
+  error?: string;
 }) {
   return (
     <div className={cn("space-y-1.5", className)}>
-      <Label className="font-semibold">{label}</Label>
+      <Label className="font-semibold">{label}{required && <span aria-hidden="true" className="ml-1 text-destructive">*</span>}</Label>
       <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger className="w-full">
+        <SelectTrigger className={cn("w-full", error && "border-destructive")} aria-required={required} aria-invalid={!!error}>
           <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
         </SelectTrigger>
         <SelectContent>
@@ -2032,6 +2054,7 @@ function TermsSelect({
           ))}
         </SelectContent>
       </Select>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     </div>
   );
 }

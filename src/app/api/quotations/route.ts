@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { addQuotation, getQuotations } from "@/lib/quotationSheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { CreateQuotationPayload } from "@/types/quotation";
+import { QuotationError } from "@/lib/quotationTerms";
 
 export async function GET() {
   const session = await requireAuthenticatedSession();
@@ -13,7 +14,7 @@ export async function GET() {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to fetch quotations.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof QuotationError ? error.status : 500 });
   }
 }
 
@@ -28,6 +29,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to create quotation.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: error instanceof QuotationError ? error.status : 500 });
   }
 }

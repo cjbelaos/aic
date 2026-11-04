@@ -4,6 +4,8 @@ import { getUserByUsername } from "@/lib/userSheets";
 import { getDepartmentById } from "@/lib/departmentSheets";
 import { getPositionById } from "@/lib/positionSheets";
 import * as nodemailer from "nodemailer";
+import { sendQuotationVersion } from "@/lib/quotationSending";
+import { QuotationError } from "@/lib/quotationTerms";
 
 /** Escapes user-supplied values so they render safely inside the HTML email. */
 function escapeHtml(value: string): string {
@@ -22,23 +24,23 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const quotationNo = (formData.get("quotationNo") as string) || "";
-    const clientName =
-      (formData.get("customer") ||
-        formData.get("clientName") ||
-        "") as string;
+    const sendId = String(formData.get("sendId") || "");
+    const snapshotToken = String(formData.get("snapshotToken") || "");
     const clientEmail =
       (formData.get("email") || formData.get("clientEmail") || "") as string;
-    const quotationDescription =
-      (formData.get("quotationDescription") as string) || "";
-    const grandTotal = parseFloat(formData.get("grandTotal") as string) || 0;
+    let cc: string[];
+    try {
+      cc = JSON.parse(String(formData.get("cc") || "null"));
+      if (!Array.isArray(cc) || cc.some(email => typeof email !== "string")) throw new Error();
+    } catch { throw new QuotationError("Review the quotation recipients before sending."); }
     const pdfFile = formData.get("file") as File;
 
-    if (!quotationNo || !clientName || !clientEmail || !pdfFile) {
+    if (!quotationNo || !sendId || !snapshotToken || !clientEmail || !pdfFile || typeof pdfFile.arrayBuffer !== "function" || pdfFile.size > 20_000_000) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Missing required fields: quotationNo, customer name, email, or PDF file.",
+            "A quotation number, send ID, saved snapshot, recipient and PDF under 20 MB are required.",
         },
         { status: 400 },
       );
@@ -84,11 +86,13 @@ export async function POST(request: NextRequest) {
     );
     const signerContact = escapeHtml(signer?.contactNumber || "");
 
-    const escapedClientName = escapeHtml(clientName);
-    const escapedQuotationNo = escapeHtml(quotationNo);
-    const escapedQuotationDescription = escapeHtml(quotationDescription);
+    const result = await sendQuotationVersion({ quotationNo, sendId, snapshotToken, recipient: clientEmail.trim(), cc, actor: session.username, pdfBuffer }, async (quotation, label, recipients) => {
+    const escapedClientName = escapeHtml(quotation.customer);
+    const escapedQuotationNo = escapeHtml(label);
+    const escapedQuotationDescription = escapeHtml(quotation.description);
+    const isRevision = (quotation.revision || 0) > 0;
 
-    const formattedAmount = grandTotal.toLocaleString("en-PH", {
+    const formattedAmount = quotation.amount.toLocaleString("en-PH", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
@@ -132,6 +136,12 @@ export async function POST(request: NextRequest) {
           </div>
           <div class="content">
             <p>Dear ${escapedClientName},</p>
+            ${isRevision ? `
+            <p>Please find attached <strong>Revision ${quotation.revision} of Quotation ${escapeHtml(quotation.quotationNo)}</strong> for <strong>${escapedQuotationDescription}</strong>.</p>
+            <p>This revised quotation supersedes the version previously sent under the same quotation number. Please refer to the attached PDF for the updated scope, pricing, Terms of Payment, Delivery, and Warranty.</p>
+            <p>Kindly review the revised quotation and let us know if you have any questions or require further clarification.</p>
+            <p>Thank you.</p>
+            ` : `
             <p>Thank you for your interest in our products and services.</p>
             <p>Please find attached our quotation for <strong>${escapedQuotationDescription}</strong> for your review.</p>
             <div class="quotation-details">
@@ -153,6 +163,7 @@ export async function POST(request: NextRequest) {
             </div>
             <p>We hope our quotation meets your requirements. Should you have any questions, require further clarification, or wish to discuss any of the details, please feel free to contact us.</p>
             <p>We look forward to the opportunity to work with you.</p>
+            `}
             <div class="signature">
               <p>Best regards,</p>
               <br>
@@ -171,24 +182,27 @@ export async function POST(request: NextRequest) {
       </html>
     `;
 
-    await transporter.sendMail({
+    const delivery = await transporter.sendMail({
       from: smtpUser,
-      to: clientEmail,
-      cc: smtpUser,
-      subject: `Quotation ${quotationNo} - ${quotationDescription} | Aerich Innovation Corp.`,
+      to: recipients.to,
+      cc: recipients.cc,
+      subject: isRevision ? `Revised Quotation ${label} | Aerich Innovation Corp.` : `Quotation ${label} - ${quotation.description} | Aerich Innovation Corp.`,
       html: emailHtml,
       attachments: [
         {
-          filename: `Quotation - ${quotationDescription}.pdf`,
+          filename: `Quotation - ${label.replace(/[^\w -]/g, "_")}.pdf`,
           content: pdfBuffer,
         },
       ],
+    });
+    return { messageId: delivery.messageId, accepted: delivery.accepted || [] };
     });
 
     return NextResponse.json(
       {
         success: true,
-        message: `Quotation sent successfully to ${clientName}.`,
+        message: "Quotation sent successfully.",
+        data: result,
       },
       { status: 200 },
     );
@@ -204,6 +218,6 @@ export async function POST(request: NextRequest) {
       : error instanceof Error
         ? error.message
         : "Failed to send email.";
-    return NextResponse.json({ success: false, message }, { status: 500 });
+    return NextResponse.json({ success: false, message }, { status: error instanceof QuotationError ? error.status : 500 });
   }
 }

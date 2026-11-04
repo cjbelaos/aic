@@ -36,7 +36,9 @@ const allocations = allocateInvoiceDiscounts({ order, items: lines }, [{ items: 
 assert.deepEqual(allocations.map(d => d.discountAmount), [3.34, 3.33, 3.33]);
 assert.equal(allocations.reduce((a, d) => a + Math.round(d.discountAmount * 100), 0), 1000);
 assert.equal(allocateInvoiceDiscounts({ order, items: lines }, [{ items: partialItems }])[0].discountAmount, 3.33);
-assert.deepEqual(invoiceTotals({ items: [{ description: "Repair", quantity: 1, unitPrice: 100000 }], discountAmount: 5000 }), { subtotal: 100000, discount: 5000, grandTotal: 95000, vat: 10178.57, vatableAmount: 84821.43 });
+const invoiceDiscountTotals = invoiceTotals({ items: [{ description: "Repair", quantity: 1, unitPrice: 100000 }], discountAmount: 5000 });
+// Check discount totals independently of the additional invoice presentation fields.
+assert.deepEqual({ subtotal: invoiceDiscountTotals.subtotal, discount: invoiceDiscountTotals.discount, grandTotal: invoiceDiscountTotals.grandTotal, vat: invoiceDiscountTotals.vat, vatableAmount: invoiceDiscountTotals.vatableAmount }, { subtotal: 100000, discount: 5000, grandTotal: 95000, vat: 10178.57, vatableAmount: 84821.43 });
 
 const perItemOrder = { ...order, discountSettings: { ...defaultDiscount(), mode: "PER_ITEM" as const } };
 const discountedLine = { ...line, discountSettings: { ...defaultDiscount(), type: "PERCENT" as const, value: 10 } };

@@ -20,9 +20,9 @@ import {
 import { singleTotalPriceFromRecord } from "../../src/lib/quotationPricing.ts";
 
 // ── the complete 21-column mapping ──────────────────────────────────────────
-assert.equal(QUOTATION_ROW_COLUMN_COUNT, 22);
-assert.equal(QUOTATION_ROW_HEADERS.length, 22);
-assert.equal(quotationSheetRange(), "Quotations!A2:V");
+assert.equal(QUOTATION_ROW_COLUMN_COUNT, 27);
+assert.equal(QUOTATION_ROW_HEADERS.length, 27);
+assert.equal(quotationSheetRange(), "Quotations!A2:AA");
 assert.equal(columnLetter(0), "A");
 assert.equal(columnLetter(7), "H");
 assert.equal(columnLetter(8), "I");
@@ -53,13 +53,18 @@ const expectedLayout: Array<[string, keyof typeof QUOTATION_ROW, number, string]
   ["UpdatedBy", "updatedBy", 19, "T"],
   ["UpdatedAt", "updatedAt", 20, "U"],
   ["DiscountSettings", "discountSettings", 21, "V"],
+  ["Delivery", "delivery", 22, "W"],
+  ["Warranty", "warranty", 23, "X"],
+  ["Revision", "revision", 24, "Y"],
+  ["RevisionPending", "revisionPending", 25, "Z"],
+  ["LastSentAt", "lastSentAt", 26, "AA"],
 ];
 for (const [header, key, index, letter] of expectedLayout) {
   assert.equal(QUOTATION_ROW[key], index, `${header} must be index ${index}`);
   assert.equal(QUOTATION_ROW_HEADERS[index], header, `${letter} must be ${header}`);
   assert.equal(columnLetter(index), letter, `index ${index} must be column ${letter}`);
 }
-assert.equal(Object.keys(QUOTATION_ROW).length, 22);
+assert.equal(Object.keys(QUOTATION_ROW).length, 27);
 
 // A full row round-trips through every column in sheet order.
 const savedRow = quotationRowValues({
@@ -74,6 +79,11 @@ const savedRow = quotationRowValues({
   singleTotalPrice: 8000,
   paymentTermId: "PT-1",
   paymentTerms: "30 days",
+  delivery: "Within 7 days",
+  warranty: "No warranty",
+  revision: 2,
+  revisionPending: true,
+  lastSentAt: "2026-09-25T00:00:00.000Z",
   file: "https://drive.google.com/file/d/abc123/view",
   date: "Sep 25, 2026",
   preparedBy: "Chris",
@@ -85,7 +95,7 @@ const savedRow = quotationRowValues({
   updatedBy: "chris",
   updatedAt: "2026-09-25T01:00:00.000Z",
 });
-assert.equal(savedRow.length, 22);
+assert.equal(savedRow.length, 27);
 const parsedSaved = parseQuotationRowValues(savedRow);
 assert.equal(parsedSaved.quotationNo, "Q-20260925-001");
 assert.equal(parsedSaved.customerId, "COMP-1");
@@ -98,6 +108,11 @@ assert.equal(parsedSaved.pricingMode, "SINGLE_TOTAL");
 assert.equal(parsedSaved.singleTotalPrice, 8000);
 assert.equal(parsedSaved.paymentTermId, "PT-1");
 assert.equal(parsedSaved.paymentTerms, "30 days");
+assert.equal(parsedSaved.delivery, "Within 7 days");
+assert.equal(parsedSaved.warranty, "No warranty");
+assert.equal(parsedSaved.revision, 2);
+assert.equal(parsedSaved.revisionPending, true);
+assert.equal(parsedSaved.lastSentAt, "2026-09-25T00:00:00.000Z");
 assert.equal(parsedSaved.file, "https://drive.google.com/file/d/abc123/view");
 assert.equal(parsedSaved.date, "Sep 25, 2026");
 assert.equal(parsedSaved.preparedBy, "Chris");
@@ -125,6 +140,11 @@ assert.equal(historical.shippingFee, 50);
 assert.equal(historical.paymentTermId, "PT-9");
 assert.equal(historical.paymentTerms, "Cash");
 assert.equal(historical.status, "SENT");
+assert.equal(historical.delivery, "");
+assert.equal(historical.warranty, "");
+assert.equal(historical.revision, 0);
+assert.equal(historical.revisionPending, false);
+assert.equal(historical.lastSentAt, "");
 assert.equal(singleTotalPriceFromRecord({
   pricingMode: historical.pricingMode,
   singleTotalPrice: historical.singleTotalPrice,

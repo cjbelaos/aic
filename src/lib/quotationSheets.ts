@@ -1,3 +1,6 @@
+import { assertQuotationTerms, QuotationError } from "@/lib/quotationTerms";
+import { preserveLegacyQuotation, getQuotationHistory } from "@/lib/quotationHistory";
+import { withQuotationLock } from "@/lib/quotationLock";
 import { parseDiscountJson, validateDiscount, type DiscountSettings } from "./discounts";
 import { quotationTotals } from "./quotationPricing";
 import { randomUUID } from "crypto";
@@ -24,6 +27,8 @@ import {
   quotationPricingCells,
   quotationRowValues,
   quotationSheetRange,
+  QUOTATION_ROW_HEADERS,
+  columnLetter,
 } from "@/lib/quotationRow";
 import { Readable } from "stream";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
@@ -32,7 +37,7 @@ const QUOTATIONS_SHEET = "Quotations";
 const QUOTATION_DETAILS_SHEET = "QuotationDetails";
 const QUOTATION_NOTATIONS_SHEET = "QuotationNotations";
 
-// The Quotations tab has 22 columns (A..V) and the layout is owned by
+// The Quotations tab has 27 columns (A..AA) and the layout is owned by
 // src/lib/quotationRow.ts:
 //   ... G ShippingFee, H PricingMode, I SingleTotalPrice, J PaymentTermId ...
 //   Q Status, R CreatedBy, S CreatedAt, T UpdatedBy, U UpdatedAt
@@ -47,11 +52,42 @@ const NOTATIONS_COL_COUNT = 6;
 
 // ──────────────── Shared helpers ────────────────
 
+/** Adds only the additive header cells; historical quotation values are never backfilled. */
+export async function ensureQuotationColumns(): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties" });
+  const sheet = metadata.data.sheets?.find(sheet => sheet.properties?.title === QUOTATIONS_SHEET)?.properties;
+  if (sheet?.sheetId == null) throw new Error("Quotations sheet not found.");
+  const columnCount = sheet.gridProperties?.columnCount || 0;
+  if (columnCount < 27) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [
+      { appendDimension: { sheetId: sheet.sheetId, dimension: "COLUMNS", length: 27 - columnCount } },
+    ] } });
+  }
+  const header = (await sheets.spreadsheets.values.get({ spreadsheetId, range: "Quotations!V1:AA1" })).data.values?.[0] || [];
+  const requests = QUOTATION_ROW_HEADERS.slice(21).flatMap((label, index) => {
+    const current = String(header[index] ?? "").trim();
+    if (current && current !== label) throw new Error(`Quotations column ${index + 22} contains an unexpected header: ${current}.`);
+    return current ? [] : [{ updateCells: { range: { sheetId: sheet.sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: index + 21, endColumnIndex: index + 22 }, rows: [{ values: [{ userEnteredValue: { stringValue: label } }] }], fields: "userEnteredValue" } }];
+  });
+  if (requests.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
+}
+
+function assertSavableQuotation(payload: { terms?: unknown; delivery?: unknown; warranty?: unknown; status?: string }): void {
+  assertQuotationTerms(payload);
+  if (payload.status && !["DRAFT", "SAVED", "SENT"].includes(payload.status)) throw new QuotationError("Invalid quotation status.");
+  if (payload.status === "SENT") throw new QuotationError("Use Send to Client to send a quotation and record its sent history.");
+}
+
 async function fetchAllSheetData(spreadsheetId: string) {
   const sheets = await getSheetsClient();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties" });
+  const width = metadata.data.sheets?.find(s => s.properties?.title === QUOTATIONS_SHEET)?.properties?.gridProperties?.columnCount ?? 27;
+  const readRange = `${QUOTATIONS_SHEET}!A2:${columnLetter(Math.min(width, 27) - 1)}`;
   const response = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
-    ranges: [RANGE_QUOTATIONS, RANGE_DETAILS, RANGE_NOTATIONS],
+    ranges: [readRange, RANGE_DETAILS, RANGE_NOTATIONS],
   });
   const valueRanges = response.data.valueRanges || [];
   return {
@@ -178,8 +214,11 @@ function parseQuotationRow(
     updatedAt: values.updatedAt,
     items: detailsMap.get(quotationNo) || [],
     notation: notationsMap.get(quotationNo) || [],
-    delivery: "",
-    warranty: "",
+    delivery: values.delivery,
+    warranty: values.warranty,
+    revision: values.revision,
+    revisionPending: values.revisionPending,
+    lastSentAt: values.lastSentAt,
   };
 }
 
@@ -241,8 +280,11 @@ function buildQuotationRow(
     updatedAt: values.updatedAt,
     items,
     notation,
-    delivery: "",
-    warranty: "",
+    delivery: values.delivery,
+    warranty: values.warranty,
+    revision: values.revision,
+    revisionPending: values.revisionPending,
+    lastSentAt: values.lastSentAt,
   };
 }
 
@@ -301,18 +343,26 @@ export async function getQuotationByRefNo(
   }
 }
 
-export async function addQuotation(
+export async function addQuotation(payload: CreateQuotationPayload, actor: string): Promise<Quotation> {
+  assertSavableQuotation(payload);
+  return withQuotationLock("__quotations-create__", () => addQuotationUnlocked(payload, actor));
+}
+
+async function addQuotationUnlocked(
   payload: CreateQuotationPayload,
   actor: string,
 ): Promise<Quotation> {
   try {
+    assertSavableQuotation(payload);
     payload = normalizedQuotation(payload);
+    await ensureQuotationColumns();
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
     const { quotRows } = await fetchAllSheetData(spreadsheetId);
     const reference = quotationReference(quotRows, payload.quotationNo, payload.status);
-    payload = { ...payload, quotationNo: reference };
+    if (findQuotationIndex(quotRows, reference) >= 0) throw new QuotationError(`Quotation ${reference} already exists.`, 409);
+    payload = { ...payload, quotationNo: reference, revision: 0, revisionPending: false, lastSentAt: "" };
     const nextIndex = quotRows.length + 2;
     const timestamp = new Date().toISOString();
     // Child rows (details/notations) are new here; the header row keeps the
@@ -333,6 +383,11 @@ export async function addQuotation(
       singleTotalPrice: payload.singleTotalPrice,
       paymentTermId: payload.paymentTermId || "",
       paymentTerms: payload.terms || "",
+      delivery: payload.delivery || "",
+      warranty: payload.warranty || "",
+      revision: payload.revision ?? 0,
+      revisionPending: payload.revisionPending ?? false,
+      lastSentAt: payload.lastSentAt || "",
       file: payload.file || "",
       date: payload.date || "",
       preparedBy: payload.preparedBy || "",
@@ -406,6 +461,9 @@ export async function addQuotation(
       terms: payload.terms || "",
       delivery: payload.delivery || "",
       warranty: payload.warranty || "",
+      revision: payload.revision ?? 0,
+      revisionPending: payload.revisionPending ?? false,
+      lastSentAt: payload.lastSentAt || "",
     };
   } catch (error) {
     console.error("Failed to add quotation:", error);
@@ -413,12 +471,18 @@ export async function addQuotation(
   }
 }
 
-export async function updateQuotationStatus(
+export async function updateQuotationStatus(quotationNo: string, newStatus: QuotationStatus, actor: string): Promise<void> {
+  if (newStatus === "SENT") throw new QuotationError("Use Send to Client to send a quotation and record its sent history.");
+  return withQuotationLock(quotationNo, () => updateQuotationStatusUnlocked(quotationNo, newStatus, actor));
+}
+
+async function updateQuotationStatusUnlocked(
   quotationNo: string,
   newStatus: QuotationStatus,
   actor: string,
 ): Promise<void> {
   try {
+    if (newStatus === "SENT") throw new QuotationError("Use Send to Client to send a quotation and record its sent history.");
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
@@ -433,6 +497,10 @@ export async function updateQuotationStatus(
     if (idx === -1) {
       throw new Error(`Quotation ${quotationNo} not found.`);
     }
+
+    const stored = parseQuotationRowValues(quotRows[idx]);
+    assertQuotationTerms({ terms: stored.paymentTerms, delivery: stored.delivery, warranty: stored.warranty });
+    if (stored.status === "SENT" || stored.lastSentAt || stored.revisionPending) throw new QuotationError("Use Revise quotation to change a previously sent quotation.", 409);
 
     // Status lives in column Q; only T (UpdatedBy) and U (UpdatedAt) are written
     // with it, so the created pair (R/S) and every neighbouring column stay intact.
@@ -449,20 +517,22 @@ export async function updateQuotationStatus(
   }
 }
 
-export async function deleteQuotationByRefNo(
+export async function deleteQuotationByRefNo(quotationNo: string): Promise<void> {
+  return withQuotationLock(quotationNo, () => deleteQuotationByRefNoUnlocked(quotationNo));
+}
+
+async function deleteQuotationByRefNoUnlocked(
   quotationNo: string,
 ): Promise<void> {
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
-    const [valueResp, metaResp] = await Promise.all([
-      sheets.spreadsheets.values.batchGet({
-        spreadsheetId,
-        ranges: [RANGE_QUOTATIONS, RANGE_DETAILS, RANGE_NOTATIONS],
-      }),
-      sheets.spreadsheets.get({ spreadsheetId }),
-    ]);
+    const metaResp = await sheets.spreadsheets.get({ spreadsheetId });
+    const width = metaResp.data.sheets?.find(s => s.properties?.title === QUOTATIONS_SHEET)?.properties?.gridProperties?.columnCount ?? 27;
+    const valueResp = await sheets.spreadsheets.values.batchGet({ spreadsheetId,
+      ranges: [`${QUOTATIONS_SHEET}!A2:${columnLetter(Math.min(width, 27) - 1)}`, RANGE_DETAILS, RANGE_NOTATIONS],
+    });
 
     const sheetMap = new Map<string, number>();
     metaResp.data.sheets?.forEach((sheet) => {
@@ -478,6 +548,9 @@ export async function deleteQuotationByRefNo(
 
     const quotIdx = findQuotationIndex(quotRows, quotationNo);
     if (quotIdx === -1) return;
+    const stored = parseQuotationRowValues(quotRows[quotIdx]);
+    if (stored.status === "SENT" || stored.lastSentAt || stored.revisionPending) throw new QuotationError("Previously sent quotations cannot be deleted; keep them for revision history.", 409);
+    if ((await getQuotationHistory(quotationNo.trim())).some(entry => entry.state !== "FAILED")) throw new QuotationError("This quotation has sent or unresolved delivery history and cannot be deleted.", 409);
 
     const collectRowNums = (rows: string[][]) => {
       const nums: number[] = [];
@@ -523,13 +596,20 @@ export async function deleteQuotationByRefNo(
   }
 }
 
-export async function updateQuotation(
+export async function updateQuotation(quotationNo: string, payload: CreateQuotationPayload, actor: string): Promise<Quotation> {
+  assertSavableQuotation(payload);
+  return withQuotationLock(quotationNo, () => updateQuotationUnlocked(quotationNo, payload, actor));
+}
+
+async function updateQuotationUnlocked(
   quotationNo: string,
   payload: CreateQuotationPayload,
   actor: string,
 ): Promise<Quotation> {
   try {
+    assertSavableQuotation(payload);
     payload = normalizedQuotation(payload);
+    await ensureQuotationColumns();
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
@@ -540,14 +620,21 @@ export async function updateQuotation(
     if (quotIdx === -1) {
       throw new Error(`Quotation ${quotationNo} not found.`);
     }
+    const stored = buildQuotationRow(quotRows[quotIdx], quotationNo, quotIdx,
+      aggregateDetailRows(detailRows, quotationNo), aggregateNotationRows(notationRows, quotationNo));
+    if (payload.updatedAt !== undefined && payload.updatedAt !== stored.updatedAt) throw new QuotationError("This quotation changed. Reload it before saving your edits.", 409);
+    const wasSent = stored.status === "SENT" || Boolean(stored.lastSentAt) || Boolean(stored.revisionPending);
+    if (stored.status === "SENT") await preserveLegacyQuotation(stored);
     const reference = quotationReference(quotRows, quotationNo, payload.status);
-    payload = { ...payload, quotationNo: reference };
+    payload = { ...payload, quotationNo: reference, file: stored.file, sentBy: stored.sentBy,
+      revision: stored.revision, revisionPending: wasSent || stored.revisionPending,
+      lastSentAt: stored.lastSentAt, status: wasSent ? "SAVED" : payload.status };
     const quotRowNum = quotIdx + 2;
     const timestamp = new Date().toISOString();
     const auditCells = quotationAuditCells(actor, timestamp, quotRows[quotIdx]);
     const pricing = pricingCellsForWrite(payload, quotRows[quotIdx]);
 
-    // 1. Update the main row (all 22 columns A..V, in sheet order).
+    // 1. Update the main row (all 27 columns A..AA, in sheet order).
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `${QUOTATIONS_SHEET}!A${quotRowNum}`,
@@ -567,6 +654,11 @@ export async function updateQuotation(
             singleTotalPrice: pricing[1],
             paymentTermId: payload.paymentTermId || "",
             paymentTerms: payload.terms || "",
+            delivery: payload.delivery || "",
+            warranty: payload.warranty || "",
+            revision: payload.revision ?? 0,
+            revisionPending: payload.revisionPending ?? false,
+            lastSentAt: payload.lastSentAt || "",
             file: payload.file || "",
             date: payload.date || "",
             preparedBy: payload.preparedBy || "",
@@ -627,6 +719,9 @@ export async function updateQuotation(
       terms: payload.terms || "",
       delivery: payload.delivery || "",
       warranty: payload.warranty || "",
+      revision: payload.revision ?? 0,
+      revisionPending: payload.revisionPending ?? false,
+      lastSentAt: payload.lastSentAt || "",
     };
   } catch (error) {
     console.error(`Failed to update quotation ${quotationNo}:`, error);
@@ -680,7 +775,7 @@ export async function uploadPdfToDrive(params: {
   };
 }
 
-export async function saveQuotationData(params: {
+type SaveQuotationDataParams = {
   clientName: string;
   customerId?: string;
   paymentTermId?: string;
@@ -715,8 +810,15 @@ export async function saveQuotationData(params: {
   pricingMode?: string;
   /** One combined price for the whole job (single-total mode only). */
   singleTotalPrice?: number;
-}, actor: string): Promise<{ refNumber: string; date: string }> {
+};
+export async function saveQuotationData(params: SaveQuotationDataParams, actor: string): Promise<{ refNumber: string; date: string }> {
+  assertSavableQuotation(params);
+  return withQuotationLock("__quotations-create__", () => saveQuotationDataUnlocked(params, actor));
+}
+async function saveQuotationDataUnlocked(params: SaveQuotationDataParams, actor: string): Promise<{ refNumber: string; date: string }> {
   try {
+    assertSavableQuotation(params);
+    await ensureQuotationColumns();
     if (params.discountSettings) {
       params.discountSettings = validateDiscount(params.discountSettings);
       if (params.discountSettings.mode === "OVERALL" && params.items.some(item => item.discountSettings?.value)) throw new Error("Overall and item discounts cannot be combined.");
@@ -731,6 +833,7 @@ export async function saveQuotationData(params: {
     const date = params.dateIssued || new Date().toISOString().split("T")[0];
     const { quotRows } = await fetchAllSheetData(spreadsheetId);
     const refNumber = quotationReference(quotRows, params.quotationNo, params.status);
+    if (findQuotationIndex(quotRows, refNumber) >= 0) throw new QuotationError(`Quotation ${refNumber} already exists.`, 409);
 
     const timestamp = new Date().toISOString();
     // Child rows keep the 4-cell audit block; the header row uses R..U.
@@ -749,6 +852,11 @@ export async function saveQuotationData(params: {
       singleTotalPrice: params.singleTotalPrice,
       paymentTermId: params.paymentTermId || "",
       paymentTerms: params.terms || "",
+      delivery: params.delivery || "",
+      warranty: params.warranty || "",
+      revision: 0,
+      revisionPending: false,
+      lastSentAt: "",
       file: params.fileUrl || "",
       date,
       preparedBy: params.preparedByName,

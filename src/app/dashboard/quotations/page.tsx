@@ -1,8 +1,9 @@
 "use client";
+import { QuotationSendReview } from "@/components/quotation-send-review";
 
 import { useEffect, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Eye, Pencil, Trash2, Send, Loader2, Printer, RefreshCw, Plus, Download } from "lucide-react";
+import { ArrowUpDown, Eye, Pencil, Trash2, Send, Loader2, Printer, RefreshCw, Plus, Download, History } from "lucide-react";
 import { toast } from "sonner";
 import { isDraftQuotationReference, quotationNumberLabel } from "@/lib/quotationReference";
 import { isAxiosError } from "axios";
@@ -17,6 +18,9 @@ import {
   QuotationFormPayload,
 } from "@/components/quotation-form";
 import { QuotationPreviewModal } from "@/components/quotation-preview-modal";
+import { QuotationHistoryModal } from "@/components/quotation-history-modal";
+import { quotationSnapshotToken } from "@/lib/quotationRevision";
+import { quotationTermsError } from "@/lib/quotationTerms";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import quotationService, {
   SaveQuotationPayload,
@@ -115,7 +119,9 @@ export default function QuotationsPage() {
   );
   const [viewQuotationData, setViewQuotationData] =
     useState<QuotationFormPayload | null>(null);
+  const [sendReviewQuotation, setSendReviewQuotation] = useState<Quotation | null>(null);
   const [printQuotation, setPrintQuotation] = useState<Quotation | null>(null);
+  const [historyQuotationNo, setHistoryQuotationNo] = useState<string | null>(null);
   const [pdfDownloading, setPdfDownloading] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState<string | null>(null);
   const [customerEmail, setCustomerEmail] = useState<string | null>(null);
@@ -232,6 +238,9 @@ export default function QuotationsPage() {
       grandTotal: storedTotals.grandTotal,
       pricingMode: storedPricingMode,
       singleTotalPrice: storedSingleTotalPrice,
+      revision: quot.revision,
+      revisionPending: quot.revisionPending,
+      lastSentAt: quot.lastSentAt,
     };
   }, []);
 
@@ -257,6 +266,8 @@ export default function QuotationsPage() {
     try {
       const latest = await quotationService.getByRefNo(quotation.quotationNo);
       if (!latest) throw new Error("Unable to load quotation details. Please try again.");
+      const termsError = quotationTermsError(latest);
+      if (termsError) throw new Error(termsError);
       setPrintQuotation(latest);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : (isAxiosError(error) ? error.response?.data?.error || error.response?.data?.message : "Unable to load printable quotation."));
@@ -270,7 +281,8 @@ export default function QuotationsPage() {
     (fileFilter === "all" || (fileFilter === "with-pdf" ? !!q.file : !q.file))
   ).sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
   const filteredQuotations = matchingQuotations.filter(q => statusFilter === "all" || quotationStatus(q) === statusFilter);
-  const printableModal = printQuotation && <QuotationPreviewModal key={printQuotation.quotationNo} quotation={printQuotation} customerEmail={customerEmail ?? undefined} onClose={() => { setPrintQuotation(null); setCustomerEmail(null); }} onSaved={() => void loadQuotations()} />;
+  const printableModal = <>{sendReviewQuotation && <QuotationSendReview quotation={sendReviewQuotation} onClose={() => setSendReviewQuotation(null)} onSent={() => { setSendReviewQuotation(null); void loadQuotations(); }} />}{printQuotation && <QuotationPreviewModal key={printQuotation.quotationNo} quotation={printQuotation} customerEmail={customerEmail ?? undefined} onClose={() => { setPrintQuotation(null); setCustomerEmail(null); }} onSaved={() => void loadQuotations()} />}</>;
+  const historyModal = historyQuotationNo && <QuotationHistoryModal key={historyQuotationNo} quotationNo={historyQuotationNo} onClose={() => setHistoryQuotationNo(null)} />;
 
   /** Handle "View" action - fetch full quot data and show read-only */
   const handleView = async (quot: Quotation) => {
@@ -350,6 +362,17 @@ export default function QuotationsPage() {
     let persisted = false;
     try {
       const wantsEmail = statusOnly || formPayload.status === "SENT";
+      if (wantsEmail && selectedQuotation) {
+        const recovered = await quotationService.recoverPendingSend(selectedQuotation.quotationNo);
+        if (recovered) {
+          toast.success(recovered.message);
+          await loadQuotations();
+          setSelectedQuotation(null); setViewQuotationData(null); setViewMode("list");
+          return;
+        }
+      }
+      const termsError = quotationTermsError(formPayload);
+      if (termsError) throw new Error(termsError);
       const status = wantsEmail ? "SAVED" : formPayload.status;
       const issuedDate = formPayload.date instanceof Date ? formPayload.date : new Date(formPayload.date);
       const date = issuedDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -389,16 +412,7 @@ export default function QuotationsPage() {
       persisted = true;
       setSelectedQuotation(saved);
       if (wantsEmail) {
-        const email = formPayload.customer.email;
-        if (!email) throw new Error("Quotation saved. Add an email to the company contact before sending, or download the PDF to email manually.");
-        const { generateQuotationPdfBase64 } = await import("@/lib/quotationPdf");
-        const pdfBase64 = await generateQuotationPdfBase64(saved);
-        await quotationService.savePdfToDrive(saved.quotationNo, pdfBase64);
-        const pdfBlob = new Blob([Uint8Array.from(atob(pdfBase64), character => character.charCodeAt(0))], { type: "application/pdf" });
-        const result = await quotationService.sendEmail({ quotationNo: saved.quotationNo, customer: saved.customer, email, quotationDescription: saved.description, grandTotal: saved.amount, pdfBlob });
-        if (!result.success) throw new Error(result.message);
-        await quotationService.updateStatusOnly(saved.quotationNo, "SENT");
-        toast.success("Quotation sent successfully.");
+        setSendReviewQuotation(saved);
       } else toast.success(isDraftQuotationReference(saved.quotationNo) ? "Unnumbered draft saved." : "Quotation saved. Download its PDF from View printable.");
       setViewMode("list");
       setSelectedQuotation(null);
@@ -409,7 +423,7 @@ export default function QuotationsPage() {
         try {
           const { generateQuotationPdfBase64 } = await import("@/lib/quotationPdf");
           const pdfBase64 = await generateQuotationPdfBase64(saved);
-          const result = await quotationService.savePdfToDrive(saved.quotationNo, pdfBase64);
+          const result = await quotationService.savePdfToDrive(saved.quotationNo, pdfBase64, quotationSnapshotToken(saved));
           saved.file = result.fileLink;
         } catch {
           // Non-critical - the user can still save to Drive from the modal
@@ -801,14 +815,14 @@ export default function QuotationsPage() {
           </Button>
 
           <Button variant="ghost" size="icon" className="h-8 w-8" title="Download PDF for manual email" aria-label="Download quotation PDF" disabled={!!pdfDownloading} onClick={() => void handleDownloadPdf(row.original)}>{pdfDownloading === row.original.quotationNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}</Button>
-          {/* Edit button - only for DRAFT quotations */}
+          <Button variant="ghost" size="icon" className="h-8 w-8" title="Sent version history" aria-label={`View history for ${row.original.quotationNo}`} onClick={() => setHistoryQuotationNo(row.original.quotationNo)}><History className="h-4 w-4" /></Button>
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-blue-600"
-            title={isSent ? "Cannot edit sent quotation" : "Edit"}
+            title={isSent ? "Revise quotation" : "Edit"}
+            aria-label={isSent ? `Revise quotation ${row.original.quotationNo}` : `Edit quotation ${row.original.quotationNo}`}
             onClick={() => handleEdit(row.original)}
-            disabled={isSent}
           >
             <Pencil className="h-4 w-4" />
           </Button>
@@ -867,7 +881,7 @@ export default function QuotationsPage() {
             {!isSent && <Button variant="outline" onClick={() => { if (selectedQuotation) void handlePrintable(selectedQuotation); setCustomerEmail(viewQuotationData?.customer?.email ?? null); }} disabled={saving} className="gap-2"><Send className="h-4 w-4" />Preview & send</Button>}
 
             {/* Edit button - only for DRAFT quotations */}
-            {!isSent && (
+            {selectedQuotation && (
               <Button
                 variant="outline"
                 onClick={() => {
@@ -877,7 +891,7 @@ export default function QuotationsPage() {
                 className="gap-2"
               >
                 <Pencil className="h-4 w-4" />
-                Edit
+                {isSent ? "Revise quotation" : "Edit"}
               </Button>
             )}
 
@@ -904,6 +918,7 @@ export default function QuotationsPage() {
           isViewMode={true}
         />
         {printableModal}
+        {historyModal}
         <ConfirmDeleteDialog
           open={!!deleteTarget}
           title="Delete quotation"
@@ -920,7 +935,7 @@ export default function QuotationsPage() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Edit Quotation</h1>
+          <h1 className="text-2xl font-bold">{selectedQuotation?.status === "SENT" || selectedQuotation?.revisionPending ? "Revise Quotation" : "Edit Quotation"}</h1>
           <Button
             variant="outline"
             onClick={handleBackToList}
@@ -946,6 +961,7 @@ export default function QuotationsPage() {
       <div className="p-3 sm:p-6 space-y-6 min-w-0">
       <DocumentRegisterHeader eyebrow="Quotation management" title="Quotations" description="Review quotations and manage printable documents." loading={loading} actions={<Button onClick={() => setViewMode("create")}><Plus className="mr-2 h-4 w-4" />New quotation</Button>} cards={[{ label: "Total", count: matchingQuotations.length, selected: statusFilter === "all", onClick: () => setStatusFilter("all") }, ...["SAVED", "SENT", "DRAFT"].map(status => ({ label: status === "DRAFT" ? "Draft" : status === "SAVED" ? "Saved" : "Sent", count: matchingQuotations.filter(q => quotationStatus(q) === status).length, selected: statusFilter === status, onClick: () => setStatusFilter(status) }))]} />
       {printableModal}
+      {historyModal}
       <EntityTable
         title="Quotation List"
         columns={columns}

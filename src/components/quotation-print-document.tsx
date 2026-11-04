@@ -1,5 +1,6 @@
 import { addDays, format, isValid, parseISO } from "date-fns";
 import { isDraftQuotationReference } from "@/lib/quotationReference";
+import { quotationRevisionLabel } from "@/lib/quotationRevision";
 import {
   SINGLE_TOTAL_PRICE_LABEL,
   isSingleTotalPricing,
@@ -26,7 +27,7 @@ export function QuotationPrintDocument({ quotation: q, signatureUrls = {} }: { q
       <colgroup>{lineWidths.map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
       <thead>
         <tr><th colSpan={lineWidths.length} className="heading-cell">
-          <BusinessDocumentHeader title="QUOTATION" number={isDraftQuotationReference(q.quotationNo) ? "" : q.quotationNo} draft={isDraftQuotationReference(q.quotationNo)} />
+          <BusinessDocumentHeader title="QUOTATION" number={isDraftQuotationReference(q.quotationNo) ? "" : quotationRevisionLabel(q)} draft={isDraftQuotationReference(q.quotationNo)} />
           <div className="details"><div><div className="label">Prepared for</div><div className="customer">{q.customer}</div><div className="multiline">{q.description}</div></div><div><div><b>Date:</b> {q.date}</div><div><b>Quotation Validity:</b> {validity}</div></div></div>
         </th></tr>
         {singleTotalMode ? (
@@ -51,11 +52,11 @@ export function QuotationPrintDocument({ quotation: q, signatureUrls = {} }: { q
       <br /><i>Vatable Amount (PHP): {money(vatableAmount)}</i>
       <br /><i>VAT (PHP): {money(vat)}</i>
     </div>
-    {(q.terms || q.delivery || q.warranty) && <div className="notes multiline">{q.terms && <div><b>Payment terms:</b> {q.terms}</div>}{q.delivery && <div><b>Delivery:</b> {q.delivery}</div>}{q.warranty && <div><b>Warranty:</b> {q.warranty}</div>}</div>}
+    <div className="notes multiline"><div><b>Payment terms:</b> {q.terms?.trim() || "—"}</div><div><b>Delivery:</b> {q.delivery?.trim() || "—"}</div><div><b>Warranty:</b> {q.warranty?.trim() || "—"}</div></div>
     {q.notation.length > 0 && <div className="notes"><div className="label">Notes &amp; notations</div><ol>{q.notation.map((note, index) => <li className="multiline" key={index}>{note.notation}</li>)}</ol></div>}
-    <div className="signatures">
+    <div className="signatures" style={{ gridTemplateColumns: `repeat(${q.approvedBy?.trim() ? 3 : 2}, 1fr)` }}>
       <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(q.preparedBy)]} alt="Prepared by signature" /><strong>{q.preparedBy || "\u00a0"}</strong><span>Prepared by</span></div>
-      <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(q.approvedBy)]} alt="Approved by signature" /><strong>{q.approvedBy || "\u00a0"}</strong><span>Approved by</span></div>
+      {q.approvedBy?.trim() && <div className="signature"><UserSignatureImage src={signatureUrls[signerNameKey(q.approvedBy)]} alt="Approved by signature" /><strong>{q.approvedBy || "\u00a0"}</strong><span>Approved by</span></div>}
       <div className="signature"><strong>{"\u00a0"}</strong><span>Conforme by / date</span></div>
     </div>
   </main>;

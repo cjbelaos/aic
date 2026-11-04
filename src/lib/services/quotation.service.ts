@@ -1,3 +1,4 @@
+import type { QuotationRecipients } from "@/lib/quotationRecipients";
 import type { DiscountSettings } from "@/lib/discounts";
 // src/lib/services/quotation.service.ts
 import axios from "axios";
@@ -8,6 +9,7 @@ import {
   CreateQuotationPayload,
 } from "@/types/quotation";
 import { Company } from "@/types/company";
+import type { QuotationHistoryEntry } from "@/types/quotation-history";
 
 /** Customer snapshot used by the quotation editor/template. Extends Company with contact details from CompanyContacts. */
 export interface QuotationCustomer extends Company {
@@ -81,9 +83,12 @@ export interface SaveQuotationPayload {
 
 // New: Payload for sending email separately
 export interface SendEmailPayload {
+  sendId?: string;
+  snapshotToken: string;
   quotationNo: string;
   customer: string;
   email: string;
+  cc: string[];
   quotationDescription: string;
   grandTotal: number;
   pdfBlob: Blob;
@@ -95,9 +100,35 @@ export interface ApiResponse {
   data?: any;
 }
 
+// Keep an interrupted attempt's identity until the server acknowledges delivery.
+const sendAttempts = new Map<string, { sendId: string; quotationNo: string; recipient: string; snapshotToken: string }>();
+
 const quotationService = {
-  savePdfToDrive: async (quotationNo: string, pdfBase64: string): Promise<{ fileLink: string }> => {
-    const response = await axios.post<{ fileLink: string }>(`${API_BASE_URL}/save-pdf`, { quotationNo, pdfBase64 });
+  getRecipients: async (quotationNo: string): Promise<QuotationRecipients> => {
+    const response = await axios.get<QuotationRecipients>(`${API_BASE_URL}/${encodeURIComponent(quotationNo)}/recipients`);
+    return response.data;
+  },
+  recoverPendingSend: async (quotationNo: string): Promise<ApiResponse | null> => {
+    const attempts = [...sendAttempts.entries()].filter(([, attempt]) => attempt.quotationNo === quotationNo.trim());
+    if (!attempts.length) return null;
+    const response = await axios.get<QuotationHistoryEntry[]>(`${API_BASE_URL}/${encodeURIComponent(quotationNo.trim())}/history`);
+    for (const [key, attempt] of attempts) {
+      const receipt = response.data.find(entry => entry.sendId === attempt.sendId);
+      if (!receipt) continue;
+      if (receipt.state === "SENT") {
+        sendAttempts.delete(key);
+        return { success: true, message: "The previous send was confirmed. No additional email was sent.", data: { revision: receipt.revision, fileLink: receipt.file, sendId: receipt.sendId, recovered: true } };
+      }
+      if (receipt.state === "SENDING" || receipt.state === "UNCERTAIN") throw new Error("A previous delivery is in progress or uncertain. Confirm its delivery and reconcile the history before sending again.");
+    }
+    return null;
+  },
+  getHistory: async (quotationNo: string): Promise<QuotationHistoryEntry[]> => {
+    const response = await axios.get<QuotationHistoryEntry[]>(`${API_BASE_URL}/${encodeURIComponent(quotationNo)}/history`);
+    return response.data;
+  },
+  savePdfToDrive: async (quotationNo: string, pdfBase64: string, snapshotToken: string): Promise<{ fileLink: string }> => {
+    const response = await axios.post<{ fileLink: string }>(`${API_BASE_URL}/save-pdf`, { quotationNo, pdfBase64, snapshotToken });
     return response.data;
   },
   // Uses GET /api/quotations
@@ -223,11 +254,19 @@ const quotationService = {
 
   // NEW: Send email only (quotation already saved)
   sendEmail: async (payload: SendEmailPayload): Promise<ApiResponse> => {
+    const recovered = await quotationService.recoverPendingSend(payload.quotationNo);
+    if (recovered) return recovered;
+    const attemptKey = JSON.stringify([payload.quotationNo, payload.snapshotToken, payload.email, payload.cc]);
+    const sendId = payload.sendId || sendAttempts.get(attemptKey)?.sendId || crypto.randomUUID();
+    sendAttempts.set(attemptKey, { sendId, quotationNo: payload.quotationNo.trim(), recipient: payload.email, snapshotToken: payload.snapshotToken });
     try {
       const formData = new FormData();
+      formData.append("sendId", sendId);
+      formData.append("snapshotToken", payload.snapshotToken);
       formData.append("quotationNo", payload.quotationNo);
       formData.append("customer", payload.customer);
       formData.append("email", payload.email);
+      formData.append("cc", JSON.stringify(payload.cc));
       formData.append("quotationDescription", payload.quotationDescription);
       formData.append("grandTotal", String(payload.grandTotal));
       formData.append(
@@ -243,6 +282,7 @@ const quotationService = {
           headers: { "Content-Type": "multipart/form-data" },
         },
       );
+      if (response.data.success) sendAttempts.delete(attemptKey);
       return response.data;
     } catch (error) {
       console.error("Failed to send email:", error);

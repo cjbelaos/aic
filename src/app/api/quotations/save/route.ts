@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { saveQuotationData, uploadPdfToDrive } from "@/lib/quotationSheets";
 import { isExecutivePositionTitle } from "@/lib/positionUtils";
+import { assertQuotationTerms, QuotationError } from "@/lib/quotationTerms";
 
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
@@ -22,6 +23,8 @@ export async function POST(request: Request) {
       payload = await request.json();
     }
 
+    assertQuotationTerms(payload);
+    if (payload.status === "SENT") throw new QuotationError("Use Send to Client to send a saved quotation and record its history.");
     const shippingFee = payload.shippingFee ?? 0;
     if (typeof shippingFee !== "number" || !Number.isFinite(shippingFee) || shippingFee < 0) {
       return NextResponse.json({ success: false, message: "Shipping fee must be a non-negative number." }, { status: 400 });
@@ -184,6 +187,6 @@ export async function POST(request: Request) {
     console.error("Save quotation error:", error);
     const message =
       error instanceof Error ? error.message : "Failed to save quotation.";
-    return NextResponse.json({ success: false, message }, { status: 500 });
+    return NextResponse.json({ success: false, message }, { status: error instanceof QuotationError ? error.status : 500 });
   }
 }

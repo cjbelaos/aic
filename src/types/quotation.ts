@@ -23,6 +23,13 @@ export interface QuotationAudit {
 }
 
 export interface Quotation extends QuotationAudit {
+  /** Last successfully sent revision; 0 denotes the original. */
+  revision?: number;
+  /** Saved changes have not yet been sent as the next revision. */
+  revisionPending?: boolean;
+  lastSentAt?: string;
+  /** Recipient list preserved only in immutable send snapshots. */
+  emailRecipients?: { to: string; cc: string[] };
   discountSettings?: DiscountSettings;
   id: string;
   quotationNo: string;

@@ -43,4 +43,27 @@ for (const [date, expected] of [
   }));
   assert.ok(html.includes(`<div><b>Date:</b> ${date}</div><div><b>Quotation Validity:</b> ${expected}</div>`));
 }
-console.log("Quotation print tests passed (zero/nonzero discount, both pricing modes, shipping, VAT).");
+for (const terms of [
+  { terms: "Cash on delivery", delivery: "Within 7 days", warranty: "No warranty" },
+  { terms: "", delivery: "", warranty: "" },
+]) {
+  const html = renderToStaticMarkup(React.createElement(QuotationPrintDocument, {
+    quotation: { date: "2026-11-04", quotationNo: "Q-20261104-002", items: [], notation: [], amount: 0, discount: 0, ...terms },
+  }));
+  for (const label of ["Payment terms:", "Delivery:", "Warranty:"]) assert.ok(html.includes(label), `Always render ${label}`);
+  if (terms.warranty) assert.ok(html.includes("No warranty"));
+}
+for (const [revision, revisionPending, expected] of [[0, true, "Revision 1"], [2, false, "Revision 2"], [2, true, "Revision 3"]]) {
+  const html = renderToStaticMarkup(React.createElement(QuotationPrintDocument, {
+    quotation: { date: "2026-11-04", quotationNo: "Q-20261104-002", items: [], notation: [], amount: 0, discount: 0, revision, revisionPending },
+  }));
+  assert.ok(html.includes(expected), `Print ${expected}`);
+  assert.ok(html.includes("Q-20261104-002"));
+}
+console.log("Quotation print tests passed (pricing, VAT, required labels, explicit no warranty, revisions).");
+
+for (const approvedBy of ['', '   ', undefined, 'Approver Name']) {
+  const html = renderToStaticMarkup(React.createElement(QuotationPrintDocument, { quotation: { date: '2026-11-04', quotationNo: 'Q-1', items: [], notation: [], amount: 0, discount: 0, approvedBy } }));
+  assert.equal(html.includes('Approved by'), !!approvedBy?.trim());
+  if (approvedBy?.trim()) assert.ok(html.includes('Approver Name'));
+}
