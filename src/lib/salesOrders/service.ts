@@ -34,6 +34,8 @@ import { TAX_RATE_LEGACY_PHI } from "./money.ts";
 import { resolveSalesOrderQuotation } from "./quotationReference.ts";
 import { normalizeQuotationPricingMode, singleTotalPriceFromRecord } from "../quotationPricing.ts";
 import { getQuotationByRefNo } from "@/lib/quotationSheets";
+import { getProductCategories, getProductUnits } from "@/lib/productReferenceSheets";
+import { bindNewCatalogLines } from "./catalogBinding.ts";
 
 export interface Actor {
   userId: string;
@@ -693,6 +695,14 @@ async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: st
     ? ` Quoted as one total price of ${plan.combinedTotal.toFixed(2)}; the combined charge is carried on its own line and no per-line price was derived.`
     : "";
 
+  let lines = plan.lines.map((line) => ({ ...line, orderCategory: categoryFor(line) }));
+  // Quotation service units are optional; new order services use the configured SET unit.
+  const isQuotedService = (line: typeof lines[number]) => line.lineType === "SERVICE" && line.orderCategory === SALES_ORDER_SERVICE_CATEGORY;
+  if (lines.some(isQuotedService)) {
+    const [categories, units] = await Promise.all([getProductCategories(), getProductUnits()]);
+    lines = bindNewCatalogLines(lines, { products: [], categories, units }, isQuotedService);
+  }
+
   return createOrderImpl(actor, {
     commandId: input.commandId,
     discountSettings: quotation.discountSettings ?? defaultDiscount(quotation.discount),
@@ -714,9 +724,8 @@ async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: st
     currency: "PHP",
     initialStatus: input.initialStatus ?? "CONFIRMED",
     remarks: `Converted from quotation ${quotation.quotationNo}; original total ${quotation.amount}.${pricingNote}`,
-    lines: plan.lines.map((line, index) => ({
+    lines: lines.map((line, index) => ({
       discountSettings: quotation.discountSettings?.mode === "PER_ITEM" ? quotation.items[index]?.discountSettings : undefined,
-      orderCategory: categoryFor(line),
       ...line,
       productNameSnapshot: "",
       customerProductName: line.customerProductNameSnapshot ?? "",

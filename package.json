@@ -19,7 +19,7 @@
     ,"test:contract-integrity": "node scripts/audit-contract-integrity.mjs --self-test"
     ,"test:purchase-order-numbering": "node scripts/test-purchase-order-numbering.mjs"
     ,"audit:child-row-gaps": "node --env-file=.env.local scripts/audit-child-row-gaps.mjs"
-    ,"test:sales-orders": "npx tsc -p scripts/sales-order-tests/tsconfig.json && node tmp/sales-order-tests/out/scripts/sales-order-tests/run.js && node scripts/migrate-sales-orders.mjs --self-test"
+    ,"test:sales-orders": "npx tsc -p scripts/sales-order-tests/tsconfig.json && node tmp/sales-order-tests/out/scripts/sales-order-tests/run.js && node scripts/migrate-sales-orders.mjs --self-test && node scripts/test-sales-order-conversion.cjs"
     ,"test:quotations": "npx tsc -p scripts/quotation-tests/tsconfig.json && node tmp/quotation-tests/out/scripts/quotation-tests/run.js && node scripts/test-quotation-persistence.cjs && node scripts/test-quotation-print.cjs && node scripts/test-quotation-client.cjs && node scripts/test-quotation-send.cjs && node scripts/test-quotation-history.cjs && node scripts/test-quotation-api.cjs && node scripts/test-quotation-recipients.cjs"
 
     ,"test:service-reports": "npx tsc -p scripts/service-reports-tests/tsconfig.json && node tmp/service-reports-tests/out/scripts/service-reports-tests/run.js"
