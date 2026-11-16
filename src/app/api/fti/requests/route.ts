@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllFTIRequests, createFTIRequest } from "@/lib/ftiSheets";
+import { getAllFTIRequests, createFTIRequest, invalidateFTICache } from "@/lib/ftiSheets";
 import { getUsers } from "@/lib/userSheets";
 import { getUserApprovers } from "@/lib/userApproverSheets";
 import { getSession } from "@/lib/auth/session";
@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    invalidateFTICache();
     const [requests, users, approvers] = await Promise.all([
       getAllFTIRequests(),
       getUsers(),

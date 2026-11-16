@@ -14,11 +14,15 @@ function load(file, mocks = {}) {
   let userId = 'owner';
   const writes = [];
   const route = load('src/app/api/fti/requests/[controlNo]/route.ts', {
+    'next/server': { ...require('next/server'), after: () => {} },
+    '@/lib/ftiWriteLock': { withFTIWriteLock: async work => work(), FTIWriteConflict: class extends Error {} },
+    '@/lib/ftiPdfJobs': { processFTIPdfJobs: async () => ({}) },
+    '@/lib/userSheets': { getUserById: async () => ({ fullName: 'Approver' }) },
     '@/types/fti': types,
     '@/lib/auth/session': { getSession: async () => ({ userId, userRoleId: 2 }) },
     '@/lib/userApproverSheets': { getUserApprovers: async () => [{ requesterUserId: 'owner', approverUserId: 'approver' }] },
     '@/lib/ftiSheets': {
-      getFTIRequestFull: async () => ({ controlNo: 'CTRL-test', userId: 'owner', status }),
+      getFTIRequestFull: async () => ({ controlNo: 'CTRL-test', userId: 'owner', status, revision: 'current' }),
       updateFTIRequestStatus: async () => writes.push('status'),
       saveFullFTIRequest: async () => writes.push('details'),
       deleteFTIRequest: async () => writes.push('delete'),
@@ -44,7 +48,7 @@ function load(file, mocks = {}) {
   userId = 'stranger';
   assert.equal((await route.GET({}, context)).status, 403);
   userId = 'approver';
-  assert.equal((await route.PATCH({ json: async () => ({ action: 'approve' }) }, context)).status, 200);
+  assert.equal((await route.PATCH({ json: async () => ({ action: 'approve', expectedRevision: 'current' }) }, context)).status, 200);
   assert.equal(writes.at(-1), 'approval');
   console.log('FTI read-only regression tests passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

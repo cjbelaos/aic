@@ -16,6 +16,7 @@ export interface FTIRequest {
   approvedBySignatureUrl?: string;
   approvedDate?: string;
   approvalComment?: string;
+  pdfStatus?: string;
 }
 
 export interface FTIDetails {
@@ -96,6 +97,7 @@ export interface FTILegsInput {
 }
 
 export interface FTIRequestFull extends FTIRequest {
+  revision?: string;
   userName: string;
   totalAmount: number;
   canApprove?: boolean;

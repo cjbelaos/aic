@@ -1,157 +1,41 @@
-import { NextRequest, NextResponse } from "next/server";
-import { Readable } from "stream";
-import { getDriveUploadClient } from "@/lib/googleSheets";
+import { after, NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
+import { getFTIRequestFull } from "@/lib/ftiSheets";
+import { getUserApprovers } from "@/lib/userApproverSheets";
+import { withFTIWriteLock, FTIWriteConflict } from "@/lib/ftiWriteLock";
+import { queueFTIPdf, processFTIPdfJobs } from "@/lib/ftiPdfJobs";
 
-const FTI_DRIVE_FOLDER_ID = "1Lzr8kqlrZ94RPVwhVfCgt2H6p5nFORzG";
+export const maxDuration = 60;
 
+// Regenerate from saved data only: old browser uploads must never overwrite a newer PDF.
 export async function POST(req: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  const body = await req.json().catch(() => null);
+  if (!body?.controlNo || !body?.expectedRevision) {
+    return NextResponse.json({ error: "Reload the FTI before regenerating its PDF.", code: "FTI_CHANGED" }, { status: 409 });
+  }
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json(
-        { error: "Authentication required." },
-        { status: 401 },
-      );
-    }
-
-    const formData = await req.formData();
-    const pdfFile = formData.get("pdf") as File | null;
-    const ftiRef = formData.get("ftiRef") as string | null;
-
-    if (!pdfFile) {
-      return NextResponse.json(
-        { error: "No PDF file provided." },
-        { status: 400 },
-      );
-    }
-
-    if (!ftiRef) {
-      return NextResponse.json(
-        { error: "No FTI reference provided." },
-        { status: 400 },
-      );
-    }
-
-    // Convert the File to a Buffer, then a Readable stream (googleapis requires
-    // media.body to be a stream — a raw Buffer has no .pipe method).
-    const arrayBuffer = await pdfFile.arrayBuffer();
-    const pdfBuffer = Buffer.from(arrayBuffer);
-    const pdfStream = Readable.from(pdfBuffer);
-
-    // Use the OAuth2 user-based Drive client (service accounts have no
-    // storage quota, so uploads must act as a real user).
-    const drive = await getDriveUploadClient();
-
-    // Check if folder exists, if not create it
-    let folderId = FTI_DRIVE_FOLDER_ID;
-    try {
-      await drive.files.get({ fileId: folderId });
-    } catch {
-      // Folder doesn't exist, create it
-      const folderRes = await drive.files.create({
-        requestBody: {
-          name: "FTI PDFs",
-          mimeType: "application/vnd.google-apps.folder",
-          parents: [],
-        },
-      });
-      folderId = folderRes.data.id!;
-    }
-
-    // Check if file with same name already exists
-    const fileName = `FTI_${ftiRef}.pdf`;
-    const existingRes = await drive.files.list({
-      q: `'${folderId}' in parents and name = '${fileName}' and trashed = false`,
-      fields: "files(id, name)",
+    const result = await withFTIWriteLock(async () => {
+      const full = await getFTIRequestFull(body.controlNo, true);
+      if (!full) return NextResponse.json({ error: "FTI not found." }, { status: 404 });
+      const mappings = await getUserApprovers("FTI");
+      const allowed = session.userRoleId === 1 || full.userId === session.userId || full.approvedByUserId === session.userId || mappings.some(m => m.requesterUserId === full.userId && m.approverUserId === session.userId);
+      if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (body.expectedRevision !== full.revision) {
+        return NextResponse.json({ error: "This FTI has changed. Reload it before regenerating the PDF.", code: "FTI_CHANGED" }, { status: 409 });
+      }
+      await queueFTIPdf(full.controlNo);
+      return NextResponse.json({ success: true, pdfStatus: "PENDING" });
     });
-
-    let fileId: string;
-
-    if (existingRes.data.files && existingRes.data.files.length > 0) {
-      // Update existing file
-      fileId = existingRes.data.files[0].id!;
-      await drive.files.update({
-        fileId,
-        media: {
-          mimeType: "application/pdf",
-          body: pdfStream,
-        },
-      });
-    } else {
-      // Create new file
-      const uploadRes = await drive.files.create({
-        requestBody: {
-          name: fileName,
-          parents: [folderId],
-        },
-        media: {
-          mimeType: "application/pdf",
-          body: pdfStream,
-        },
-      });
-      fileId = uploadRes.data.id!;
-    }
-
-    const fileLink = `https://drive.google.com/file/d/${fileId}/view`;
-
-    return NextResponse.json({
-      success: true,
-      fileId,
-      fileLink,
-      message: `PDF saved to Google Drive as ${fileName}`,
-    });
+    if (result.ok) after(() => processFTIPdfJobs().catch(() => undefined));
+    return result;
   } catch (error) {
-    console.error("Save PDF to Drive error:", error);
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to save PDF to Google Drive",
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "PDF regeneration failed." }, { status: error instanceof FTIWriteConflict ? 409 : 500 });
   }
 }
 
-/**
- * DELETE /api/fti/save-pdf-to-drive?fileId=...
- * Deletes a previously saved FTI PDF from Google Drive. Used as a rollback
- * when the Google Sheet approval write fails, so the PDF upload and sheet
- * record succeed or fail together.
- */
-export async function DELETE(req: NextRequest) {
-  try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json(
-        { error: "Authentication required." },
-        { status: 401 },
-      );
-    }
-
-    const fileId = (req.nextUrl.searchParams.get("fileId") || "").trim();
-    if (!fileId) {
-      return NextResponse.json(
-        { error: "Missing fileId query parameter." },
-        { status: 400 },
-      );
-    }
-
-    const drive = await getDriveUploadClient();
-    await drive.files.delete({ fileId });
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Delete FTI PDF error:", error);
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to delete PDF from Google Drive",
-      },
-      { status: 500 },
-    );
-  }
+// Client-side rollback is obsolete; it could delete a newer successfully regenerated file.
+export async function DELETE() {
+  return NextResponse.json({ error: "FTI PDFs are managed by the server." }, { status: 405 });
 }

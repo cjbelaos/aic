@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:fti": "node scripts/test-fti-recalculation.cjs && node scripts/test-fti-lock.cjs && node scripts/test-fti-pdf-jobs.cjs && node scripts/test-fti-stale-approval.cjs && node scripts/test-fti-fuel-route.cjs && node scripts/test-fti-pdf-invalidation.cjs && node scripts/test-fti-read-only.cjs && node scripts/test-fti-submission.cjs && node scripts/test-fti-service-errors.cjs",
     "test:contracts": "node scripts/test-contract-lifecycle.cjs && node scripts/test-contract-service-frequency.cjs && node scripts/test-service-invoice-billing.cjs && node scripts/test-contract-notes.cjs",
     "test:contract-notes": "node scripts/test-contract-notes.cjs",
 "audit:contracts": "node --env-file=.env.local scripts/audit-contract-integrity.mjs"

@@ -11,6 +11,7 @@ function load(file, mocks) {
 (async () => {
   const writes = [];
   const fti = load('src/lib/ftiSheets.ts', {
+    '@/lib/ftiWriteLock': { withFTIWriteLock: async work => work(), isFTIWriteLocked: () => true },
     '@/lib/googleSheets': {
       getDatabaseSpreadsheetId: async () => 'test',
       getSheetsClient: async () => ({ spreadsheets: { values: {
@@ -22,6 +23,8 @@ function load(file, mocks) {
     '@/lib/userApproverSheets': { getApproverForRequester: async () => null },
   });
   const route = load('src/app/api/fti/requests/[controlNo]/route.ts', {
+    'next/server': { ...require('next/server'), after: () => {} },
+    '@/lib/ftiWriteLock': { withFTIWriteLock: async work => work(), FTIWriteConflict: class extends Error {} },
     '@/types/fti': load('src/types/fti.ts', {}),
     '@/lib/ftiSheets': { ...fti, getFTIRequestFull: async () => ({ userId: 'requester', status: 'DRAFT' }) },
     '@/lib/auth/session': { getSession: async () => ({ userId: 'requester', userRoleId: 1 }) },

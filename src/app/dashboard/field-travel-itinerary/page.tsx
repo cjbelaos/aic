@@ -1222,33 +1222,6 @@ export default function FieldTravelItineraryPage() {
     return pdf.output("blob");
   };
 
-  const saveGdToGoogleDrive = async (
-    blob: Blob,
-    ref?: string,
-  ): Promise<string> => {
-    const refValue = ref || formData.ftiRef;
-    if (!refValue) throw new Error("NO FTI Reference provided.");
-    const fd = new FormData();
-    fd.append("pdf", blob, "FTI_" + refValue + ".pdf");
-    fd.append("ftiRef", refValue);
-    const res = await fetch("/api/fti/save-pdf-to-drive", {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) {
-      let detail = `Failed to save PDF to Google Drive (${res.status}).`;
-      try {
-        const data = await res.json();
-        if (data?.error) detail = data.error;
-      } catch {
-        // keep generic
-      }
-      throw new Error(detail);
-    }
-    const data = await res.json();
-    return data.fileLink || "";
-  };
-
   const handleSaveRequest = async (submitStatus: "DRAFT" | "SENT") => {
     if (batchItems.length === 0) {
       toast.error("Add at least one itinerary row before saving.");
@@ -1473,82 +1446,12 @@ export default function FieldTravelItineraryPage() {
     if (!viewRequest) return;
     setApprovalInProgress(true);
     try {
-      let signatureUrl = approvedBySignatureUrl;
-      if (!signatureUrl && viewRequest.approvedByName) {
-        try {
-          const sig = await userService.getSignatureByUsername(
-            viewRequest.approvedByName,
-          );
-          if (sig?.imageUrl) {
-            signatureUrl = sig.imageUrl;
-            setApprovedBySignatureUrl(signatureUrl);
-          }
-        } catch {
-          // proceed without signature
-        }
-      }
-
-      let signatureDataUrl = "";
-      if (signatureUrl) {
-        try {
-          const imgRes = await fetch(signatureUrl);
-          if (imgRes.ok) {
-            const imgBlob = await imgRes.blob();
-            signatureDataUrl = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(imgBlob);
-            });
-            const imgElements = document.querySelectorAll<HTMLImageElement>(
-              'img[alt="Approver Signature"]',
-            );
-            imgElements.forEach((img) => {
-              img.dataset.originalSrc = img.src;
-              img.src = signatureDataUrl;
-            });
-            await new Promise((r) => setTimeout(r, 100));
-          }
-        } catch {
-          // proceed without signature
-        }
-      }
-
-      const blob = await generatePdfBlob();
-
-      if (signatureDataUrl) {
-        const imgElements = document.querySelectorAll<HTMLImageElement>(
-          'img[alt="Approver Signature"]',
-        );
-        imgElements.forEach((img) => {
-          if (img.dataset.originalSrc) {
-            img.src = img.dataset.originalSrc;
-          }
-        });
-      }
-
-      const fileLink = await saveGdToGoogleDrive(blob, viewRequest.controlNo);
-
-      if (!viewRequest.approvedBySignatureUrl && signatureUrl) {
-        await ftiService.approveAction(
-          viewRequest.controlNo,
-          "approve",
-          "",
-          fileLink,
-          viewRequest.approvedByName,
-          signatureUrl,
-        );
-      }
-
-      toast.success("PDF regenerated and saved to Drive successfully.");
-      const refreshed = await ftiService.getRequest(viewRequest.controlNo);
-      setViewRequest(refreshed);
+      await ftiService.regeneratePdf(viewRequest.controlNo, viewRequest.revision);
+      setViewRequest(await ftiService.getRequest(viewRequest.controlNo));
+      toast.success("PDF regeneration queued. It will update automatically.");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to regenerate PDF.",
-      );
-    } finally {
-      setApprovalInProgress(false);
-    }
+      toast.error(err instanceof Error ? err.message : "Failed to regenerate PDF.");
+    } finally { setApprovalInProgress(false); }
   };
 
   const handleViewLiquidation = async (controlNo: string) => {
@@ -1628,73 +1531,28 @@ export default function FieldTravelItineraryPage() {
     }
     setApprovalInProgress(true);
     try {
-      let fileLink: string | undefined;
-      let approvedName: string | undefined;
-      let approvedSignature = "";
-      if (action === "approve") {
-        let signatureUrl = "";
-        try {
-          const sig = await userService.getSignatureByUsername(
-            formInfo?.currentUserUsername || "",
-          );
-          signatureUrl = sig?.imageUrl || "";
-        } catch {
-          // proceed without signature
-        }
-        setApprovedBy(formInfo?.currentUserFullName || "");
-        setApprovedBySignatureUrl(signatureUrl);
-        approvedName = formInfo?.currentUserFullName;
-        approvedSignature = signatureUrl;
-        await new Promise((r) => setTimeout(r, 150));
-        const blob = await generatePdfBlob();
-        fileLink = await saveGdToGoogleDrive(blob, viewRequest.controlNo);
-      }
-      try {
-        await ftiService.approveAction(
-          viewRequest.controlNo,
-          action,
-          comment.trim(),
-          fileLink,
-          approvedName,
-          approvedSignature,
-        );
-      } catch (err) {
-        if (fileLink) {
-          try {
-            const fileIdMatch = fileLink.match(/\/d\/([a-zA-Z0-9_-]+)/);
-            const fileId = fileIdMatch?.[1];
-            if (fileId) {
-              await fetch(
-                `/api/fti/save-pdf-to-drive?fileId=${encodeURIComponent(fileId)}`,
-                {
-                  method: "DELETE",
-                },
-              );
-            }
-          } catch {
-            // Non-fatal rollback failure
-          }
-        }
-        throw err;
-      }
-      toast.success(
-        action === "approve"
-          ? "Request approved and PDF saved to Drive."
-          : action === "request_change"
-            ? "Change requested."
-            : "Request rejected.",
-      );
+      await ftiService.approveAction(viewRequest.controlNo, action, comment.trim(), viewRequest.revision);
+      toast.success(action === "approve" ? "Request approved. Its PDF will update automatically." : action === "request_change" ? "Change requested." : "Request rejected.");
       setViewModalOpen(false);
       setApprovedBy("");
       setApprovedBySignatureUrl("");
       await loadFTIRequests();
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to process approval.",
-      );
-    } finally {
-      setApprovalInProgress(false);
-    }
+      const changed = (err as { response?: { data?: { code?: string } } })?.response?.data?.code === "FTI_CHANGED";
+      if (changed) {
+        try {
+          const refreshed = await ftiService.getRequest(viewRequest.controlNo);
+          setViewRequest(refreshed);
+          setApprovedBy(refreshed.approvedByName || "");
+          setApprovedBySignatureUrl(refreshed.approvedBySignatureUrl || "");
+        } catch {
+          setViewModalOpen(false);
+          toast.error("Could not reload the changed FTI. Reopen it before approving.");
+          return;
+        }
+      }
+      toast.error(err instanceof Error ? err.message : "Failed to process approval.");
+    } finally { setApprovalInProgress(false); }
   };
 
   const getLiquidationPrintElement = () =>
@@ -1889,6 +1747,7 @@ export default function FieldTravelItineraryPage() {
         header: "File Link",
         cell: ({ row }) => {
           const item = row.original;
+          if (item.pdfStatus) return <span className="text-amber-600 text-xs">{item.pdfStatus === "FAILED" ? "PDF retry pending" : "PDF updating"}</span>;
           const link = item.ftiFileLink;
           if (!link) {
             return <span className="text-muted-foreground">—</span>;
@@ -2061,7 +1920,7 @@ export default function FieldTravelItineraryPage() {
 
   const batchTotalToll = sortedBatchItems.reduce((s, i) => s + i.tollFee, 0);
   const batchTotalFuel = sortedBatchItems.reduce(
-    (s, i) => s + computeFuelCost(i.km, i.fuelPrice, kmPerLiter),
+    (s, i) => s + (i.fuelAmount ?? computeFuelCost(i.km, i.fuelPrice, kmPerLiter)),
     0,
   );
   const batchTotalMiscAmount = sortedBatchItems.reduce(
@@ -2193,7 +2052,7 @@ export default function FieldTravelItineraryPage() {
             sharingImage={sharingImage}
             readOnly
             approvalActions={
-              viewRequest.status.toUpperCase() === "SENT" &&
+              ["SENT", "SUBMITTED"].includes(viewRequest.status.toUpperCase()) &&
               approvers.some(
                 (m) =>
                   m.approverUserId === formInfo?.currentUserId &&
@@ -2212,6 +2071,7 @@ export default function FieldTravelItineraryPage() {
             }
             approvalComment={viewRequest.approvalComment}
             approvalStatus={viewRequest.status}
+            pdfStatus={viewRequest.pdfStatus}
             approvedBy={approvedBy}
             approvedBySignatureUrl={approvedBySignatureUrl}
             onRegeneratePdf={
@@ -2955,11 +2815,11 @@ export default function FieldTravelItineraryPage() {
                           </td>
                           <td className="px-3 py-2 text-right font-mono">
                             {isMainRow
-                              ? computeFuelCost(
+                              ? (item.fuelAmount ?? computeFuelCost(
                                   item.km,
                                   item.fuelPrice,
                                   kmPerLiter,
-                                ).toFixed(2)
+                                )).toFixed(2)
                               : ""}
                           </td>
                           <td className="px-3 py-2">

@@ -59,6 +59,7 @@ interface FTIPreviewModalProps {
   };
   approvalComment?: string;
   approvalStatus?: string;
+  pdfStatus?: string;
   // ── Approval display on the printed document ──
   approvedBy?: string;
   approvedBySignatureUrl?: string;
@@ -87,6 +88,7 @@ export default function FTIPreviewModal({
   approvalActions,
   approvalComment,
   approvalStatus,
+  pdfStatus,
   approvedBy,
   approvedBySignatureUrl,
   onRegeneratePdf,
@@ -104,6 +106,8 @@ export default function FTIPreviewModal({
             {readOnly ? "FTI Request Details" : "Preview FTI Request"}
           </DialogTitle>
         </DialogHeader>
+
+        {pdfStatus && <p role="status" className="text-sm text-amber-600">{pdfStatus === "FAILED" ? "Saved PDF update failed and will retry automatically. The amounts below are current." : "Saved PDF is being updated. The amounts below are current."}</p>}
 
         {/* ── Scrollable Document Container ── */}
         <div className="flex-1 overflow-auto py-2">

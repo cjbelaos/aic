@@ -13,19 +13,42 @@ export default function FTIFuelPricePage() {
   const [access, setAccess] = useState<"loading" | "allowed" | "denied">("loading");
   const [fuelPrice, setFuelPrice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [pdfJobs, setPdfJobs] = useState({ pending: 0, failed: 0 });
+  const [retryError, setRetryError] = useState("");
 
   useEffect(() => {
     void fetch("/api/fti/fuel-price")
       .then(async (response) => {
         if (!response.ok) return { canManage: false };
-        return response.json() as Promise<{ canManage?: boolean; fuelPrice?: number | null }>;
+        return response.json() as Promise<{ canManage?: boolean; fuelPrice?: number | null; pdfJobs?: { pending: number; failed: number } }>;
       })
       .then((data) => {
         setFuelPrice(typeof data.fuelPrice === "number" ? String(data.fuelPrice) : "");
         setAccess(data.canManage ? "allowed" : "denied");
+        if (data.pdfJobs) setPdfJobs(data.pdfJobs);
       })
       .catch(() => setAccess("denied"));
   }, []);
+
+  useEffect(() => {
+    if (access !== "allowed" || !pdfJobs.pending) return;
+    let active = true;
+    let running = false;
+    const timer = setInterval(async () => {
+      if (running) return;
+      running = true;
+      try {
+        const response = await fetch("/api/fti/pdf-jobs", { method: "POST" });
+        const result = await response.json();
+        if (response.status === 409) return;
+        if (!response.ok) throw new Error(result.error || "Could not retry PDF updates.");
+        if (active) { setPdfJobs({ pending: result.pending, failed: result.failed }); setRetryError(""); }
+      } catch (error) {
+        if (active) setRetryError(error instanceof Error ? error.message : "Could not retry PDF updates.");
+      } finally { running = false; }
+    }, 30_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [access, pdfJobs.pending]);
 
   const save = async () => {
     const value = Number(fuelPrice);
@@ -43,7 +66,8 @@ export default function FTIFuelPricePage() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       setFuelPrice(String(body.fuelPrice));
-      toast.success("Shared fuel price updated for all technicians.");
+      setPdfJobs(previous => ({ pending: Math.max(previous.pending, body.pendingPdfs || 0), failed: previous.failed }));
+      toast.success(`Fuel price saved. Updated ${body.affectedTrips} trips across ${body.affectedRequests} FTIs.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update fuel price.");
     } finally {
@@ -58,10 +82,12 @@ export default function FTIFuelPricePage() {
     <div className="mx-auto max-w-xl space-y-6">
       <div><h1 className="text-2xl font-bold">FTI Fuel Price Settings</h1><p className="text-sm text-muted-foreground">Set the fixed fuel price used for all technician FTI requests.</p></div>
       <Card>
-        <CardHeader><CardTitle>Shared fuel price</CardTitle><CardDescription>New and edited FTI fuel calculations use this amount. Existing FTI records are unchanged.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Shared fuel price</CardTitle><CardDescription>Saving recalculates trips dated today or later (Philippine time) in unapproved FTIs using each technician&apos;s current km/L rate. Saved PDFs update automatically. Past trips and approved FTIs keep their saved amounts.</CardDescription></CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2"><Label htmlFor="fuel-price">Fuel Price (₱/L)</Label><Input id="fuel-price" type="number" min="0" step="0.01" value={fuelPrice} onChange={(event) => setFuelPrice(event.target.value)} placeholder="0.00" /></div>
           <Button onClick={save} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save shared price</Button>
+          {pdfJobs.pending > 0 && <p role="status" className="text-sm text-amber-600">{pdfJobs.pending} PDF updates pending{pdfJobs.failed ? `; ${pdfJobs.failed} will retry after an upload failure` : ""}. Updated FTI amounts are already saved.</p>}
+          {retryError && <p role="alert" className="text-sm text-destructive">{retryError} Automatic retries will continue.</p>}
         </CardContent>
       </Card>
     </div>

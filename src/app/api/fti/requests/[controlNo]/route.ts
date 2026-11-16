@@ -1,9 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
+import { withFTIWriteLock, FTIWriteConflict } from "@/lib/ftiWriteLock";
+import { processFTIPdfJobs } from "@/lib/ftiPdfJobs";
+import { getUserById } from "@/lib/userSheets";
 import {
   getFTIRequestFull,
   deleteFTIRequest,
   updateFTIRequestStatus,
-  updateFTIFileLink,
   updateFTIApproval,
   saveFullFTIRequest,
   withdrawFTIRequest,
@@ -15,6 +17,7 @@ import type { FTIDetailInput } from "@/types/fti";
 import { isEditableStatus } from "@/types/fti";
 
 type RouteContext = { params: Promise<{ controlNo: string }> };
+export const maxDuration = 60;
 
 /**
  * Returns true when the session user is authorized to approve the given
@@ -50,7 +53,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
     }
 
     const { controlNo } = await context.params;
-    const full = await getFTIRequestFull(decodeURIComponent(controlNo));
+    const full = await getFTIRequestFull(decodeURIComponent(controlNo), true);
     if (!full) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 });
     }
@@ -76,6 +79,18 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 }
 
 export async function PATCH(req: NextRequest, context: RouteContext) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  try {
+    const response = await withFTIWriteLock(() => patchRequest(req, context));
+    if (response.ok) after(() => processFTIPdfJobs().catch(() => undefined));
+    return response;
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update FTI." }, { status: error instanceof FTIWriteConflict ? 409 : 500 });
+  }
+}
+
+async function patchRequest(req: NextRequest, context: RouteContext) {
   try {
     const session = await getSession();
     if (!session) {
@@ -139,29 +154,31 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           { status: 403 },
         );
       }
-      if (full.status.toUpperCase() !== "SENT") {
+      if (!["SENT", "SUBMITTED"].includes(full.status.toUpperCase())) {
         return NextResponse.json(
           { error: `Cannot act on request with status "${full.status}".` },
           { status: 400 },
         );
       }
-      const { action, comment, ftiFileLink } = body as {
+      if (!["approve", "request_change", "reject"].includes(body.action)) {
+        return NextResponse.json({ error: "Invalid approval action." }, { status: 400 });
+      }
+      if (body.action === "approve" && (!body.expectedRevision || body.expectedRevision !== full.revision)) {
+        return NextResponse.json({ error: "This FTI has changed. Review the refreshed amounts before approving.", code: "FTI_CHANGED" }, { status: 409 });
+      }
+      const { action, comment } = body as {
         action: "approve" | "request_change" | "reject";
         comment?: string;
-        ftiFileLink?: string;
       };
+      const approver = await getUserById(session.userId);
       await updateFTIApproval(
         decoded,
         action,
         session.userId,
-        body.approvedByName,
-        body.approvedBySignatureUrl,
+        approver?.fullName || session.username,
+        approver?.signature ? `/api/images/drive/${approver.signature}` : "",
         comment,
       );
-      // Persist the signed PDF Google Drive link (approval only).
-      if (action === "approve" && ftiFileLink) {
-        await updateFTIFileLink(decoded, ftiFileLink);
-      }
       const updated = await getFTIRequestFull(decoded);
       return NextResponse.json(updated);
     }
@@ -173,6 +190,10 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       );
     }
 
+    if (body.ftiFileLink || (body.status && !["DRAFT", "SENT", "SUBMITTED"].includes(body.status))) {
+      return NextResponse.json({ error: "Use the FTI approval or PDF regeneration action." }, { status: 400 });
+    }
+
     if (body.details && Array.isArray(body.details)) {
       const status = body.status || full?.status || "DRAFT";
       // First save: this creates the FTIRequests row with the session user.
@@ -182,10 +203,6 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         body.details as FTIDetailInput[],
         session.userId,
       );
-      // Persist the Google Drive PDF link (sent requests).
-      if (body.ftiFileLink) {
-        await updateFTIFileLink(decoded, body.ftiFileLink);
-      }
     } else if (body.status) {
       if (!full) {
         return NextResponse.json(

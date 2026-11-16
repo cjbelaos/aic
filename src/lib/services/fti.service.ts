@@ -79,15 +79,17 @@ export const ftiService = {
     controlNo: string,
     action: "approve" | "request_change" | "reject",
     comment?: string,
-    ftiFileLink?: string,
-    approvedByName?: string,
-    approvedBySignatureUrl?: string,
+    expectedRevision?: string,
   ): Promise<FTIRequestFull> {
     const res = await api.patch<FTIRequestFull>(
       `/fti/requests/${encodeURIComponent(controlNo)}`,
-      { action, comment, ftiFileLink, approvedByName, approvedBySignatureUrl },
+      { action, comment, expectedRevision },
     );
     return res.data;
+  },
+
+  async regeneratePdf(controlNo: string, expectedRevision?: string): Promise<void> {
+    await api.post("/fti/save-pdf-to-drive", { controlNo, expectedRevision });
   },
 
   async withdrawRequest(controlNo: string, force: boolean = false): Promise<FTIRequestFull> {

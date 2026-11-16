@@ -84,7 +84,7 @@ export default function FTIPrintDocument({
   );
   // Helper to calculate fuel amount: (KM / kmPerLiter) * Fuel Price
   const getItemFuel = (item: DraftItinerary) => {
-    if (item.fuelAmount !== undefined && item.fuelAmount > 0) {
+    if (item.fuelAmount !== undefined) {
       return item.fuelAmount;
     }
     return computeFuelCost(item.km, item.fuelPrice, kmPerLiter);

@@ -1,3 +1,6 @@
+import { withFTIWriteLock, isFTIWriteLocked } from "@/lib/ftiWriteLock";
+import { ftiRevision } from "@/lib/ftiRevision";
+import { ensureFTIWorkflowSchema } from "@/lib/ftiRecalculation";
 import crypto from "crypto";
 import {
   getSheetsClient,
@@ -34,7 +37,7 @@ const FTI_SEGMENTS_SHEET = "FTISegments";
 const USER_FUEL_PER_KM_SHEET = "UserFuelPerKm";
 const FTI_LIST_SHEET = "FTIList";
 
-const RANGE_REQUEST = `${FTI_REQUEST_SHEET}!A2:K`;
+const RANGE_REQUEST = `${FTI_REQUEST_SHEET}!A2:N`;
 const RANGE_DETAILS = `${FTI_DETAILS_SHEET}!A2:I`; // A=detailId, B=controlNo, C=date, D=itinerary, E=description, F=km, G=fuelPrice, H=fuelSubTotal, I=tollFee
 const RANGE_EXPENSES = `${FTI_EXPENSES_SHEET}!A2:D`; // A=expenseId, B=detailId, C=miscCode, D=amount
 const RANGE_LEGS = `${FTI_LEGS_SHEET}!A2:I`; // A=legId, B=detailId, C=controlNo, D=originName, E=originAddress, F=destName, G=destAddress, H=tollFee, I=distanceKm
@@ -69,6 +72,7 @@ const CACHE_TTL_MS = 10_000;
 const FUEL_CACHE_TTL_MS = 60_000;
 
 function cacheGet<T>(key: string): T | undefined {
+  if (isFTIWriteLocked()) return undefined;
   const entry = cache.get(key);
   if (!entry) return undefined;
   if (Date.now() > entry.expires) {
@@ -79,6 +83,7 @@ function cacheGet<T>(key: string): T | undefined {
 }
 
 function cacheSet(key: string, value: unknown, ttlMs: number): void {
+  if (isFTIWriteLocked()) return;
   // Prevent unbounded growth
   if (cache.size > 500) {
     for (const [k] of cache) cache.delete(k);
@@ -86,7 +91,7 @@ function cacheSet(key: string, value: unknown, ttlMs: number): void {
   cache.set(key, { value, expires: Date.now() + ttlMs });
 }
 
-function invalidateFTICache(): void {
+export function invalidateFTICache(): void {
   for (const [key] of cache) {
     if (
       key.startsWith("fti:requests") ||
@@ -258,6 +263,7 @@ async function getAllFTIRequestsRaw(): Promise<FTIRequest[]> {
     approvedBySignatureUrl: (row[8] || "").toString().trim() || undefined,
     approvedDate: (row[9] || "").toString().trim() || undefined,
     approvalComment: (row[10] || "").toString().trim() || undefined,
+    pdfStatus: (row[11] || "").toString().trim() || undefined,
   }));
 }
 
@@ -385,7 +391,7 @@ export async function getUserFTIRequests(
  * Creates an in-memory FTI request draft. Nothing is written to the
  * spreadsheet until the user saves/submits (see `saveFullFTIRequest`).
  */
-export async function createFTIRequest(userId: string): Promise<FTIRequest> {
+async function createFTIRequestUnlocked(userId: string): Promise<FTIRequest> {
   return {
     controlNo: generateFTIRef(),
     userId,
@@ -419,7 +425,7 @@ export async function resolveApproverForRequester(
   }
 }
 
-export async function updateFTIApproval(
+async function updateFTIApprovalUnlocked(
   controlNo: string,
   action: "approve" | "request_change" | "reject",
   approvedByUserId: string,
@@ -443,43 +449,17 @@ export async function updateFTIApproval(
   const isApprove = action === "approve";
 
   const sheets = await getSheetsClient();
-  // Write each column independently so DateCreated (D), ftiFileLink (E),
-  // and totalAmount (F) are never touched or erased.
-  await sheets.spreadsheets.values.update({
+  await ensureFTIWorkflowSchema();
+  if (!["SENT", "SUBMITTED"].includes(all[idx].status.toUpperCase())) {
+    throw new Error("Only a submitted FTI can receive an approval decision.");
+  }
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
-    range: `${FTI_REQUEST_SHEET}!C${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[status]] },
-  });
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${FTI_REQUEST_SHEET}!G${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[approvedByUserId]] },
-  });
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${FTI_REQUEST_SHEET}!H${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[isApprove ? approvedByName : ""]] },
-  });
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${FTI_REQUEST_SHEET}!I${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[isApprove ? approvedBySignatureUrl : ""]] },
-  });
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${FTI_REQUEST_SHEET}!J${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[isApprove ? dateApproved : ""]] },
-  });
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${FTI_REQUEST_SHEET}!K${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[comment || ""]] },
+    requestBody: { valueInputOption: "RAW", data: [
+      { range: `FTIRequests!C${rowNumber}`, values: [[status]] },
+      { range: `FTIRequests!G${rowNumber}:K${rowNumber}`, values: [[approvedByUserId, isApprove ? approvedByName || "" : "", isApprove ? approvedBySignatureUrl || "" : "", isApprove ? dateApproved : "", comment || ""]] },
+      ...(isApprove || all[idx].ftiFileLink ? [{ range: `FTIRequests!L${rowNumber}:N${rowNumber}`, values: [["PENDING", "", 0]] }] : []),
+    ] },
   });
 
   // Mirror the approved details into the legacy FTIList tab (approve only).
@@ -493,7 +473,7 @@ export async function updateFTIApproval(
 
 export class FTIApproverRequiredError extends Error {}
 
-export async function updateFTIRequestStatus(
+async function updateFTIRequestStatusUnlocked(
   controlNo: string,
   status: string,
 ): Promise<void> {
@@ -583,7 +563,7 @@ export async function updateFTIRequestStatus(
 /**
  * Write the Google Drive PDF link into column E for an FTI request.
  */
-export async function updateFTIFileLink(
+async function updateFTIFileLinkUnlocked(
   controlNo: string,
   ftiFileLink: string,
 ): Promise<void> {
@@ -668,7 +648,7 @@ export async function getFTIDetails(controlNo: string): Promise<FTIDetails[]> {
   return all.filter((d) => d.controlNo === controlNo);
 }
 
-export async function saveFTIDetails(
+async function saveFTIDetailsUnlocked(
   controlNo: string,
   items: {
     date: string;
@@ -684,7 +664,7 @@ export async function saveFTIDetails(
   // Wipe out existing detail rows for this controlNo to avoid orphan row accumulation
   await deleteDetailsAndExpensesForRequest(controlNo);
 
-  if (items.length === 0) return [];
+  if (items.length === 0) { await recomputeRequestTotal(controlNo); return []; }
 
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const sheets = await getSheetsClient();
@@ -727,6 +707,7 @@ export async function saveFTIDetails(
   });
 
   invalidateFTICache();
+  await recomputeRequestTotal(controlNo);
   return details;
 }
 
@@ -852,7 +833,7 @@ export async function getFTIExpenses(detailId: string): Promise<FTIExpenses[]> {
   return all.filter((exp) => exp.detailId === detailId);
 }
 
-export async function saveFTIExpenses(
+async function saveFTIExpensesUnlocked(
   detailId: string,
   items: { miscCode: string; amount: number }[],
 ): Promise<FTIExpenses[]> {
@@ -889,6 +870,7 @@ export async function saveFTIExpenses(
   }
 
   invalidateFTICache();
+  if (detail) await recomputeRequestTotal(detail.controlNo);
   return expenses;
 }
 
@@ -1003,7 +985,7 @@ async function recomputeRequestTotal(controlNo: string): Promise<void> {
  * Immediately persist a single itinerary (detail) row under a DRAFT request.
  * Auto-creates the request row on first add when no controlNo exists yet.
  */
-export async function appendFTIDetail(
+async function appendFTIDetailUnlocked(
   controlNo: string,
   detail: FTIDetailInput,
   userId?: string,
@@ -1071,7 +1053,7 @@ export async function appendFTIDetail(
 }
 
 /** Replace a single detail row (used when editing an itinerary row). */
-export async function updateFTIDetail(
+async function updateFTIDetailUnlocked(
   controlNo: string,
   detailId: string,
   detail: FTIDetailInput,
@@ -1083,7 +1065,7 @@ export async function updateFTIDetail(
 }
 
 /** Delete a single detail row plus its expenses/legs/segments. */
-export async function deleteFTIDetailRow(detailId: string): Promise<void> {
+async function deleteFTIDetailRowUnlocked(detailId: string): Promise<void> {
   const allDetails = await getAllDetails();
   const det = allDetails.find((d) => d.detailId === detailId);
   if (!det) return;
@@ -1132,7 +1114,9 @@ async function deleteDetailsAndExpensesForRequest(
 
 export async function getFTIRequestFull(
   controlNo: string,
+  fresh = false,
 ): Promise<FTIRequestFull | null> {
+  if (fresh) invalidateFTICache();
   const [all, users] = await Promise.all([
     getAllFTIRequests(),
     getUsers().catch(() => []),
@@ -1169,16 +1153,17 @@ export async function getFTIRequestFull(
   const totalAmount =
     typeof req.totalAmount === "number" ? req.totalAmount : computedTotal;
 
-  return {
+  const full: FTIRequestFull = {
     ...req,
     userName: user?.fullName || req.userId,
     totalAmount,
     details: detailsWithExpenses,
   };
+  return { ...full, revision: ftiRevision(full) };
 }
 
 
-export async function withdrawFTIRequest(
+async function withdrawFTIRequestUnlocked(
   controlNo: string,
   userId: string,
   force: boolean = false,
@@ -1211,7 +1196,7 @@ export async function withdrawFTIRequest(
   invalidateFTICache();
 }
 
-export async function deleteFTIRequest(controlNo: string): Promise<void> {
+async function deleteFTIRequestUnlocked(controlNo: string): Promise<void> {
   await guardEditableStatus(controlNo);
   await deleteDetailsAndExpensesForRequest(controlNo);
   const rowNumber = await findRequestRowNumber(controlNo);
@@ -1219,7 +1204,7 @@ export async function deleteFTIRequest(controlNo: string): Promise<void> {
   invalidateFTICache();
 }
 
-export async function saveFullFTIRequest(
+async function saveFullFTIRequestUnlocked(
   controlNo: string,
   status: string,
   details: FTIDetailInput[],
@@ -1264,7 +1249,7 @@ export async function saveFullFTIRequest(
 
   await deleteDetailsAndExpensesForRequest(controlNo);
 
-  if (details.length === 0) return;
+  if (details.length === 0) { await recomputeRequestTotal(controlNo); return; }
 
   const savedDetails: FTIDetails[] = details.map((item) => ({
     detailId: item.detailId || generateUUID(),
@@ -1541,7 +1526,7 @@ export async function submitFTIEntry(data: {
   await submitFTIEntries([data]);
 }
 
-export async function submitFTIEntries(
+async function submitFTIEntriesUnlocked(
   rows: {
     technician: string;
     date: string;
@@ -1622,3 +1607,48 @@ export async function submitFTIEntries(
     formattedDetails,
   );
 }
+
+async function markLinkedPdfPending(controlNo: string): Promise<void> {
+  const all = await getAllFTIRequests();
+  const index = all.findIndex(r => r.controlNo === controlNo);
+  if (index < 0 || !all[index].ftiFileLink) return;
+  await ensureFTIWorkflowSchema();
+  const sheets = await getSheetsClient();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: await getDatabaseSpreadsheetId(),
+    range: `FTIRequests!L${index + 2}:N${index + 2}`,
+    valueInputOption: "RAW", requestBody: { values: [["PENDING", "", 0]] },
+  });
+}
+
+async function requestForDetail(detailId: string): Promise<string | undefined> {
+  return (await getAllDetails()).find(d => d.detailId === detailId)?.controlNo;
+}
+
+function ftiMutation<A extends unknown[], R>(
+  mutation: (...args: A) => Promise<R>,
+  requestForPdf?: (...args: A) => string | undefined | Promise<string | undefined>,
+) {
+  return (...args: A): Promise<R> => withFTIWriteLock(async () => {
+    invalidateFTICache();
+    try {
+      const controlNo = await requestForPdf?.(...args);
+      const result = await mutation(...args);
+      if (controlNo) await markLinkedPdfPending(controlNo);
+      return result;
+    } finally { invalidateFTICache(); }
+  });
+}
+export const createFTIRequest = ftiMutation(createFTIRequestUnlocked);
+export const updateFTIApproval = ftiMutation(updateFTIApprovalUnlocked);
+export const updateFTIRequestStatus = ftiMutation(updateFTIRequestStatusUnlocked, controlNo => controlNo);
+export const updateFTIFileLink = ftiMutation(updateFTIFileLinkUnlocked);
+export const saveFTIDetails = ftiMutation(saveFTIDetailsUnlocked, controlNo => controlNo);
+export const saveFTIExpenses = ftiMutation(saveFTIExpensesUnlocked, requestForDetail);
+export const appendFTIDetail = ftiMutation(appendFTIDetailUnlocked, controlNo => controlNo);
+export const updateFTIDetail = ftiMutation(updateFTIDetailUnlocked, controlNo => controlNo);
+export const deleteFTIDetailRow = ftiMutation(deleteFTIDetailRowUnlocked, requestForDetail);
+export const withdrawFTIRequest = ftiMutation(withdrawFTIRequestUnlocked, controlNo => controlNo);
+export const deleteFTIRequest = ftiMutation(deleteFTIRequestUnlocked);
+export const saveFullFTIRequest = ftiMutation(saveFullFTIRequestUnlocked, controlNo => controlNo);
+export const submitFTIEntries = ftiMutation(submitFTIEntriesUnlocked);
