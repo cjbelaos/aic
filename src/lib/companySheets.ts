@@ -163,7 +163,7 @@ export async function addCompany(
       const updatedValues = [
         existingRow[0] || "", // keep existing CompanyId
         mergedType,
-        (payload.companyName || "").trim() || existingRow[2] || "",
+        (payload.companyName || "").trim().toUpperCase() || existingRow[2] || "",
         payload.tin !== undefined ? payload.tin : existingRow[3] || "",
         payload.address !== undefined ? payload.address : existingRow[4] || "",
         payload.latitude !== undefined && !isNaN(payload.latitude)
@@ -213,7 +213,7 @@ export async function addCompany(
     const newRowValues = [
       companyId,
       payload.companyType || "Supplier",
-      payload.companyName || "",
+      (payload.companyName || "").trim().toUpperCase(),
       payload.tin || "",
       payload.address || "",
       payload.latitude !== undefined && !isNaN(payload.latitude)
@@ -240,7 +240,7 @@ export async function addCompany(
       row: newRowNumber,
       companyId,
       companyType: payload.companyType || "Supplier",
-      companyName: payload.companyName || "",
+      companyName: (payload.companyName || "").trim().toUpperCase(),
       tin: payload.tin || "",
       address: payload.address || "",
       latitude: payload.latitude,
@@ -313,7 +313,7 @@ export async function updateCompanyInSheets(
         ? payload.companyType
         : existingRow[1] || "",
       payload.companyName !== undefined
-        ? payload.companyName
+        ? payload.companyName.trim().toUpperCase()
         : existingRow[2] || "",
       payload.tin !== undefined ? payload.tin : existingRow[3] || "",
       payload.address !== undefined ? payload.address : existingRow[4] || "",

@@ -435,8 +435,9 @@ export default function SuppliersPage() {
                 id="s-name"
                 value={form.companyName}
                 disabled={saving}
+                className="uppercase"
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, companyName: e.target.value }))
+                  setForm((f) => ({ ...f, companyName: e.target.value.toUpperCase() }))
                 }
               />
             </div>
