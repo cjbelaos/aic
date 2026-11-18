@@ -41,7 +41,7 @@ async function main() {
   }
   for (const value of [[], ["Service"], ["PMS"], ["Parts", "PMS"]]) assert.throws(() => filters.validateSalesInvoiceCategories(value));
   assert.deepEqual(filters.validateSalesInvoiceCategories(["Parts", "Project"]), ["Parts", "Project"]);
-  const source = { order: { salesOrderId: "SO-1", salesOrderNo: "SO-001", customerId: "C1", version: 1, discountSettings: { mode: "OVERALL", type: "PERCENT", value: 10, basis: "VAT_INCLUSIVE", scope: "FULL_LINE" } }, items: [{ salesOrderItemId: "L1", salesOrderId: "SO-1", lineStatus: "ACTIVE", priceSource: "MANUAL", quotationLineReference: "", description: "Supply", quantity: 5, unitPrice: 112, discountAmount: 56, taxMode: "VAT_INCLUSIVE", taxRate: 0.12 }] };
+  const source = { category: "Parts", totals: { grandTotal: 504 }, order: { salesOrderId: "SO-1", salesOrderNo: "SO-001", customerId: "C1", version: 1, billingType: "SALES_INVOICE", discountSettings: { mode: "OVERALL", type: "PERCENT", value: 10, basis: "VAT_INCLUSIVE", scope: "FULL_LINE" } }, items: [{ salesOrderItemId: "L1", salesOrderId: "SO-1", lineStatus: "ACTIVE", priceSource: "MANUAL", quotationLineReference: "", description: "Supply", quantity: 5, unitPrice: 112, discountAmount: 56, taxMode: "VAT_INCLUSIVE", taxRate: 0.12 }] };
   const linkedItems = [{ salesOrderItemId: "L1", description: "Edited supply", quantity: 1, unitPrice: 224 }, { description: "Supply", quantity: 1, unitPrice: 112 }];
   const discount = resolveInvoiceDiscount(linkedItems, undefined, source, "sales");
   assert.equal(discount.discountAmount, 22.4);
@@ -111,6 +111,10 @@ async function main() {
     assert.equal(linked.assignedPicUserId, "pic");
     assert.equal(linked.assignedTechnicianUserId, "technician");
     assert.equal(handovers.at(-1).assignedToId, "pic", "DR technician must not override delivery PIC");
+    // Sales Order billing rules: SO-001 bills by SI and totals 504.
+    await assert.rejects(service.processServiceInvoice({ ...payload, assignedPicUserId: undefined, assignedTechnicianUserId: "tech", invoiceNo: "1003", referenceMode: "SALES_ORDER", salesOrderId: "SO-1", manualCategories: [], items: [{ description: "Supply", quantity: 1, unitPrice: 1 }] }, "tester"), /billed by Sales Invoice \(SI\)/);
+    await assert.rejects(sales.processServiceInvoice({ ...payload, invoiceNo: "1004", drNumber: 42, referenceMode: "SALES_ORDER", items: [{ salesOrderItemId: "L1", description: "Supply", quantity: 5, unitPrice: 112 }] }, "tester"), /exceeds the uninvoiced balance of SO-001/);
+    assert.equal(db.SalesInvoices.length + db.ServiceInvoices.length, 5, "Rejected invoices saved nothing (2 headers + 3 invoices)");
     const list = await sales.getServiceInvoices();
     assert.equal(list.find(invoice => invoice.invoiceNo === "1002").discountAmount, 22.4);
     assert.equal(list.find(invoice => invoice.invoiceNo === "1002").items[0].salesOrderItemId, "L1");

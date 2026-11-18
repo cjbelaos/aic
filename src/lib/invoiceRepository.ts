@@ -1,6 +1,7 @@
 import { invoicePrintItems, type ServiceInvoiceContext } from "./serviceInvoicePresentation";
 import { commitDocumentWithHandover } from "@/lib/documentHandoverCommit";
-import { allocateInvoiceDiscounts, resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot, type InvoiceDiscountData } from "./serviceInvoiceDiscounts";
+import { allocateInvoiceDiscounts, resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot, invoiceTotals, type InvoiceDiscountData } from "./serviceInvoiceDiscounts";
+import { assertInvoiceFitsOrder, billingTypeForKind, effectiveBillingType, BILLED_INVOICE_STATUSES, SalesOrderBillingError, type InvoiceKind } from "./salesOrders/billing";
 import { parseInvoiceMetadata, paymentStatusFor, validatePaymentStatus, assertUnpaid, requireStatusReason, type InvoiceTrackingData } from "./serviceInvoiceTracking";
 import {
   getSheetsClient,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/googleSheets";
 import { getCustomers, getCompanies } from "@/lib/companySheets";
 import {
+  type InvoicePaymentStatus,
   CreateServiceInvoicePayload,
   ServiceInvoiceResponse,
   ServiceInvoiceSummary,
@@ -68,6 +70,29 @@ export function createInvoiceRepository(invoiceKind: "service" | "sales") {
     const user = await getUserById(id.trim());
     if (!user?.fullName.trim()) throw new InvoiceBillingError("Assigned PIC must be an application user.");
     return { assignedPicUserId: user.userId, assignedPicName: user.fullName };
+  }
+  /**
+   * Billing rules for an invoice linked to a Sales Order: it must be the order's
+   * billing type (unless it was already linked before the type was set) and must
+   * not push the order's invoiced total above its grand total.
+   */
+  async function assertSalesOrderBillable(salesOrderId: string, invoiceNo: string, items: ServiceInvoiceItem[], discountAmount: number | undefined, alreadyLinked: boolean): Promise<void> {
+    const [detail, linked] = await Promise.all([getOrderDetail(salesOrderId), readSalesOrderLinkedInvoices(salesOrderId)]);
+    const others = linked.filter((invoice) => !(invoice.invoiceKind === invoiceKind && invoice.invoiceNo === invoiceNo));
+    try {
+      assertInvoiceFitsOrder({
+        salesOrderNo: detail.order.salesOrderNo,
+        billingType: alreadyLinked ? billingTypeForKind(invoiceKind) : effectiveBillingType(detail.order, detail.category, others),
+        invoiceKind,
+        orderTotal: detail.totals.grandTotal,
+        others,
+        invoiceTotal: invoiceTotals({ items, discountAmount, invoiceKind }).grandTotal,
+      });
+    } catch (error) {
+      // Routes report InvoiceBillingError as a 4xx validation message.
+      if (error instanceof SalesOrderBillingError) throw new InvoiceBillingError(error.message);
+      throw error;
+    }
   }
 const SERVICE_INVOICES_SHEET = invoiceKind === "sales" ? "SalesInvoices" : "ServiceInvoices";
 const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:U`;
@@ -733,6 +758,8 @@ async function processServiceInvoice(
     }
     let discountData = resolveDiscount(payload.items, payload.discountSettings, references.salesOrderId ? await getOrderDetail(references.salesOrderId) : undefined);
     hydrateInvoiceDiscount(payload.items, discountData);
+    // A corrected copy replaces an invoice already counted; its original is cancelled right after.
+    if (references.salesOrderId && !copyExistingBilling) await assertSalesOrderBillable(references.salesOrderId, invoiceNo, payload.items, discountData?.discountAmount, false);
     if (invoicePrintItems(payload.items, serviceContext).length > TEMPLATE_ITEM_END_ROW - TEMPLATE_ITEM_START_ROW + 1) throw new InvoiceBillingError("Too many invoice lines, including the service location notation.");
     const catalogReferences = await itemCatalogReferences(payload.items);
     if (catalogReferences.some((entry) => entry.productId)) await ensureServiceInvoiceItemCatalogHeaders(sheets, spreadsheetId);
@@ -1043,6 +1070,9 @@ async function updateServiceInvoice(
       : previousDiscount;
     if (payload.items && discountData) discountData = { ...discountData, itemDiscounts: payload.items.map((item, index) => ({ ...discountData!.itemDiscounts[index], includedInPackage: !!item.includedInPackage, discountAmount: item.includedInPackage ? 0 : discountData!.itemDiscounts[index]?.discountAmount ?? 0 })) };
     hydrateInvoiceDiscount(discountItems, discountData);
+    if (references.salesOrderId && ["draft", "created"].includes(newStatus)) {
+      await assertSalesOrderBillable(references.salesOrderId, invoiceNo, discountItems, discountData?.discountAmount, String(currentRow[18] ?? "").trim() === references.salesOrderId);
+    }
 
     let deliveredBy: DeliveredByResolution;
     if (linkedDrNumber !== undefined) {
@@ -1650,4 +1680,30 @@ async function syncSalesOrderInvoiceDiscounts(source: { order: import("@/types/s
 }
 
 return { readServiceInvoiceItemValues, resolvePreparedByPosition, updateServiceInvoicePayment, recordServiceInvoiceScan, getServiceInvoices, processServiceInvoice, updateServiceInvoiceCategory, cancelAndCreateCorrectedServiceInvoice, updateServiceInvoice, ensureServiceInvoiceDocumentTrackerAssignment, deleteServiceInvoice, populateAndExportServiceInvoiceFormPdf, exportServiceInvoiceFormPdf, regenerateStoredServiceInvoicePdfsForDr, getServiceInvoiceManualCompletionRecord, completeServiceInvoiceManually, reverseManualServiceInvoiceCompletion, syncSalesOrderServiceInvoiceReferences, testPopulateServiceInvoiceTemplateWithDuplicatedItems, syncServiceInvoiceReportLink, syncSalesOrderInvoiceDiscounts };
+}
+
+/** Every billed invoice (SR and SI) linked to a Sales Order, with its VAT-inclusive total. */
+export interface SalesOrderLinkedInvoice { invoiceKind: InvoiceKind; invoiceNo: string; date: string; status: string; paymentStatus: InvoicePaymentStatus; drNumber: string; total: number }
+export async function readSalesOrderLinkedInvoices(salesOrderId: string): Promise<SalesOrderLinkedInvoice[]> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const kinds: Array<{ kind: InvoiceKind; headers: string; items: string }> = [
+    { kind: "service", headers: "ServiceInvoices!A2:U", items: "ServiceInvoiceItems!A2:E" },
+    { kind: "sales", headers: "SalesInvoices!A2:U", items: "SalesInvoiceItems!A2:E" },
+  ];
+  const result = await Promise.all(kinds.map(async ({ kind, headers, items }) => {
+    const rows = ((await sheets.spreadsheets.values.get({ spreadsheetId, range: headers })).data.values || [])
+      .filter((row) => String(row[18] ?? "").trim() === salesOrderId && BILLED_INVOICE_STATUSES.includes(String(row[8] ?? "").trim()));
+    if (!rows.length) return [];
+    const itemRows = (await sheets.spreadsheets.values.get({ spreadsheetId, range: items })).data.values || [];
+    return rows.map((row) => {
+      const invoiceNo = String(row[0] ?? "").trim();
+      const lines = itemRows.filter((item) => String(item[0] ?? "").trim() === invoiceNo).map((item) => ({ description: String(item[1] ?? ""), quantity: Number(item[2]) || 0, unitPrice: Number(item[3]) || 0 }));
+      const metadata = parseInvoiceMetadata(row[19]);
+      const status = String(row[8] ?? "").trim();
+      const discountAmount = invoiceDiscountSnapshot(metadata.discountData)?.discountAmount;
+      return { invoiceKind: kind, invoiceNo, date: String(row[1] ?? "").trim(), status, paymentStatus: paymentStatusFor(status, metadata), drNumber: String(row[11] ?? "").trim(), total: invoiceTotals({ items: lines, discountAmount, invoiceKind: kind }).grandTotal };
+    });
+  }));
+  return result.flat();
 }

@@ -20,6 +20,7 @@
     "../../src/lib/salesOrders/ids.ts",
     "../../src/lib/salesOrders/money.ts",
     "../../src/lib/salesOrders/domain.ts",
+    "../../src/lib/salesOrders/billing.ts",
     "../../src/lib/salesOrders/validation.ts",
     "../../src/lib/salesOrders/quotationReference.ts",
     "../../src/lib/salesOrders/crypto-hash.ts",

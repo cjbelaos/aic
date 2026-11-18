@@ -7,6 +7,7 @@ import type {
   SalesOrderDocument,
   SalesOrderFulfillment,
   SalesOrderDocumentLink,
+  SalesOrderBillingType,
 } from "@/types/salesOrder";
 
 export interface SalesOrderDetail {
@@ -18,6 +19,14 @@ export interface SalesOrderDetail {
   documentLinks: SalesOrderDocumentLink[];
   totals: { subtotalExTax: number; discountTotal: number; taxTotal: number; grandTotal: number };
   category: string;
+}
+
+/** GET /api/sales-orders/[id]/billing */
+export interface SalesOrderBilling {
+  billingType: SalesOrderBillingType;
+  progress: { orderTotal: number; invoiced: number; remaining: number; fullyInvoiced: boolean };
+  invoices: Array<{ invoiceKind: "service" | "sales"; invoiceNo: string; date: string; status: string; paymentStatus: "unpaid" | "partial" | "full"; drNumber: string; total: number }>;
+  deliveryReceipts: Array<{ drNumber: number; date: string; status: string }>;
 }
 
 export interface OrderRowView {
@@ -61,6 +70,7 @@ export interface OrderLineInput {
 }
 
 export interface OrderInput {
+  billingType?: SalesOrderBillingType | "";
   discountSettings?: DiscountSettings;
   discountChangeReason?: string;
   commandId?: string;
@@ -131,6 +141,8 @@ const salesOrderService = {
 
   get: (id: string): Promise<SalesOrderDetail & { success: boolean; capabilities?: { canEdit: boolean } }> =>
     api.get(`${BASE}/${id}`),
+
+  billing: (id: string): Promise<SalesOrderBilling> => api.get(`${BASE}/${id}/billing`),
 
   create: (payload: OrderInput): Promise<{ success: boolean; order: SalesOrderDetail }> =>
     mutate("post", `${BASE}`, { ...payload, commandId: payload.commandId }),

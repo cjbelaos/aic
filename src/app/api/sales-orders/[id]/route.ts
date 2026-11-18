@@ -62,6 +62,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       : input.lines;
     const detail = await updateOrder(toActor(auth.session), id, {
       commandId: input.commandId,
+      billingType: input.billingType,
       expectedVersion: input.expectedVersion,
       receivedDate: input.receivedDate,
       requiredDate: input.requiredDate,

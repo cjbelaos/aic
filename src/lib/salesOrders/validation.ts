@@ -6,6 +6,16 @@ import { validateDiscount, type DiscountSettings } from "../discounts.ts";
 import { badRequest, SalesOrderError } from "./errors.ts";
 import { isValidSalesOrderNo } from "./domain.ts";
 import { isSalesOrderQuotationSource, resolveSalesOrderQuotation } from "./quotationReference.ts";
+import { isBillingType } from "./billing.ts";
+import type { SalesOrderBillingType } from "../../types/salesOrder.ts";
+
+/** Optional billing type: absent or blank keeps the default/current value. */
+function parseBillingType(value: unknown, fieldErrors: Record<string, string>): SalesOrderBillingType | undefined {
+  if (value === undefined || value === "") return undefined;
+  if (isBillingType(value)) return value;
+  fieldErrors.billingType = "billingType must be SERVICE_INVOICE or SALES_INVOICE.";
+  return undefined;
+}
 
 export const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -122,6 +132,7 @@ function numericOr(
 
 export { SalesOrderError, isValidSalesOrderNo };
 export interface ValidatedCreateOrder {
+  billingType?: SalesOrderBillingType;
   discountSettings?: DiscountSettings;
   discountChangeReason?: string;
   commandId: string;
@@ -182,6 +193,7 @@ export function parseCreateOrderInput(body: unknown): ValidatedCreateOrder {
     fieldErrors[quotationSourceRaw === "EXTERNAL" ? "externalQuotationNo" : "sourceQuotationNo"] = quotation.error;
   }
   const result: ValidatedCreateOrder = {
+    billingType: parseBillingType(value.billingType, fieldErrors),
     discountSettings: value.discountSettings === undefined ? undefined : validateDiscount(value.discountSettings),
     discountChangeReason: typeof value.discountChangeReason === "string" ? value.discountChangeReason.trim() : "",
     commandId,
@@ -211,6 +223,7 @@ export function parseCreateOrderInput(body: unknown): ValidatedCreateOrder {
   return result;
 }
 export interface ValidatedUpdateOrder {
+  billingType?: SalesOrderBillingType;
   discountSettings?: DiscountSettings;
   discountChangeReason?: string;
   commandId: string;
@@ -244,8 +257,10 @@ export function parseUpdateOrderInput(body: unknown): ValidatedUpdateOrder {
   const linesRaw = value.lines;
   if (linesRaw !== undefined && !Array.isArray(linesRaw)) fieldErrors.lines = "Expected an array of lines.";
   const lines = Array.isArray(linesRaw) ? linesRaw.map(parseLineInput) : undefined;
+  const billingType = parseBillingType(value.billingType, fieldErrors);
   if (Object.keys(fieldErrors).length > 0) throw badRequest("Invalid update-order payload.", fieldErrors);
   return {
+    billingType,
     discountSettings: value.discountSettings === undefined ? undefined : validateDiscount(value.discountSettings),
     discountChangeReason: typeof value.discountChangeReason === "string" ? value.discountChangeReason.trim() : "",
     commandId,

@@ -1,7 +1,7 @@
 "use client";
 
 import { DatePickerInput } from "@/components/ui/date-picker";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ import productCategoryService from "@/lib/services/product-category.service";
 import contractService from "@/lib/services/contract.service";
 import deliveryService from "@/lib/services/delivery.service";
 import serviceInvoiceService from "@/lib/services/service-invoice.service";
-import salesOrderService from "@/lib/services/sales-order.service";
+import salesOrderService, { type SalesOrderDetail } from "@/lib/services/sales-order.service";
 import userService from "@/lib/services/user.service";
 import contractItemService from "@/lib/services/contract-item.service";
 import { DeliveryReceiptPreviewModal } from "@/components/delivery-receipt-preview-modal";
@@ -282,7 +282,11 @@ export default function DeliveryReleasePage() {
 
     salesOrderService
       .list({ status: "CONFIRMED", pageSize: 100 })
-      .then((result) => setSalesOrders(result.rows))
+      .then((result) => setSalesOrders((current) => {
+        // Keep an order added by a Sales Order deep link that falls outside this page.
+        const ids = new Set(result.rows.map((row) => row.order.salesOrderId));
+        return [...result.rows, ...current.filter((row) => !ids.has(row.order.salesOrderId))];
+      }))
       .catch(() => {
         // Delivery Releases remain usable for historical/manual releases when
         // Sales Orders are unavailable to this user.
@@ -449,8 +453,8 @@ export default function DeliveryReleasePage() {
     return trNumber ? { referenceMode: "TR_NUMBER", trNo: trNumber } : {};
   };
 
-  const selectSalesOrder = useCallback(async (id: string, editing = false) => {
-    const selected = salesOrders.find((row) => row.order.salesOrderId === id);
+  const selectSalesOrder = useCallback(async (id: string, editing = false, preloaded?: SalesOrderDetail) => {
+    const selected = preloaded ?? salesOrders.find((row) => row.order.salesOrderId === id);
     if (!selected) return;
     if (editing) {
       setEditSalesOrderId(id);
@@ -466,7 +470,7 @@ export default function DeliveryReleasePage() {
       setPoNo(selected.order.customerPONo || "");
     }
     try {
-      const detail = await salesOrderService.get(id);
+      const detail = preloaded ?? await salesOrderService.get(id);
       const availableProducts = detail.items.filter((item) => item.lineType === "PRODUCT" && item.lineStatus === "ACTIVE" && item.quantity !== null && item.quantity > item.fulfilledQty + item.cancelledQty);
       const populatedItems = availableProducts.map((item) => ({
         salesOrderItemId: item.salesOrderItemId,
@@ -868,7 +872,7 @@ export default function DeliveryReleasePage() {
   };
 
   /* Create modal handlers */
-  const openCreateModal = () => {
+  const openCreateModal = useCallback(() => {
     setContractReleaseCompanyId("");
     setSelectedCompany("");
     setDeliveryDate(new Date().toISOString().split("T")[0]);
@@ -883,7 +887,41 @@ export default function DeliveryReleasePage() {
     setManualRows(new Set());
     setContracts([]);
     setModalOpen(true);
-  };
+  }, []);
+
+  /* Deep link from a Sales Order: /dashboard/delivery-releases?salesOrderId=… */
+  const salesOrderPrefillId = searchParams.get("salesOrderId");
+  const consumedSalesOrderPrefill = useRef("");
+  useEffect(() => {
+    if (!salesOrderPrefillId || consumedSalesOrderPrefill.current === salesOrderPrefillId) return;
+    consumedSalesOrderPrefill.current = salesOrderPrefillId;
+    router.replace("/dashboard/delivery-releases", { scroll: false });
+    salesOrderService
+      .get(salesOrderPrefillId)
+      .then((detail) => {
+        if (detail.order.orderStatus !== "CONFIRMED") {
+          toast.error("Only a confirmed Sales Order can be delivered.");
+          return;
+        }
+        // The dropdown lists a limited page of confirmed orders; make sure this one is selectable.
+        setSalesOrders((rows) => rows.some((row) => row.order.salesOrderId === detail.order.salesOrderId)
+          ? rows
+          : [...rows, { order: detail.order, itemsCount: detail.items.length, activeLines: detail.items.filter((item) => item.lineStatus === "ACTIVE").length, category: detail.category, fulfillmentPercent: 0, overdue: false, ageDays: 0 }]);
+        openCreateModal();
+        void selectSalesOrder(detail.order.salesOrderId, false, detail);
+      })
+      .catch(() => toast.error("Failed to load the Sales Order for the new DR."));
+  }, [salesOrderPrefillId, router, openCreateModal, selectSalesOrder]);
+
+  /* Deep link to one DR: ?view=<drNumber> opens its preview. */
+  const viewDrNumber = searchParams.get("view");
+  const consumedViewDr = useRef("");
+  useEffect(() => {
+    if (!viewDrNumber || consumedViewDr.current === viewDrNumber) return;
+    consumedViewDr.current = viewDrNumber;
+    router.replace("/dashboard/delivery-releases", { scroll: false });
+    deliveryService.getPreview(Number(viewDrNumber)).then(setViewDr).catch(() => toast.error(`Failed to load DR #${viewDrNumber}.`));
+  }, [viewDrNumber, router]);
 
   const addLineItem = () => {
     setLineItems([...lineItems, { ...EMPTY_LINE_ITEM }]);

@@ -9,5 +9,6 @@ import "./quotation-reference-test.ts";
 import "./quotation-conversion-test.ts";
 import "./catalog-binding-test.ts";
 import "./invoice-filters-test.ts";
+import "./billing-test.ts";
 
 console.log("All sales-order focused tests passed.");

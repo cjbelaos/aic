@@ -73,12 +73,12 @@ async function main() {
     "@/lib/googleSheets": { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => "fixture" },
     "@/lib/companySheets": { getCompanies: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }], getCustomers: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }] },
     "@/lib/deliverySheets": { getDeliveryReceipts: async () => [{ drNumber: 3941, companyId: "COMP-336", companyName: "HEMOTEK CABANATUAN" }], resolveDeliveryReceiptReferences: async () => ({ salesOrderId: "SO-TEST", poNo: "PO", trNo: "SO" }), resolveDeliveryReceiptDeliveredBy: async () => ({ deliveredById: "tech", deliveredByName: "Technician" }) },
-    "@/lib/salesOrders/service": { getOrderDetail: async () => ({ order: { customerId: "COMP-336" }, items: [] }) },
+    "@/lib/salesOrders/service": { getOrderDetail: async () => ({ order: { customerId: "COMP-336", salesOrderNo: "SO-1", billingType: "SERVICE_INVOICE" }, items: [], category: "Service", totals: { grandTotal: 1000000 } }) },
     "@/lib/userSheets": { getUserById: async id => ({ userId: id, fullName: "Technician" }) },
     "@/lib/contractSheets": { getContracts: async () => [contract] },
     "@/lib/serviceInvoiceBilling": billing,
     "@/lib/serviceInvoiceFilters": filters,
-    "./serviceInvoiceDiscounts": { resolveInvoiceDiscount: () => undefined, hydrateInvoiceDiscount: () => {}, invoiceDiscountSnapshot: () => undefined },
+    "./serviceInvoiceDiscounts": { resolveInvoiceDiscount: () => undefined, hydrateInvoiceDiscount: () => {}, invoiceDiscountSnapshot: () => undefined, invoiceTotals: load("src/lib/serviceInvoiceDiscounts.ts").invoiceTotals },
   });
   const originalError = console.error;
   console.error = () => {}; // Expected validation errors and write sentinels.

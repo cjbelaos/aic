@@ -1,4 +1,5 @@
 import { parseDiscountJson } from "../discounts";
+import { isBillingType } from "./billing.ts";
 // Sales Orders — Google Sheets repository and column contract.
 // The Next.js server writes the authoritative tabs directly through the same
 // authenticated Sheets client used by the rest of the application. This module
@@ -10,7 +11,7 @@ import { commandReplay, versionConflict } from "./errors.ts";
 import type {
   SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument,
   SalesOrderFulfillment, SalesOrderDocumentLink, SalesOrderSequence,
-  SalesOrderCommandReceipt, SalesOrderImportMap,
+  SalesOrderCommandReceipt, SalesOrderImportMap, SalesOrderBillingType,
 } from "@/types/salesOrder";
 
 export const TAB_ORDERS = "SalesOrders";
@@ -30,7 +31,7 @@ export const ORDERS_HEADERS: readonly string[] = [
   "QuotationNo", "PaymentTermId", "PaymentTermsSnapshot", "RequiredDate", "AssignedToUserId",
   "Currency", "OrderStatus", "FulfillmentStatus", "SubtotalExTax", "DiscountTotal", "TaxTotal",
   "GrandTotal", "Remarks", "Version", "ConfirmedAt", "ClosedAt", "CancelReason", "ImportQuality",
-  "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "DiscountSettings",
+  "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "DiscountSettings", "BillingType",
 ];
 
 export const ITEMS_HEADERS: readonly string[] = [
@@ -116,6 +117,7 @@ export function orderFromRow(row: unknown[]): SalesOrder {
     confirmedAt: text(r[27]), closedAt: text(r[28]), cancelReason: text(r[29]),
     importQuality: (text(r[30]) || "") as SalesOrder["importQuality"], createdAt: text(r[31]), createdBy: text(r[32]),
     updatedAt: text(r[33]), updatedBy: text(r[34]),
+    billingType: isBillingType(text(r[36])) ? text(r[36]) as SalesOrderBillingType : "",
   };
 }
 
@@ -200,6 +202,7 @@ export function orderToRow(order: SalesOrder): Array<string | number | null> {
     order.currency, order.orderStatus, order.fulfillmentStatus, order.subtotalExTax, order.discountTotal,
     order.taxTotal, order.grandTotal, order.remarks, order.version, order.confirmedAt, order.closedAt,
     order.cancelReason, order.importQuality, order.createdAt, order.createdBy, order.updatedAt, order.updatedBy, order.discountSettings ? JSON.stringify(order.discountSettings) : "",
+    order.billingType ?? "",
   ];
 }
 

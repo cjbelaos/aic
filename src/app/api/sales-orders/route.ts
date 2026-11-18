@@ -54,6 +54,7 @@ export async function POST(request: Request) {
     }
     const detail = await createOrder(toActor(session), {
       commandId: input.commandId,
+      billingType: input.billingType,
       initialStatus: input.initialStatus,
       sourceQuotationNo: input.sourceQuotationNo,
       quotationSource: input.quotationSource,

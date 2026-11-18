@@ -1229,7 +1229,7 @@ export default function ServiceInvoicesClient({
     `Delivery receipt: ${viewDrRaw || "All"}`,
   ];
   /* Create modal handlers */
-  const openCreateModal = () => {
+  const openCreateModal = useCallback(() => {
     setInvoiceNo("");
     setSelectedCustomer("");
     setInvoiceDate(new Date().toISOString().split("T")[0]);
@@ -1250,7 +1250,36 @@ export default function ServiceInvoicesClient({
     setBillingMode("REGULAR");
     setCreateCategories([]);
     setModalOpen(true);
-  };
+  }, []);
+
+  /* Deep link from a Sales Order: /dashboard/service-invoices?salesOrderId=… */
+  const salesOrderPrefillId = searchParams.get("salesOrderId");
+  const consumedSalesOrderPrefill = useRef("");
+  useEffect(() => {
+    if (!salesOrderPrefillId || consumedSalesOrderPrefill.current === salesOrderPrefillId) return;
+    consumedSalesOrderPrefill.current = salesOrderPrefillId;
+    const query = new URLSearchParams(searchParams.toString());
+    query.delete("salesOrderId");
+    router.replace(`${invoicePath}${query.size ? `?${query}` : ""}`, { scroll: false });
+    void Promise.resolve().then(() => {
+      openCreateModal();
+      // Customer, PO and TR follow from the linked order once the options load.
+      setReferenceMode("SALES_ORDER");
+      setLinkedSalesOrderId(salesOrderPrefillId);
+    });
+  }, [salesOrderPrefillId, searchParams, router, invoicePath, openCreateModal]);
+
+  /* Deep link to one invoice: ?view=<invoiceNo> opens its details. */
+  const viewInvoiceNo = searchParams.get("view");
+  const consumedViewInvoice = useRef("");
+  useEffect(() => {
+    if (!viewInvoiceNo || consumedViewInvoice.current === viewInvoiceNo) return;
+    consumedViewInvoice.current = viewInvoiceNo;
+    const query = new URLSearchParams(searchParams.toString());
+    query.delete("view");
+    router.replace(`${invoicePath}${query.size ? `?${query}` : ""}`, { scroll: false });
+    serviceInvoiceService.getPreview(viewInvoiceNo).then(setViewSi).catch(() => toast.error(`Failed to load ${invoiceLabel} ${viewInvoiceNo}.`));
+  }, [viewInvoiceNo, searchParams, router, invoicePath, serviceInvoiceService, invoiceLabel]);
 
   const addLineItem = () => {
     setLineItems((prev) => [...prev, { ...EMPTY_LINE_ITEM }]);

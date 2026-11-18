@@ -11,6 +11,8 @@ export type OrderStatus = "DRAFT" | "CONFIRMED" | "ON_HOLD" | "CANCELLED" | "CLO
 export type FulfillmentStatus = "UNFULFILLED" | "PARTIAL" | "FULFILLED" | "NOT_APPLICABLE";
 export type TaxMode = "VAT_INCLUSIVE" | "VAT_EXCLUSIVE" | "VAT_EXEMPT" | "ZERO_RATED";
 export type LineType = "PRODUCT" | "SERVICE";
+/** Which invoice bills the order. Blank on orders saved before the field existed. */
+export type SalesOrderBillingType = "SERVICE_INVOICE" | "SALES_INVOICE";
 export type LineStatus = "ACTIVE" | "CANCELLED" | "INACTIVE";
 /**
  * Where a line's price came from. `NOT_PRICED` is a descriptive line that has no
@@ -81,6 +83,7 @@ export interface SalesOrder {
   createdBy: string;
   updatedAt: string;
   updatedBy: string;
+  billingType?: SalesOrderBillingType | "";
 }
 
 /** SalesOrderItems — one stable-ID row per line. */

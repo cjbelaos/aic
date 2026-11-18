@@ -3,7 +3,10 @@
 import { DatePickerInput } from "@/components/ui/date-picker";
 import { DiscountInput } from "@/components/discount-input";
 import { applyOrderDiscounts } from "@/lib/salesOrders/discounts";
-import type { SalesOrderItem } from "@/types/salesOrder";
+import type { SalesOrderBillingType, SalesOrderItem } from "@/types/salesOrder";
+import { BILLING_TYPE_LABELS, defaultBillingType } from "@/lib/salesOrders/billing";
+import { deriveOrderCategory } from "@/lib/salesOrders/domain";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { defaultDiscount } from "@/lib/discounts";
 import * as React from "react";
 import { FileText, Loader2, Save, ShoppingCart, X } from "lucide-react";
@@ -62,6 +65,8 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
   });
   const [discountSettings, setDiscountSettings] = React.useState(initial.discountSettings ?? { ...defaultDiscount(), mode: initial.lines.some(line => line.discountAmount) ? "PER_ITEM" as const : "OVERALL" as const });
   const [discountChangeReason, setDiscountChangeReason] = React.useState("");
+  // Blank until chosen: new orders follow the category default of their lines.
+  const [billingType, setBillingType] = React.useState<SalesOrderBillingType | "">(initial.billingType ?? "");
   const [lines, setLines] = React.useState<OrderLineInput[]>(initial.lines);
   const [submitting, setSubmitting] = React.useState(false);
   const [converting, setConverting] = React.useState(false);
@@ -79,6 +84,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
   }, []);
 
   const selectedCustomer = options.customers.find((customer) => customer.customerId === header.customerId);
+  const shownBillingType = billingType || defaultBillingType(deriveOrderCategory(lines.map((line) => ({ orderCategory: line.orderCategory ?? (line.lineType === "SERVICE" ? "Service" : ""), lineStatus: "ACTIVE" as const }))));
   const beforeDiscount = lines.reduce((sum, line) => sum + estimatedTotal({ ...line, discountAmount: 0 }), 0);
   let grandTotal = beforeDiscount;
   try {
@@ -113,6 +119,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
         ...header,
         initialStatus,
         discountSettings, discountChangeReason,
+        billingType: billingType || undefined,
         customerNameSnapshot: selectedCustomer?.companyName ?? initial.customerNameSnapshot,
         customerTINSnapshot: selectedCustomer?.tin ?? initial.customerTINSnapshot,
         billingAddressSnapshot: selectedCustomer?.address ?? initial.billingAddressSnapshot,
@@ -197,6 +204,13 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
             <Field label="Required date" className="md:col-span-3"><DatePickerInput value={header.requiredDate} onChange={(selectedDate) => patchHeader({ requiredDate: selectedDate })} /></Field>
             <Field label="Customer PO No." className="md:col-span-4"><Input value={header.customerPONo} onChange={(event) => patchHeader({ customerPONo: event.target.value })} placeholder="Optional customer reference" /></Field>
             <Field label="Payment terms" className="md:col-span-4"><SearchableSelect value={header.paymentTermId} onValueChange={(value) => patchHeader({ paymentTermId: value })} options={options.terms.map((term) => ({ value: term.paymentTermId, label: term.name }))} placeholder="Select terms…" /></Field>
+            <Field label="Billing type" required className="md:col-span-4">
+              <Select value={shownBillingType} onValueChange={(value) => markDirty(() => setBillingType(value as SalesOrderBillingType))}>
+                <SelectTrigger className="w-full" aria-label="Billing type"><SelectValue /></SelectTrigger>
+                <SelectContent>{(Object.keys(BILLING_TYPE_LABELS) as SalesOrderBillingType[]).map((type) => <SelectItem key={type} value={type}>{BILLING_TYPE_LABELS[type]}</SelectItem>)}</SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">Replacement parts for a service job are billed as SR.</p>
+            </Field>
           </div>
           {selectedCustomer ? <div className="grid gap-2 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground sm:grid-cols-2"><span>TIN: {selectedCustomer.tin || "—"}</span><span>Address: {selectedCustomer.address || "—"}</span></div> : null}
           <Field label="Remarks"><Textarea rows={3} value={header.remarks} onChange={(event) => patchHeader({ remarks: event.target.value })} placeholder="Order notes or delivery instructions" /></Field>

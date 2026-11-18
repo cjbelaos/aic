@@ -7,7 +7,8 @@ import { payloadHash } from "./crypto-hash.ts";
 // transitions, calculated amounts, fulfillment totals, audit
 // history and authorization checks.
 
-import type { SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument, SalesOrderFulfillment, SalesOrderDocumentLink, OrderStatus } from "@/types/salesOrder";
+import type { SalesOrder, SalesOrderItem, SalesOrderHistory, SalesOrderDocument, SalesOrderFulfillment, SalesOrderDocumentLink, OrderStatus, SalesOrderBillingType } from "@/types/salesOrder";
+import { defaultBillingType } from "./billing.ts";
 import {
   COMBINED_CHARGE_DESCRIPTION,
   SALES_ORDER_COMBINED_CATEGORY,
@@ -249,6 +250,7 @@ async function runWrite<T>(
 }
 async function createOrderImpl(actor: Actor, input: {
   commandId: string;
+  billingType?: SalesOrderBillingType;
   discountSettings?: DiscountSettings;
   sourceQuotationNo?: string; quotationSource?: string; externalQuotationNo?: string;
   customerId: string; customerNameSnapshot: string; customerTINSnapshot: string;
@@ -273,6 +275,7 @@ async function createOrderImpl(actor: Actor, input: {
   const initialStatus = input.initialStatus ?? "CONFIRMED";
   const order = baseOrder({ ...input, initialStatus, quotationNo: quotation.quotationNo }, actor);
   const items = buildItems(order.salesOrderId, input.lines, actor);
+  order.billingType = input.billingType || defaultBillingType(deriveOrderCategory(items));
   applyOrderDiscounts(order, items);
   const totals = recalculateOrderTotals(items);
   order.subtotalExTax = totals.subtotalExTax;
@@ -298,6 +301,7 @@ async function createOrderImpl(actor: Actor, input: {
   return getOrderDetail(saved.result.salesOrderId);
 }
 async function updateOrderImpl(actor: Actor, id: string, input: { commandId: string;
+  billingType?: SalesOrderBillingType;
   discountSettings?: DiscountSettings; discountChangeReason?: string;
   expectedVersion: number; receivedDate?: string; requiredDate?: string; assignedToUserId?: string;
   customerPONo?: string; paymentTermId?: string; paymentTermsSnapshot?: string; remarks?: string;
@@ -328,6 +332,7 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
   applyString("paymentTermId", input.paymentTermId, (o) => o.paymentTermId, (o, v) => { o.paymentTermId = v; });
   applyString("paymentTermsSnapshot", input.paymentTermsSnapshot, (o) => o.paymentTermsSnapshot, (o, v) => { o.paymentTermsSnapshot = v; });
   applyString("remarks", input.remarks, (o) => o.remarks, (o, v) => { o.remarks = v; });
+  applyString("billingType", input.billingType, (o) => o.billingType ?? "", (o, v) => { o.billingType = v as SalesOrderBillingType; });
   applyString("customerId", input.customerId, (o) => o.customerId, (o, v) => { o.customerId = v; });
   applyString("customerNameSnapshot", input.customerNameSnapshot, (o) => o.customerNameSnapshot, (o, v) => { o.customerNameSnapshot = v; });
   applyString("billingAddressSnapshot", input.billingAddressSnapshot, (o) => o.billingAddressSnapshot, (o, v) => { o.billingAddressSnapshot = v; });

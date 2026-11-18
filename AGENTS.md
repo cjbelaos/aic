@@ -5,15 +5,17 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- END:nextjs-agent-rules -->
 
 <!-- BEGIN:kos-link -->
-## Knowledge OS Vault
+## Knowledge OS Vault (second brain)
 
-This project shares context with the Knowledge OS at `C:\Users\chris\KOS`. For project knowledge, decisions, architecture records, and reusable context, refer to:
+Durable context for this repo lives in the KOS vault at `C:\Users\chris\KOS`. Read from it on demand instead of re-exploring the codebase. Load the smallest set that answers the task, and stop once you have enough.
 
-- **Router:** `C:\Users\chris\KOS\AGENTS.md` — task-based context loading
-- **Working profile:** `C:\Users\chris\KOS\me.md`
-- **Active context:** `C:\Users\chris\KOS\memory.md` (durable) and `C:\Users\chris\KOS\handoff.md` (current state)
-- **Developer references:** `C:\Users\chris\KOS\05 - Knowledge\Software-Development` and `C:\Users\chris\KOS\05 - Knowledge\Architecture`
-- **Project templates:** `C:\Users\chris\KOS\08 - Templates\Project`
+1. **Always first:** `C:\Users\chris\KOS\02 - Projects\Active\AIC\PROJECT-CONTEXT.md` (objective, constraints, current phase, links to everything else).
+2. **Durable decisions and conventions:** `...\Active\AIC\memory.md`, plus `DECISIONS.md` / `Architecture-Decision-Record.md` only when a design choice is in question.
+3. **Resuming in-progress work:** `...\Active\AIC\handoff.md`. Read by heading; it is long.
+4. **Code or SDLC work:** `C:\Users\chris\KOS\00 - System\AI\CODEX-SDLC-WORKFLOW.md`, applied proportionally.
+5. **Reusable patterns:** `C:\Users\chris\KOS\05 - Knowledge\Knowledge-MOC.md` → open only the linked note you need.
 
-Load progressively — start with the router and profile, then expand only as needed.
+Do not load the root KOS `memory.md`/`handoff.md`, whole folders, `00 - System/Reports|State`, `09 - Attachments`, or `99 - Archive`. Write-back rules: `C:\Users\chris\KOS\AGENTS.md` (Write Rules) and `00 - System/AI/AI-KNOWLEDGE-CONTRIBUTION.md`.
+
+At the end of a substantial session, refresh `...\Active\AIC\handoff.md` (replace, don't append) so the next session starts there.
 <!-- END:kos-link -->

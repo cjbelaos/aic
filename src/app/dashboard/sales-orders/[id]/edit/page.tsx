@@ -92,6 +92,7 @@ export default function EditSalesOrderPage(): React.ReactNode {
   const initial: OrderInput = {
     sourceQuotationNo: order.quotationNo,
     discountSettings: order.discountSettings,
+    billingType: order.billingType,
     customerId: order.customerId,
     customerNameSnapshot: order.customerNameSnapshot,
     customerTINSnapshot: order.customerTINSnapshot,
