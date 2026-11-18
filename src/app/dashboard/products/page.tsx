@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductDetailDrawer } from "@/components/product-detail-drawer";
+import { PriceComparisonDialog } from "@/components/price-comparison-dialog";
 
 // Services
 import productService from "@/lib/services/product.service";
@@ -256,6 +257,7 @@ export default function ProductsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [detailTarget, setDetailTarget] = useState<Product | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [priceComparisonOpen, setPriceComparisonOpen] = useState(false);
   const visibleProducts = useMemo(
     () => (showInactive ? data : data.filter((p) => p.status !== "inactive")),
     [data, showInactive],
@@ -647,10 +649,15 @@ export default function ProductsPage() {
         data={visibleProducts}
         loading={loading}
         toolbarFilters={
-          <label className="flex items-center gap-2 text-sm">
-            <Switch checked={showInactive} onCheckedChange={setShowInactive} />
-            Show inactive
-          </label>
+          <>
+            <label className="flex items-center gap-2 text-sm">
+              <Switch checked={showInactive} onCheckedChange={setShowInactive} />
+              Show inactive
+            </label>
+            <Button type="button" variant="outline" size="sm" onClick={() => setPriceComparisonOpen(true)}>
+              Price Comparison
+            </Button>
+          </>
         }
         onCreateNew={openCreate}
         onEdit={openEdit}
@@ -832,6 +839,12 @@ export default function ProductsPage() {
         description={`Deactivate "${deleteTarget?.name ?? ""}"? It will be hidden from the product list and can no longer be linked to suppliers. Existing documents are unchanged.`}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
+      />
+      <PriceComparisonDialog
+        open={priceComparisonOpen}
+        onOpenChange={setPriceComparisonOpen}
+        products={data}
+        companies={suppliers}
       />
       <ProductDetailDrawer
         product={detailTarget}
