@@ -1,0 +1,66 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+const assert = require("node:assert/strict");
+const { createLoader } = require("./proforma-runtime.cjs");
+
+const load = createLoader();
+
+const product = (productId, name, extra = {}) => ({
+  id: productId, productId, code: `CODE-${productId}`, name,
+  category: { id: "CAT", code: "CAT", name: "Supplies" },
+  unit: { id: "U", code: "PC", name: "Piece" },
+  description: "", costPerUnit: 0, pricePerUnit: extra.defaultSellingPrice ?? 0,
+  status: "active", ...extra,
+});
+const link = (id, productId, supplierId, costPerUnit, extra = {}) => ({
+  supplierProductId: id, productId, supplierId, supplierProductName: `${productId}/${supplierId}`,
+  costPerUnit, isPreferredSupplier: false, status: "active", createdAt: "", createdBy: "", ...extra,
+});
+
+const products = [
+  product("P1", "Printer Ink", { defaultSellingPrice: 650 }),
+  product("P2", "bond paper", { defaultSellingPrice: undefined }),
+  product("P3", "Archived", { defaultSellingPrice: 100, status: "inactive" }),
+  product("P4", "Zero Price", { defaultSellingPrice: 0 }),
+];
+const supplierProducts = [
+  link("SP1", "P1", "S1", 480),
+  link("SP2", "P1", "S2", 450, { isPreferredSupplier: true }),
+  link("SP3", "P1", "S3", 400),
+  link("SP4", "P1", "S4", 500, { status: "inactive" }),
+  link("SP5", "P3", "S1", 10),
+  link("SP6", "P4", "S1", 20),
+];
+const companies = [
+  { companyId: "S1", companyName: "XYZ Supply" },
+  { companyId: "S2", companyName: "ABC Trading" },
+];
+
+(async () => {
+  // ── Rows ──────────────────────────────────────────────
+  const { buildPriceComparisonRows } = load("src/lib/priceComparisonReport.ts");
+  const rows = buildPriceComparisonRows(products, supplierProducts, companies);
+  assert.deepEqual(rows.map((r) => [r.productName, r.supplierName ?? null]), [
+    ["bond paper", null],
+    ["Printer Ink", "ABC Trading"],
+    ["Printer Ink", "S3"],
+    ["Printer Ink", "XYZ Supply"],
+    ["Zero Price", "XYZ Supply"],
+  ]);
+  assert.deepEqual(rows.map((r) => r.isFirstOfProduct), [true, true, false, false, true]);
+  const abc = rows[1];
+  assert.equal(abc.isPreferred, true);
+  assert.equal(abc.unit, "PC");
+  assert.equal(abc.categoryName, "Supplies");
+  assert.equal(abc.margin, 200);
+  assert.ok(Math.abs(abc.marginPercent - 200 / 650) < 1e-9);
+  const bond = rows[0];
+  assert.equal(bond.purchasePrice, undefined);
+  assert.equal(bond.sellingPrice, undefined);
+  assert.equal(bond.margin, undefined);
+  assert.equal(bond.marginPercent, undefined);
+  const zero = rows[4];
+  assert.equal(zero.margin, -20);
+  assert.equal(zero.marginPercent, undefined);
+  assert.deepEqual(buildPriceComparisonRows([], [], []), []);
+  console.log("Price comparison: rows passed.");
+})().catch((error) => { console.error(error); process.exitCode = 1; });
