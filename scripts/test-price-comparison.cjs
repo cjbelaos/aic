@@ -81,4 +81,25 @@ const companies = [
   assert.ok(html.includes("white-space:nowrap") && html.includes("text-overflow:ellipsis"));
   assert.ok(!/business-document-header|<img/.test(html));
   console.log("Price comparison: print table passed.");
+
+  // ── Excel workbook (Task 1 fixture rows only) ─────────
+  // Sheet rows: 2 bond paper, 3 Printer Ink/ABC (preferred), 4 Printer Ink/S3, 5 Printer Ink/XYZ, 6 Zero Price.
+  const { buildPriceComparisonWorkbook } = load("src/lib/priceComparisonExport.ts");
+  const wb = await buildPriceComparisonWorkbook(rows);
+  const ws = wb.worksheets[0];
+  assert.equal(ws.name, "Price Comparison");
+  assert.deepEqual(ws.getRow(1).values.slice(1), ["Product Code", "Product", "Category", "Unit", "Supplier", "Supplier Product Code", "Purchase Price", "Preferred", "Default Selling Price", "Margin", "Margin %"]);
+  assert.equal(ws.rowCount, rows.length + 1);
+  assert.equal(ws.getRow(4).getCell(2).value, "Printer Ink");
+  assert.equal(ws.getRow(3).getCell(8).value, "Yes");
+  assert.equal(ws.getRow(2).getCell(5).value, null);
+  assert.equal(ws.getRow(2).getCell(10).value, null);
+  assert.equal(ws.getColumn(7).numFmt, "#,##0.00");
+  assert.equal(ws.getColumn(11).numFmt, "0.0%");
+  assert.equal(ws.getRow(5).getCell(8).value, null);
+  assert.deepEqual(ws.views[0], { state: "frozen", ySplit: 1 });
+  assert.ok(ws.autoFilter);
+  const zeroRow = rows.findIndex((r) => r.margin === -20) + 2;
+  assert.equal(ws.getRow(zeroRow).getCell(10).font.color.argb, "FFCC0000");
+  console.log("Price comparison: Excel workbook passed.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
