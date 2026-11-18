@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Field } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { EntityTable } from "@/components/ui/entity-table";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import {
@@ -69,23 +70,16 @@ async function exportToExcel(rows: Product[]) {
           {
             ProductName: "",
             "Product Category": "",
-            ProductDescription: "",
             Unit: "",
-            "Cost/Unit": "",
-            "Price/Unit": "",
-            "Supplier Name": "",
+            "Default Selling Price": "",
           },
         ]
       : rows.map((r) => {
           return {
             ProductName: r.name || "",
             "Product Category": r.category?.name || r.category?.code || "",
-            ProductDescription: r.description || "",
             Unit: r.unit?.name || r.unit?.code || "",
-            "Cost/Unit": r.costPerUnit ?? 0,
-            "Price/Unit": r.pricePerUnit ?? "",
-            "Supplier Name":
-              r.supplier?.companyName || r.supplier?.companyId || "",
+            "Default Selling Price": r.pricePerUnit ?? "",
           };
         });
 
@@ -175,6 +169,16 @@ const columns: ColumnDef<Product>[] = [
     cell: ({ row }) => row.original.supplierCount ?? 0,
   },
   {
+    id: "status",
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => (
+      <Badge variant={row.original.status === "inactive" ? "secondary" : "default"}>
+        {row.original.status === "inactive" ? "inactive" : "active"}
+      </Badge>
+    ),
+  },
+  {
     accessorKey: "pricePerUnit",
     header: ({ column }) => (
       <Button
@@ -251,6 +255,11 @@ export default function ProductsPage() {
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [detailTarget, setDetailTarget] = useState<Product | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
+  const visibleProducts = useMemo(
+    () => (showInactive ? data : data.filter((p) => p.status !== "inactive")),
+    [data, showInactive],
+  );
   const [suppliers, setSuppliers] = useState<Company[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
@@ -438,10 +447,10 @@ export default function ProductsPage() {
     try {
       await productService.delete(deleteTarget.id);
       await loadProducts();
-      toast.success(`"${deleteTarget.description}" deleted successfully.`);
+      toast.success(`"${deleteTarget.name}" deactivated.`);
     } catch (err: any) {
       console.error("Delete error:", err);
-      const errMsg = err.response?.data?.error || "Failed to delete product.";
+      const errMsg = err.response?.data?.error || "Failed to deactivate product.";
       toast.error(errMsg);
     } finally {
       setDeleteTarget(null);
@@ -580,7 +589,11 @@ export default function ProductsPage() {
           costPerUnit:
             parseFloat(rowData["Cost/Unit"] || rowData["Cost Per Unit"]) || 0,
           pricePerUnit:
-            parseFloat(rowData["Price/Unit"] || rowData["Price Per Unit"]) || 0,
+            parseFloat(
+              rowData["Default Selling Price"] ||
+                rowData["Price/Unit"] ||
+                rowData["Price Per Unit"],
+            ) || 0,
           supplier: importSupplier,
         });
       });
@@ -593,22 +606,8 @@ export default function ProductsPage() {
       }
 
       toastId = toast.loading(
-        "Clearing existing records and preparing import...",
+        `Importing ${productsImport.length} products...`,
       );
-
-      try {
-        await productService.clearAll();
-      } catch (clearErr) {
-        console.error("Failed to clear previous records:", clearErr);
-        toast.error("Failed to reset existing product list. Import aborted.", {
-          id: toastId,
-        });
-        return;
-      }
-
-      toast.loading(`Importing ${productsImport.length} fresh records...`, {
-        id: toastId,
-      });
 
       let successCount = 0;
       let failCount = 0;
@@ -645,12 +644,18 @@ export default function ProductsPage() {
       <EntityTable
         title="Products"
         columns={columns}
-        data={data}
+        data={visibleProducts}
         loading={loading}
+        toolbarFilters={
+          <label className="flex items-center gap-2 text-sm">
+            <Switch checked={showInactive} onCheckedChange={setShowInactive} />
+            Show inactive
+          </label>
+        }
         onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
-        onExport={() => exportToExcel(data)}
+        onExport={() => exportToExcel(visibleProducts)}
         onImport={handleImport}
         onRowClick={setDetailTarget}
         mobileLayout={{ primary: ["productName", "productCode", "categoryName"], labels: { productCode: "Product code", productName: "Product name", categoryName: "Category", unitName: "Unit", supplierCount: "Suppliers", pricePerUnit: "Selling price", actions: "Actions" } }}
@@ -823,8 +828,8 @@ export default function ProductsPage() {
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}
-        title="Delete Product"
-        description={`Are you sure you want to delete "${deleteTarget?.description}"? This action cannot be undone.`}
+        title="Deactivate Product"
+        description={`Deactivate "${deleteTarget?.name ?? ""}"? It will be hidden from the product list and can no longer be linked to suppliers. Existing documents are unchanged.`}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
       />

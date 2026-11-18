@@ -26,7 +26,7 @@ export function ProductDetailDrawer({ product, open, onOpenChange }: { product: 
     const timer = window.setTimeout(() => {
       setLoading(true);
       Promise.all([
-        supplierProductService.getAll({ productId: product.productId }),
+        supplierProductService.getAll({ productId: product.productId, status: "active" }),
         customerPriceService.getAll(),
         companyService.getAll(),
       ]).then(([supplierRows, customerRows, companyRows]) => {
@@ -50,7 +50,7 @@ export function ProductDetailDrawer({ product, open, onOpenChange }: { product: 
       {product && <div className="space-y-6 px-4 pb-6">
         <div className="rounded-lg border p-4 flex items-center justify-between">
           <div><p className="text-xs text-muted-foreground">Default selling price</p><p className="font-semibold">{currency(product.defaultSellingPrice ?? product.pricePerUnit)}</p></div>
-          <Badge variant="secondary">{product.supplierCount ?? offerings.length} suppliers</Badge>
+          <Badge variant="secondary">{product.supplierCount ?? offerings.length} {(product.supplierCount ?? offerings.length) === 1 ? "supplier" : "suppliers"}</Badge>
         </div>
         <section className="space-y-2"><div className="flex items-center justify-between"><h3 className="font-semibold">Supplier offerings</h3><Button asChild size="sm" variant="outline"><Link href={`/dashboard/supplier-products?productId=${encodeURIComponent(product.productId ?? "")}`}>Manage <ExternalLink className="ml-1 h-3.5 w-3.5" /></Link></Button></div>
           {loading ? <div className="flex justify-center py-6"><LogoLoader label="Loading product details…" size={48} /></div> : offerings.length ? <div className="rounded-lg border divide-y">{offerings.map((offering) => <div key={offering.supplierProductId} className="p-3 flex justify-between gap-3"><div><p className="font-medium">{offering.supplierProductName}</p><p className="text-xs text-muted-foreground">{companyName(offering.supplierId)}{offering.supplierProductCode ? ` - ${offering.supplierProductCode}` : ""}</p></div><div className="text-right"><p className="font-medium">{currency(offering.costPerUnit)}</p>{offering.isPreferredSupplier && <Badge className="mt-1" variant="secondary">Preferred</Badge>}</div></div>)}</div> : <p className="text-sm text-muted-foreground">No supplier offerings yet.</p>}</section>

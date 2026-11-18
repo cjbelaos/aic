@@ -20,6 +20,7 @@ export interface Product {
   pricePerUnit: number;
   defaultSellingPrice?: number;
   supplierCount?: number;
+  status?: "active" | "inactive";
   supplier: Company;
 }
 

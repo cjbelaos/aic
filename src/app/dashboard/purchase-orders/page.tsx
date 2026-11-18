@@ -157,6 +157,7 @@ export default function PurchaseOrderPage() {
   const [quickAddCategoryId, setQuickAddCategoryId] = useState("");
   const [quickAddName, setQuickAddName] = useState("");
   const [quickAddUnit, setQuickAddUnit] = useState("PC");
+  const [quickAddCost, setQuickAddCost] = useState("");
   const [quickAddSaving, setQuickAddSaving] = useState(false);
   const [quickAddContext, setQuickAddContext] = useState<{
     mode: "create" | "edit";
@@ -773,6 +774,7 @@ export default function PurchaseOrderPage() {
     setQuickAddCategoryId("");
     setQuickAddName(searchText || "");
     setQuickAddUnit("PC");
+    setQuickAddCost("");
     setQuickAddContext({ mode, index });
     setQuickAddProductOpen(true);
   };
@@ -784,6 +786,15 @@ export default function PurchaseOrderPage() {
     }
     if (!quickAddCategoryId) {
       toast.error("Please select a product category.");
+      return;
+    }
+    const quickAddCostValue = Number(quickAddCost);
+    if (!selectedSupplier) {
+      toast.error("Select a supplier before adding a product.");
+      return;
+    }
+    if (!Number.isFinite(quickAddCostValue) || quickAddCostValue <= 0) {
+      toast.error("Cost per unit must be greater than zero.");
       return;
     }
     setQuickAddSaving(true);
@@ -821,28 +832,46 @@ export default function PurchaseOrderPage() {
       const pData = await productService.getAll();
       setProducts(Array.isArray(pData) ? pData : []);
 
-      if (quickAddContext) {
-        const code = created?.code || "";
-        const unit = created?.unit?.code || quickAddUnit;
-        const description =
-          created?.name || created?.description || quickAddName.trim();
+      const createdProductId = created?.productId ?? created?.id;
+      let offering: SupplierProduct;
+      try {
+        if (!createdProductId) throw new Error("Created product has no ID.");
+        offering = await supplierProductService.create({
+          productId: createdProductId,
+          supplierId: selectedSupplier,
+          supplierProductName: quickAddName.trim(),
+          costPerUnit: quickAddCostValue,
+          isPreferredSupplier: false,
+          status: "active",
+        });
+      } catch (linkErr: any) {
+        toast.error(
+          `Product "${quickAddName.trim()}" was created, but linking it to this supplier failed: ${linkErr?.response?.data?.error || linkErr?.message || "unknown error"}. Add the link under Supplier Products.`,
+        );
+        setQuickAddProductOpen(false);
+        setQuickAddContext(null);
+        return;
+      }
+      setSupplierProducts((prev) => [...prev, offering]);
 
+      if (quickAddContext) {
+        const patch = {
+          supplierProductId: offering.supplierProductId,
+          productId: offering.productId,
+          productCode: created?.code || "",
+          unit: created?.unit?.code || quickAddUnit,
+          description: offering.supplierProductName,
+          pricePerUnit: offering.costPerUnit,
+        };
+        const apply = (item: LineItem): LineItem => ({
+          ...item,
+          ...patch,
+          totalAmount: calculateTotal(item.quantity, patch.pricePerUnit),
+        });
         if (quickAddContext.mode === "create") {
-          setLineItems((prev) =>
-            prev.map((item, i) =>
-              i === quickAddContext.index
-                ? { ...item, productCode: code, unit, description }
-                : item,
-            ),
-          );
+          setLineItems((prev) => prev.map((item, i) => (i === quickAddContext.index ? apply(item) : item)));
         } else {
-          setEditLineItems((prev) =>
-            prev.map((item, i) =>
-              i === quickAddContext.index
-                ? { ...item, productCode: code, unit, description }
-                : item,
-            ),
-          );
+          setEditLineItems((prev) => prev.map((item, i) => (i === quickAddContext.index ? apply(item) : item)));
         }
       }
 
@@ -1763,6 +1792,22 @@ export default function PurchaseOrderPage() {
                 onChange={(e) => setQuickAddUnit(e.target.value)}
                 placeholder="e.g. PC"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Cost / Unit <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={quickAddCost}
+                onChange={(e) => setQuickAddCost(e.target.value)}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-muted-foreground">
+                Saved as this supplier's price for the product.
+              </p>
             </div>
           </div>
           <DialogFooter>

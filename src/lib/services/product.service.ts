@@ -31,6 +31,7 @@ function toView(product: ProductRecord, supplierCount = 0, categories: ProductCa
     defaultSellingPrice: product.defaultSellingPrice,
     supplier: emptySupplier,
     supplierCount,
+    status: product.status,
   };
 }
 

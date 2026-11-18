@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, Download, Loader2 } from "lucide-react";
+import { ArrowUpDown, Download, Loader2, X } from "lucide-react";
 import { matchesDocumentSearch } from "@/lib/document-register";
 import { exportSupplierProducts } from "@/lib/supplierProductExport";
 import axios from "axios";
@@ -58,6 +58,7 @@ const currency = (value: number) => value.toLocaleString("en-PH", {
 });
 
 export default function SupplierProductsPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const requestedProductId = searchParams.get("productId") ?? "";
   const [rows, setRows] = useState<SupplierProduct[]>([]);
@@ -104,7 +105,9 @@ export default function SupplierProductsPage() {
 
   const productById = useMemo(() => new Map(products.map((product) => [product.productId ?? product.id, product])), [products]);
   const supplierById = useMemo(() => new Map(suppliers.map((supplier) => [supplier.companyId, supplier])), [suppliers]);
-  const productOptions = useMemo(() => products.map((product) => ({ value: product.productId ?? product.id, label: `${product.code} - ${product.name}` })), [products]);
+  const productOptions = useMemo(() => products
+    .filter((product) => product.status !== "inactive" || (product.productId ?? product.id) === form.productId)
+    .map((product) => ({ value: product.productId ?? product.id, label: `${product.code} - ${product.name}` })), [products, form.productId]);
   const supplierOptions = useMemo(() => suppliers.map((supplier) => ({ value: supplier.companyId, label: supplier.companyName })), [suppliers]);
 
   const visibleRows = useMemo(
@@ -217,8 +220,8 @@ export default function SupplierProductsPage() {
       setFormError("This product already exists. Choose Select existing product to link it to this supplier.");
       return;
     }
-    if (!Number.isFinite(form.costPerUnit) || form.costPerUnit < 0) {
-      setFormError("Cost per unit cannot be negative.");
+    if (!Number.isFinite(form.costPerUnit) || form.costPerUnit <= 0) {
+      setFormError("Cost per unit must be greater than zero.");
       return;
     }
     setSaving(true);
@@ -289,7 +292,7 @@ export default function SupplierProductsPage() {
   };
 
   return <>
-    <EntityTable title={requestedProductId ? "Supplier Products for Product" : "Supplier Products"} columns={columns} data={visibleRows} searchValue={search} onSearchChange={setSearch} toolbarFilters={<Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={loading || exporting || !visibleRows.length} title="Export all matching supplier products"><Download className="mr-2 h-4 w-4" />{exporting ? "Exporting..." : "Export Excel"}</Button>} loading={loading} onCreateNew={openCreate} onEdit={openEdit} onDelete={setDeleteTarget} mobileLayout={{ primary: ["supplierProductName", "product", "supplier"], labels: { supplierProductName: "Supplier product", product: "Product", supplier: "Supplier", costPerUnit: "Cost / unit", isPreferredSupplier: "Preferred", status: "Status", actions: "Actions" } }} />
+    <EntityTable title={requestedProductId ? `Supplier Products: ${productById.get(requestedProductId)?.name ?? requestedProductId}` : "Supplier Products"} columns={columns} data={visibleRows} searchValue={search} onSearchChange={setSearch} toolbarFilters={<>{requestedProductId && <Button type="button" variant="outline" size="sm" onClick={() => router.replace("/dashboard/supplier-products")}><X className="mr-2 h-4 w-4" />Show all products</Button>}<Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={loading || exporting || !visibleRows.length} title="Export all matching supplier products"><Download className="mr-2 h-4 w-4" />{exporting ? "Exporting..." : "Export Excel"}</Button></>} loading={loading} onCreateNew={openCreate} onEdit={openEdit} onDelete={setDeleteTarget} mobileLayout={{ primary: ["supplierProductName", "product", "supplier"], labels: { supplierProductName: "Supplier product", product: "Product", supplier: "Supplier", costPerUnit: "Cost / unit", isPreferredSupplier: "Preferred", status: "Status", actions: "Actions" } }} />
 
     <Dialog open={modalOpen} onOpenChange={(open) => { if (!saving) setModalOpen(open); }}>
       <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
@@ -322,7 +325,7 @@ export default function SupplierProductsPage() {
           </div>
           <div className="space-y-1.5"><Label htmlFor="supplier-product-description">Supplier Description</Label><Input id="supplier-product-description" value={form.supplierDescription} onChange={(event) => setForm((current) => ({ ...current, supplierDescription: event.target.value }))} disabled={saving} /></div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5"><Label htmlFor="supplier-product-cost">Cost / Unit *</Label><Input id="supplier-product-cost" type="number" min="0" step="0.01" value={form.costPerUnit} onChange={(event) => setForm((current) => ({ ...current, costPerUnit: Number(event.target.value) || 0 }))} disabled={saving} /></div>
+            <div className="space-y-1.5"><Label htmlFor="supplier-product-cost">Cost / Unit *</Label><Input id="supplier-product-cost" type="number" min="0" step="0.01" placeholder="0.00" value={form.costPerUnit || ""} onChange={(event) => setForm((current) => ({ ...current, costPerUnit: Number(event.target.value) || 0 }))} disabled={saving} /></div>
             <div className="flex flex-col gap-3 pt-1">
               <div className="flex items-center gap-3"><Switch id="supplier-product-preferred" checked={form.isPreferredSupplier} onCheckedChange={(isPreferredSupplier) => setForm((current) => ({ ...current, isPreferredSupplier }))} disabled={saving} /><Label htmlFor="supplier-product-preferred">Preferred supplier</Label></div>
               <div className="flex items-center gap-3"><Switch id="supplier-product-active" checked={form.status === "active"} onCheckedChange={(isActive) => setForm((current) => ({ ...current, status: isActive ? "active" : "inactive" }))} disabled={saving} /><Label htmlFor="supplier-product-active">Active</Label></div>

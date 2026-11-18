@@ -50,9 +50,12 @@ export async function getSupplierProducts(filters?: { productId?: string; suppli
   }
 }
 
-async function validateReferences(payload: CreateSupplierProductPayload): Promise<void> {
+async function validateReferences(payload: CreateSupplierProductPayload, previousProductId?: string): Promise<void> {
   const [products, companies] = await Promise.all([getProductsOnly(), getCompanies()]);
-  if (!products.some((p) => p.productId === payload.productId)) throw new Error(`Product "${payload.productId}" was not found in Products.`);
+  const product = products.find((p) => p.productId === payload.productId);
+  if (!product) throw new Error(`Product "${payload.productId}" was not found in Products.`);
+  // Only block new links to an inactive product; existing links stay editable.
+  if (product.status !== "active" && payload.productId !== previousProductId) throw new Error(`Product "${product.productName}" is inactive and cannot be linked to a supplier.`);
   const supplier = companies.find((c) => c.companyId === payload.supplierId);
   if (!supplier || !["Supplier", "Both"].includes(supplier.companyType)) throw new Error(`Supplier "${payload.supplierId}" was not found.`);
 }
@@ -75,7 +78,7 @@ export async function updateSupplierProduct(payload: UpdateSupplierProductPayloa
   const current = existing.find((p) => p.supplierProductId === payload.supplierProductId);
   if (!current) throw new Error(`Supplier product "${payload.supplierProductId}" was not found.`);
   const updated: SupplierProduct = { ...current, ...payload, updatedAt: new Date().toISOString(), updatedBy: actor };
-  await validateReferences(updated);
+  await validateReferences(updated, current.productId);
   if (updated.isPreferredSupplier && updated.status === "active" && existing.some((p) => p.supplierProductId !== updated.supplierProductId && p.productId === updated.productId && p.status === "active" && p.isPreferredSupplier)) {
     throw new Error("This product already has an active preferred supplier.");
   }
