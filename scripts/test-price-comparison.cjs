@@ -63,4 +63,22 @@ const companies = [
   assert.equal(zero.marginPercent, undefined);
   assert.deepEqual(buildPriceComparisonRows([], [], []), []);
   console.log("Price comparison: rows passed.");
+
+  // ── Print table ───────────────────────────────────────
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const { PriceComparisonPrintDocument } = load("src/components/price-comparison-print-document.tsx");
+  const printRows = [...rows, { ...rows[1], productId: "P9", productName: 'Ink & <b>"Bold"</b>', isFirstOfProduct: true }];
+  const html = renderToStaticMarkup(React.createElement(PriceComparisonPrintDocument, { rows: printRows }));
+  const headers = [...html.matchAll(/<th(?:\s[^>]*)?>(.*?)<\/th>/g)].map((m) => m[1]);
+  assert.deepEqual(headers, ["Code", "Product", "Unit", "Supplier", "Purchase Price", "Selling Price", "Margin", "Margin %"]);
+  assert.ok(html.includes("ABC Trading ★"));
+  assert.ok(html.includes("200.00") && html.includes("30.8%"));
+  assert.ok(html.includes("(no supplier)"));
+  assert.equal((html.match(/>Printer Ink</g) || []).length, 1);
+  assert.ok(/class="[^"]*negative[^"]*"[^>]*>-20\.00/.test(html));
+  assert.ok(!html.includes("<b>") && html.includes("&lt;b&gt;"));
+  assert.ok(html.includes("white-space:nowrap") && html.includes("text-overflow:ellipsis"));
+  assert.ok(!/business-document-header|<img/.test(html));
+  console.log("Price comparison: print table passed.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
