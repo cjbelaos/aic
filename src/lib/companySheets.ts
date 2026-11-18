@@ -165,7 +165,7 @@ export async function addCompany(
         mergedType,
         (payload.companyName || "").trim().toUpperCase() || existingRow[2] || "",
         payload.tin !== undefined ? payload.tin : existingRow[3] || "",
-        payload.address !== undefined ? payload.address : existingRow[4] || "",
+        payload.address !== undefined ? payload.address.trim().toUpperCase() : existingRow[4] || "",
         payload.latitude !== undefined && !isNaN(payload.latitude)
           ? String(payload.latitude)
           : existingRow[5] || "",
@@ -215,7 +215,7 @@ export async function addCompany(
       payload.companyType || "Supplier",
       (payload.companyName || "").trim().toUpperCase(),
       payload.tin || "",
-      payload.address || "",
+      (payload.address || "").trim().toUpperCase(),
       payload.latitude !== undefined && !isNaN(payload.latitude)
         ? String(payload.latitude)
         : "",
@@ -242,7 +242,7 @@ export async function addCompany(
       companyType: payload.companyType || "Supplier",
       companyName: (payload.companyName || "").trim().toUpperCase(),
       tin: payload.tin || "",
-      address: payload.address || "",
+      address: (payload.address || "").trim().toUpperCase(),
       latitude: payload.latitude,
       longitude: payload.longitude,
       status: payload.status,
@@ -316,7 +316,7 @@ export async function updateCompanyInSheets(
         ? payload.companyName.trim().toUpperCase()
         : existingRow[2] || "",
       payload.tin !== undefined ? payload.tin : existingRow[3] || "",
-      payload.address !== undefined ? payload.address : existingRow[4] || "",
+      payload.address !== undefined ? payload.address.trim().toUpperCase() : existingRow[4] || "",
       payload.latitude !== undefined && !isNaN(payload.latitude)
         ? String(payload.latitude)
         : existingRow[5] || "",

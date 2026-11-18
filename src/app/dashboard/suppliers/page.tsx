@@ -458,8 +458,9 @@ export default function SuppliersPage() {
                 id="s-address"
                 value={form.address}
                 disabled={saving}
+                className="uppercase"
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, address: e.target.value }))
+                  setForm((f) => ({ ...f, address: e.target.value.toUpperCase() }))
                 }
               />
             </div>

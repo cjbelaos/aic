@@ -433,8 +433,9 @@ export default function CustomersPage() {
                 id="c-address"
                 value={form.address}
                 disabled={saving}
+                className="uppercase"
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, address: e.target.value }))
+                  setForm((f) => ({ ...f, address: e.target.value.toUpperCase() }))
                 }
               />
             </div>

@@ -396,7 +396,7 @@ function CompaniesPageInner() {
       }
       setPosition([data.result.latitude, data.result.longitude]);
       if (data.result.displayName)
-        setForm((f) => ({ ...f, address: data.result.displayName }));
+        setForm((f) => ({ ...f, address: data.result.displayName.toUpperCase() }));
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to geocode address.",
@@ -417,7 +417,7 @@ function CompaniesPageInner() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Reverse geocoding failed.");
       if (data.result?.displayName)
-        setForm((f) => ({ ...f, address: data.result.displayName }));
+        setForm((f) => ({ ...f, address: data.result.displayName.toUpperCase() }));
     } catch {
       // silently ignore reverse-geocode failures; lat/lng are still captured
     }
@@ -736,9 +736,9 @@ function CompaniesPageInner() {
                   id="co-address"
                   value={form.address}
                   disabled={saving}
-                  className="flex-1"
+                  className="flex-1 uppercase"
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, address: e.target.value }))
+                    setForm((f) => ({ ...f, address: e.target.value.toUpperCase() }))
                   }
                 />
                 <Button
