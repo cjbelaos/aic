@@ -1,7 +1,7 @@
 "use client";
 
 import { DatePickerInput } from "@/components/ui/date-picker";
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { Fragment, useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,8 @@ import {
   resolveDeliveryReference,
   type DeliveryReferenceMode,
 } from "@/lib/deliveryReference";
+import { formatSerialCell, parseSerialInput } from "@/lib/deliverySerials";
+import { DeliverySerialInput } from "@/components/delivery-serial-input";
 
 interface LineItem {
   deliveryReceiptItemId?: string;
@@ -78,6 +80,13 @@ interface LineItem {
   unit: string;
   description: string;
   quantity: number;
+  /** Raw serial entry; sent as serialNumbers. */
+  serialText?: string;
+}
+
+/** Converts form lines to API items: the raw serial text becomes serialNumbers. */
+function toDeliveryItems(lines: LineItem[]) {
+  return lines.map(({ serialText, ...line }) => ({ ...line, serialNumbers: parseSerialInput(serialText ?? "") }));
 }
 
 const EMPTY_LINE_ITEM: LineItem = {
@@ -240,6 +249,7 @@ export default function DeliveryReleasePage() {
             unit: item.unit || "PC",
             description: item.description || "",
             quantity: item.quantity || 1,
+            serialText: Array.isArray(item.serialNumbers) ? formatSerialCell(item.serialNumbers) : "",
           })),
         );
       }
@@ -356,6 +366,18 @@ export default function DeliveryReleasePage() {
   const productOptions = useMemo(
     () => products.map((p) => ({ value: p.code, label: `${p.name} — ${p.category?.name || "Uncategorized"}`, categoryId: String(p.category?.id || "") })),
     [products],
+  );
+
+  /** True when the line's product category is marked "Requires serial". Manual lines never require one. */
+  const lineRequiresSerial = useCallback(
+    (item: { productId?: string; productCode?: string }) => {
+      if (!item.productId && !item.productCode) return false;
+      const product = products.find((p) => (item.productId && p.id === item.productId) || (item.productCode && p.code === item.productCode));
+      if (!product) return false;
+      const categoryId = String(product.category?.id ?? "");
+      return productCategories.some((c) => String(c.id) === categoryId && c.requiresSerial === true);
+    },
+    [products, productCategories],
   );
 
   const unitOptions = useMemo(() => {
@@ -992,7 +1014,7 @@ export default function DeliveryReleasePage() {
         deliveredByType: selectedDriver.type,
         deliveredByOptionId: selectedDriver.deliveryOptionId,
         comments,
-        items: lineItems,
+        items: toDeliveryItems(lineItems),
         status: "printed",
       };
 
@@ -1070,7 +1092,7 @@ export default function DeliveryReleasePage() {
         deliveredByType: selectedDriver?.type,
         deliveredByOptionId: selectedDriver?.deliveryOptionId,
         comments,
-        items: lineItems,
+        items: toDeliveryItems(lineItems),
         status: "draft",
       };
       await deliveryService.createAndPopulateSheet(payload);
@@ -1219,6 +1241,7 @@ export default function DeliveryReleasePage() {
           unit: item.unit,
           description: item.description,
           quantity: item.quantity,
+          serialText: formatSerialCell(item.serialNumbers ?? []),
         })),
       );
       const manual = new Set<number>();
@@ -1288,6 +1311,7 @@ export default function DeliveryReleasePage() {
             unit: li.unit,
             description: li.description,
             quantity: li.quantity,
+            serialNumbers: parseSerialInput(li.serialText ?? ""),
           })),
       };
       const res = await deliveryService.update(editTarget.drNumber, payload);
@@ -1475,7 +1499,8 @@ export default function DeliveryReleasePage() {
               )}
 
               {lineItems.map((item, idx) => (
-                <div key={idx} className="dr-item-row flex gap-2 items-center">
+                <Fragment key={idx}>
+                <div className="dr-item-row flex gap-2 items-center">
                   <span className="dr-item-label md:hidden">Item {idx + 1}</span>
                   {manualRows.has(idx) ? (
                     <>
@@ -1567,6 +1592,14 @@ export default function DeliveryReleasePage() {
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
+                <DeliverySerialInput
+                  index={idx}
+                  value={item.serialText ?? ""}
+                  quantity={item.quantity}
+                  requiresSerial={lineRequiresSerial(item)}
+                  onChange={(v) => updateLineItem(idx, "serialText", v)}
+                />
+                </Fragment>
               ))}
             </div>
 
@@ -1756,7 +1789,8 @@ export default function DeliveryReleasePage() {
               )}
 
               {editLineItems.map((item, idx) => (
-                <div key={idx} className="dr-item-row flex gap-2 items-center">
+                <Fragment key={idx}>
+                <div className="dr-item-row flex gap-2 items-center">
                   <span className="dr-item-label md:hidden">Item {idx + 1}</span>
                   {editManualRows.has(idx) ? (
                     <>
@@ -1848,6 +1882,14 @@ export default function DeliveryReleasePage() {
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
+                <DeliverySerialInput
+                  index={idx}
+                  value={item.serialText ?? ""}
+                  quantity={item.quantity}
+                  requiresSerial={lineRequiresSerial(item)}
+                  onChange={(v) => updateEditLineItem(idx, "serialText", v)}
+                />
+                </Fragment>
               ))}
             </div>
 
