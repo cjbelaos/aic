@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { SalesOrderError } from "@/lib/salesOrders/errors";
+import { activeWarehouseError, guardedDrWrite, inventoryErrorResponse } from "@/lib/inventory/drGuard";
+import { isCountedDrStatus } from "@/lib/inventory/domain";
 import {
+  getDeliveryReceipts,
   updateDeliveryReceipt,
   deleteDeliveryReceipt,
   populateAndExportDeliveryReceiptFormPdf,
@@ -165,7 +168,41 @@ export async function PUT(
       body.salesOrderId = reference.salesOrderId || undefined;
       body.trNo = reference.trNo;
     }
-    const result = await updateDeliveryReceipt(drNumber, body, session.userId);
+    // Stock guard. Saving into a counted status (or resubmitting a pending or
+    // rejected DR) is checked; historical finalized DRs without a warehouse are
+    // outside inventory and are left alone.
+    const stored = (await getDeliveryReceipts()).find((receipt) => receipt.drNumber === drNumber);
+    const requestedStatus = String(body.status ?? stored?.status ?? "created").trim().toLowerCase();
+    const warehouseId = body.warehouseId ?? stored?.warehouseId ?? "";
+    const storedStatus = String(stored?.status ?? "").trim().toLowerCase();
+    const notYetFinal = drNumber <= 0 || ["draft", "pending_approval", "rejected"].includes(storedStatus);
+    // A finalized DR whose stock-relevant fields (items, warehouse, date) are
+    // unchanged keeps its earlier decision, so e.g. a comment edit on a
+    // manager-approved DR does not send it back for approval.
+    const stockKeyOf = (items: { productId?: string; productCode?: string; quantity: number }[] | undefined) =>
+      JSON.stringify((items ?? []).map((item) => `${item.productId || item.productCode || ""}:${Number(item.quantity) || 0}`).sort());
+    const stockUnchanged = Boolean(stored) && isCountedDrStatus(storedStatus) && isCountedDrStatus(requestedStatus)
+      && warehouseId === (stored?.warehouseId ?? "")
+      && (body.date === undefined || body.date === stored?.date)
+      && (body.items === undefined || stockKeyOf(body.items) === stockKeyOf(stored?.items));
+    const guarded = !stockUnchanged
+      && (isCountedDrStatus(requestedStatus) || ["pending_approval", "rejected"].includes(requestedStatus))
+      && (Boolean(warehouseId) || notYetFinal);
+    let result;
+    if (guarded) {
+      const warehouseError = await activeWarehouseError(warehouseId);
+      if (warehouseError) return NextResponse.json({ error: warehouseError }, { status: 422 });
+      ({ result } = await guardedDrWrite(
+        session,
+        { drNumber, warehouseId, date: body.date ?? stored?.date ?? "", requestedStatus, items: body.items ?? stored?.items ?? [] },
+        (stock) => {
+          if (stock.approval) Object.assign(body, stock.approval);
+          return updateDeliveryReceipt(drNumber, { ...body, warehouseId, status: stock.status }, session.userId);
+        },
+      ));
+    } else {
+      result = await updateDeliveryReceipt(drNumber, body, session.userId);
+    }
     try {
       await regenerateStoredServiceInvoicePdfsForDr(result.drNumber);
     } catch (error) {
@@ -173,6 +210,8 @@ export async function PUT(
     }
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
+    const inventoryResponse = inventoryErrorResponse(error);
+    if (inventoryResponse) return inventoryResponse;
     const message =
       error instanceof Error ? error.message : "Failed to update delivery receipt.";
     return NextResponse.json({ error: message }, { status: 500 });
