@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { EntityTable } from "@/components/ui/entity-table";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import {
@@ -31,11 +33,13 @@ import {
 interface ProductCategoryFormState {
   code: string;
   name: string;
+  requiresSerial: boolean;
 }
 
 const EMPTY_FORM: ProductCategoryFormState = {
   code: "",
   name: "",
+  requiresSerial: false,
 };
 
 /* ── Helper: build CreateProductCategoryPayload from form state ── */
@@ -45,6 +49,7 @@ function buildCreatePayload(
   return {
     code: form.code,
     name: form.name,
+    requiresSerial: form.requiresSerial,
   };
 }
 
@@ -75,6 +80,16 @@ const columns: ColumnDef<ProductCategory>[] = [
         Name <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
       </Button>
     ),
+  },
+  {
+    id: "requiresSerial",
+    header: "Serial",
+    cell: ({ row }) =>
+      row.original.requiresSerial ? (
+        <Badge variant="secondary">Required</Badge>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
   },
 ];
 
@@ -117,6 +132,7 @@ export default function ProductCategoriesPage() {
     setForm({
       code: row.code,
       name: row.name,
+      requiresSerial: row.requiresSerial === true,
     });
     setError("");
     setModalOpen(true);
@@ -189,7 +205,7 @@ export default function ProductCategoriesPage() {
         onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
-        mobileLayout={{ primary: ["code", "name"], labels: { code: "Code", name: "Category", actions: "Actions" } }}
+        mobileLayout={{ primary: ["code", "name"], labels: { code: "Code", name: "Category", requiresSerial: "Serial", actions: "Actions" } }}
       />
 
       <Dialog
@@ -235,6 +251,24 @@ export default function ProductCategoriesPage() {
                 }
                 placeholder="e.g., Consumables, Parts, Project"
               />
+            </div>
+
+            {/* Requires serial */}
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="pc-requires-serial"
+                checked={form.requiresSerial}
+                disabled={saving}
+                onCheckedChange={(checked) =>
+                  setForm((f) => ({ ...f, requiresSerial: checked === true }))
+                }
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="pc-requires-serial">Requires serial number</Label>
+                <p className="text-xs text-muted-foreground">
+                  Delivery receipt lines in this category are flagged when serial numbers are missing.
+                </p>
+              </div>
             </div>
           </div>
 
