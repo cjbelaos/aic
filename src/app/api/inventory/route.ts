@@ -33,6 +33,9 @@ export async function GET() {
           available: b?.available ?? 0,
         };
       }));
-    return { level, warehouses: active.map((w) => ({ warehouseId: w.warehouseId, name: w.name })), rows };
+    const trackedProducts = products
+      .filter((p) => tracked.has(p.productId))
+      .map((p) => ({ productId: p.productId, productCode: p.productCode, productName: p.productName }));
+    return { level, warehouses: active.map((w) => ({ warehouseId: w.warehouseId, name: w.name })), products: trackedProducts, rows };
   });
 }

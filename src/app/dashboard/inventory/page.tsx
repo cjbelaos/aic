@@ -71,6 +71,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 export default function InventoryPage() {
   const [rows, setRows] = useState<StockRow[]>([]);
   const [warehouses, setWarehouses] = useState<{ warehouseId: string; name: string }[]>([]);
+  const [trackedProducts, setTrackedProducts] = useState<{ productId: string; productCode: string; productName: string }[]>([]);
   const [level, setLevel] = useState<AccessLevel>("view");
   const [loading, setLoading] = useState(true);
   const [warehouseFilter, setWarehouseFilter] = useState("all");
@@ -96,8 +97,9 @@ export default function InventoryPage() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(
-    () => api<{ level: AccessLevel; warehouses: { warehouseId: string; name: string }[]; rows: StockRow[] }>("/api/inventory")
+    () => api<{ level: AccessLevel; warehouses: { warehouseId: string; name: string }[]; products: { productId: string; productCode: string; productName: string }[]; rows: StockRow[] }>("/api/inventory")
       .then((data) => {
+        setTrackedProducts(data.products);
         setRows(data.rows);
         setWarehouses(data.warehouses);
         setLevel(data.level);
@@ -184,11 +186,12 @@ export default function InventoryPage() {
   };
 
   const categories = useMemo(() => [...new Set(rows.map((r) => r.categoryName).filter(Boolean))].sort(), [rows]);
-  const productOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const r of rows) seen.set(r.productId, `${r.productCode} — ${r.productName}`);
-    return [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [rows]);
+  const productOptions = useMemo(
+    () => trackedProducts
+      .map((p) => ({ value: p.productId, label: `${p.productCode} — ${p.productName}` }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [trackedProducts],
+  );
   const visible = rows.filter((r) =>
     (warehouseFilter === "all" || r.warehouseId === warehouseFilter) && (categoryFilter === "all" || r.categoryName === categoryFilter));
 
@@ -278,10 +281,15 @@ export default function InventoryPage() {
             labels: { productName: "Product", categoryName: "Category", warehouseName: "Warehouse", onHand: "On hand", safetyStock: "Safety", available: "Available" },
           }}
         />
-        {!loading && rows.length === 0 && (
-          <p className="mt-4 text-sm text-muted-foreground">
-            No products are tracked yet. Turn on &quot;Track inventory&quot; for a product category to start.
-          </p>
+        {!loading && (trackedProducts.length === 0 || warehouses.length === 0) && (
+          <div className="mt-4 space-y-1 text-sm text-muted-foreground">
+            {trackedProducts.length === 0 && (
+              <p>No products are tracked yet. Turn on &quot;Track inventory&quot; for a product category to start.</p>
+            )}
+            {warehouses.length === 0 && (
+              <p>There are no active warehouses. Add one on the Warehouses page, then it appears here.</p>
+            )}
+          </div>
         )}
       </div>
 
@@ -397,6 +405,7 @@ export default function InventoryPage() {
                       onValueChange={(v) => setEntryLines((prev) => prev.map((l, i) => (i === idx ? { ...l, productId: v } : l)))}
                       options={productOptions}
                       placeholder="Select product"
+                      emptyText="No tracked products. Turn on “Track inventory” for a product category first."
                     />
                   </div>
                   <Input

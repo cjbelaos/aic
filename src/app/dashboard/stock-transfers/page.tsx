@@ -96,14 +96,12 @@ export default function StockTransfersPage() {
   const load = useCallback(
     () => Promise.all([
       api<{ level: AccessLevel; transfers: Transfer[] }>("/api/inventory/transfers"),
-      api<{ rows: ProductOption[] }>("/api/inventory"),
+      api<{ products: ProductOption[] }>("/api/inventory"),
     ])
       .then(([t, inv]) => {
         setTransfers(t.transfers);
         setLevel(t.level);
-        const seen = new Map<string, ProductOption>();
-        for (const r of inv.rows) seen.set(r.productId, { productId: r.productId, productCode: r.productCode, productName: r.productName });
-        setProducts([...seen.values()].sort((a, b) => a.productName.localeCompare(b.productName)));
+        setProducts([...inv.products].sort((a, b) => a.productName.localeCompare(b.productName)));
       })
       .catch((error) => toast.error(error instanceof Error ? error.message : "Failed to load transfers."))
       .finally(() => setLoading(false)),
@@ -236,6 +234,7 @@ export default function StockTransfersPage() {
                         onValueChange={(v) => setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, productId: v } : l)))}
                         options={productOptions}
                         placeholder="Select product"
+                        emptyText="No tracked products. Turn on “Track inventory” for a product category first."
                       />
                     </div>
                     <Input
