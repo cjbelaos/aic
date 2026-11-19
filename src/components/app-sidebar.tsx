@@ -29,6 +29,9 @@ import {
   FileSignature,
   ClipboardCheck,
   CalendarDays,
+  Warehouse,
+  ArrowLeftRight,
+  BadgeCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -264,6 +267,42 @@ export function AppSidebar() {
           <SidebarGroupLabel>Inventory</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/inventory")}
+                  tooltip="Stock on Hand"
+                >
+                  <Link href="/dashboard/inventory">
+                    <Warehouse />
+                    <span>Stock on Hand</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/stock-transfers")}
+                  tooltip="Stock Transfers"
+                >
+                  <Link href="/dashboard/stock-transfers">
+                    <ArrowLeftRight />
+                    <span>Stock Transfers</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive("/dashboard/stock-approvals")}
+                  tooltip="Stock Approvals"
+                >
+                  <Link href="/dashboard/stock-approvals">
+                    <BadgeCheck />
+                    <span>Stock Approvals</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
