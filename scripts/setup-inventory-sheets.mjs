@@ -51,7 +51,10 @@ const columnStatus = [];
 for (const [range, header] of NEW_COLUMNS) {
   const tab = range.split("!")[0];
   if (!tabs.has(tab)) { columnStatus.push({ range, header, state: "tab missing" }); continue; }
-  const value = (await sheets.spreadsheets.values.get({ spreadsheetId, range })).data.values?.[0]?.[0] ?? "";
+  // A cell beyond the sheet's current width is simply missing (apply widens the sheet).
+  const value = await sheets.spreadsheets.values.get({ spreadsheetId, range })
+    .then((r) => r.data.values?.[0]?.[0] ?? "")
+    .catch((error) => { if (/exceeds grid limits/i.test(String(error?.message))) return ""; throw error; });
   columnStatus.push({ range, header, state: value === header ? "ok" : value ? `occupied by "${value}"` : "missing" });
 }
 const narrowTabs = ["DeliveryReceipts", "ProductCategories"].filter((t) => tabs.has(t)).map((t) => ({ tab: t, columnCount: tabs.get(t).columnCount }));
