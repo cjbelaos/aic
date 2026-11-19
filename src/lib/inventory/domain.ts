@@ -249,3 +249,104 @@ export function dateBeforeOpening(
   const iso = toIsoDate(date);
   return Boolean(openingDate && iso && iso < openingDate);
 }
+
+export type EntryType = "OPENING" | "RECEIVED" | "RETURN" | "ADJUSTMENT";
+
+export interface EntryInput {
+  type: EntryType;
+  warehouseId: string;
+  date: string;
+  note: string;
+  lines: { productId: string; qty: number }[];
+}
+
+/**
+ * Validates a manual stock entry against current balances.
+ * Returns the products that need an automatic zero OPENING first (a first-ever
+ * RECEIVED/RETURN for a warehouse+product), or the reason the entry is refused.
+ */
+export function validateEntry(
+  input: EntryInput,
+  balances: Map<string, StockBalance>,
+  trackedProductIds: ReadonlySet<string>,
+  label: (productId: string) => string = (id) => id,
+): { error: string } | { needsOpening: string[] } {
+  if (!input.warehouseId) return { error: "Choose a warehouse." };
+  const date = toIsoDate(input.date);
+  if (!date) return { error: "Enter a valid date." };
+  if (!input.lines.length) return { error: "Add at least one product." };
+  if (input.type === "ADJUSTMENT" && !input.note.trim()) return { error: "A note is required for adjustments." };
+
+  const seen = new Set<string>();
+  const needsOpening: string[] = [];
+  for (const line of input.lines) {
+    const name = label(line.productId);
+    if (!trackedProductIds.has(line.productId)) return { error: `${name} is not in a category that tracks inventory.` };
+    const qty = Number(line.qty);
+    if (!Number.isFinite(qty)) return { error: `Enter a quantity for ${name}.` };
+    if (input.type === "ADJUSTMENT") {
+      if (qty === 0) return { error: `The adjustment for ${name} cannot be 0.` };
+    } else if (input.type === "OPENING" ? qty < 0 : qty <= 0) {
+      return { error: input.type === "OPENING" ? `The opening count for ${name} cannot be negative.` : `The quantity for ${name} must be greater than 0.` };
+    }
+    if (input.type === "OPENING" && seen.has(line.productId)) return { error: `${name} is listed more than once.` };
+    seen.add(line.productId);
+
+    const balance = balances.get(stockKey(input.warehouseId, line.productId));
+    const openingDate = balance?.openingDate ?? null;
+    if (input.type === "OPENING") {
+      if (openingDate) return { error: `${name} already has an opening count at this warehouse. Use an adjustment for a recount.` };
+      continue;
+    }
+    if (!openingDate) {
+      if (input.type === "ADJUSTMENT") return { error: `Enter the opening count for ${name} at this warehouse first.` };
+      if (!needsOpening.includes(line.productId)) needsOpening.push(line.productId);
+      continue;
+    }
+    if (date < openingDate) return { error: `${name} cannot be dated before its opening count (${openingDate}).` };
+  }
+
+  if (input.type === "ADJUSTMENT") {
+    const change = new Map<string, number>();
+    for (const line of input.lines) change.set(line.productId, (change.get(line.productId) ?? 0) + Number(line.qty));
+    for (const [productId, delta] of change) {
+      const onHand = balances.get(stockKey(input.warehouseId, productId))?.onHand ?? 0;
+      if (onHand + delta < 0) return { error: `This adjustment would take ${label(productId)} below zero (${onHand} on hand).` };
+    }
+  }
+  return { needsOpening };
+}
+
+/** Reason a movement cannot be voided, or null. */
+export function validateVoid(
+  movement: StockMovement,
+  balances: Map<string, StockBalance>,
+  label: (productId: string) => string = (id) => id,
+): string | null {
+  if (movement.status === "void") return "This entry is already void.";
+  if (movement.sourceType === "TRANSFER") return "This line belongs to a stock transfer. Cancel the transfer instead.";
+  if (movement.type === "OPENING" || movement.qty <= 0) return null;
+  const onHand = balances.get(stockKey(movement.warehouseId, movement.productId))?.onHand ?? 0;
+  if (onHand - movement.qty < 0) {
+    return `Voiding this entry would take ${label(movement.productId)} below zero (${onHand} on hand).`;
+  }
+  return null;
+}
+
+/** Shape checks for a transfer; stock is checked separately with checkLines. */
+export function validateTransferInput(
+  input: { fromWarehouseId: string; toWarehouseId: string; date: string; items: { productId: string; qty: number }[] },
+  trackedProductIds: ReadonlySet<string>,
+  label: (productId: string) => string = (id) => id,
+): string | null {
+  if (!input.fromWarehouseId || !input.toWarehouseId) return "Choose both warehouses.";
+  if (input.fromWarehouseId === input.toWarehouseId) return "Choose two different warehouses.";
+  if (!toIsoDate(input.date)) return "Enter a valid date.";
+  if (!input.items.length) return "Add at least one product.";
+  for (const item of input.items) {
+    const name = label(item.productId);
+    if (!trackedProductIds.has(item.productId)) return `${name} is not in a category that tracks inventory.`;
+    if (!(Number(item.qty) > 0)) return `The quantity for ${name} must be greater than 0.`;
+  }
+  return null;
+}
