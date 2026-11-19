@@ -51,6 +51,7 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onPointerDownOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -60,6 +61,16 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        onPointerDownOutside={(event) => {
+          onPointerDownOutside?.(event)
+          // Radix dismisses every open layer on an outside click, not just the
+          // topmost one. A dropdown (Popover) open inside this dialog would
+          // therefore close the whole form when the backdrop is clicked. Keep
+          // the dialog open; the dropdown still closes by itself.
+          if (document.querySelector('[data-slot="popover-content"]')) {
+            event.preventDefault()
+          }
+        }}
         className={cn(
           "fixed top-[50%] left-[50%] z-50 grid max-h-[85vh] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
           className
