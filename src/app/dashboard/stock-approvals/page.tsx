@@ -125,7 +125,7 @@ export default function StockApprovalsPage() {
       </div>
 
       <Dialog open={!!decision} onOpenChange={(open) => { if (!open && !saving) setDecision(null); }}>
-        <DialogContent>
+        <DialogContent onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{decision?.action === "approve" ? "Approve" : "Reject"} {decision?.item.label}</DialogTitle>
             <DialogDescription>

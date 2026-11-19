@@ -327,7 +327,7 @@ export default function InventoryPage() {
 
       {/* Safety stock */}
       <Dialog open={!!safetyTarget} onOpenChange={(open) => { if (!open && !saving) setSafetyTarget(null); }}>
-        <DialogContent>
+        <DialogContent onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Safety stock</DialogTitle>
             <DialogDescription>
@@ -347,7 +347,7 @@ export default function InventoryPage() {
 
       {/* Stock entry */}
       <Dialog open={entryOpen} onOpenChange={(open) => { if (!saving) setEntryOpen(open); }}>
-        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Add stock entry</DialogTitle>
             <DialogDescription>{entryHelp}</DialogDescription>

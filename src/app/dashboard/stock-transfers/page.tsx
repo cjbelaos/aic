@@ -201,7 +201,7 @@ export default function StockTransfersPage() {
       </div>
 
       <Dialog open={open} onOpenChange={(value) => { if (!saving) setOpen(value); }}>
-        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>New stock transfer</DialogTitle>
             <DialogDescription>Saving moves the stock immediately, unless it dips into safety stock and needs a manager&apos;s approval.</DialogDescription>
