@@ -1,7 +1,7 @@
 // Warehouse rules — focused tests: automatic IDs, required fields, unique codes.
 
 import assert from "node:assert/strict";
-import { nextWarehouseId, validateWarehouse } from "../../src/lib/warehouseRules.ts";
+import { nextWarehouseId, toWarehouseInput, validateWarehouse } from "../../src/lib/warehouseRules.ts";
 
 // nextWarehouseId: highest WH-n + 1, never reuses a number
 assert.equal(nextWarehouseId([]), "WH-1");
@@ -22,5 +22,11 @@ for (const field of ["code", "name", "addressLines", "cityProvincePostal"] as co
 assert.match(validateWarehouse({ ...valid, code: " main " }, existing, undefined) ?? "", /Code MAIN is already used by Main Warehouse/);
 assert.equal(validateWarehouse(valid, existing, "WH-1"), null, "a warehouse may keep its own code");
 assert.match(validateWarehouse(valid, [...existing, { warehouseId: "WH-2", code: "BR", name: "Branch" }], "WH-2") ?? "", /already used/);
+
+// toWarehouseInput: every text field is stored in capitals
+assert.deepEqual(
+  toWarehouseInput({ code: "main", name: "Main Warehouse", addressLines: "1 rizal st.\nbrgy. san jose", cityProvincePostal: "quezon city 1100", contactPersonPhone: "juan / 0917", sortOrder: "2" }),
+  { code: "MAIN", name: "MAIN WAREHOUSE", addressLines: "1 RIZAL ST.\nBRGY. SAN JOSE", cityProvincePostal: "QUEZON CITY 1100", contactPersonPhone: "JUAN / 0917", sortOrder: 2 },
+);
 
 console.log("Warehouse rule tests passed.");

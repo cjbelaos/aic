@@ -26,6 +26,21 @@ import type { Warehouse, WarehouseInput } from "@/types/warehouse";
 
 const EMPTY: WarehouseInput = { code: "", name: "", addressLines: "", cityProvincePostal: "", contactPersonPhone: "", sortOrder: 0 };
 
+/**
+ * Warehouse text is always in capitals, whether typed or pasted. Uppercases the
+ * field in place and restores the cursor, so editing mid-text doesn't jump to the end.
+ */
+function toCaps(event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): string {
+  const el = event.target;
+  const upper = el.value.toUpperCase();
+  if (upper !== el.value) {
+    const { selectionStart, selectionEnd } = el;
+    el.value = upper;
+    if (selectionStart !== null && selectionEnd !== null) el.setSelectionRange(selectionStart, selectionEnd);
+  }
+  return upper;
+}
+
 function Required() {
   return <span className="text-destructive" aria-hidden="true"> *</span>;
 }
@@ -163,25 +178,25 @@ export default function WarehousesPage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="wh-code">Code<Required /></Label>
-                <Input id="wh-code" value={form.code} onChange={(e) => set("code", e.target.value)} placeholder="e.g. MAIN" aria-required="true" />
+                <Input id="wh-code" value={form.code} onChange={(e) => set("code", toCaps(e))} placeholder="E.G. MAIN" aria-required="true" />
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="wh-name">Name<Required /></Label>
-                <Input id="wh-name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Main Warehouse" aria-required="true" />
+                <Input id="wh-name" value={form.name} onChange={(e) => set("name", toCaps(e))} placeholder="E.G. MAIN WAREHOUSE" aria-required="true" />
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="wh-address">Address lines<Required /></Label>
-              <Textarea id="wh-address" value={form.addressLines} onChange={(e) => set("addressLines", e.target.value)} rows={3} placeholder="Building, street, barangay" aria-required="true" />
+              <Textarea id="wh-address" value={form.addressLines} onChange={(e) => set("addressLines", toCaps(e))} rows={3} placeholder="BUILDING, STREET, BARANGAY" aria-required="true" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="wh-city">City / Province / Postal code<Required /></Label>
-              <Input id="wh-city" value={form.cityProvincePostal} onChange={(e) => set("cityProvincePostal", e.target.value)} placeholder="e.g. Quezon City, Metro Manila 1100" aria-required="true" />
+              <Input id="wh-city" value={form.cityProvincePostal} onChange={(e) => set("cityProvincePostal", toCaps(e))} placeholder="E.G. QUEZON CITY, METRO MANILA 1100" aria-required="true" />
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="wh-contact">Contact person / phone</Label>
-                <Input id="wh-contact" value={form.contactPersonPhone} onChange={(e) => set("contactPersonPhone", e.target.value)} placeholder="Optional" />
+                <Input id="wh-contact" value={form.contactPersonPhone} onChange={(e) => set("contactPersonPhone", toCaps(e))} placeholder="OPTIONAL" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="wh-order">Display order</Label>

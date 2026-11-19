@@ -30,16 +30,19 @@ export function validateWarehouse(
   return clash ? `Code ${code.toUpperCase()} is already used by ${clash.name}.` : null;
 }
 
+/** Warehouse text is always stored in capitals, however it was typed or pasted. */
+const caps = (value: unknown) => String(value ?? "").toUpperCase();
+
 /** Normalises a request body into the editable warehouse fields. */
 export function toWarehouseInput(body: {
   code?: unknown; name?: unknown; addressLines?: unknown; cityProvincePostal?: unknown; contactPersonPhone?: unknown; sortOrder?: unknown;
 }) {
   return {
-    code: String(body.code ?? ""),
-    name: String(body.name ?? ""),
-    addressLines: String(body.addressLines ?? ""),
-    cityProvincePostal: String(body.cityProvincePostal ?? ""),
-    contactPersonPhone: String(body.contactPersonPhone ?? ""),
+    code: caps(body.code),
+    name: caps(body.name),
+    addressLines: caps(body.addressLines),
+    cityProvincePostal: caps(body.cityProvincePostal),
+    contactPersonPhone: caps(body.contactPersonPhone),
     sortOrder: Number(body.sortOrder) || 0,
   };
 }
