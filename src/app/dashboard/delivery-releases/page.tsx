@@ -69,7 +69,7 @@ import {
   resolveDeliveryReference,
   type DeliveryReferenceMode,
 } from "@/lib/deliveryReference";
-import { formatSerialCell, matchesDeliverySearch, parseSerialInput } from "@/lib/deliverySerials";
+import { deliverySearchFields, formatSerialCell, matchesDeliverySearch, parseSerialInput } from "@/lib/deliverySerials";
 import { DeliverySerialInput } from "@/components/delivery-serial-input";
 import { DeliveryItemSerialTags, DeliveryItemSummary } from "@/components/delivery-item-summary";
 import { EditDrSerialsDialog } from "@/components/edit-dr-serials-dialog";
@@ -541,8 +541,7 @@ export default function DeliveryReleasePage() {
   const filteredReceipts = useMemo(
     () => {
       const filtered = receipts.filter((receipt) => {
-        const itemFields = (receipt.items ?? []).flatMap((item) => [item.description, item.productCode, ...(item.serialNumbers ?? [])]);
-        if (!matchesDeliverySearch(registerSearch, [receipt.drNumber, receipt.companyName, deliveryReferenceDisplay(receipt), receipt.date, receipt.deliveredBy, receipt.status, ...itemFields])) return false;
+        if (!matchesDeliverySearch(registerSearch, deliverySearchFields(receipt, deliveryReferenceDisplay(receipt), (code) => productNameByCode[code]))) return false;
         const matchesAssignee =
           assignedToFilter === "all" ||
           getDeliveryAssigneeKey(receipt) === assignedToFilter;
@@ -560,7 +559,7 @@ export default function DeliveryReleasePage() {
         return activityDifference || b.drNumber - a.drNumber;
       });
     },
-    [assignedToFilter, linkedDocumentFilter, receipts, siLookup, registerSearch],
+    [assignedToFilter, linkedDocumentFilter, receipts, siLookup, registerSearch, productNameByCode],
   );
 
   /* Table columns */

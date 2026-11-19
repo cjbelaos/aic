@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import {
   deliveryItemRowValues,
   deliveryPrintRows,
+  deliverySearchFields,
+  printSerialLine,
   formatSerialCell,
   parseDeliveryItemRow,
   serialCellValue,
@@ -128,5 +130,20 @@ for (const body of [null, {}, { items: "x" }, { items: [{ deliveryReceiptItemId:
   const result = validateSerialUpdate({ status: "completed", body, existingItemIds: ids });
   assert.equal(!result.ok && result.status, 400, JSON.stringify(body));
 }
+
+// Final review fix: HTML print document shows an S/N line
+assert.equal(printSerialLine({ serialNumbers: ["A1", "B2"] }), "S/N: A1, B2");
+assert.equal(printSerialLine({ serialNumbers: [] }), null);
+assert.equal(printSerialLine({}), null);
+
+// Final review fix: search finds old lines with blank descriptions by product name
+const oldReceipt = {
+  drNumber: 3700, companyName: "ZODIAC HEALTH VENTURES INC. (HCCH)", date: "1/5/2025", deliveredBy: "", status: "completed",
+  items: [{ productCode: "RM-01", description: "", unit: "UNIT", quantity: 1, serialNumbers: ["SN-9"] }],
+};
+const searchFields = deliverySearchFields(oldReceipt, "SO-1", (code) => (code === "RM-01" ? "Reprocessing Machine" : undefined));
+assert.equal(matchesDeliverySearch("hcch reprocessing", searchFields), true);
+assert.equal(matchesDeliverySearch("sn-9", searchFields), true);
+assert.equal(matchesDeliverySearch("so-1", searchFields), true);
 
 console.log("serials-test passed.");

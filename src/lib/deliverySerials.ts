@@ -183,3 +183,31 @@ export function validateSerialUpdate(input: {
   }
   return { ok: true, updates };
 }
+
+/** "S/N: …" line shown under an item on the printed DR; null when the line has no serials. */
+export function printSerialLine(item: { serialNumbers?: string[] }): string | null {
+  const serials = cleanSerialList(item.serialNumbers);
+  return serials.length ? `S/N: ${formatSerialCell(serials)}` : null;
+}
+
+/** Register search fields for one DR: header fields plus item descriptions, product names, codes and serials. */
+export function deliverySearchFields(
+  receipt: {
+    drNumber: number;
+    companyName: string;
+    date: string;
+    deliveredBy: string;
+    status: string;
+    items?: readonly DeliveryItem[];
+  },
+  reference: string,
+  productNameFor: (productCode: string) => string | undefined,
+): unknown[] {
+  const itemFields = (receipt.items ?? []).flatMap((item) => [
+    item.description,
+    productNameFor(item.productCode),
+    item.productCode,
+    ...(item.serialNumbers ?? []),
+  ]);
+  return [receipt.drNumber, receipt.companyName, reference, receipt.date, receipt.deliveredBy, receipt.status, ...itemFields];
+}

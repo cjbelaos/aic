@@ -1,4 +1,5 @@
 import type { DeliveryReceiptResponse } from "@/types/deliveryReceipt";
+import { printSerialLine } from "@/lib/deliverySerials";
 
 import { BusinessDocumentHeader } from "./business-document-print-layout";
 import { UserSignatureImage } from "./user-signature-image";
@@ -12,6 +13,7 @@ export function DeliveryReceiptPrintDocument({ dr, signatureUrls = {} }: { dr: D
         /* Removes browser-added print metadata while keeping the document inset. */
         @page { margin: 0; }
         @media print { .receipt { padding: 12mm; } }
+        .receipt .serials { font-size: 0.85em; margin-top: 2px; }
       `}</style>
       <main className="receipt">
       <table aria-label="Delivery receipt items">
@@ -26,7 +28,7 @@ export function DeliveryReceiptPrintDocument({ dr, signatureUrls = {} }: { dr: D
           </th></tr>
           <tr className="columns"><th scope="col">#</th><th scope="col">Description</th><th scope="col">Unit</th><th scope="col" className="qty">Quantity</th></tr>
         </thead>
-        <tbody>{dr.items.map((item, index) => <tr className="item" key={index}><td>{index + 1}</td><td>{item.description || "?"}</td><td>{item.unit}</td><td className="qty">{item.quantity.toLocaleString("en-PH", { maximumFractionDigits: 6 })}</td></tr>)}</tbody>
+        <tbody>{dr.items.map((item, index) => <tr className="item" key={index}><td>{index + 1}</td><td>{item.description || "?"}{printSerialLine(item) && <div className="serials">{printSerialLine(item)}</div>}</td><td>{item.unit}</td><td className="qty">{item.quantity.toLocaleString("en-PH", { maximumFractionDigits: 6 })}</td></tr>)}</tbody>
       </table>
       <div className="summary">End of items · {dr.items.length} line item{dr.items.length === 1 ? "" : "s"}</div>
       {dr.comments && <div className="notes multiline"><div className="label">Remarks</div>{dr.comments}</div>}
