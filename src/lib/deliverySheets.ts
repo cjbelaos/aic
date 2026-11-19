@@ -1103,3 +1103,12 @@ export async function getDRStatusHistory(
     return [];
   }
 }
+
+/** Reads one DR's status from the header sheet; null when the DR does not exist. */
+export async function getDeliveryReceiptStatus(drNumber: number): Promise<string | null> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: DELIVERY_RECEIPTS_RANGE });
+  const row = (response.data.values ?? []).find((r) => parseInt(String(r[0] ?? "").trim(), 10) === drNumber);
+  return row ? String(row[10] ?? "created").trim() || "created" : null;
+}

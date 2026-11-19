@@ -10,6 +10,7 @@ import {
   formatSerialCell,
   parseDeliveryItemRow,
   serialCellValue,
+  validateSerialUpdate,
   matchesDeliverySearch,
   parseDeliveryDate,
   parseSerialCell,
@@ -106,5 +107,26 @@ const generated = deliveryItemRowValues(3700, 1, { productCode: "X", unit: "PC",
 assert.equal(typeof generated[8], "string");
 assert.ok(String(generated[8]).length > 0);
 assert.equal(generated[10], "");
+
+// validateSerialUpdate
+const ids = ["dri-1", "dri-2"];
+const okBody = { items: [{ deliveryReceiptItemId: "dri-1", serialNumbers: [" A1 ", "a1", "B2"] }] };
+const completed = validateSerialUpdate({ status: "completed", body: okBody, existingItemIds: ids });
+assert.deepEqual(completed, { ok: true, updates: [{ deliveryReceiptItemId: "dri-1", serialNumbers: ["A1", "B2"] }] });
+assert.equal(validateSerialUpdate({ status: "created", body: okBody, existingItemIds: ids }).ok, true);
+for (const status of ["cancelled", "deleted"]) {
+  const result = validateSerialUpdate({ status, body: okBody, existingItemIds: ids });
+  assert.equal(result.ok, false, status);
+  assert.equal(!result.ok && result.status, 409, status);
+}
+// validateSerialUpdate rejects unknown id
+const unknown = validateSerialUpdate({ status: "completed", body: { items: [{ deliveryReceiptItemId: "dri-x", serialNumbers: ["A1"] }] }, existingItemIds: ids });
+assert.equal(!unknown.ok && unknown.status, 422);
+const extra = validateSerialUpdate({ status: "completed", body: { items: [{ deliveryReceiptItemId: "dri-1", serialNumbers: ["A1"], quantity: 5 }] }, existingItemIds: ids });
+assert.equal(!extra.ok && extra.status, 400);
+for (const body of [null, {}, { items: "x" }, { items: [{ deliveryReceiptItemId: "dri-1", serialNumbers: "A1" }] }]) {
+  const result = validateSerialUpdate({ status: "completed", body, existingItemIds: ids });
+  assert.equal(!result.ok && result.status, 400, JSON.stringify(body));
+}
 
 console.log("serials-test passed.");

@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { SerialUpdate } from "@/lib/deliverySerials";
 import { toast } from "sonner";
 import {
   CreateDeliveryPayload,
@@ -105,6 +106,19 @@ const deliveryService = {
       await axios.delete(`${API_BASE_URL}/${drNumber}`);
     } catch (error) {
       console.error("Failed to delete delivery receipt:", error);
+      if (axios.isAxiosError(error)) {
+        const message = error.response?.data?.error;
+        if (typeof message === "string" && message.trim()) throw new Error(message);
+      }
+      throw error;
+    }
+  },
+
+  updateSerials: async (drNumber: number, updates: SerialUpdate[]): Promise<void> => {
+    try {
+      await axios.patch(`${API_BASE_URL}/${drNumber}/serials`, { items: updates });
+    } catch (error) {
+      console.error("Failed to update delivery receipt serials:", error);
       if (axios.isAxiosError(error)) {
         const message = error.response?.data?.error;
         if (typeof message === "string" && message.trim()) throw new Error(message);

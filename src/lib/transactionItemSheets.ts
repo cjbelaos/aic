@@ -3,7 +3,7 @@ import { isMissingSheetError, parseSheetNumber } from "@/lib/sheets.utils";
 import type { PurchaseOrderItem } from "@/types/purchaseOrder";
 import type { DeliveryItem } from "@/types/deliveryReceipt";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
-import { deliveryItemRowValues, parseDeliveryItemRow } from "@/lib/deliverySerials";
+import { deliveryItemRowValues, parseDeliveryItemRow, serialCellValue, type SerialUpdate } from "@/lib/deliverySerials";
 
 // PO line items live in the canonical `PurchaseOrderItems` tab and DR line items
 // live in the canonical `DeliveryReceiptItems` tab; both follow the unified schema.
@@ -68,4 +68,22 @@ export async function renameDeliveryItemReferences(fromDrNumber: number, toDrNum
   const rows = (existing.data.values ?? []).map((row, index) => ({ value: Number(row[0]), rowNumber: index + 2 })).filter((row) => row.value === fromDrNumber);
   if (!rows.length) return;
   await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data: rows.map(({ rowNumber }) => ({ range: `${DR_SHEET}!A${rowNumber}`, values: [[toDrNumber]] })) } });
+}
+
+/** Writes only column K (serials) for the given active item rows of one DR. */
+export async function updateDeliveryItemSerials(drNumber: number, updates: SerialUpdate[]): Promise<void> {
+  if (!updates.length) return;
+  const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
+  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:K` });
+  const rowById = new Map<string, number>();
+  (existing.data.values ?? []).forEach((row, index) => {
+    const parsed = parseDeliveryItemRow(row);
+    if (parsed.drNumber === drNumber && parsed.status !== "deleted" && parsed.item.deliveryReceiptItemId) rowById.set(parsed.item.deliveryReceiptItemId, index + 2);
+  });
+  const data = updates.map((update) => {
+    const rowNumber = rowById.get(update.deliveryReceiptItemId);
+    if (!rowNumber) throw new Error(`Delivery line ${update.deliveryReceiptItemId} was not found on DR #${drNumber}.`);
+    return { range: `${DR_SHEET}!K${rowNumber}`, values: [[serialCellValue(update.serialNumbers)]] };
+  });
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data } });
 }

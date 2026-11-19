@@ -146,3 +146,40 @@ export function cleanSerialList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return parseSerialInput(value.filter((entry) => typeof entry === "string").join("\n"));
 }
+
+export type SerialUpdate = { deliveryReceiptItemId: string; serialNumbers: string[] };
+
+type SerialUpdateResult =
+  | { ok: true; updates: SerialUpdate[] }
+  | { ok: false; status: 400 | 409 | 422; error: string };
+
+const LOCKED_FOR_SERIALS = new Set(["cancelled", "deleted"]);
+
+/** Validates a serial-only update. Only serials may change; cancelled/deleted DRs are refused. */
+export function validateSerialUpdate(input: {
+  status: string;
+  body: unknown;
+  existingItemIds: readonly string[];
+}): SerialUpdateResult {
+  if (LOCKED_FOR_SERIALS.has(String(input.status ?? "").trim().toLowerCase())) {
+    return { ok: false, status: 409, error: `Serials cannot be changed on a ${input.status} delivery receipt.` };
+  }
+  const items = (input.body as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items)) return { ok: false, status: 400, error: "Expected { items: [...] }." };
+  const known = new Set(input.existingItemIds);
+  const updates: SerialUpdate[] = [];
+  for (const [index, entry] of items.entries()) {
+    const record = entry as Record<string, unknown> | null;
+    const keys = record && typeof record === "object" ? Object.keys(record) : [];
+    const id = record?.deliveryReceiptItemId;
+    if (
+      !record || typeof id !== "string" || !Array.isArray(record.serialNumbers) ||
+      keys.some((key) => key !== "deliveryReceiptItemId" && key !== "serialNumbers")
+    ) {
+      return { ok: false, status: 400, error: `Line ${index + 1}: only deliveryReceiptItemId and serialNumbers may be sent.` };
+    }
+    if (!known.has(id)) return { ok: false, status: 422, error: `Line ${index + 1} is not on this delivery receipt.` };
+    updates.push({ deliveryReceiptItemId: id, serialNumbers: cleanSerialList(record.serialNumbers) });
+  }
+  return { ok: true, updates };
+}
