@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/dialog";
 import { EntityTable, ArrowUpDown } from "@/components/ui/entity-table";
 import { DocumentRegisterHeader } from "@/components/document-register-header";
-import { matchesDocumentSearch } from "@/lib/document-register";
 import {
   Plus,
   Trash2,
@@ -27,6 +26,7 @@ import {
   Loader2,
   Eye,
   Pencil,
+  ScanBarcode,
   ExternalLink,
   Search,
   FileText,
@@ -69,8 +69,10 @@ import {
   resolveDeliveryReference,
   type DeliveryReferenceMode,
 } from "@/lib/deliveryReference";
-import { formatSerialCell, parseSerialInput } from "@/lib/deliverySerials";
+import { formatSerialCell, matchesDeliverySearch, parseSerialInput } from "@/lib/deliverySerials";
 import { DeliverySerialInput } from "@/components/delivery-serial-input";
+import { DeliveryItemSerialTags, DeliveryItemSummary } from "@/components/delivery-item-summary";
+import { EditDrSerialsDialog } from "@/components/edit-dr-serials-dialog";
 
 interface LineItem {
   deliveryReceiptItemId?: string;
@@ -202,6 +204,7 @@ export default function DeliveryReleasePage() {
   const [editManualRows, setEditManualRows] = useState<Set<number>>(new Set());
 
   /* View DR items dialog */
+  const [serialsTarget, setSerialsTarget] = useState<DeliveryReceiptSummary | null>(null);
   const [viewItemsTarget, setViewItemsTarget] =
     useState<DeliveryReceiptSummary | null>(null);
 
@@ -538,7 +541,8 @@ export default function DeliveryReleasePage() {
   const filteredReceipts = useMemo(
     () => {
       const filtered = receipts.filter((receipt) => {
-        if (!matchesDocumentSearch(registerSearch, [receipt.drNumber, receipt.companyName, deliveryReferenceDisplay(receipt), receipt.date, receipt.deliveredBy, receipt.status])) return false;
+        const itemFields = (receipt.items ?? []).flatMap((item) => [item.description, item.productCode, ...(item.serialNumbers ?? [])]);
+        if (!matchesDeliverySearch(registerSearch, [receipt.drNumber, receipt.companyName, deliveryReferenceDisplay(receipt), receipt.date, receipt.deliveredBy, receipt.status, ...itemFields])) return false;
         const matchesAssignee =
           assignedToFilter === "all" ||
           getDeliveryAssigneeKey(receipt) === assignedToFilter;
@@ -627,7 +631,16 @@ export default function DeliveryReleasePage() {
       {
         id: "itemCount",
         header: "Items",
-        cell: ({ row }) => `${row.original.items?.length ?? 0} item(s)`,
+        cell: ({ row }) => (
+          <DeliveryItemSummary
+            items={row.original.items ?? []}
+            date={row.original.date}
+            status={row.original.status}
+            requiresSerial={lineRequiresSerial}
+            nameFor={(item) => item.description?.trim() || productNameByCode[item.productCode] || item.productCode}
+            limit={3}
+          />
+        ),
       },
       {
         id: "linkedSRs",
@@ -847,6 +860,19 @@ export default function DeliveryReleasePage() {
               >
                 <FileText className="h-4 w-4" />
               </Button>
+              {row.original.status === "completed" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setSerialsTarget(row.original)}
+                  disabled={!row.original.items?.length}
+                  title="Edit serials"
+                  aria-label="Edit serials"
+                >
+                  <ScanBarcode className="h-4 w-4" />
+                </Button>
+              )}
               {!locked && (
                 <>
                   <Button
@@ -874,7 +900,7 @@ export default function DeliveryReleasePage() {
         },
       },
     ],
-    [previewingDr, siLookup],
+    [previewingDr, siLookup, lineRequiresSerial, productNameByCode],
   );
 
   const handleCreateSR = (drNumber: number, companyName: string) => {
@@ -1959,6 +1985,12 @@ export default function DeliveryReleasePage() {
         </DialogContent>
       </Dialog>
 
+      <EditDrSerialsDialog
+        receipt={serialsTarget}
+        onClose={() => setSerialsTarget(null)}
+        onSaved={() => { void fetchList(); }}
+      />
+
       <DeliveryReceiptPreviewModal
         key={viewDr?.drNumber ?? "view-dr"}
         dr={viewDr}
@@ -2051,7 +2083,15 @@ export default function DeliveryReleasePage() {
                             <td className="px-3 py-2 text-center">
                               {item.unit || "—"}
                             </td>
-                            <td className="px-3 py-2">{descriptionText}</td>
+                            <td className="px-3 py-2">
+                              {descriptionText}
+                              <DeliveryItemSerialTags
+                                item={item}
+                                date={viewItemsTarget.date}
+                                status={viewItemsTarget.status}
+                                requiresSerial={lineRequiresSerial}
+                              />
+                            </td>
                           </tr>
                         );
                       })
