@@ -19,11 +19,11 @@ export async function POST(request: Request) {
     note?: string;
     items?: { productId: string; qty: number; serialNumbers?: string[] }[];
   };
-  return inventoryRoute(async ({ actor }) => createTransfer({
+  return inventoryRoute(async ({ actor, session }) => createTransfer({
     date: String(body.date ?? ""),
     fromWarehouseId: String(body.fromWarehouseId ?? ""),
     toWarehouseId: String(body.toWarehouseId ?? ""),
-    preparedBy: String(body.preparedBy ?? ""),
+    preparedBy: String(body.preparedBy ?? "").trim() || session.fullName,
     note: String(body.note ?? ""),
     items: (body.items ?? []).map((i) => ({ productId: String(i.productId ?? ""), qty: Number(i.qty), serialNumbers: i.serialNumbers ?? [] })),
   }, actor), 201);
