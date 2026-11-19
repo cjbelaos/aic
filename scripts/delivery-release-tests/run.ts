@@ -2,5 +2,6 @@
 //   node tmp/delivery-release-tests/out/scripts/delivery-release-tests/run.js
 
 import "./reference-test.ts";
+import "./serials-test.ts";
 
 console.log("All delivery-release focused tests passed.");

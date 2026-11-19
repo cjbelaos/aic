@@ -16,6 +16,7 @@
   },
   "include": [
     "*.ts",
-    "../../src/lib/deliveryReference.ts"
+    "../../src/lib/deliveryReference.ts",
+    "../../src/lib/deliverySerials.ts"
   ]
 }

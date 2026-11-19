@@ -1,0 +1,77 @@
+// Delivery Release serial numbers and warranty — focused tests.
+//
+// Covers serial input parsing, the sheet cell format, warranty dates and status,
+// the missing-serial rule, word-by-word register search and DR print rows.
+
+import assert from "node:assert/strict";
+import {
+  deliveryPrintRows,
+  formatSerialCell,
+  matchesDeliverySearch,
+  parseDeliveryDate,
+  parseSerialCell,
+  parseSerialInput,
+  serialShortfall,
+  warrantyEnd,
+  warrantyStatus,
+} from "../../src/lib/deliverySerials.ts";
+
+const ymd = (d: Date | null) => (d ? [d.getFullYear(), d.getMonth() + 1, d.getDate()] : null);
+const local = (y: number, m: number, d: number) => new Date(y, m - 1, d);
+
+// parseSerialInput cleans input
+assert.deepEqual(parseSerialInput(" A1, a1,\n\nB2 ,"), ["A1", "B2"]);
+assert.deepEqual(parseSerialInput(""), []);
+
+// cell round-trip
+assert.equal(formatSerialCell(["A1", "B2"]), "A1, B2");
+assert.deepEqual(parseSerialCell("A1, B2"), ["A1", "B2"]);
+assert.deepEqual(parseSerialCell(undefined), []);
+
+// parseDeliveryDate handles sheet formats
+assert.deepEqual(ymd(parseDeliveryDate("2025-11-19")), [2025, 11, 19]);
+assert.deepEqual(ymd(parseDeliveryDate("11/19/2025")), [2025, 11, 19]);
+assert.deepEqual(ymd(parseDeliveryDate("1/5/2026")), [2026, 1, 5]);
+assert.equal(parseDeliveryDate("19 Nov"), null);
+assert.equal(parseDeliveryDate(""), null);
+assert.equal(parseDeliveryDate("2025-02-30"), null);
+
+// warrantyEnd: leap day rolls to Feb 28
+assert.deepEqual(ymd(warrantyEnd(local(2024, 2, 29))), [2025, 2, 28]);
+
+// warrantyStatus
+const base = { date: "2025-11-19", status: "created", serialCount: 1 };
+const active = warrantyStatus(base, local(2026, 11, 19));
+assert.equal(active?.state, "active");
+assert.equal(active?.label, "Under warranty until Nov 19, 2026");
+const expired = warrantyStatus(base, local(2026, 11, 20));
+assert.equal(expired?.state, "expired");
+assert.equal(expired?.label, "Warranty expired Nov 19, 2026");
+assert.equal(warrantyStatus({ ...base, serialCount: 0 }, local(2026, 1, 1)), null);
+for (const status of ["draft", "cancelled", "deleted"]) {
+  assert.equal(warrantyStatus({ ...base, status }, local(2026, 1, 1)), null, status);
+}
+assert.equal(warrantyStatus({ ...base, date: "soon" }, local(2026, 1, 1)), null);
+
+// serialShortfall
+assert.deepEqual(serialShortfall({ requiresSerial: true, quantity: 2, serialCount: 1 }), { missing: 1, label: "Serial missing (1 of 2)" });
+assert.equal(serialShortfall({ requiresSerial: true, quantity: 2, serialCount: 2 }), null);
+assert.equal(serialShortfall({ requiresSerial: false, quantity: 2, serialCount: 0 }), null);
+
+// matchesDeliverySearch word by word
+const fields = ["ZODIAC HEALTH VENTURES INC. (HCCH)", "Reprocessing Machine", "SN-001"];
+assert.equal(matchesDeliverySearch("hcch reprocessing", fields), true);
+assert.equal(matchesDeliverySearch("sn-001", fields), true);
+assert.equal(matchesDeliverySearch("hcch parts", fields), false);
+assert.equal(matchesDeliverySearch("  ", fields), true);
+
+// deliveryPrintRows
+assert.deepEqual(
+  deliveryPrintRows([
+    { quantity: 1, unit: "UNIT", description: "Reprocessing Machine", serialNumbers: ["A1", "B2"] },
+    { quantity: 3, unit: "PC", description: "Filter" },
+  ]),
+  [[1, "UNIT", "Reprocessing Machine"], ["", "", "S/N: A1, B2"], [3, "PC", "Filter"]],
+);
+
+console.log("serials-test passed.");
