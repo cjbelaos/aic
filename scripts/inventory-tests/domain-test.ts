@@ -165,7 +165,8 @@ assert.equal(accessLevelFor({ positionTitle: "", superAdmin: false }), "view");
 assert.equal(accessLevelFor({ positionTitle: "Technician", superAdmin: true }), "manage");
 
 // canPerform
-assert.equal(canPerform("operate", "entry:ADJUSTMENT"), false);
+assert.equal(canPerform("operate", "entry:ADJUSTMENT"), true, "Staff and Tech Admin may recount");
+assert.equal(canPerform("view", "entry:ADJUSTMENT"), false);
 assert.equal(canPerform("operate", "safety:set"), false);
 assert.equal(canPerform("operate", "approval:decide"), false);
 assert.equal(canPerform("operate", "entry:void"), false);

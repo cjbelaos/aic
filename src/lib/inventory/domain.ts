@@ -232,6 +232,7 @@ const OPERATE_ACTIONS: ReadonlySet<InventoryAction> = new Set<InventoryAction>([
   "entry:OPENING",
   "entry:RECEIVED",
   "entry:RETURN",
+  "entry:ADJUSTMENT",
   "transfer:create",
   "transfer:cancel",
 ]);

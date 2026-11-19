@@ -94,10 +94,11 @@ Chris picked A.
     | Level | Who | Can do |
     |---|---|---|
     | View | everyone else | view inventory page and history |
-    | Operate | Staff, Tech Admin | + opening counts, received, returns, transfers |
-    | Manage | Manager and above | + adjustments, safety stock, approve/reject |
+    | Operate | Staff, Tech Admin | + opening counts, received, returns, adjustments (recounts), transfers |
+    | Manage | Manager and above | + void entries, safety stock, approve/reject |
     "Manager and above" = position title contains "manager" (case-insensitive) **or** is in the
     executive list in `src/lib/positionUtils.ts` (GM, CEO, CFO, COO…). Super Admins are Manage.
+    *Updated 2026-11-19 at Chris's request: Staff and Tech Admin may also record adjustments, so they can recount a wrong number from the On hand column. Every adjustment keeps who/when/why in the history.*
     "Staff" and "Tech Admin" match those position titles exactly (case-insensitive). DR creation
     permissions are unchanged; the stock check applies to whoever creates the DR.
 

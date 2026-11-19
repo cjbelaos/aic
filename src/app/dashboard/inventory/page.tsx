@@ -84,6 +84,11 @@ export default function InventoryPage() {
 
   /* Safety stock dialog */
   const [safetyTarget, setSafetyTarget] = useState<StockRow | null>(null);
+
+  /* On hand dialog: first count (opening) or recount (adjustment) */
+  const [countTarget, setCountTarget] = useState<StockRow | null>(null);
+  const [countValue, setCountValue] = useState("");
+  const [countReason, setCountReason] = useState("");
   const [safetyValue, setSafetyValue] = useState("");
 
   /* Stock entry dialog */
@@ -154,6 +159,52 @@ export default function InventoryPage() {
     }
   };
 
+  const openCount = (row: StockRow) => {
+    setCountTarget(row);
+    setCountValue(row.openingDate ? String(row.onHand) : "");
+    setCountReason("");
+  };
+
+  const saveCount = async () => {
+    if (!countTarget) return;
+    const counted = Number(countValue);
+    if (countValue.trim() === "" || !Number.isFinite(counted) || counted < 0) { toast.error("Enter the counted quantity (0 or more)."); return; }
+    const isRecount = Boolean(countTarget.openingDate);
+    const delta = counted - countTarget.onHand;
+    if (isRecount && delta === 0) { toast.message("No change: the count matches what is on hand."); setCountTarget(null); return; }
+    if (isRecount && !countReason.trim()) { toast.error("Enter a reason for the recount."); return; }
+    setSaving(true);
+    try {
+      await api("/api/inventory/entries", {
+        method: "POST",
+        body: JSON.stringify(isRecount
+          ? {
+              type: "ADJUSTMENT",
+              warehouseId: countTarget.warehouseId,
+              date: today(),
+              referenceNo: "RECOUNT",
+              note: `Recount: system ${countTarget.onHand}, counted ${counted}. ${countReason.trim()}`,
+              lines: [{ productId: countTarget.productId, qty: delta }],
+            }
+          : {
+              type: "OPENING",
+              warehouseId: countTarget.warehouseId,
+              date: today(),
+              referenceNo: "",
+              note: "",
+              lines: [{ productId: countTarget.productId, qty: counted }],
+            }),
+      });
+      toast.success(isRecount ? `Recount saved (${delta > 0 ? "+" : ""}${delta}).` : "Opening count saved.");
+      setCountTarget(null);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save the count.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const allowedTypes = ENTRY_TYPES.filter((t) => canPerform(level, `entry:${t.value}`));
   const openEntry = () => {
     setEntryType(allowedTypes[0]?.value ?? "OPENING");
@@ -211,9 +262,25 @@ export default function InventoryPage() {
     {
       accessorKey: "onHand",
       header: "On hand",
-      cell: ({ row }) => row.original.openingDate
-        ? <span className={`tabular-nums ${row.original.onHand < 0 ? "font-semibold text-destructive" : ""}`}>{row.original.onHand}</span>
-        : <Badge variant="outline">Needs opening count</Badge>,
+      cell: ({ row }) => {
+        const counted = Boolean(row.original.openingDate);
+        const display = counted
+          ? <span className={`tabular-nums ${row.original.onHand < 0 ? "font-semibold text-destructive" : ""}`}>{row.original.onHand}</span>
+          : <Badge variant="outline">Needs opening count</Badge>;
+        // First count needs the opening-count right; a recount is an adjustment.
+        if (!canPerform(level, counted ? "entry:ADJUSTMENT" : "entry:OPENING")) return display;
+        return (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            title={counted ? "Recount" : "Enter opening count"}
+            onClick={(event) => { event.stopPropagation(); openCount(row.original); }}
+          >
+            {display}
+          </Button>
+        );
+      },
     },
     {
       accessorKey: "safetyStock",
@@ -332,6 +399,42 @@ export default function InventoryPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* On hand: opening count or recount */}
+      <Dialog open={!!countTarget} onOpenChange={(open) => { if (!open && !saving) setCountTarget(null); }}>
+        <DialogContent onInteractOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>{countTarget?.openingDate ? "Recount" : "Opening count"}</DialogTitle>
+            <DialogDescription>
+              {countTarget?.productName} at {countTarget?.warehouseName}.{" "}
+              {countTarget?.openingDate
+                ? `The system shows ${countTarget.onHand} on hand. Enter what is actually on the shelf; the difference is recorded as an adjustment.`
+                : "Enter what is on the shelf today. Stock is counted from today."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="count-qty">{countTarget?.openingDate ? "Actual quantity on the shelf" : "Counted quantity"}</Label>
+              <Input id="count-qty" type="number" min={0} value={countValue} onChange={(e) => setCountValue(e.target.value)} />
+              {countTarget?.openingDate && countValue.trim() !== "" && Number(countValue) !== countTarget.onHand && (
+                <p className="text-xs text-muted-foreground">
+                  Adjustment of {Number(countValue) - countTarget.onHand > 0 ? "+" : ""}{Number(countValue) - countTarget.onHand}
+                </p>
+              )}
+            </div>
+            {countTarget?.openingDate && (
+              <div className="space-y-2">
+                <Label htmlFor="count-reason">Reason <span className="text-destructive">*</span></Label>
+                <Textarea id="count-reason" rows={2} value={countReason} onChange={(e) => setCountReason(e.target.value)} placeholder="e.g. physical recount, damaged units" />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCountTarget(null)} disabled={saving}>Cancel</Button>
+            <Button onClick={() => void saveCount()} disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Safety stock */}
       <Dialog open={!!safetyTarget} onOpenChange={(open) => { if (!open && !saving) setSafetyTarget(null); }}>
