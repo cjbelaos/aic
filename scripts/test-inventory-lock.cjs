@@ -42,6 +42,8 @@ const { load } = require('./test-fti-recalculation.cjs');
   const b = load('src/lib/inventory/lock.ts', mocks);
   a.__setClock(() => now.value);
   b.__setClock(() => now.value);
+  a.__setRetry({ attempts: 0, delayMs: 0 });
+  b.__setRetry({ attempts: 0, delayMs: 0 });
 
   // acquire, nest, conflict, release
   await a.withInventoryLock(async () => {
@@ -76,6 +78,32 @@ const { load } = require('./test-fti-recalculation.cjs');
     const error = await b.withInventoryLock(async () => {}).catch((e) => e);
     assert.equal(error.status, 409);
   });
+
+  // a failed release must not turn a saved write into an error
+  let failRelease = true;
+  const realBatch = api.spreadsheets.batchUpdate;
+  api.spreadsheets.batchUpdate = async (request, options) => {
+    if (failRelease && request.requestBody.requests.some((r) => r.deleteSheet)) throw Object.assign(new Error("Rate limit"), { code: 429 });
+    return realBatch(request, options);
+  };
+  const saved = await a.withInventoryLock(async () => "saved");
+  assert.equal(saved, "saved", "A failed lock release must not replace a successful result");
+  failRelease = false;
+  api.spreadsheets.batchUpdate = realBatch;
+  now.value += 121 * 1000;
+  await a.withInventoryLock(async () => {}); // the orphaned lock expires on its own
+
+  // acquisition waits for a short-lived lock instead of failing at once
+  a.__setRetry({ attempts: 5, delayMs: 10 });
+  b.__setRetry({ attempts: 5, delayMs: 10 });
+  let waited = false;
+  await a.withInventoryLock(async () => {
+    setTimeout(() => { held = null; }, 25); // the holder finishes while b is waiting
+    await b.withInventoryLock(async () => { waited = true; });
+  }).catch(() => {});
+  assert.equal(waited, true, "A waiting writer must get the lock once it is released");
+  a.__setRetry({ attempts: 0, delayMs: 0 });
+  b.__setRetry({ attempts: 0, delayMs: 0 });
 
   console.log('Inventory write lock tests passed.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

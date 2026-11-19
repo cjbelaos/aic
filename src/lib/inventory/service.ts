@@ -21,6 +21,7 @@ import {
   resolveDocumentStatus,
   stockKey,
   toIsoDate,
+  validateDrGuardInput,
   validateEntry,
   validateTransferInput,
   validateVoid,
@@ -118,6 +119,8 @@ export async function guardDrStock(input: {
     productId: item.productId || names.productIdByCode.get(String(item.productCode ?? "").toLowerCase()) || "",
     quantity: Number(item.quantity) || 0,
   }));
+  const inputError = validateDrGuardInput({ date: input.date, lines }, tracked, names.product);
+  if (inputError) throw new InventoryValidationError(inputError);
   for (const line of lines) {
     if (line.productId && tracked.has(line.productId) && dateBeforeOpening(balances, input.warehouseId, line.productId, input.date)) {
       const opening = balances.get(stockKey(input.warehouseId, line.productId))?.openingDate;

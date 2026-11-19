@@ -45,7 +45,10 @@ export async function POST(request: Request, { params }: Context) {
         items: stored.items,
         level: "manage",
       });
-      return updateDeliveryReceipt(drNumber, { ...stamp, status: "created" }, session.userId);
+      // Restore the status the DR was saved for, so a printed/completed DR
+      // regains it and Sales Order fulfillment can post below.
+      const restored = ["created", "printed", "completed"].includes(stored.requestedStatus ?? "") ? (stored.requestedStatus as string) : "created";
+      return updateDeliveryReceipt(drNumber, { ...stamp, status: restored, requestedStatus: "" }, session.userId);
     });
 
     let fulfillment: { state: string; posted: number; alreadyPosted: number } | undefined;

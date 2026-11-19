@@ -186,3 +186,12 @@ for (const action of ["entry:OPENING", "entry:RECEIVED", "transfer:create", "tra
 }
 
 console.log("inventory domain tests passed.");
+
+// Fail closed: a counted DR whose date cannot be read still reduces stock
+{
+  const b = balanceOf([opening], [dr({ date: "Nov 21, 2026", quantity: 4 })]).get(stockKey("W1", "P1"));
+  assert.equal(b?.onHand, 6, "an unreadable DR date must count, not silently drop out of stock");
+  const drafted = balanceOf([opening], [dr({ date: "Nov 21, 2026", status: "draft", quantity: 4 })]).get(stockKey("W1", "P1"));
+  assert.equal(drafted?.onHand, 10, "a held DR with an unreadable date still does not count");
+}
+console.log("inventory fail-closed date tests passed.");

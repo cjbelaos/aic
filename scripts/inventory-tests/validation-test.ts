@@ -6,6 +6,7 @@ import {
   validateEntry,
   validateTransferInput,
   validateVoid,
+  validateDrGuardInput,
   type StockMovement,
 } from "../../src/lib/inventory/domain.ts";
 
@@ -71,3 +72,14 @@ assert.match(validateTransferInput({ ...transfer, items: [{ productId: "P3", qty
 assert.match(validateTransferInput({ ...transfer, date: "" }, tracked, label) ?? "", /date/i);
 
 console.log("inventory validation tests passed.");
+
+// validateDrGuardInput: fail closed on dates, no zero or negative tracked lines
+{
+  const ok = { date: "2026-11-21", lines: [{ productId: "P1", quantity: 2 }] };
+  assert.equal(validateDrGuardInput(ok, tracked, label), null);
+  assert.match(validateDrGuardInput({ ...ok, date: "Nov 21, 2026" }, tracked, label) ?? "", /delivery date/i);
+  assert.match(validateDrGuardInput({ ...ok, lines: [{ productId: "P1", quantity: -5 }] }, tracked, label) ?? "", /greater than 0/i);
+  assert.match(validateDrGuardInput({ ...ok, lines: [{ productId: "P1", quantity: 0 }] }, tracked, label) ?? "", /greater than 0/i);
+  assert.equal(validateDrGuardInput({ ...ok, lines: [{ productId: "P3", quantity: -1 }, { quantity: 0 }] }, tracked, label), null, "untracked and manual lines are not checked");
+}
+console.log("inventory DR guard input tests passed.");

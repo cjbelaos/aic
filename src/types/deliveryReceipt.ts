@@ -43,6 +43,8 @@ export interface CreateDeliveryPayload {
   approvedBy?: string;
   approvedAt?: string;
   approvalNote?: string;
+  /** Status the DR was saved for while it waits for approval (column X), set by the server only. */
+  requestedStatus?: string;
 }
 
 export interface DeliveryReceiptResponse {
@@ -100,6 +102,7 @@ export interface DeliveryReceiptSummary {
   approvedBy?: string;
   approvedAt?: string;
   approvalNote?: string;
+  requestedStatus?: string;
 }
 
 export interface DeliveryPersonOption {

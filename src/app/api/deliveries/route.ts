@@ -151,7 +151,8 @@ export async function POST(request: Request) {
       { warehouseId: body.warehouseId ?? "", date: body.date, requestedStatus: body.status ?? "created", items: body.items ?? [] },
       (stock) => {
         body.status = stock.status;
-        if (stock.approval) Object.assign(body, stock.approval);
+        // Server-owned fields: never trust values sent by the browser.
+        Object.assign(body, stock.approval, { requestedStatus: stock.requestedStatus });
         return processDeliveryReceipt(body, session.userId);
       },
     );

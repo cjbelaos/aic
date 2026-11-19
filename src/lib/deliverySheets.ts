@@ -29,11 +29,11 @@ const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:W`;
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:X`;
 // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:SalesOrderNo (legacy TRNumber)
 // F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink
 // M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType
-// R:DeliveredByOptionId S:SalesOrderId T:WarehouseId U:ApprovedBy V:ApprovedAt W:ApprovalNote
+// R:DeliveredByOptionId S:SalesOrderId T:WarehouseId U:ApprovedBy V:ApprovedAt W:ApprovalNote X:RequestedStatus
 // Writers of A:S leave T:W untouched; writeInventoryColumns() owns T:W.
 
 /** Statuses that keep a DR unnumbered, unprinted and out of stock and fulfillment. */
@@ -46,14 +46,14 @@ async function writeInventoryColumns(
   sheets: Awaited<ReturnType<typeof getSheetsClient>>,
   spreadsheetId: string,
   rowNumber: number,
-  values: { warehouseId: string; approvedBy: string; approvedAt: string; approvalNote: string },
+  values: { warehouseId: string; approvedBy: string; approvedAt: string; approvalNote: string; requestedStatus: string },
 ): Promise<void> {
   if (rowNumber <= 1) return;
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${DELIVERY_RECEIPTS_SHEET}!T${rowNumber}:W${rowNumber}`,
+    range: `${DELIVERY_RECEIPTS_SHEET}!T${rowNumber}:X${rowNumber}`,
     valueInputOption: "RAW",
-    requestBody: { values: [[values.warehouseId, values.approvedBy, values.approvedAt, values.approvalNote]] },
+    requestBody: { values: [[values.warehouseId, values.approvedBy, values.approvedAt, values.approvalNote, values.requestedStatus]] },
   });
 }
 
@@ -201,6 +201,7 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           approvedBy: String(row[20] ?? "").trim() || undefined,
           approvedAt: String(row[21] ?? "").trim() || undefined,
           approvalNote: String(row[22] ?? "").trim() || undefined,
+          requestedStatus: String(row[23] ?? "").trim() || undefined,
           items: itemsByDr.get(drNumber) || [],
         };
       })
@@ -511,6 +512,7 @@ export async function processDeliveryReceipt(
       approvedBy: payload.approvedBy || "",
       approvedAt: payload.approvedAt || "",
       approvalNote: payload.approvalNote || "",
+      requestedStatus: payload.requestedStatus || "",
     });
 
     // 4. Populate template and export PDF (skip for drafts and held DRs)
@@ -648,7 +650,7 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:W${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:X${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     if (payload.deliveredByOptionId) {
@@ -759,6 +761,7 @@ export async function updateDeliveryReceipt(
       approvedBy: payload.approvedBy ?? String(currentRow[20] ?? "").trim(),
       approvedAt: payload.approvedAt ?? String(currentRow[21] ?? "").trim(),
       approvalNote: payload.approvalNote ?? String(currentRow[22] ?? "").trim(),
+      requestedStatus: payload.requestedStatus ?? String(currentRow[23] ?? "").trim(),
     };
     await writeInventoryColumns(sheets, spreadsheetId, drRowNumber, inventoryColumns);
 
@@ -816,6 +819,7 @@ export async function updateDeliveryReceipt(
       approvedBy: inventoryColumns.approvedBy || undefined,
       approvedAt: inventoryColumns.approvedAt || undefined,
       approvalNote: inventoryColumns.approvalNote || undefined,
+      requestedStatus: inventoryColumns.requestedStatus || undefined,
       items: payload.items || [],
     };
   } catch (error) {

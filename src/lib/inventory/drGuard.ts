@@ -21,8 +21,13 @@ export interface DrStockDecision {
   status: string;
   selfApproved: boolean;
   check: StockCheck;
-  approval?: { approvedBy: string; approvedAt: string; approvalNote: string };
+  /** Always fully set by the server: client-supplied approval fields are never trusted. */
+  approval: { approvedBy: string; approvedAt: string; approvalNote: string };
+  /** The status a held DR was saved for; "" when the DR is not held. */
+  requestedStatus: string;
 }
+
+const NO_APPROVAL = { approvedBy: "", approvedAt: "", approvalNote: "" };
 
 /**
  * Runs the stock guard for a DR and then `write` with the status the DR must be
@@ -33,6 +38,12 @@ export async function guardedDrWrite<T>(
   input: { drNumber?: number; warehouseId: string; date: string; requestedStatus: string; items: { productId?: string; productCode?: string; quantity: number }[] },
   write: (decision: DrStockDecision) => Promise<T>,
 ): Promise<{ result: T; decision: DrStockDecision }> {
+  const requested = String(input.requestedStatus || "created").trim().toLowerCase();
+  if (requested === "draft") {
+    // A draft has no stock effect, so it neither needs nor waits for the lock.
+    const decision: DrStockDecision = { status: "draft", selfApproved: false, check: { result: "ok", lines: [] }, approval: NO_APPROVAL, requestedStatus: "" };
+    return { result: await write(decision), decision };
+  }
   const level = await getAccessLevel(session);
   return withInventoryLock(async () => {
     const guard = await guardDrStock({ ...input, level });
@@ -40,7 +51,8 @@ export async function guardedDrWrite<T>(
       ...guard,
       approval: guard.selfApproved
         ? { approvedBy: session.userId, approvedAt: new Date().toISOString(), approvalNote: SELF_APPROVED_NOTE }
-        : undefined,
+        : NO_APPROVAL,
+      requestedStatus: guard.status === "pending_approval" ? requested : "",
     };
     return { result: await write(decision), decision };
   });

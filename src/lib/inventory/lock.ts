@@ -18,6 +18,17 @@ export function __setClock(next: () => number): void {
   clock = next;
 }
 
+// A writer that finds the lock held waits briefly (PDF export inside a DR save
+// takes several seconds) before giving up with a 409.
+let retry = { attempts: 30, delayMs: 400 };
+
+/** Test hook: replaces the wait-and-retry settings used when the lock is held. */
+export function __setRetry(next: { attempts: number; delayMs: number }): void {
+  retry = next;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export class InventoryWriteConflict extends Error {
   status = 409;
 }
@@ -83,7 +94,10 @@ export async function withInventoryLock<T>(work: () => Promise<T>): Promise<T> {
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   let sheetId = await tryAcquire(sheets, spreadsheetId);
-  if (sheetId === null && (await takeOverIfStale(sheets, spreadsheetId))) {
+  for (let attempt = 0; sheetId === null; attempt++) {
+    if (await takeOverIfStale(sheets, spreadsheetId)) sheetId = await tryAcquire(sheets, spreadsheetId);
+    if (sheetId !== null || attempt >= retry.attempts) break;
+    await sleep(retry.delayMs);
     sheetId = await tryAcquire(sheets, spreadsheetId);
   }
   if (sheetId === null) {
@@ -97,10 +111,17 @@ export async function withInventoryLock<T>(work: () => Promise<T>): Promise<T> {
     throw error;
   } finally {
     if (!state.uncertain) {
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: { requests: [{ deleteSheet: { sheetId } }] },
-      });
+      // The write already happened. A failed release must not turn it into an
+      // error (the user would retry and create a duplicate); the lock expires
+      // on its own after STALE_AFTER_MS.
+      try {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: { requests: [{ deleteSheet: { sheetId } }] },
+        });
+      } catch (releaseError) {
+        console.error("Inventory lock release failed; it will expire on its own:", releaseError);
+      }
     }
   }
 }

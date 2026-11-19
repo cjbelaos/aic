@@ -133,9 +133,12 @@ export function computeBalances(input: {
     if (date && (!balance.openingDate || date < balance.openingDate)) balance.openingDate = date;
   }
 
+  // Fail closed: a document whose date cannot be read still counts once the pair
+  // has an opening; only a readable date before the opening excludes it.
   const counts = (balance: StockBalance, rawDate: string) => {
+    if (balance.openingDate === null) return false;
     const date = toIsoDate(rawDate);
-    return balance.openingDate !== null && date !== null && date >= balance.openingDate;
+    return date === null || date >= balance.openingDate;
   };
 
   for (const m of active) {
@@ -347,6 +350,21 @@ export function validateTransferInput(
     const name = label(item.productId);
     if (!trackedProductIds.has(item.productId)) return `${name} is not in a category that tracks inventory.`;
     if (!(Number(item.qty) > 0)) return `The quantity for ${name} must be greater than 0.`;
+  }
+  return null;
+}
+
+/** Input checks for a DR stock guard: fail closed on unreadable dates, refuse zero/negative tracked lines. */
+export function validateDrGuardInput(
+  input: { date: string; lines: { productId?: string; quantity: number }[] },
+  trackedProductIds: ReadonlySet<string>,
+  label: (productId: string) => string = (id) => id,
+): string | null {
+  if (!toIsoDate(input.date)) return "Enter a valid delivery date.";
+  for (const line of input.lines) {
+    if (line.productId && trackedProductIds.has(line.productId) && !(Number(line.quantity) > 0)) {
+      return `The quantity for ${label(line.productId)} must be greater than 0.`;
+    }
   }
   return null;
 }
