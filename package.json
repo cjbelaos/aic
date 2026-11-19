@@ -24,7 +24,8 @@
     ,"test:quotations": "npx tsc -p scripts/quotation-tests/tsconfig.json && node tmp/quotation-tests/out/scripts/quotation-tests/run.js && node scripts/test-quotation-persistence.cjs && node scripts/test-quotation-print.cjs && node scripts/test-quotation-client.cjs && node scripts/test-quotation-send.cjs && node scripts/test-quotation-history.cjs && node scripts/test-quotation-api.cjs && node scripts/test-quotation-recipients.cjs"
 
     ,"test:service-reports": "npx tsc -p scripts/service-reports-tests/tsconfig.json && node tmp/service-reports-tests/out/scripts/service-reports-tests/run.js"
-    ,"test:inventory": "npx tsc -p scripts/inventory-tests/tsconfig.json && node tmp/inventory-tests/out/scripts/inventory-tests/run.js"
+    ,"setup:inventory": "node --env-file=.env.local scripts/setup-inventory-sheets.mjs"
+    ,"test:inventory": "npx tsc -p scripts/inventory-tests/tsconfig.json && node tmp/inventory-tests/out/scripts/inventory-tests/run.js && node scripts/test-inventory-lock.cjs"
     ,"test:delivery-releases": "npx tsc -p scripts/delivery-release-tests/tsconfig.json && node tmp/delivery-release-tests/out/scripts/delivery-release-tests/run.js && node scripts/test-delivery-deletion.cjs && node scripts/test-delivery-service-errors.cjs"
     ,"test:proforma-invoices": "node scripts/test-proforma-invoices.cjs"
     ,"audit:proforma-migration": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs"

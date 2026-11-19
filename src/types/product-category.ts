@@ -10,6 +10,8 @@ export interface ProductCategory {
   name: string;
   /** DR lines in this category get a "Serial missing" flag when short on serials. */
   requiresSerial?: boolean;
+  /** Products in this category are stock-tracked on the Inventory page and checked on DRs. */
+  trackInventory?: boolean;
 }
 
 /**
