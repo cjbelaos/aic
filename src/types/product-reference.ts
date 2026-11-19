@@ -2,13 +2,15 @@ import type { RecordStatus } from "@/types/product-record";
 
 /**
  * Canonical product category record (rows in the `ProductCategories` tab).
- * Schema: ProductCategoryId | CategoryCode | CategoryName | Status.
+ * Schema: ProductCategoryId | CategoryCode | CategoryName | Status | RequiresSerial.
  */
 export interface ProductCategoryRecord {
   productCategoryId: string;
   categoryCode: string;
   categoryName: string;
   status: RecordStatus;
+  /** Column E (TRUE/FALSE). DR lines in this category get a "Serial missing" flag. Always set on read. */
+  requiresSerial?: boolean;
 }
 
 /**

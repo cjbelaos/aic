@@ -9,11 +9,11 @@ export async function getProductCategories(): Promise<ProductCategoryRecord[]> {
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${PRODUCT_CATEGORIES_SHEET}!A2:D` });
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${PRODUCT_CATEGORIES_SHEET}!A2:E` });
     return (response.data.values ?? []).flatMap((row): ProductCategoryRecord[] => {
       const productCategoryId = String(row[0] ?? "").trim();
       if (!productCategoryId) return [];
-      return [{ productCategoryId, categoryCode: String(row[1] ?? "").trim(), categoryName: String(row[2] ?? "").trim(), status: String(row[3] ?? "active").toLowerCase() === "inactive" ? "inactive" : "active" }];
+      return [{ productCategoryId, categoryCode: String(row[1] ?? "").trim(), categoryName: String(row[2] ?? "").trim(), status: String(row[3] ?? "active").toLowerCase() === "inactive" ? "inactive" : "active", requiresSerial: String(row[4] ?? "").trim().toUpperCase() === "TRUE" }];
     });
   } catch (error) { if (isMissingSheetError(error)) return []; throw error; }
 }
@@ -34,9 +34,9 @@ export async function getProductUnits(): Promise<ProductUnitRecord[]> {
 export async function addProductCategory(payload: Omit<ProductCategoryRecord, "productCategoryId">): Promise<ProductCategoryRecord> {
   const existing = await getProductCategories();
   if (existing.some((item) => item.categoryCode.toLowerCase() === payload.categoryCode.trim().toLowerCase())) throw new Error(`Category code "${payload.categoryCode}" already exists.`);
-  const record = { ...payload, categoryCode: payload.categoryCode.trim(), categoryName: payload.categoryName.trim(), productCategoryId: nextStableId("PCAT", existing.map((item) => item.productCategoryId)) };
+  const record = { ...payload, requiresSerial: payload.requiresSerial === true, categoryCode: payload.categoryCode.trim(), categoryName: payload.categoryName.trim(), productCategoryId: nextStableId("PCAT", existing.map((item) => item.productCategoryId)) };
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
-  await sheets.spreadsheets.values.append({ spreadsheetId, range: `${PRODUCT_CATEGORIES_SHEET}!A2:D`, valueInputOption: "USER_ENTERED", requestBody: { values: [[record.productCategoryId, record.categoryCode, record.categoryName, record.status]] } });
+  await sheets.spreadsheets.values.append({ spreadsheetId, range: `${PRODUCT_CATEGORIES_SHEET}!A2:E`, valueInputOption: "USER_ENTERED", requestBody: { values: [[record.productCategoryId, record.categoryCode, record.categoryName, record.status, record.requiresSerial ? "TRUE" : "FALSE"]] } });
   return record;
 }
 
@@ -45,7 +45,7 @@ export async function updateProductCategory(id: string, payload: Partial<Omit<Pr
   if (!current) throw new Error(`Category "${id}" was not found.`);
   const updated = { ...current, ...payload, categoryCode: (payload.categoryCode ?? current.categoryCode).trim(), categoryName: (payload.categoryName ?? current.categoryName).trim() };
   const row = rowNumberFromStableId(id, existing.map((item) => item.productCategoryId)); const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
-  await sheets.spreadsheets.values.update({ spreadsheetId, range: `${PRODUCT_CATEGORIES_SHEET}!A${row}:D${row}`, valueInputOption: "USER_ENTERED", requestBody: { values: [[updated.productCategoryId, updated.categoryCode, updated.categoryName, updated.status]] } });
+  await sheets.spreadsheets.values.update({ spreadsheetId, range: `${PRODUCT_CATEGORIES_SHEET}!A${row}:E${row}`, valueInputOption: "USER_ENTERED", requestBody: { values: [[updated.productCategoryId, updated.categoryCode, updated.categoryName, updated.status, updated.requiresSerial ? "TRUE" : "FALSE"]] } });
   return updated;
 }
 

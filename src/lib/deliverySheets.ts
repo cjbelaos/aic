@@ -14,6 +14,7 @@ import {
   DeliveryPersonOption,
 } from "@/types/deliveryReceipt";
 import { getDeliveryItems, renameDeliveryItemReferences, replaceDeliveryItems } from "@/lib/transactionItemSheets";
+import { deliveryPrintRows } from "@/lib/deliverySerials";
 import { getUserById, getUsers } from "@/lib/userSheets";
 import { commitDocumentWithHandover } from "@/lib/documentHandoverCommit";
 import {
@@ -486,11 +487,7 @@ export async function processDeliveryReceipt(
         range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
       });
 
-      const templateRows = payload.items.map((item) => [
-        item.quantity,
-        item.unit,
-        item.description,
-      ]);
+      const templateRows = deliveryPrintRows(payload.items);
       const formattedDate = formatDateMMDDYYYY(payload.date);
 
       await sheets.spreadsheets.values.batchUpdate({
@@ -1021,11 +1018,12 @@ export async function populateAndExportDeliveryReceiptFormPdf(
     range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
   });
 
-  const templateRows = (itemsByDr.get(drNumber) ?? []).map((item) => [
-    item.quantity,
-    item.unit,
-    item.description || productMap.get(item.productCode)?.name || item.productCode,
-  ]);
+  const templateRows = deliveryPrintRows(
+    (itemsByDr.get(drNumber) ?? []).map((item) => ({
+      ...item,
+      description: item.description || productMap.get(item.productCode)?.name || item.productCode,
+    })),
+  );
 
   const formattedDate = formatDateMMDDYYYY(deliveryDate);
 

@@ -5,8 +5,11 @@
 
 import assert from "node:assert/strict";
 import {
+  deliveryItemRowValues,
   deliveryPrintRows,
   formatSerialCell,
+  parseDeliveryItemRow,
+  serialCellValue,
   matchesDeliverySearch,
   parseDeliveryDate,
   parseSerialCell,
@@ -73,5 +76,35 @@ assert.deepEqual(
   ]),
   [[1, "UNIT", "Reprocessing Machine"], ["", "", "S/N: A1, B2"], [3, "PC", "Filter"]],
 );
+
+assert.deepEqual(
+  deliveryPrintRows([{ quantity: 1, unit: "PC", description: "X", serialNumbers: "A1" as unknown as string[] }]),
+  [[1, "PC", "X"]],
+);
+
+// parseDeliveryItemRow legacy row (no column K)
+const legacyRow = ["3700", "1", "prod_1", "RM-01", "Reprocessing Machine", "1", "UNIT", "active", "dri-1", ""];
+const legacy = parseDeliveryItemRow(legacyRow);
+assert.equal(legacy.drNumber, 3700);
+assert.equal(legacy.status, "active");
+assert.deepEqual(legacy.item.serialNumbers, []);
+assert.equal(legacy.item.deliveryReceiptItemId, "dri-1");
+assert.equal(legacy.item.quantity, 1);
+assert.deepEqual(parseDeliveryItemRow([...legacyRow, "A1, B2"]).item.serialNumbers, ["A1", "B2"]);
+
+// deliveryItemRowValues writes 11 columns with serials in K
+const values = deliveryItemRowValues(3700, 0, { ...legacy.item, serialNumbers: ["A1"] });
+assert.equal(values.length, 11);
+assert.equal(values[1], 1);
+assert.equal(values[10], "'A1"); // apostrophe keeps USER_ENTERED from turning serials into numbers/dates
+assert.equal(serialCellValue(["00123"]), "'00123");
+assert.equal(serialCellValue([]), "");
+// writer cleans untrusted request serials
+assert.equal(deliveryItemRowValues(1, 0, { ...legacy.item, serialNumbers: [" A1 ", "a1", ""] })[10], "'A1");
+assert.equal(deliveryItemRowValues(1, 0, { ...legacy.item, serialNumbers: "A1" as unknown as string[] })[10], "");
+const generated = deliveryItemRowValues(3700, 1, { productCode: "X", unit: "PC", description: "X", quantity: 1 });
+assert.equal(typeof generated[8], "string");
+assert.ok(String(generated[8]).length > 0);
+assert.equal(generated[10], "");
 
 console.log("serials-test passed.");

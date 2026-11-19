@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { isMissingSheetError, parseSheetNumber } from "@/lib/sheets.utils";
 import type { PurchaseOrderItem } from "@/types/purchaseOrder";
 import type { DeliveryItem } from "@/types/deliveryReceipt";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
+import { deliveryItemRowValues, parseDeliveryItemRow } from "@/lib/deliverySerials";
 
 // PO line items live in the canonical `PurchaseOrderItems` tab and DR line items
 // live in the canonical `DeliveryReceiptItems` tab; both follow the unified schema.
@@ -47,9 +47,8 @@ export async function renamePurchaseOrderItemReferences(fromPONumber: string, to
 export async function getDeliveryItems(): Promise<Map<number, DeliveryItem[]>> {
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:J` }); const result = new Map<number, DeliveryItem[]>();
-    for (const row of response.data.values ?? []) { const dr = Number(row[0]); if (!dr || String(row[7] ?? "active") === "deleted") continue;
-      const item: DeliveryItem = { deliveryReceiptItemId: String(row[8] ?? "") || undefined, salesOrderItemId: String(row[9] ?? "") || undefined, productId: String(row[2] ?? "") || undefined, productCode: String(row[3] ?? ""), description: String(row[4] ?? ""), quantity: Number(row[5]) || 0, unit: String(row[6] ?? "") };
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:K` }); const result = new Map<number, DeliveryItem[]>();
+    for (const row of response.data.values ?? []) { const { drNumber: dr, status, item } = parseDeliveryItemRow(row); if (!dr || status === "deleted") continue;
       result.set(dr, [...(result.get(dr) ?? []), item]); }
     return result;
   } catch (error) { if (isMissingSheetError(error)) return new Map(); throw error; }
@@ -57,9 +56,9 @@ export async function getDeliveryItems(): Promise<Map<number, DeliveryItem[]>> {
 
 export async function replaceDeliveryItems(drNumber: number, items: DeliveryItem[]): Promise<void> {
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
-  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:J` }).catch(() => ({ data: { values: [] } })); const rows = existing.data.values ?? [];
+  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:K` }).catch(() => ({ data: { values: [] } })); const rows = existing.data.values ?? [];
   const matches = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => Number(row[0]) === drNumber);
-  await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DR_SHEET, columnCount: 10, existingRows: matches, values: items.map((item, index) => [drNumber, index + 1, item.productId ?? "", item.productCode, item.description, item.quantity, item.unit, "active", item.deliveryReceiptItemId ?? randomUUID(), item.salesOrderItemId ?? ""]) });
+  await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DR_SHEET, columnCount: 11, existingRows: matches, values: items.map((item, index) => deliveryItemRowValues(drNumber, index, item)) });
 }
 
 /** Repoints existing item rows when a draft DR is finalized to a real DR number. */

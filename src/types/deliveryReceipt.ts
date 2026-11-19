@@ -8,6 +8,8 @@ export interface DeliveryItem {
   unit: string;
   description: string;
   quantity: number;
+  /** Serial numbers delivered on this line (DeliveryReceiptItems column K). */
+  serialNumbers?: string[];
 }
 
 export interface CreateDeliveryPayload {

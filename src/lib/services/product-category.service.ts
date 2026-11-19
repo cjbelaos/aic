@@ -7,7 +7,7 @@ import {
 import type { ProductCategoryRecord } from "@/types/product-reference";
 
 const API_BASE_URL = "/api/product-categories";
-const toView = (item: ProductCategoryRecord): ProductCategory => ({ id: item.productCategoryId, code: item.categoryCode, name: item.categoryName });
+const toView = (item: ProductCategoryRecord): ProductCategory => ({ id: item.productCategoryId, code: item.categoryCode, name: item.categoryName, requiresSerial: item.requiresSerial === true });
 
 const productCategoryService = {
   /**
@@ -33,7 +33,7 @@ const productCategoryService = {
     payload: CreateProductCategoryPayload,
   ): Promise<ProductCategory | null> => {
     try {
-      const response = await axios.post<ProductCategoryRecord>(API_BASE_URL, { categoryCode: payload.code, categoryName: payload.name, status: "active" });
+      const response = await axios.post<ProductCategoryRecord>(API_BASE_URL, { categoryCode: payload.code, categoryName: payload.name, status: "active", requiresSerial: payload.requiresSerial === true });
       return toView(response.data);
     } catch (error) {
       console.error(
@@ -53,7 +53,7 @@ const productCategoryService = {
     try {
       const response = await axios.put<ProductCategoryRecord>(
         `${API_BASE_URL}/${payload.id}`,
-        { categoryCode: payload.code, categoryName: payload.name },
+        { categoryCode: payload.code, categoryName: payload.name, requiresSerial: payload.requiresSerial },
       );
       return toView(response.data);
     } catch (error) {

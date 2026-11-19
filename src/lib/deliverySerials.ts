@@ -4,6 +4,7 @@
 // page. Keep this module free of "@/" imports so the focused tests can compile it.
 
 import { addYears, format, startOfDay } from "date-fns";
+import type { DeliveryItem } from "../types/deliveryReceipt.ts";
 
 /** Splits typed serials on commas or new lines; trims, drops blanks, dedupes (case-insensitive). */
 export function parseSerialInput(text: string): string[] {
@@ -94,7 +95,54 @@ export function deliveryPrintRows(
 ): (string | number)[][] {
   return items.flatMap((item) => {
     const row: (string | number)[] = [item.quantity, item.unit, item.description];
-    const serials = item.serialNumbers ?? [];
+    const serials = cleanSerialList(item.serialNumbers);
     return serials.length ? [row, ["", "", `S/N: ${formatSerialCell(serials)}`]] : [row];
   });
+}
+
+/** Maps a `DeliveryReceiptItems` row (A:K) to a DR line. Legacy rows without K read as no serials. */
+export function parseDeliveryItemRow(row: readonly unknown[]): { drNumber: number; status: string; item: DeliveryItem } {
+  const text = (index: number) => String(row[index] ?? "").trim();
+  return {
+    drNumber: Number(row[0]),
+    status: text(7) || "active",
+    item: {
+      deliveryReceiptItemId: text(8) || undefined,
+      salesOrderItemId: text(9) || undefined,
+      productId: text(2) || undefined,
+      productCode: String(row[3] ?? ""),
+      description: String(row[4] ?? ""),
+      quantity: Number(row[5]) || 0,
+      unit: String(row[6] ?? ""),
+      serialNumbers: parseSerialCell(row[10]),
+    },
+  };
+}
+
+/** Builds the `DeliveryReceiptItems` row (A:K) for a DR line. */
+export function deliveryItemRowValues(drNumber: number, index: number, item: DeliveryItem): (string | number)[] {
+  return [
+    drNumber,
+    index + 1,
+    item.productId ?? "",
+    item.productCode,
+    item.description,
+    item.quantity,
+    item.unit,
+    "active",
+    item.deliveryReceiptItemId ?? globalThis.crypto.randomUUID(),
+    item.salesOrderItemId ?? "",
+    serialCellValue(cleanSerialList(item.serialNumbers)),
+  ];
+}
+
+/** Value to write for a serial cell under USER_ENTERED: a leading apostrophe keeps it as text. */
+export function serialCellValue(serials: readonly string[]): string {
+  return serials.length ? `'${formatSerialCell(serials)}` : "";
+}
+
+/** Normalizes a serial list that may come from an untrusted request body. */
+export function cleanSerialList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return parseSerialInput(value.filter((entry) => typeof entry === "string").join("\n"));
 }

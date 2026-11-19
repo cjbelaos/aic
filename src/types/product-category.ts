@@ -8,6 +8,8 @@ export interface ProductCategory {
   code: string;
   /** Human-readable name (e.g., Consumables, Parts, Project, etc.). */
   name: string;
+  /** DR lines in this category get a "Serial missing" flag when short on serials. */
+  requiresSerial?: boolean;
 }
 
 /**
