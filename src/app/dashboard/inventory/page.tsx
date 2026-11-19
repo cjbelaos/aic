@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Download, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,8 @@ import { DatePickerInput } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { canPerform, type AccessLevel, type EntryType } from "@/lib/inventory/domain";
+import { canPerform, type AccessLevel, type EntryType, type HistoryRow } from "@/lib/inventory/domain";
+import { exportStockMovements } from "@/lib/inventory/export";
 
 interface StockRow {
   warehouseId: string;
@@ -28,18 +29,6 @@ interface StockRow {
   onHand: number;
   safetyStock: number;
   available: number;
-}
-
-interface HistoryRow {
-  id: string;
-  date: string;
-  type: string;
-  qty: number;
-  status: string;
-  referenceNo: string;
-  note: string;
-  by: string;
-  source: { kind: string; id: string; label: string };
 }
 
 const ENTRY_TYPES: { value: EntryType; label: string; help: string }[] = [
@@ -100,6 +89,7 @@ export default function InventoryPage() {
   const [entryNote, setEntryNote] = useState("");
   const [entryLines, setEntryLines] = useState<{ productId: string; qty: string }[]>([{ productId: "", qty: "" }]);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(
     () => api<{ level: AccessLevel; warehouses: { warehouseId: string; name: string }[]; products: { productId: string; productCode: string; productName: string }[]; rows: StockRow[] }>("/api/inventory")
@@ -114,6 +104,33 @@ export default function InventoryPage() {
     [],
   );
   useEffect(() => { void load(); }, [load]);
+
+  /** Every movement (entries, transfers, deliveries) for the selected warehouse, or all warehouses. */
+  const exportMovements = async () => {
+    setExporting(true);
+    try {
+      const query = warehouseFilter === "all" ? "" : `?warehouseId=${encodeURIComponent(warehouseFilter)}`;
+      const data = await api<{ rows: HistoryRow[] }>(`/api/inventory/history${query}`);
+      if (data.rows.length === 0) { toast.message("No stock movements to export yet."); return; }
+      const warehouseNames = new Map<string, string>(rows.map((r) => [r.warehouseId, r.warehouseName]));
+      for (const w of warehouses) warehouseNames.set(w.warehouseId, w.name);
+      const productNames = new Map<string, { code: string; name: string }>(rows.map((r) => [r.productId, { code: r.productCode, name: r.productName }]));
+      for (const p of trackedProducts) productNames.set(p.productId, { code: p.productCode, name: p.productName });
+      await exportStockMovements(
+        data.rows,
+        {
+          warehouse: (id) => warehouseNames.get(id) ?? id,
+          product: (id) => productNames.get(id) ?? { code: "", name: id },
+        },
+        { warehouse: warehouseFilter === "all" ? "All warehouses" : warehouseNames.get(warehouseFilter) ?? warehouseFilter },
+      );
+      toast.success(`Exported ${data.rows.length} movement${data.rows.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to export movements.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const openHistory = async (row: StockRow) => {
     setHistoryTarget(row);
@@ -339,7 +356,14 @@ export default function InventoryPage() {
           loading={loading}
           hideTransferButtons
           toolbarFilters={filters}
-          headerActions={allowedTypes.length ? <Button onClick={openEntry}><Plus className="mr-2 h-4 w-4" />Add stock entry</Button> : undefined}
+          headerActions={(
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => void exportMovements()} disabled={exporting} title="Download every stock movement for the selected warehouse">
+                {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export movements
+              </Button>
+              {allowedTypes.length > 0 && <Button onClick={openEntry}><Plus className="mr-2 h-4 w-4" />Add stock entry</Button>}
+            </div>
+          )}
           onRowClick={(row) => void openHistory(row)}
           getRowId={(row) => `${row.warehouseId}|${row.productId}`}
           getRowClassName={(row) => (row.onHand < 0 ? "bg-destructive/10" : row.available < 0 ? "bg-amber-500/10" : "")}

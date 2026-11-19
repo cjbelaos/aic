@@ -369,3 +369,72 @@ export function validateDrGuardInput(
   }
   return null;
 }
+
+export interface HistoryRow {
+  id: string;
+  date: string;
+  warehouseId: string;
+  productId: string;
+  type: string;
+  qty: number;
+  status: string;
+  referenceNo: string;
+  note: string;
+  by: string;
+  source: { kind: "ENTRY" | "TRANSFER" | "DR"; id: string; label: string };
+}
+
+/**
+ * Movement history, newest first: stock movements (voided ones included) plus
+ * counted and pending DR lines. A blank warehouse or product filter means all.
+ */
+export function buildHistoryRows(input: {
+  movements: readonly StockMovement[];
+  drLines: readonly DrStockLine[];
+  transferNos: ReadonlyMap<string, string>;
+  warehouseId?: string;
+  productId?: string;
+}): HistoryRow[] {
+  const { warehouseId = "", productId = "" } = input;
+  const matches = (w: string, p: string) => (!warehouseId || w === warehouseId) && (!productId || p === productId);
+  const rows: HistoryRow[] = [
+    ...input.movements
+      .filter((m) => matches(m.warehouseId, m.productId))
+      .map((m): HistoryRow => ({
+        id: m.movementId,
+        date: toIsoDate(m.date) ?? m.date,
+        warehouseId: m.warehouseId,
+        productId: m.productId,
+        type: m.type,
+        qty: m.qty,
+        status: m.status,
+        referenceNo: m.referenceNo,
+        note: m.note,
+        by: m.createdBy,
+        source: m.sourceType === "TRANSFER"
+          ? { kind: "TRANSFER", id: m.sourceId, label: input.transferNos.get(m.sourceId) ?? m.sourceId }
+          : { kind: "ENTRY", id: m.movementId, label: m.referenceNo || m.movementId },
+      })),
+    ...input.drLines
+      .filter((l) => matches(l.warehouseId, l.productId)
+        && (isCountedDrStatus(l.status) || l.status.trim().toLowerCase() === "pending_approval"))
+      .map((l): HistoryRow => {
+        const label = l.drNumber > 0 ? `DR #${l.drNumber}` : "Pending DR";
+        return {
+          id: `DR-${l.drNumber}-${l.productId}`,
+          date: toIsoDate(l.date) ?? l.date,
+          warehouseId: l.warehouseId,
+          productId: l.productId,
+          type: "DR",
+          qty: -l.quantity,
+          status: isCountedDrStatus(l.status) ? "active" : "pending_approval",
+          referenceNo: label,
+          note: "",
+          by: "",
+          source: { kind: "DR", id: String(l.drNumber), label },
+        };
+      }),
+  ];
+  // Stable sort: same-day rows keep movements before deliveries.
+  return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
