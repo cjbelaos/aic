@@ -136,6 +136,28 @@ export async function addContractRelease(
 }
 
 /**
+ * Appends several release rows in one write. Callers hold the inventory lock
+ * (POST /api/deliveries) so ids from generateReleaseId stay unique.
+ */
+export async function appendContractReleases(releases: ContractRelease[]): Promise<void> {
+  if (!releases.length) return;
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${RELEASES_SHEET}!A:M`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: releases.map((r) => [
+        r.id, r.contractItemId, r.contractId, String(r.periodYear), String(r.periodMonth), String(r.periodQuarter),
+        r.frequency, r.releaseDate, String(r.quantity), r.releasedBy, r.remarks || "", r.status, r.drNumber?.toString() || "",
+      ]),
+    },
+  });
+}
+
+/**
  * Generates the next Release ID (REL-XXXX).
  */
 export async function generateReleaseId(): Promise<string> {

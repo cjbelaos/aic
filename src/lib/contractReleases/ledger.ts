@@ -6,9 +6,9 @@ import type {
 } from "../../types/contract-release.ts";
 import type { DeliveryReceiptSummary } from "../../types/deliveryReceipt.ts";
 import { effectiveContractStatus } from "../contractStatus.ts";
+import { isCountedDrStatus, toIsoDate } from "../inventory/domain.ts";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const NOT_COUNTED_DR = new Set(["draft", "pending_approval", "rejected", "deleted"]);
 const pad = (n: number) => String(n).padStart(2, "0");
 const lastDay = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
 const dayNumber = (d: string) => Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10))) / 86400000;
@@ -17,7 +17,8 @@ export function isReleaseCounted(release: ContractRelease, drStatus: Map<number,
   if (release.status === "Deleted" || release.status === "Cancelled") return false;
   if (release.drNumber) {
     const s = drStatus.get(release.drNumber);
-    if (s !== undefined && NOT_COUNTED_DR.has(s.trim().toLowerCase())) return false;
+    // Spec §1: only created/printed/completed DRs count; an unknown DR (legacy) counts.
+    if (s !== undefined && !isCountedDrStatus(s)) return false;
   }
   return true;
 }
@@ -77,8 +78,14 @@ export function computeItemLedger(
   const entitled = item.entitledQty;
   let extraQty = 0;
 
+  // Sheet dates can read back as e.g. "11/2/2026"; normalize, and drop rows with no usable date
+  // rather than letting a string comparison push them into extra.
   const counted = releases
     .filter(r => r.contractItemId === item.id && isReleaseCounted(r, drStatus))
+    .flatMap(r => {
+      const releaseDate = DATE_RE.test(r.releaseDate) ? r.releaseDate : toIsoDate(r.releaseDate || "");
+      return releaseDate ? [{ ...r, releaseDate }] : [];
+    })
     .sort((a, b) => (a.releaseDate < b.releaseDate ? -1 : a.releaseDate > b.releaseDate ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   for (const r of counted) {
@@ -149,7 +156,14 @@ export function computeLedgers(input: {
     if (item.status !== "Active") continue;
     const c = byId.get(item.contractId);
     if (!c) continue;
-    out.push(computeItemLedger(item, c, input.releases, input.drStatus, input.today));
+    const ledger = computeItemLedger(item, c, input.releases, input.drStatus, input.today);
+    // A closed/expired/inactive agreement keeps its released history but owes nothing,
+    // so Analytics does not count its unreleased periods as overdue.
+    if (c.status !== "Active") {
+      ledger.periods = ledger.periods.filter(p => p.releasedQty > 0).map(p => ({ ...p, shortfall: 0 }));
+      ledger.owedNow = 0; ledger.openPeriods = 0; ledger.oldestOpen = "";
+    }
+    out.push(ledger);
   }
   return out;
 }

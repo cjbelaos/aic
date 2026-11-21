@@ -137,3 +137,27 @@ assert.deepEqual(generatePeriods("Semi-Annual", "2026-03-01", "2027-02-28", "202
   // expired agreements are left out of the customer ledger
   assert.deepEqual(buildCustomerLedger("D", ledgers, contracts, products, releases, drs, "Delta", today).agreements, []);
 }
+
+// Review C1: only created/printed/completed DRs count (spec §1)
+{
+  const c = contract("2026-11-01", "2027-10-31");
+  const q = (st: string) => computeItemLedger(item("Monthly", 2), c, [rel("2026-11-02", 2, 901)], new Map([[901, st]]), "2026-11-10").periods[0].releasedQty;
+  assert.equal(q("cancelled"), 0);
+  assert.equal(q("void"), 0);
+  for (const st of ["created", "printed", "Completed"]) assert.equal(q(st), 2);
+}
+// Review I4: sheet dates read back as M/D/YYYY are normalized; unparseable dates are not counted as extra
+{
+  const c = contract("2026-11-01", "2027-10-31");
+  const l = computeItemLedger(item("Monthly", 2), c, [rel("11/2/2026", 2)], none, "2026-11-10");
+  assert.equal(l.periods[0].releasedQty, 2); assert.equal(l.extraQty, 0);
+  const bad = computeItemLedger(item("Monthly", 2), c, [rel("", 2)], none, "2026-11-10");
+  assert.equal(bad.periods[0].releasedQty, 0); assert.equal(bad.extraQty, 0);
+}
+// Review I3: a contract whose stored status is not Active keeps only its released history, owes nothing
+{
+  const closed = { ...contract("2026-09-01", "2027-08-31"), status: "Closed" } as Contract;
+  const out = computeLedgers({ contracts: [closed], items: [item("Monthly", 2)], releases: [rel("2026-09-03", 2)], drStatus: none, today: "2026-11-10" });
+  assert.deepEqual(out[0].periods.map(p => p.periodStart), ["2026-09-01"]);
+  assert.equal(out[0].owedNow, 0); assert.equal(out[0].openPeriods, 0); assert.equal(out[0].oldestOpen, "");
+}

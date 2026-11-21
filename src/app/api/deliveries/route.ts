@@ -20,8 +20,9 @@ import { can } from "@/lib/salesOrders/permissions";
 import { activeWarehouseError, guardedDrWrite, inventoryErrorResponse } from "@/lib/inventory/drGuard";
 import { getContracts } from "@/lib/contractSheets";
 import { getContractItems } from "@/lib/contractItemSheets";
-import { addContractRelease, generateReleaseId } from "@/lib/contractReleaseSheets";
-import { validateContractLines } from "@/lib/contractReleases/lines";
+import { appendContractReleases, generateReleaseId } from "@/lib/contractReleaseSheets";
+import { buildContractReleaseRows, validateContractLines } from "@/lib/contractReleases/lines";
+import { manilaToday } from "@/lib/contractStatus";
 import { getPeriodInfo } from "@/lib/utils/contractRelease.utils";
 import type { ContractItem } from "@/types/contract";
 
@@ -160,52 +161,51 @@ export async function POST(request: Request) {
         items: body.items ?? [],
         contractItems,
         contracts,
+        date: body.date,
+        today: manilaToday(),
       });
       if ("error" in check) return NextResponse.json({ error: check.error }, { status: 422 });
     }
+
+    let contractReleaseError: string | undefined;
 
     // Stock guard + write in one inventory lock. The guard decides the saved
     // status: blocked (409), pending_approval, or the requested status.
     const { result, decision } = await guardedDrWrite(
       session,
       { warehouseId: body.warehouseId ?? "", date: body.date, requestedStatus: body.status ?? "created", items: body.items ?? [] },
-      (stock) => {
+      async (stock) => {
         body.status = stock.status;
         // Server-owned fields: never trust values sent by the browser.
         Object.assign(body, stock.approval, { requestedStatus: stock.requestedStatus });
-        return processDeliveryReceipt(body, session.userId);
+        const saved = await processDeliveryReceipt(body, session.userId);
+        // Every saved status except draft records the release; whether it counts
+        // (e.g. still pending approval) is decided from the DR status at read time.
+        // Written inside the inventory lock so concurrent DRs cannot reuse release ids.
+        if (contractLines.length && stock.status !== "draft") {
+          try {
+            const nextId = await generateReleaseId();
+            const lastReleaseId = `REL-${Number.parseInt(nextId.slice(4), 10) - 1}`;
+            await appendContractReleases(
+              buildContractReleaseRows({
+                lines: contractLines,
+                contractItems,
+                lastReleaseId,
+                date: body.date,
+                releasedBy: body.preparedBy,
+                remarks: body.comments,
+                drNumber: saved.drNumber,
+                periodOf: (frequency) => getPeriodInfo(new Date(body.date + "T00:00:00"), frequency),
+              }),
+            );
+          } catch (e) {
+            console.error(`DR ${saved.drNumber} saved but contract release rows failed:`, e);
+            contractReleaseError = "DR saved but contract release was not recorded. Contact an admin.";
+          }
+        }
+        return saved;
       },
     );
-    // Every saved status except draft records the release; whether it counts
-    // (e.g. still pending approval) is decided from the DR status at read time.
-    let contractReleaseError: string | undefined;
-    if (contractLines.length && decision.status !== "draft") {
-      try {
-        for (const line of contractLines) {
-          const item = contractItems.find((ci) => ci.id === line.contractItemId)!;
-          const period = getPeriodInfo(new Date(body.date + "T00:00:00"), item.frequency);
-          await addContractRelease({
-            id: await generateReleaseId(),
-            contractItemId: item.id,
-            contractId: item.contractId,
-            periodYear: period.year,
-            periodMonth: period.month,
-            periodQuarter: period.quarter,
-            frequency: item.frequency,
-            releaseDate: body.date,
-            quantity: line.quantity,
-            releasedBy: body.preparedBy,
-            remarks: body.comments,
-            status: "Completed",
-            drNumber: result.drNumber,
-          });
-        }
-      } catch (e) {
-        console.error(`DR ${result.drNumber} saved but contract release rows failed:`, e);
-        contractReleaseError = "DR saved but contract release was not recorded. Contact an admin.";
-      }
-    }
-
     // A DR waiting for approval is held like a draft: no fulfillment, no PDF.
     const isHeld = isDraft || decision.status === "pending_approval";
     let fulfillment: { state: string; posted: number; alreadyPosted: number } | undefined;

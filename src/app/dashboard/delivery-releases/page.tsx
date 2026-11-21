@@ -61,6 +61,7 @@ import {
   type ContractLine,
 } from "@/types/deliveryReceipt";
 import { ProductCategory } from "@/types/product-category";
+import { effectiveContractStatus } from "@/lib/contractStatus";
 import { ProductUnit } from "@/types/product-unit";
 import {
   deliveryReferenceDisplay,
@@ -351,7 +352,11 @@ export default function DeliveryReleasePage() {
         }
 
         const allItems = await contractItemService.getAll();
-        const contractIds = new Set(companyContracts.map((c) => c.id));
+        // Only effective-Active agreements take releases (an expired agreement's
+        // items would otherwise win the match for a renewed customer).
+        const contractIds = new Set(
+          companyContracts.filter((c) => effectiveContractStatus(c) === "Active").map((c) => c.id),
+        );
         const companyItems = allItems.filter((item) =>
           contractIds.has(item.contractId),
         );
