@@ -9,6 +9,7 @@ import {
 import { getDriveUploadClient, resolveDriveFolderPath, MONTH_NAMES, getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { CreateDeliveryPayload } from "@/types/deliveryReceipt";
 import { getOrderDetail } from "@/lib/salesOrders/service";
+import { salesOrderDeliveryLineError } from "@/lib/deliverySalesOrderLines";
 import { getProducts } from "@/lib/productSheets";
 import {
   isDeliveryReferenceMode,
@@ -94,29 +95,10 @@ export async function POST(request: Request) {
       // browser supplied substitute, including a non-empty stale value.
       body.poNo = salesOrder.order.customerPONo || "";
 
-      const orderItems = new Map(salesOrder.items.map((item) => [item.salesOrderItemId, item]));
-      for (const [index, item] of body.items.entries()) {
-        const source = item.salesOrderItemId ? orderItems.get(item.salesOrderItemId) : undefined;
-        if (!source || source.lineType !== "PRODUCT" || source.lineStatus !== "ACTIVE") {
-          return NextResponse.json(
-            { error: `Delivery line ${index + 1} must reference an active product line on the selected Sales Order.` },
-            { status: 422 },
-          );
-        }
-        const remaining = Math.max(0, (source.quantity ?? 0) - source.fulfilledQty - source.cancelledQty);
-        if (!(item.quantity > 0) || item.quantity > remaining) {
-          return NextResponse.json(
-            { error: `Delivery line ${index + 1} exceeds the selected Sales Order line's remaining quantity (${remaining}).` },
-            { status: 422 },
-          );
-        }
-        if (source.productId && item.productId && source.productId !== item.productId) {
-          return NextResponse.json(
-            { error: `Delivery line ${index + 1} does not match its selected Sales Order item.` },
-            { status: 422 },
-          );
-        }
-      }
+      // Parts without a Sales Order line are allowed on a service order; they
+      // are checked below like any hand-picked line and never post fulfilment.
+      const lineError = salesOrderDeliveryLineError(body.items, salesOrder.items);
+      if (lineError) return NextResponse.json({ error: lineError }, { status: 422 });
     }
 
     // Lines picked by hand must use an active product. Lines taken from a Sales Order are exempt so an

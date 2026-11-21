@@ -17,6 +17,7 @@
   "include": [
     "*.ts",
     "../../src/lib/deliveryReference.ts",
-    "../../src/lib/deliverySerials.ts"
+    "../../src/lib/deliverySerials.ts",
+    "../../src/lib/deliverySalesOrderLines.ts"
   ]
 }
