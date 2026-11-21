@@ -265,6 +265,8 @@ function ActionButton(props: { label: string; icon?: React.ReactNode; variant?: 
   return <Button variant={props.variant} disabled={props.busy} onClick={() => void props.onRun()}>{props.icon}{props.label}</Button>;
 }
 function ItemsSection(props: { detail: SalesOrderDetail; orderId: string; expectedVersion: number; run: (label: string, fn: () => Promise<unknown>) => Promise<void>; busy: boolean }): React.ReactNode {
+  // Removed lines stay in the sheet for history but are not part of the order.
+  const activeItems = props.detail.items.filter((item) => item.lineStatus !== "INACTIVE");
   return (
     <Card className="gap-3">
       <CardHeader><CardTitle>Items & Fulfillment</CardTitle></CardHeader>
@@ -272,7 +274,7 @@ function ItemsSection(props: { detail: SalesOrderDetail; orderId: string; expect
         <div className="hidden overflow-x-auto md:block"><table className="w-full text-sm">
           <thead><tr className="text-left"><th>Line</th><th>Description</th><th>Type</th><th className="text-right">Qty</th><th className="text-right">Unit price</th><th className="text-right">Line total</th><th className="text-right">Fulfilled</th><th className="text-right">Cancelled</th></tr></thead>
           <tbody>
-            {props.detail.items.map((item) => (
+            {activeItems.map((item) => (
               <tr key={item.salesOrderItemId} className="border-b">
                 <td>{item.lineNo}</td>
                 <td>{item.description}{item.productCodeSnapshot ? <span className="block text-xs text-muted-foreground">{item.productCodeSnapshot}</span> : null}</td>
@@ -287,7 +289,7 @@ function ItemsSection(props: { detail: SalesOrderDetail; orderId: string; expect
           </tbody>
         </table></div>
         <div className="space-y-3 md:hidden">
-          {props.detail.items.map((item) => <article key={item.salesOrderItemId} className="rounded-lg border bg-background p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.description}</p><p className="text-xs text-muted-foreground">Line {item.lineNo} · {item.productCodeSnapshot || item.lineType}</p></div><strong className="tabular-nums">{lineAmount(item)}</strong></div><dl className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-xs text-muted-foreground">Quantity</dt><dd>{item.quantity ?? "Unknown"} {item.unitSnapshot}</dd></div><div><dt className="text-xs text-muted-foreground">Unit price</dt><dd>{lineAmount(item)}</dd></div><div><dt className="text-xs text-muted-foreground">Fulfilled</dt><dd>{item.fulfilledQty}</dd></div><div><dt className="text-xs text-muted-foreground">Cancelled</dt><dd>{item.cancelledQty}</dd></div></dl></article>)}
+          {activeItems.map((item) => <article key={item.salesOrderItemId} className="rounded-lg border bg-background p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{item.description}</p><p className="text-xs text-muted-foreground">Line {item.lineNo} · {item.productCodeSnapshot || item.lineType}</p></div><strong className="tabular-nums">{lineAmount(item)}</strong></div><dl className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-xs text-muted-foreground">Quantity</dt><dd>{item.quantity ?? "Unknown"} {item.unitSnapshot}</dd></div><div><dt className="text-xs text-muted-foreground">Unit price</dt><dd>{lineAmount(item)}</dd></div><div><dt className="text-xs text-muted-foreground">Fulfilled</dt><dd>{item.fulfilledQty}</dd></div><div><dt className="text-xs text-muted-foreground">Cancelled</dt><dd>{item.cancelledQty}</dd></div></dl></article>)}
         </div>
       </CardContent>
     </Card>
