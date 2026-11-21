@@ -1,5 +1,6 @@
 // Purchase request focused test runner. Run with: npm run test:purchase-requests
 
+import "./rows-test.ts";
 import "./domain-test.ts";
 import "./po-links-test.ts";
 import "./merge-test.ts";

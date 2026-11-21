@@ -20,7 +20,7 @@ assert.equal(nextPrNo([], "2027-01-02"), "AIC-PR-2027-0001");
 function item(overrides: Partial<PurchaseRequestItem> = {}): PurchaseRequestItem {
   return {
     prItemId: "PRI000001", prId: "PR000001", lineNo: 1, productId: "P1", productCodeSnapshot: "C1",
-    productNameSnapshot: "Filter", unitId: "U1", unitSnapshot: "pc", quantity: 10, salesOrderItemId: "",
+    productNameSnapshot: "Filter", unitId: "U1", unitSnapshot: "pc", quantity: 10, salesOrderItemId: "", contractItemId: "",
     remarks: "", fromStockQty: 0, fromStockNote: "", fromStockBy: "", fromStockAt: "", cancelledQty: 0,
     cancelReason: "", cancelledBy: "", cancelledAt: "", createdAt: "", createdBy: "", updatedAt: "", updatedBy: "",
     ...overrides,
@@ -31,7 +31,7 @@ function link(poNumber: string, quantity: number, prItemId = "PRI000001", prId =
 }
 function pr(overrides: Partial<PurchaseRequest> = {}): PurchaseRequest {
   return {
-    prId: "PR000001", prNo: "AIC-PR-2026-0001", status: "SUBMITTED", salesOrderId: "SO1", salesOrderNoSnapshot: "AIC-SO-2026-0001",
+    prId: "PR000001", prNo: "AIC-PR-2026-0001", status: "SUBMITTED", requestType: "SALES_ORDER", contractId: "", contractNoSnapshot: "", salesOrderId: "SO1", salesOrderNoSnapshot: "AIC-SO-2026-0001",
     customerNameSnapshot: "", quotationNoSnapshot: "", deliveryAddressSnapshot: "", requestedByUserId: "u1", requestedByName: "Tech",
     requestedDate: "2026-11-21", neededByDate: "", purpose: "", cancelReason: "", version: 1, createdAt: "", createdBy: "", updatedAt: "", updatedBy: "",
     ...overrides,

@@ -17,6 +17,7 @@
   "include": [
     "*.ts",
     "../../src/lib/purchaseRequests/domain.ts",
+    "../../src/lib/purchaseRequests/rows.ts",
     "../../src/types/purchaseRequest.ts"
   ]
 }

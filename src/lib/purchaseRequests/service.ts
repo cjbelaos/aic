@@ -142,7 +142,7 @@ async function buildItems(input: PrDraftInput, prId: string, existingIds: string
     return {
       prItemId: ids[index], prId, lineNo: index + 1, productId: product.productId, productCodeSnapshot: product.productCode,
       productNameSnapshot: product.productName, unitId: product.unitId, unitSnapshot: unit?.unitName || unit?.unitCode || "",
-      quantity, salesOrderItemId, remarks: String(line.remarks ?? "").trim(),
+      quantity, salesOrderItemId, contractItemId: "", remarks: String(line.remarks ?? "").trim(),
       fromStockQty: 0, fromStockNote: "", fromStockBy: "", fromStockAt: "", cancelledQty: 0, cancelReason: "", cancelledBy: "", cancelledAt: "",
       createdAt: now, createdBy: actor, updatedAt: now, updatedBy: actor,
     };
@@ -151,6 +151,7 @@ async function buildItems(input: PrDraftInput, prId: string, existingIds: string
 
 function soSnapshot(order: SalesOrder) {
   return {
+    requestType: "SALES_ORDER" as const, contractId: "", contractNoSnapshot: "",
     salesOrderId: order.salesOrderId, salesOrderNoSnapshot: order.salesOrderNo, customerNameSnapshot: order.customerNameSnapshot,
     quotationNoSnapshot: order.quotationNo, deliveryAddressSnapshot: order.deliveryAddressSnapshot,
   };
