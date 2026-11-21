@@ -2,5 +2,6 @@
 
 import "./domain-test.ts";
 import "./po-links-test.ts";
+import "./merge-test.ts";
 
 console.log("All purchase-request focused tests passed.");

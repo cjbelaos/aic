@@ -148,3 +148,27 @@ export function derivePoPrNumbers(poNumber: string, links: PurchaseRequestLink[]
   const nos = new Set(links.filter((l) => l.poNumber === poNumber).map((l) => prNoById.get(l.prId) || l.prId));
   return [...nos].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(", ");
 }
+
+export interface PickedPoLine { productId: string; quantity: number; prLinks: PoLineLinkInput[] }
+
+/** Merges picked PR lines into PO lines: one PO line per product, adding to an existing line of the same product. */
+export function mergePickedIntoLines<T extends { productId: string; quantity: number; prLinks?: PoLineLinkInput[] }>(
+  lines: T[],
+  picked: PickedPoLine[],
+  makeLine: (p: PickedPoLine) => T,
+): T[] {
+  const next = [...lines];
+  for (const p of picked) {
+    const index = p.productId ? next.findIndex((l) => l.productId === p.productId) : -1;
+    if (index < 0) { next.push(makeLine(p)); continue; }
+    const existing = next[index];
+    const links = [...(existing.prLinks ?? [])];
+    for (const link of p.prLinks) {
+      const same = links.findIndex((l) => l.prItemId === link.prItemId);
+      if (same >= 0) links[same] = { ...links[same], quantity: links[same].quantity + link.quantity };
+      else links.push(link);
+    }
+    next[index] = { ...existing, quantity: existing.quantity + p.quantity, prLinks: links };
+  }
+  return next;
+}
