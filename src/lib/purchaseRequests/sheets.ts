@@ -106,6 +106,17 @@ export async function readPurchaseRequestSnapshot(): Promise<{ prs: PurchaseRequ
   };
 }
 
+/** PO number → status (PurchaseOrders A = PO number, L = status). Light read for status derivation. */
+export async function readPoStatusMap(): Promise<Map<string, string>> {
+  const rows = await readRows("PurchaseOrders!A2:L");
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const po = text(row[0]);
+    if (po) map.set(po, text(row[11]).toLowerCase() || "created");
+  }
+  return map;
+}
+
 /** New stable ids for PR headers and items, continuing the existing sequence. */
 export function allocateIds(prefix: "PR" | "PRI" | "PRL", existing: string[], count: number): string[] {
   const ids = [...existing];
