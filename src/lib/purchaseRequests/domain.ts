@@ -128,3 +128,23 @@ export function validateCancelRemaining(progress: PrLineProgress, qty: number, r
   if (qty > progress.claimable) return `Only ${progress.claimable} left that is not already on a PO.`;
   return null;
 }
+
+/** Link rows for a PO's items; poItemNo = index + 1, matching replacePurchaseOrderItems. */
+export function buildLinkRows(
+  poNumber: string,
+  items: { prLinks?: PoLineLinkInput[] }[],
+  prItems: PurchaseRequestItem[],
+  actor: string,
+  now: string,
+): Omit<PurchaseRequestLink, "linkId">[] {
+  const prIdOf = new Map(prItems.map((i) => [i.prItemId, i.prId]));
+  return items.flatMap((item, index) => (item.prLinks ?? []).map((l) => ({
+    poNumber, poItemNo: index + 1, prId: prIdOf.get(l.prItemId) ?? "", prItemId: l.prItemId, quantity: l.quantity, createdAt: now, createdBy: actor,
+  })));
+}
+
+/** Comma-joined distinct PR numbers linked to a PO, sorted; "" when it has none. */
+export function derivePoPrNumbers(poNumber: string, links: PurchaseRequestLink[], prNoById: ReadonlyMap<string, string>): string {
+  const nos = new Set(links.filter((l) => l.poNumber === poNumber).map((l) => prNoById.get(l.prId) || l.prId));
+  return [...nos].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(", ");
+}

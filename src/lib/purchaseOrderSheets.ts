@@ -14,6 +14,31 @@ import {
 import { getPurchaseOrderItems, renamePurchaseOrderItemReferences, replacePurchaseOrderItems } from "@/lib/transactionItemSheets";
 import { getSupplierProducts } from "@/lib/supplierProductSheets";
 import { getProducts } from "@/lib/productSheets";
+import { withInventoryLock } from "@/lib/inventory/lock";
+import { buildLinkRows, derivePoPrNumbers, validatePoLinks } from "@/lib/purchaseRequests/domain";
+import { readPoStatusMap, readPurchaseRequestSnapshot, renameLinksPurchaseOrder, replaceLinksForPurchaseOrder } from "@/lib/purchaseRequests/sheets";
+import type { PurchaseRequestLink } from "@/types/purchaseRequest";
+
+const hasPrLinks = (items?: PurchaseOrderItem[]) => !!items?.some((item) => item.prLinks?.length);
+
+/**
+ * Validates a PO's PR links against every other PO and returns the link rows to write
+ * plus the derived PR# text. `currentPoNumber` is the PO's number before this save
+ * (its own existing links are not counted as competing claims).
+ */
+async function preparePrLinks(currentPoNumber: string, targetPoNumber: string, items: PurchaseOrderItem[], userId: string): Promise<{ rows: Omit<PurchaseRequestLink, "linkId">[]; prNumbers: string }> {
+  if (!hasPrLinks(items)) return { rows: [], prNumbers: "" };
+  const [snap, poStatus] = await Promise.all([readPurchaseRequestSnapshot(), readPoStatusMap()]);
+  const errors = validatePoLinks({
+    poNumber: currentPoNumber,
+    items: items.map((item, index) => ({ itemNo: index + 1, productId: item.productId, quantity: item.quantity, prLinks: item.prLinks })),
+    prItems: snap.items, prs: snap.prs, allLinks: snap.links, poStatus,
+  });
+  if (errors.length) throw new Error(errors.join(" "));
+  const rows = buildLinkRows(targetPoNumber, items, snap.items, userId, new Date().toISOString());
+  const prNoById = new Map(snap.prs.map((pr) => [pr.prId, pr.prNo]));
+  return { rows, prNumbers: derivePoPrNumbers(targetPoNumber, rows.map((row) => ({ ...row, linkId: "" })), prNoById) };
+}
 
 async function validateCatalogItemsForSupplier(items: PurchaseOrderItem[], supplierId: string): Promise<void> {
   const catalogItems = items.filter((item) => item.supplierProductId);
@@ -168,6 +193,12 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
 
     // Items live in the canonical PurchaseOrderItems tab.
     const itemsByPO = await getPurchaseOrderItems();
+    const prLinks = (await readPurchaseRequestSnapshot().catch(() => ({ links: [] as PurchaseRequestLink[] }))).links;
+    const linksByLine = new Map<string, { prItemId: string; quantity: number }[]>();
+    for (const link of prLinks) {
+      const key = `${link.poNumber}#${link.poItemNo}`;
+      linksByLine.set(key, [...(linksByLine.get(key) ?? []), { prItemId: link.prItemId, quantity: link.quantity }]);
+    }
 
     const suppliers = await getCompanies().catch(() => []);
 
@@ -201,7 +232,10 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
           createdBy: String(row[19] ?? "").trim() || undefined,
           updatedBy: String(row[20] ?? "").trim() || undefined,
           updatedDate: String(row[21] ?? "").trim() || undefined,
-          items: itemsByPO.get(poNumber) || [],
+          items: (itemsByPO.get(poNumber) || []).map((item) => {
+            const links = linksByLine.get(`${poNumber}#${item.itemNo}`);
+            return links ? { ...item, prLinks: links } : item;
+          }),
         };
       })
       .filter((d): d is NonNullable<typeof d> => d != null)
@@ -227,6 +261,16 @@ export async function processPurchaseOrder(
   payload: CreatePurchaseOrderPayload,
   userId = "",
   options: { allowManualNumber?: boolean } = {},
+): Promise<PurchaseOrderResponse> {
+  // PR-linked saves take the shared lock so two POs cannot claim the same PR quantity.
+  if (hasPrLinks(payload.items)) return withInventoryLock(() => processPurchaseOrderUnlocked(payload, userId, options));
+  return processPurchaseOrderUnlocked(payload, userId, options);
+}
+
+async function processPurchaseOrderUnlocked(
+  payload: CreatePurchaseOrderPayload,
+  userId: string,
+  options: { allowManualNumber?: boolean },
 ): Promise<PurchaseOrderResponse> {
   try {
     const sheets = await getSheetsClient();
@@ -254,6 +298,8 @@ export async function processPurchaseOrder(
     if (!supplier)
       throw new Error(`Supplier "${payload.supplierId}" not found.`);
     await validateCatalogItemsForSupplier(payload.items, payload.supplierId);
+    const prLinks = await preparePrLinks(poNumber, poNumber, payload.items, userId);
+    const prNumber = prLinks.rows.length ? prLinks.prNumbers : payload.prNumber || "";
     const supplierName = supplier.companyName;
     const address = supplier.address || "";
     const tin = supplier.tin || "";
@@ -269,7 +315,7 @@ export async function processPurchaseOrder(
       poNumber, // A: PONumber
       payload.date, // B: Date
       payload.supplierId, // C: SupplierId
-      payload.prNumber || "", // D: PRNumber
+      prNumber, // D: PRNumber (derived from PR links when present)
       payload.deliveryDate || "", // E: DeliveryDate
       payload.paymentTerms || "", // F: PaymentTerms
       payload.comments || "", // G: Comments
@@ -291,7 +337,7 @@ export async function processPurchaseOrder(
     });
 
     await replacePurchaseOrderItems(poNumber, payload.items);
-
+    if (prLinks.rows.length) await replaceLinksForPurchaseOrder(poNumber, prLinks.rows);
 
     return {
       success: true,
@@ -300,7 +346,7 @@ export async function processPurchaseOrder(
       address,
       tin,
       date: payload.date,
-      prNumber: payload.prNumber,
+      prNumber: prNumber || undefined,
       preparedBy: payload.preparedBy,
       approvedBy: payload.approvedBy,
       notedBy: payload.notedBy,
@@ -320,6 +366,17 @@ export async function updatePurchaseOrder(
   payload: Partial<CreatePurchaseOrderPayload> & { status?: string },
   userId = "",
   options: { allowManualNumber?: boolean } = {},
+): Promise<PurchaseOrderSummary> {
+  // Any item save may add, change or drop PR links; take the shared lock for those.
+  if (payload.items) return withInventoryLock(() => updatePurchaseOrderUnlocked(poNumber, payload, userId, options));
+  return updatePurchaseOrderUnlocked(poNumber, payload, userId, options);
+}
+
+async function updatePurchaseOrderUnlocked(
+  poNumber: string,
+  payload: Partial<CreatePurchaseOrderPayload> & { status?: string },
+  userId: string,
+  options: { allowManualNumber?: boolean },
 ): Promise<PurchaseOrderSummary> {
   try {
     const sheets = await getSheetsClient();
@@ -352,6 +409,8 @@ export async function updatePurchaseOrder(
       await assertPONumberAvailable(sheets, spreadsheetId, effectivePONumber);
     }
 
+    const prLinks = payload.items ? await preparePrLinks(poNumber, String(effectivePONumber), payload.items, userId) : null;
+
     const totalAmount = payload.items
       ? payload.items.reduce(
           (sum, item) => sum + item.quantity * (item.pricePerUnit || 0),
@@ -363,9 +422,11 @@ export async function updatePurchaseOrder(
       String(effectivePONumber), // A
       payload.date ?? String(currentRow[1] ?? "").trim(), // B
       payload.supplierId ?? String(currentRow[2] ?? "").trim(), // C
-      payload.prNumber !== undefined
-        ? payload.prNumber
-        : String(currentRow[3] ?? "").trim(), // D
+      prLinks?.rows.length
+        ? prLinks.prNumbers
+        : payload.prNumber !== undefined
+          ? payload.prNumber
+          : String(currentRow[3] ?? "").trim(), // D (derived from PR links when present)
       payload.deliveryDate !== undefined
         ? payload.deliveryDate
         : String(currentRow[4] ?? "").trim(), // E
@@ -408,6 +469,7 @@ export async function updatePurchaseOrder(
         const data = historyUpdates.map(({ rowNumber }) => ({ range: `${PO_STATUS_HISTORY_SHEET}!A${rowNumber}`, values: [[effectivePONumber]] }));
         if (data.length) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data } });
         await renamePurchaseOrderItemReferences(poNumber, effectivePONumber);
+        await renameLinksPurchaseOrder(poNumber, effectivePONumber);
       } catch (error) {
         throw new Error(`PO was finalized as ${effectivePONumber}, but not all child references were updated: ${error instanceof Error ? error.message : "unknown error"}`);
       }
@@ -438,11 +500,13 @@ export async function updatePurchaseOrder(
 
     if (effectivePONumber !== poNumber && !payload.items && !isFinalizingDraft) {
       await renamePurchaseOrderItemReferences(poNumber, String(effectivePONumber));
+      await renameLinksPurchaseOrder(poNumber, String(effectivePONumber));
     }
 
     if (payload.items) {
       // replacePurchaseOrderItems clears the PO's existing rows before writing.
       await replacePurchaseOrderItems(String(effectivePONumber), payload.items);
+      await replaceLinksForPurchaseOrder(String(effectivePONumber), prLinks?.rows ?? []);
     }
 
     const suppliers = await getCompanies().catch(() => []);
