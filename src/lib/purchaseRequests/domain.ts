@@ -4,6 +4,7 @@
 import type {
   PoLineLinkInput,
   PrLineProgress,
+  PrRequestType,
   PrStatus,
   PurchaseRequest,
   PurchaseRequestItem,
@@ -104,7 +105,8 @@ export function validatePoLinks(input: {
       const pr = prById.get(prItem.prId);
       if (!pr || pr.status !== "SUBMITTED") { errors.push(`${label(prItem)}: the purchase request is not open.`); continue; }
       if (!(l.quantity > 0)) { errors.push(`${label(prItem)}: linked quantity must be more than zero.`); continue; }
-      if (!line.productId || line.productId !== prItem.productId) { errors.push(`PO line ${line.itemNo}: product does not match ${label(prItem)}.`); continue; }
+      // Typed PR lines (no product) go on description-only PO lines; product lines need the same product.
+      if ((line.productId || "") !== (prItem.productId || "")) { errors.push(`PO line ${line.itemNo}: product does not match ${label(prItem)}.`); continue; }
       claimedHere.set(l.prItemId, (claimedHere.get(l.prItemId) ?? 0) + l.quantity);
     }
   }
@@ -149,13 +151,14 @@ export function derivePoPrNumbers(poNumber: string, links: PurchaseRequestLink[]
   return [...nos].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(", ");
 }
 
-export interface PickedPoLine { productId: string; quantity: number; prLinks: PoLineLinkInput[] }
+/** A picked PR group for a PO line. productId is "" for a typed item (description/unit carry its text). */
+export interface PickedPoLine { productId: string; description: string; unit: string; quantity: number; prLinks: PoLineLinkInput[] }
 
 /** Merges picked PR lines into PO lines: one PO line per product, adding to an existing line of the same product. */
-export function mergePickedIntoLines<T extends { productId: string; quantity: number; prLinks?: PoLineLinkInput[] }>(
+export function mergePickedIntoLines<T extends { productId: string; quantity: number; prLinks?: PoLineLinkInput[] }, P extends Omit<PickedPoLine, "description" | "unit"> = Omit<PickedPoLine, "description" | "unit">>(
   lines: T[],
-  picked: PickedPoLine[],
-  makeLine: (p: PickedPoLine) => T,
+  picked: P[],
+  makeLine: (p: P) => T,
 ): T[] {
   const next = [...lines];
   for (const p of picked) {
@@ -171,4 +174,47 @@ export function mergePickedIntoLines<T extends { productId: string; quantity: nu
     next[index] = { ...existing, quantity: existing.quantity + p.quantity, prLinks: links };
   }
   return next;
+}
+
+export interface DraftLineInput {
+  productId?: string;
+  description?: string;
+  unit?: string;
+  quantity: number;
+  salesOrderItemId?: string;
+  contractItemId?: string;
+  remarks?: string;
+}
+
+/** Checks one PR line against what the request is for; returns an error message or null. */
+export function validateDraftLine(
+  line: DraftLineInput,
+  index: number,
+  ctx: { requestType: PrRequestType; soItemIds: ReadonlySet<string>; contractItemIds: ReadonlySet<string> },
+): string | null {
+  const n = `Line ${index + 1}`;
+  if (!String(line.productId ?? "").trim() && !String(line.description ?? "").trim()) return `${n}: choose a product or type a description.`;
+  if (!(Number(line.quantity) > 0)) return `${n}: quantity must be more than zero.`;
+  const soItem = String(line.salesOrderItemId ?? "").trim();
+  if (soItem) {
+    if (ctx.requestType !== "SALES_ORDER") return `${n}: a sales order line can be set only on sales order requests.`;
+    if (!ctx.soItemIds.has(soItem)) return `${n}: the sales order line it is for was not found.`;
+  }
+  const contractItem = String(line.contractItemId ?? "").trim();
+  if (contractItem) {
+    if (ctx.requestType !== "CONTRACT") return `${n}: a contract item can be set only on contract requests.`;
+    if (!ctx.contractItemIds.has(contractItem)) return `${n}: the contract item was not found on this contract.`;
+  }
+  return null;
+}
+
+/** Product picker labels: the name alone, with the code added only when another product shares the name. */
+export function productPickerLabels(products: { productId: string; productCode: string; productName: string }[]): Map<string, string> {
+  const key = (name: string) => name.trim().toLowerCase();
+  const counts = new Map<string, number>();
+  for (const p of products) counts.set(key(p.productName), (counts.get(key(p.productName)) ?? 0) + 1);
+  return new Map(products.map((p) => {
+    const name = p.productName.trim();
+    return [p.productId, (counts.get(key(p.productName)) ?? 0) > 1 ? `${name} (${p.productCode})` : name];
+  }));
 }

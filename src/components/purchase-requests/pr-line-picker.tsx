@@ -58,10 +58,12 @@ export function PrLinePicker({ open, onOpenChange, excludePoNumber, alreadyLinke
       const q = qty.get(r.prItemId);
       if (!q) continue;
       if (q > available(r)) { toast.error(`${r.prNo} · ${r.productName}: only ${available(r)} left to order.`); return; }
-      const group = byProduct.get(r.productId) ?? { productId: r.productId, quantity: 0, prLinks: [] };
+      // Typed items (no product) are never grouped: each becomes its own PO line.
+      const key = r.productId || `typed:${r.prItemId}`;
+      const group: PickedPoLine = byProduct.get(key) ?? { productId: r.productId, description: r.productName, unit: r.unit, quantity: 0, prLinks: [] };
       group.quantity += q;
       group.prLinks.push({ prItemId: r.prItemId, quantity: q });
-      byProduct.set(r.productId, group);
+      byProduct.set(key, group);
     }
     if (!byProduct.size) { toast.error("Select at least one purchase request line."); return; }
     onAdd([...byProduct.values()]);

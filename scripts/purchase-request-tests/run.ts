@@ -2,6 +2,7 @@
 
 import "./rows-test.ts";
 import "./domain-test.ts";
+import "./rules-test.ts";
 import "./po-links-test.ts";
 import "./merge-test.ts";
 

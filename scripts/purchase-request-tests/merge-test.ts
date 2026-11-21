@@ -18,3 +18,11 @@ assert.deepEqual(mergePickedIntoLines<L>([{ productId: "P1", quantity: 3, prLink
 
 // blank lines (no product) are never merged into
 assert.equal(mergePickedIntoLines<L>([{ productId: "", quantity: 1 }], [{ productId: "P2", quantity: 1, prLinks: [{ prItemId: "C", quantity: 1 }] }], make).length, 2);
+
+// typed picks (no product) never merge with each other or with product lines
+{
+  const typedA = { productId: "", quantity: 2, prLinks: [{ prItemId: "T1", quantity: 2 }] };
+  const typedB = { productId: "", quantity: 3, prLinks: [{ prItemId: "T2", quantity: 3 }] };
+  assert.equal(mergePickedIntoLines<L>([], [typedA, typedB], make).length, 2);
+  assert.equal(mergePickedIntoLines<L>([{ productId: "P1", quantity: 1 }], [typedA], make).length, 2);
+}
