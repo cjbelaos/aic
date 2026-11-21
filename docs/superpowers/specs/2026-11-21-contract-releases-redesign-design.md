@@ -101,7 +101,7 @@ Opened from the customer panel.
 - **No Sales Order on any release DR** (decided by Chris). For both Contract and PO agreements, the released items are consumables included in the PMS service fee and are never priced or invoiced separately. A PO agreement's Sales Order holds the service fee (e.g. PO Jan–Jun ₱120,000 = 6 × ₱20,000) and belongs to Service Invoice billing, not to the release.
   - Keeping the DR unlinked also preserves today's Service Invoice behaviour: a DR without a Sales Order is recognised as PMS and prefilled with the agreement's service fee (`service-invoices-client.tsx`, `pmsContractForDelivery`).
 - PO-type: the DR's PO no. is prefilled from the agreement's `poNumber`, so the technician's DR matches the client's PO. Otherwise identical to Contract-type.
-- DR grouping: all of a customer's Contract-type agreements can go on one DR; each PO agreement gets its own DR (one PO no. per DR).
+- DR grouping: **one DR per agreement**. Service Invoice prefills the PMS fee only when a DR's releases belong to exactly one contract (`pmsContractForDelivery`), and a DR carries one PO no.
 - Prepared By = logged-in user.
 - Warning, not block, when a row exceeds owed.
 - Submit calls the shared DR creation (`deliveryService.createAndPopulateSheet`) with `contractLines`. On `pending_approval`, show "Sent for approval; it will count once approved." Otherwise open the DR preview.
@@ -132,7 +132,8 @@ Opened from the customer panel.
 - Only effective-Active contracts appear in the backlog and customer search.
 - `ContractPeriodSummaries` sheet is left in place but no longer read or written.
 - Release panel fields: Warehouse, Delivered By, Date, Remarks, items, extra items. PO no. prefilled from the agreement on PO-type.
-- DR grouping: all of a customer's Contract-type agreements can go on one DR; each PO agreement gets its own DR (one PO no. per DR).
+- DR grouping: one DR per agreement (keeps Service Invoice fee prefill working).
+- A release only pays periods that had started by its release date; anything beyond that is "extra" (no pre-paying).
 - `POST /api/deliveries` rejects `contractLines` on a DR linked to a Sales Order, and the Delivery Release page stops attributing SO-linked DRs to contracts (items on an SO are sold, not PMS entitlements).
 
 ## Out of scope (follow-up)
