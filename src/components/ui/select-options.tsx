@@ -1,7 +1,7 @@
 import * as React from "react";
 
 export const EMPTY_SELECT_VALUE = "__empty_select_value__";
-export type SelectOption = { value: string; label: React.ReactNode; disabled?: boolean };
+export type SelectOption = { value: string; label: React.ReactNode; disabled?: boolean; /** Not offered in the list, but still shown when it is the current value. */ hidden?: boolean };
 
 export function optionText(node: React.ReactNode): string {
   return React.Children.toArray(node).map(child => {

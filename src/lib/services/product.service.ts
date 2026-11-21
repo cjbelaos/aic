@@ -31,6 +31,7 @@ function toView(product: ProductRecord, supplierCount = 0, categories: ProductCa
     defaultSellingPrice: product.defaultSellingPrice,
     supplier: emptySupplier,
     supplierCount,
+    status: product.status,
   };
 }
 
@@ -57,6 +58,9 @@ const productService = {
       return [];
     }
   },
+
+  /** Products that may be chosen in pickers and listed on the Products page. */
+  selectable: (products: Product[]): Product[] => products.filter((p) => p.status !== "inactive"),
 
   /**
    * Helper method to look up the full Product object by code from a list of products

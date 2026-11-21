@@ -169,6 +169,7 @@ export default function CustomerPricesPage() {
       products.map((p) => ({
         value: p.code,
         label: `${p.code} - ${p.name || p.description || ""}`,
+        hidden: p.status === "inactive",
       })),
     [products],
   );

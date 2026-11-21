@@ -6,6 +6,7 @@ import type { CreateProductRecordPayload } from "@/types/product-record";
 export async function GET() {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
+  // Includes inactive products (flagged by status) so old records can still resolve names; pickers filter them out.
   try { return NextResponse.json(await getProducts()); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to fetch products." }, { status: 500 }); }
 }

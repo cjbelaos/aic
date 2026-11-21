@@ -470,6 +470,7 @@ export default function CustomerContractsPage() {
       productsList.map((p) => ({
         value: p.productId || p.id,
         label: p.name ? `${p.name} (${p.code})` : p.code,
+        hidden: p.status === "inactive",
       })),
     [productsList],
   );

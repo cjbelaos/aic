@@ -17,7 +17,7 @@ export async function GET() {
     const categoryById = new Map(categories.map((c) => [c.productCategoryId, c.categoryName]));
     const active = warehouses.filter((w) => w.active);
     const rows = products
-      .filter((p) => tracked.has(p.productId))
+      .filter((p) => p.status === "active" && tracked.has(p.productId))
       .flatMap((p) => active.map((w) => {
         const b = balances.get(stockKey(w.warehouseId, p.productId));
         return {
@@ -34,7 +34,7 @@ export async function GET() {
         };
       }));
     const trackedProducts = products
-      .filter((p) => tracked.has(p.productId))
+      .filter((p) => p.status === "active" && tracked.has(p.productId))
       .map((p) => ({ productId: p.productId, productCode: p.productCode, productName: p.productName }));
     return { level, warehouses: active.map((w) => ({ warehouseId: w.warehouseId, name: w.name })), products: trackedProducts, rows };
   });

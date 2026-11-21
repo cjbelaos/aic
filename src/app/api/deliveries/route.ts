@@ -9,6 +9,7 @@ import {
 import { getDriveUploadClient, resolveDriveFolderPath, MONTH_NAMES, getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { CreateDeliveryPayload } from "@/types/deliveryReceipt";
 import { getOrderDetail } from "@/lib/salesOrders/service";
+import { getProducts } from "@/lib/productSheets";
 import {
   isDeliveryReferenceMode,
   resolveDeliveryReference,
@@ -114,6 +115,19 @@ export async function POST(request: Request) {
             { error: `Delivery line ${index + 1} does not match its selected Sales Order item.` },
             { status: 422 },
           );
+        }
+      }
+    }
+
+    // Lines picked by hand must use an active product. Lines taken from a Sales Order are exempt so an
+    // order placed before a product was deactivated can still be delivered.
+    const manualLines = (body.items ?? []).filter((item) => !item.salesOrderItemId && (item.productId || item.productCode));
+    if (manualLines.length) {
+      const products = await getProducts();
+      for (const item of manualLines) {
+        const product = products.find((entry) => (item.productId ? entry.productId === item.productId : entry.productCode.toLowerCase() === String(item.productCode).toLowerCase()));
+        if (product && product.status !== "active") {
+          return NextResponse.json({ error: `Product "${product.productCode}" is inactive and cannot be added to a Delivery Release.` }, { status: 422 });
         }
       }
     }

@@ -168,6 +168,7 @@ export default function ContractReleasesPage() {
     return products.map((p) => ({
       value: p.code,
       label: p.name ? `${p.name} (${p.code})` : p.code,
+      hidden: p.status === "inactive",
     }));
   }, [products]);
 
