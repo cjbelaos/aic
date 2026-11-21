@@ -20,6 +20,8 @@
   "include": [
     "*.ts",
     "../../src/lib/contractReleases/ledger.ts",
+    "../../src/lib/contractReleases/lines.ts",
+    "../../src/types/deliveryReceipt.ts",
     "../../src/lib/contractStatus.ts",
     "../../src/types/contract.ts",
     "../../src/types/contract-release.ts"

@@ -58,6 +58,7 @@ import {
   DeliveryReceiptResponse,
   DeliveryReceiptSummary,
   DeliveryPersonOption,
+  type ContractLine,
 } from "@/types/deliveryReceipt";
 import { ProductCategory } from "@/types/product-category";
 import { ProductUnit } from "@/types/product-unit";
@@ -362,7 +363,10 @@ export default function DeliveryReleasePage() {
           frequency: item.frequency,
           releasedThisPeriod: 0,
           productCode: item.productCode,
+          productId: item.productId || "",
           contractId: item.contractId,
+          contractItemId: item.id,
+          status: item.status,
         }));
 
         setContracts(mapped);
@@ -1062,12 +1066,35 @@ export default function DeliveryReleasePage() {
 
     setPrinting(true);
     try {
+      const reference = isContractRelease ? {} : referencePayload(referenceMode, salesOrderId, trNo);
+      // Contract entitlements this DR releases: first Active item of the same
+      // product. Never on a Sales Order DR, and one agreement per DR.
+      let contractLines: ContractLine[] = [];
+      if (!reference.salesOrderId) {
+        lineItems.forEach((row, index) => {
+          if (!row.productCode || !(row.quantity > 0)) return;
+          const match = contracts.find(
+            (c: any) =>
+              c.status === "Active" &&
+              (c.productId && row.productId
+                ? c.productId === row.productId
+                : String(c.productCode).toLowerCase() === row.productCode.toLowerCase()),
+          );
+          if (match) contractLines.push({ contractItemId: match.contractItemId, quantity: row.quantity, deliveryLineIndex: index });
+        });
+        const agreementOf = (line: ContractLine) => contracts.find((c: any) => c.contractItemId === line.contractItemId)?.contractId;
+        const firstAgreement = contractLines.length ? agreementOf(contractLines[0]) : "";
+        if (contractLines.some((line) => agreementOf(line) !== firstAgreement)) {
+          contractLines = contractLines.filter((line) => agreementOf(line) === firstAgreement);
+          toast.warning(`Only ${firstAgreement} was counted; release other agreements on separate DRs.`);
+        }
+      }
       const payload = {
         companyId: selectedCompany,
         date: deliveryDate,
         drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
-        ...(isContractRelease ? {} : referencePayload(referenceMode, salesOrderId, trNo)),
+        ...reference,
         preparedBy,
         deliveredBy: selectedDriver.label,
         deliveredById: selectedDriver.userId,
@@ -1077,54 +1104,19 @@ export default function DeliveryReleasePage() {
         items: toDeliveryItems(lineItems),
         status: "printed",
         warehouseId,
+        contractLines,
       };
 
       const res = await deliveryService.createAndPopulateSheet(payload);
+      if (res.contractReleaseError) toast.error(res.contractReleaseError);
       if (res.status === "pending_approval") {
         // Held for a manager: no print, no contract release until approved.
-        toast.success("Sent for approval. It can be printed once a manager approves it.");
+        toast.success("Sent for approval. It can be printed, and any contract release counts, once a manager approves it.");
         setModalOpen(false);
         fetchList();
         return;
       }
       toast.success("Delivery receipt recorded!");
-
-      const drNumber = res.drNumber;
-      if (contracts.length > 0 && drNumber) {
-        try {
-          const { default: contractReleaseService } =
-            await import("@/lib/services/contractRelease.service");
-          const validRows = lineItems.filter((li) => li.productCode);
-          for (const row of validRows) {
-            const matchingContract = contracts.find(
-              (c: any) => c.productCode === row.productCode && c.contractId,
-            );
-            if (matchingContract?.contractId) {
-              const contractItems = await contractItemService.getByContractId(
-                matchingContract.contractId,
-              );
-              const matchingItem = contractItems.find(
-                (ci: any) =>
-                  ci.productCode === row.productCode && ci.status === "Active",
-              );
-              if (matchingItem) {
-                await contractReleaseService
-                  .processRelease(
-                    matchingItem.id,
-                    row.quantity,
-                    deliveryDate,
-                    preparedBy,
-                    comments || undefined,
-                    matchingContract.contractId,
-                    row.productCode,
-                    drNumber,
-                  )
-                  .catch(() => {});
-              }
-            }
-          }
-        } catch {}
-      }
 
       setDrResult(res);
       setModalOpen(false);

@@ -12,6 +12,14 @@ export interface DeliveryItem {
   serialNumbers?: string[];
 }
 
+/** One contract entitlement released on a DR line (server appends a ContractReleases row). */
+export interface ContractLine {
+  contractItemId: string;
+  quantity: number;
+  /** Index into CreateDeliveryPayload.items. */
+  deliveryLineIndex: number;
+}
+
 export interface CreateDeliveryPayload {
   companyId: string;
   date: string;
@@ -36,6 +44,8 @@ export interface CreateDeliveryPayload {
   deliveredByOptionId?: string;
   comments?: string;
   items: DeliveryItem[];
+  /** Contract entitlements this DR releases. One agreement per DR; never with a Sales Order. */
+  contractLines?: ContractLine[];
   status?: string; // "draft" for save-without-print, "created" default
   /** Warehouse the goods ship from (DeliveryReceipts column T). Required on non-draft saves. */
   warehouseId?: string;
@@ -72,6 +82,8 @@ export interface DeliveryReceiptResponse {
   /** Legacy receipts use the prior Google Sheets template by default. */
   previewFormat?: "legacy" | "current";
   warehouseId?: string;
+  /** Set when the DR saved but its contract release rows could not be written. */
+  contractReleaseError?: string;
 }
 
 export interface DeliveryReceiptSummary {
