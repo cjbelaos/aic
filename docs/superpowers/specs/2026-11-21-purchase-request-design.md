@@ -56,6 +56,10 @@ Chris picked A.
 
 ## Decisions (agreed with Chris)
 
+> **Amended 2026-11-21** by `2026-11-21-pr-contract-items-design.md`: a PR may be for a Sales Order, a
+> Customer Contract, or neither (decision 1); typed non-catalog items are allowed (decision 4,
+> non-goal "Free-text items"); the print uses Requested / Noted / Reviewed / Approved by (decision 8).
+
 1. **One PR ↔ one Sales Order.** Only Confirmed Sales Orders can be selected.
    Picking the SO fills (snapshots) customer name, quotation no., and delivery address.
 2. **Raised by technicians.** "Requested by" = the logged-in user.

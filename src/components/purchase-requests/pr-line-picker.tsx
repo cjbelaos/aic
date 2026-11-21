@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { PickedPoLine } from "@/lib/purchaseRequests/domain";
 export type { PickedPoLine };
-import { prApi, salesOrderWarning, type OpenPrLine } from "./api";
+import { lineName, prApi, salesOrderWarning, type OpenPrLine } from "./api";
 
 export function PrLinePicker({ open, onOpenChange, excludePoNumber, alreadyLinked, onAdd, onLabels }: {
   open: boolean;
@@ -46,7 +46,7 @@ export function PrLinePicker({ open, onOpenChange, excludePoNumber, alreadyLinke
   const available = (r: OpenPrLine) => Math.max(0, r.claimable - (alreadyLinked.get(r.prItemId) ?? 0));
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return rows.filter((r) => available(r) > 0 && (!q || [r.prNo, r.salesOrderNo, r.productCode, r.productName].join(" ").toLowerCase().includes(q)));
+    return rows.filter((r) => available(r) > 0 && (!q || [r.prNo, r.reference, r.productCode, r.productName].join(" ").toLowerCase().includes(q)));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, filter, alreadyLinked]);
 
@@ -58,10 +58,12 @@ export function PrLinePicker({ open, onOpenChange, excludePoNumber, alreadyLinke
       const q = qty.get(r.prItemId);
       if (!q) continue;
       if (q > available(r)) { toast.error(`${r.prNo} · ${r.productName}: only ${available(r)} left to order.`); return; }
-      const group = byProduct.get(r.productId) ?? { productId: r.productId, quantity: 0, prLinks: [] };
+      // Typed items (no product) are never grouped: each becomes its own PO line.
+      const key = r.productId || `typed:${r.prItemId}`;
+      const group: PickedPoLine = byProduct.get(key) ?? { productId: r.productId, description: r.productName, unit: r.unit, quantity: 0, prLinks: [] };
       group.quantity += q;
       group.prLinks.push({ prItemId: r.prItemId, quantity: q });
-      byProduct.set(r.productId, group);
+      byProduct.set(key, group);
     }
     if (!byProduct.size) { toast.error("Select at least one purchase request line."); return; }
     onAdd([...byProduct.values()]);
@@ -75,11 +77,11 @@ export function PrLinePicker({ open, onOpenChange, excludePoNumber, alreadyLinke
           <DialogTitle>Add from purchase requests</DialogTitle>
           <DialogDescription>Pick open PR lines. The same product from several requests becomes one PO line.</DialogDescription>
         </DialogHeader>
-        <Input placeholder="Filter by PR no., SO no. or product" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <Input placeholder="Filter by PR no., SO/contract no. or item" value={filter} onChange={(e) => setFilter(e.target.value)} />
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-              <tr><th className="w-8 p-2" /><th className="p-2">PR No.</th><th className="p-2">SO No.</th><th className="p-2">Product</th><th className="p-2 text-right">Open</th><th className="w-28 p-2">Qty to order</th></tr>
+              <tr><th className="w-8 p-2" /><th className="p-2">PR No.</th><th className="p-2">For</th><th className="p-2">Product</th><th className="p-2 text-right">Open</th><th className="w-28 p-2">Qty to order</th></tr>
             </thead>
             <tbody>
               {loading && <tr><td colSpan={6} className="p-4 text-center"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></td></tr>}
@@ -91,8 +93,8 @@ export function PrLinePicker({ open, onOpenChange, excludePoNumber, alreadyLinke
                   <tr key={r.prItemId} className="border-t">
                     <td className="p-2"><Checkbox checked={checked} onCheckedChange={(c) => toggle(r, !!c)} aria-label={`Select ${r.prNo} ${r.productName}`} /></td>
                     <td className="p-2">{r.prNo}</td>
-                    <td className="p-2">{r.salesOrderNo}{warn && <Badge variant="outline" className="ml-1 border-amber-500 text-amber-700 dark:text-amber-400">{warn}</Badge>}</td>
-                    <td className="p-2">{r.productCode} — {r.productName}</td>
+                    <td className="p-2">{r.reference || "—"}{warn && <Badge variant="outline" className="ml-1 border-amber-500 text-amber-700 dark:text-amber-400">{warn}</Badge>}</td>
+                    <td className="p-2">{lineName({ productCodeSnapshot: r.productCode, productNameSnapshot: r.productName })}</td>
                     <td className="p-2 text-right">{available(r)} {r.unit}</td>
                     <td className="p-2"><Input type="number" min={0} max={available(r)} step="any" disabled={!checked} value={qty.get(r.prItemId) ?? ""} onChange={(e) => setQty((prev) => new Map(prev).set(r.prItemId, Number(e.target.value) || 0))} /></td>
                   </tr>

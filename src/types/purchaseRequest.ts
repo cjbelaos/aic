@@ -1,4 +1,7 @@
-// purchaseRequest.ts — Purchase Requests raised by technicians against Confirmed Sales Orders.
+// purchaseRequest.ts — Purchase Requests raised by technicians for a Sales Order, a Customer Contract, or neither.
+
+/** What a PR is for. Rows saved before this existed (blank) read as SALES_ORDER. */
+export type PrRequestType = "SALES_ORDER" | "CONTRACT" | "NONE";
 
 /** Status stored on the PR row. Open / Partially handled / Completed are derived, never stored. */
 export type PrStoredStatus = "DRAFT" | "SUBMITTED" | "CANCELLED";
@@ -17,6 +20,7 @@ export interface PurchaseRequest {
   /** AIC-PR-YYYY-NNNN; empty while Draft. */
   prNo: string;
   status: PrStoredStatus;
+  requestType: PrRequestType;
   salesOrderId: string;
   salesOrderNoSnapshot: string;
   customerNameSnapshot: string;
@@ -32,6 +36,8 @@ export interface PurchaseRequest {
   createdAt: string;
   createdBy: string;
   updatedAt: string;
+  contractId: string;
+  contractNoSnapshot: string;
   updatedBy: string;
 }
 
@@ -39,6 +45,7 @@ export interface PurchaseRequestItem {
   prItemId: string;
   prId: string;
   lineNo: number;
+  /** Blank for a typed (non-catalog) item; its description is productNameSnapshot. */
   productId: string;
   productCodeSnapshot: string;
   productNameSnapshot: string;
@@ -47,6 +54,8 @@ export interface PurchaseRequestItem {
   quantity: number;
   /** Optional: the Sales Order line this item is for (e.g. a BOM component). */
   salesOrderItemId: string;
+  /** Optional: the contract item (entitlement) this line was filled from. */
+  contractItemId: string;
   remarks: string;
   fromStockQty: number;
   fromStockNote: string;
