@@ -13,7 +13,7 @@ import { DocumentRegisterHeader } from "@/components/document-register-header";
 import { PurchaseRequestForm } from "@/components/purchase-requests/purchase-request-form";
 import { PurchaseRequestDetailDialog } from "@/components/purchase-requests/purchase-request-detail-dialog";
 import { PurchaseRequestPreviewModal } from "@/components/purchase-request-preview-modal";
-import { prApi, salesOrderWarning, type PrView } from "@/components/purchase-requests/api";
+import { prApi, prReferenceLabel, salesOrderWarning, type PrView } from "@/components/purchase-requests/api";
 import { PR_STATUS_LABELS, type PrStatus } from "@/types/purchaseRequest";
 
 const STATUS_VARIANT: Record<PrStatus, "default" | "secondary" | "outline" | "destructive"> = {
@@ -30,7 +30,7 @@ export default function PurchaseRequestsPage() {
   const [me, setMe] = useState<{ userId: string; fullName: string; isAdmin: boolean }>({ userId: "", fullName: "", isAdmin: false });
   const [status, setStatus] = useState<PrStatus | "all">("all");
   const [search, setSearch] = useState("");
-  const [soFilter, setSoFilter] = useState(ALL);
+  const [forFilter, setForFilter] = useState(ALL);
   const [requesterFilter, setRequesterFilter] = useState(ALL);
   const [range, setRange] = useState<{ from?: Date; to?: Date } | undefined>();
   const [formOpen, setFormOpen] = useState(false);
@@ -71,6 +71,7 @@ export default function PurchaseRequestsPage() {
     }
   };
 
+  const forKey = (pr: PrView) => `${pr.requestType}:${pr.requestType === "CONTRACT" ? pr.contractId : pr.requestType === "SALES_ORDER" ? pr.salesOrderId : ""}`;
   const productText = (pr: PrView) => pr.lines.map((l) => `${l.productCodeSnapshot} ${l.productNameSnapshot}`).join(" ");
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -78,19 +79,19 @@ export default function PurchaseRequestsPage() {
     const to = toYmd(range?.to) || from;
     return prs.filter((pr) =>
       (status === "all" || pr.derivedStatus === status)
-      && (soFilter === ALL || pr.salesOrderId === soFilter)
+      && (forFilter === ALL || forKey(pr) === forFilter)
       && (requesterFilter === ALL || pr.requestedByUserId === requesterFilter)
       && (!from || (pr.requestedDate >= from && pr.requestedDate <= to))
-      && (!q || [pr.prNo, pr.salesOrderNoSnapshot, pr.customerNameSnapshot, pr.requestedByName, productText(pr)].join(" ").toLowerCase().includes(q)));
-  }, [prs, status, soFilter, requesterFilter, range, search]);
+      && (!q || [pr.prNo, pr.salesOrderNoSnapshot, pr.contractNoSnapshot, pr.customerNameSnapshot, pr.requestedByName, productText(pr)].join(" ").toLowerCase().includes(q)));
+  }, [prs, status, forFilter, requesterFilter, range, search]);
 
-  const soOptions = useMemo(() => [{ value: ALL, label: "All sales orders" }, ...[...new Map(prs.map((p) => [p.salesOrderId, p.salesOrderNoSnapshot])).entries()].map(([value, label]) => ({ value, label }))], [prs]);
+  const forOptions = useMemo(() => [{ value: ALL, label: "All requests" }, ...[...new Map(prs.map((p) => [forKey(p), prReferenceLabel(p) === "—" ? "No reference" : prReferenceLabel(p)])).entries()].map(([value, label]) => ({ value, label }))], [prs]);
   const requesterOptions = useMemo(() => [{ value: ALL, label: "All requesters" }, ...[...new Map(prs.map((p) => [p.requestedByUserId, p.requestedByName])).entries()].map(([value, label]) => ({ value, label }))], [prs]);
 
   const columns: ColumnDef<PrView>[] = [
     { id: "prNo", header: "PR No.", accessorFn: (pr) => pr.prNo || "Draft" },
     { accessorKey: "requestedDate", header: "Date" },
-    { accessorKey: "salesOrderNoSnapshot", header: "SO No." },
+    { id: "reference", header: "For", accessorFn: (pr) => prReferenceLabel(pr) },
     { accessorKey: "customerNameSnapshot", header: "Customer" },
     { accessorKey: "requestedByName", header: "Requested by" },
     { accessorKey: "neededByDate", header: "Needed by", cell: ({ row }) => row.original.neededByDate || "—" },
@@ -144,14 +145,14 @@ export default function PurchaseRequestsPage() {
           getRowId={(pr) => pr.prId}
           toolbarFilters={
             <div className="flex flex-wrap gap-2">
-              <SearchableSelect className="w-48" value={soFilter} onValueChange={setSoFilter} options={soOptions} placeholder="Sales order" />
+              <SearchableSelect className="w-48" value={forFilter} onValueChange={setForFilter} options={forOptions} placeholder="For" />
               <SearchableSelect className="w-48" value={requesterFilter} onValueChange={setRequesterFilter} options={requesterOptions} placeholder="Requester" />
               <DateRangePicker value={range} onChange={setRange} />
             </div>
           }
           mobileLayout={{
-            primary: ["prNo", "salesOrderNoSnapshot", "status", "requestedDate"],
-            labels: { prNo: "PR No.", requestedDate: "Date", salesOrderNoSnapshot: "SO No.", customerNameSnapshot: "Customer", requestedByName: "Requested by", neededByDate: "Needed by", lines: "Lines", status: "Status", rowActions: "Actions" },
+            primary: ["prNo", "reference", "status", "requestedDate"],
+            labels: { prNo: "PR No.", requestedDate: "Date", reference: "For", customerNameSnapshot: "Customer", requestedByName: "Requested by", neededByDate: "Needed by", lines: "Lines", status: "Status", rowActions: "Actions" },
           }}
         />
       </div>

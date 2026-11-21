@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PR_STATUS_LABELS } from "@/types/purchaseRequest";
-import { prApi, salesOrderWarning, type PrView } from "./api";
+import { lineName, prApi, prReferenceLabel, salesOrderWarning, type PrView } from "./api";
 
 type Line = PrView["lines"][number];
 type Action = { kind: "stock" | "cancel"; line: Line; qty: number; text: string };
@@ -51,14 +51,14 @@ export function PurchaseRequestDetailDialog({ pr, onClose, onChanged }: { pr: Pr
             <Badge variant="secondary">{PR_STATUS_LABELS[pr.derivedStatus]}</Badge>
             {warn && <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400">{warn}</Badge>}
           </DialogTitle>
-          <DialogDescription>{pr.salesOrderNoSnapshot} · {pr.customerNameSnapshot}</DialogDescription>
+          <DialogDescription>{[prReferenceLabel(pr), pr.customerNameSnapshot].filter((v) => v && v !== "—").join(" · ") || "No sales order or contract"}</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
           <div><span className="block text-xs text-muted-foreground">Requested by</span>{pr.requestedByName}</div>
           <div><span className="block text-xs text-muted-foreground">Date requested</span>{pr.requestedDate}</div>
           <div><span className="block text-xs text-muted-foreground">Needed by</span>{pr.neededByDate || "—"}</div>
-          <div><span className="block text-xs text-muted-foreground">Quotation no.</span>{pr.quotationNoSnapshot || "—"}</div>
+          {pr.requestType === "SALES_ORDER" && <div><span className="block text-xs text-muted-foreground">Quotation no.</span>{pr.quotationNoSnapshot || "—"}</div>}
           {pr.purpose && <div className="col-span-2 md:col-span-4"><span className="block text-xs text-muted-foreground">Purpose / job notes</span><span className="whitespace-pre-line">{pr.purpose}</span></div>}
           {pr.cancelReason && <div className="col-span-2 md:col-span-4 text-destructive"><span className="block text-xs">Cancel reason</span>{pr.cancelReason}</div>}
         </div>
@@ -76,7 +76,7 @@ export function PurchaseRequestDetailDialog({ pr, onClose, onChanged }: { pr: Pr
               {pr.lines.map((l) => (
                 <tr key={l.prItemId} className="border-t align-top">
                   <td className="p-2">
-                    <div className="font-medium">{l.productCodeSnapshot} — {l.productNameSnapshot}</div>
+                    <div className="font-medium">{lineName(l)}</div>
                     {l.forLabel && <div className="text-xs text-muted-foreground">For {l.forLabel}</div>}
                     {l.remarks && <div className="text-xs text-muted-foreground">{l.remarks}</div>}
                   </td>

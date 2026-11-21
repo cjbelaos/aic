@@ -366,6 +366,10 @@ export default function PurchaseOrderPage() {
   }, [prPickerFor, lineItems, editLineItems]);
   /** A PO line for a picked product, priced from the supplier's offering when it has one. */
   const lineFromPicked = (p: PickedPoLine): LineItem => {
+    if (!p.productId) {
+      // Typed PR item: description-only PO line, priced by hand.
+      return { ...EMPTY_LINE_ITEM, description: p.description, unit: p.unit || "PC", quantity: p.quantity, pricePerUnit: 0, totalAmount: 0, prLinks: p.prLinks };
+    }
     const offering = supplierProducts.find((sp) => sp.productId === p.productId);
     const product = products.find((x) => x.id === p.productId || x.productId === p.productId);
     const pricePerUnit = offering?.costPerUnit || 0;
@@ -383,7 +387,9 @@ export default function PurchaseOrderPage() {
     };
   };
   const addPickedPrLines = (picked: PickedPoLine[]) => {
+    if (picked.some((p) => !p.productId)) toast.warning("Typed items were added without a product; enter their prices by hand.");
     for (const p of picked) {
+      if (!p.productId) continue;
       if (!supplierProducts.some((sp) => sp.productId === p.productId)) {
         const product = products.find((x) => x.id === p.productId || x.productId === p.productId);
         toast.warning(`${product?.name ?? "A product"} is not in this supplier's catalogue; enter its price by hand.`);
