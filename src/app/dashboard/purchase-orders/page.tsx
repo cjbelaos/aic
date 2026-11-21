@@ -288,8 +288,9 @@ export default function PurchaseOrderPage() {
       label: offering.supplierProductCode
         ? `${offering.supplierProductCode} - ${offering.supplierProductName}`
         : offering.supplierProductName,
+      hidden: products.find((p) => p.id === offering.productId)?.status === "inactive",
     })),
-    [supplierProducts],
+    [supplierProducts, products],
   );
 
   useEffect(() => {

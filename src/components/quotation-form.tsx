@@ -1302,6 +1302,7 @@ export function QuotationForm({
                   .map((p) => ({
                     value: String(p.id),
                     label: p.name?.trim() || "Unnamed Product",
+                    hidden: p.status === "inactive",
                   }));
                 const lineInvalid = showErrors && !lineIsComplete(row);
                 const lineAmount = row.quantity * row.unitPrice;

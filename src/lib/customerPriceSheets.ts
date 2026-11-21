@@ -71,13 +71,13 @@ export async function addCustomerPrice(payload: CreateCustomerPricePayload, acto
   return record;
 }
 
-export async function updateCustomerPrice(payload: UpdateCustomerPricePayload, actor: string): Promise<CustomerPrice> {
+export async function updateCustomerPrice(payload: UpdateCustomerPricePayload, actor: string, options: { skipValidation?: boolean } = {}): Promise<CustomerPrice> {
   const existing = await getCustomerPricesOnly();
   const id = "customerProductPriceId" in payload ? payload.customerProductPriceId : (payload.id ?? "");
   const current = existing.find((p) => p.customerProductPriceId === id);
   if (!current) throw new Error(`Customer price "${id}" was not found.`);
   const updated: CustomerPrice = { ...current, ...payload, updatedAt: new Date().toISOString(), updatedBy: actor };
-  await validate(updated, updated.customerProductPriceId);
+  if (!options.skipValidation) await validate(updated, updated.customerProductPriceId);
   const row = rowNumberFromStableId(updated.customerProductPriceId, existing.map((p) => p.customerProductPriceId));
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   await sheets.spreadsheets.values.update({ spreadsheetId, range: `${CUSTOMER_PRICES_SHEET}!A${row}:L${row}`, valueInputOption: "USER_ENTERED", requestBody: { values: [toRow(updated)] } });
@@ -85,5 +85,6 @@ export async function updateCustomerPrice(payload: UpdateCustomerPricePayload, a
 }
 
 export async function deactivateCustomerPrice(id: string, actor: string): Promise<CustomerPrice> {
-  return updateCustomerPrice({ customerProductPriceId: id, status: "inactive" }, actor);
+  // Turning a price off must always work, even if its customer was later removed or changed to Supplier.
+  return updateCustomerPrice({ customerProductPriceId: id, status: "inactive" }, actor, { skipValidation: true });
 }

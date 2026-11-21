@@ -23,10 +23,12 @@ async function ensureHeaders(): Promise<void> {
   await sheets.spreadsheets.values.update({ spreadsheetId, range: `${SHEET}!A1:G1`, valueInputOption: "RAW", requestBody: { values: [HEADERS] } });
 }
 
-async function resolveProduct(payload: Pick<CreateContractItemPayload, "productId" | "productCode">): Promise<{ productId: string; productCode: string }> {
+async function resolveProduct(payload: Pick<CreateContractItemPayload, "productId" | "productCode">, keepProductId?: string): Promise<{ productId: string; productCode: string }> {
   const products = await getProducts();
   const product = payload.productId ? products.find((item) => item.productId === payload.productId) : products.find((item) => item.productCode === payload.productCode);
   if (!product) throw new Error("A canonical product is required for a contract item.");
+  // An existing item may keep its product after it is deactivated; switching to or adding an inactive one is rejected.
+  if (product.status !== "active" && product.productId !== keepProductId) throw new Error(`Product "${product.productCode}" is inactive and cannot be used on a contract item.`);
   return { productId: product.productId, productCode: product.productCode };
 }
 
@@ -47,7 +49,7 @@ export async function updateContractItemInSheets(payload: UpdateContractItemPayl
   const existing = await rows(); const current = existing.find((item) => item.id === payload.id);
   if (!current) throw new Error(`Contract item ${payload.id} not found.`);
   if (payload.contractId && payload.contractId !== current.contractId) throw new Error(`Entitlement ${payload.id} belongs to contract ${current.contractId}, not ${payload.contractId}.`);
-  const product = payload.productId || payload.productCode ? await resolveProduct({ productId: payload.productId ?? current.productId, productCode: payload.productCode ?? current.productCode }) : { productId: current.productId ?? "", productCode: current.productCode };
+  const product = payload.productId || payload.productCode ? await resolveProduct({ productId: payload.productId ?? current.productId, productCode: payload.productCode ?? current.productCode }, current.productId) : { productId: current.productId ?? "", productCode: current.productCode };
   const item: ContractItem = { ...current, ...payload, ...product, contractId: current.contractId };
   const row = rowNumberFromStableId(item.id, existing.map((entry) => entry.id)); const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   await sheets.spreadsheets.values.update({ spreadsheetId, range: `${SHEET}!A${row}:G${row}`, valueInputOption: "USER_ENTERED", requestBody: { values: [[item.id, item.contractId, item.productId ?? "", item.productCode, item.entitledQty, item.frequency, item.status]] } });

@@ -37,6 +37,14 @@ export interface CreateDeliveryPayload {
   comments?: string;
   items: DeliveryItem[];
   status?: string; // "draft" for save-without-print, "created" default
+  /** Warehouse the goods ship from (DeliveryReceipts column T). Required on non-draft saves. */
+  warehouseId?: string;
+  /** Approval stamp (columns U–W), set by the server only. */
+  approvedBy?: string;
+  approvedAt?: string;
+  approvalNote?: string;
+  /** Status the DR was saved for while it waits for approval (column X), set by the server only. */
+  requestedStatus?: string;
 }
 
 export interface DeliveryReceiptResponse {
@@ -63,6 +71,7 @@ export interface DeliveryReceiptResponse {
   driveFileLink?: string;
   /** Legacy receipts use the prior Google Sheets template by default. */
   previewFormat?: "legacy" | "current";
+  warehouseId?: string;
 }
 
 export interface DeliveryReceiptSummary {
@@ -89,6 +98,11 @@ export interface DeliveryReceiptSummary {
   createdBy?: string;
   updatedBy?: string;
   updatedAt?: string;
+  warehouseId?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  approvalNote?: string;
+  requestedStatus?: string;
 }
 
 export interface DeliveryPersonOption {

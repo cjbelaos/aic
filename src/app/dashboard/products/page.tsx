@@ -287,7 +287,7 @@ export default function ProductsPage() {
   const loadProducts = async () => {
     try {
       const products = await productService.getAll();
-      setData(products);
+      setData(productService.selectable(products));
     } catch (err) {
       console.error("Error loading products:", err);
       toast.error("Failed to load products.");

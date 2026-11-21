@@ -141,13 +141,15 @@ async function ensureServiceInvoiceItemCatalogHeaders(sheets: Awaited<ReturnType
   await sheets.spreadsheets.values.update({ spreadsheetId, range: `${SERVICE_INVOICE_ITEMS_SHEET}!F1:G1`, valueInputOption: "RAW", requestBody: { values: [["ProductId", "ProductCategoryId"]] } });
 }
 
-async function itemCatalogReferences(items: ServiceInvoiceItem[]): Promise<Array<{ productId: string; categoryId: string }>> {
+/** `keepIds` are products the invoice already carries; they stay valid after deactivation, anything else must be active. */
+async function itemCatalogReferences(items: ServiceInvoiceItem[], keepIds: ReadonlySet<string> = new Set()): Promise<Array<{ productId: string; categoryId: string }>> {
   if (!items.some((item) => item.productId)) return items.map(() => ({ productId: "", categoryId: "" }));
   const products = await getProducts();
   return items.map((item) => {
     if (!item.productId) return { productId: "", categoryId: "" };
     const product = products.find((candidate) => candidate.productId === item.productId);
     if (!product) throw new Error(`Product "${item.productId}" was not found.`);
+    if (product.status !== "active" && !keepIds.has(product.productId)) throw new Error(`Product "${product.productCode}" is inactive and cannot be added to an invoice.`);
     return { productId: product.productId, categoryId: product.productCategoryId };
   });
 }
@@ -761,7 +763,8 @@ async function processServiceInvoice(
     // A corrected copy replaces an invoice already counted; its original is cancelled right after.
     if (references.salesOrderId && !copyExistingBilling) await assertSalesOrderBillable(references.salesOrderId, invoiceNo, payload.items, discountData?.discountAmount, false);
     if (invoicePrintItems(payload.items, serviceContext).length > TEMPLATE_ITEM_END_ROW - TEMPLATE_ITEM_START_ROW + 1) throw new InvoiceBillingError("Too many invoice lines, including the service location notation.");
-    const catalogReferences = await itemCatalogReferences(payload.items);
+    // A corrected copy re-saves lines the original invoice already carried, so they stay valid.
+    const catalogReferences = await itemCatalogReferences(payload.items, copyExistingBilling ? new Set(payload.items.flatMap((item) => (item.productId ? [item.productId] : []))) : undefined);
     if (catalogReferences.some((entry) => entry.productId)) await ensureServiceInvoiceItemCatalogHeaders(sheets, spreadsheetId);
     const headerRow = [
       invoiceNo,
@@ -1006,7 +1009,8 @@ async function updateServiceInvoice(
     if (!["draft", "created", "void"].includes(newStatus)) throw new Error("Invalid invoice status.");
     if (newStatus === "void" || (newStatus === "draft" && oldStatus !== "draft")) assertUnpaid(oldStatus, currentMetadata);
     const statusReason = newStatus === "void" ? requireStatusReason(payload.statusReason) : currentMetadata.statusReason;
-    const catalogReferences = payload.items ? await itemCatalogReferences(payload.items) : undefined;
+    const heldProductIds = payload.items ? new Set((await findInvoiceItemRows(sheets, spreadsheetId, invoiceNo)).map(({ rowData }) => String(rowData[5] ?? "").trim()).filter(Boolean)) : undefined;
+    const catalogReferences = payload.items ? await itemCatalogReferences(payload.items, heldProductIds) : undefined;
     if (catalogReferences?.some((entry) => entry.productId)) await ensureServiceInvoiceItemCatalogHeaders(sheets, spreadsheetId);
     if (oldStatus === "cancelled" || oldStatus === "void" || oldStatus === "deleted") throw new Error("This Service Invoice can no longer be edited.");
     if (newStatus === "cancelled") throw new Error("Use Cancel and create corrected copy to cancel a Service Invoice.");

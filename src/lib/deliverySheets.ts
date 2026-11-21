@@ -29,11 +29,33 @@ const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:S`;
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:X`;
 // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:SalesOrderNo (legacy TRNumber)
 // F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink
 // M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType
-// R:DeliveredByOptionId S:SalesOrderId
+// R:DeliveredByOptionId S:SalesOrderId T:WarehouseId U:ApprovedBy V:ApprovedAt W:ApprovalNote X:RequestedStatus
+// Writers of A:S leave T:W untouched; writeInventoryColumns() owns T:W.
+
+/** Statuses that keep a DR unnumbered, unprinted and out of stock and fulfillment. */
+const HELD_DR_STATUSES = new Set(["draft", "pending_approval", "rejected"]);
+function isHeldDrStatus(status: string | undefined): boolean {
+  return HELD_DR_STATUSES.has(String(status ?? "").trim().toLowerCase());
+}
+
+async function writeInventoryColumns(
+  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+  rowNumber: number,
+  values: { warehouseId: string; approvedBy: string; approvedAt: string; approvalNote: string; requestedStatus: string },
+): Promise<void> {
+  if (rowNumber <= 1) return;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${DELIVERY_RECEIPTS_SHEET}!T${rowNumber}:X${rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[values.warehouseId, values.approvedBy, values.approvedAt, values.approvalNote, values.requestedStatus]] },
+  });
+}
 
 const DR_STATUS_HISTORY_SHEET = "DeliveryReceiptStatusHistory";
 const DR_STATUS_HISTORY_RANGE = `${DR_STATUS_HISTORY_SHEET}!A2:E`;
@@ -175,6 +197,11 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           createdBy: String(row[12] ?? "").trim() || undefined,
           updatedBy: String(row[13] ?? "").trim() || undefined,
           updatedAt: String(row[14] ?? "").trim() || undefined,
+          warehouseId: String(row[19] ?? "").trim() || undefined,
+          approvedBy: String(row[20] ?? "").trim() || undefined,
+          approvedAt: String(row[21] ?? "").trim() || undefined,
+          approvalNote: String(row[22] ?? "").trim() || undefined,
+          requestedStatus: String(row[23] ?? "").trim() || undefined,
           items: itemsByDr.get(drNumber) || [],
         };
       })
@@ -363,6 +390,8 @@ export async function processDeliveryReceipt(
     // 1. DR Number — either manual override, auto-generate, or negative placeholder for drafts
     let drNumber: number;
     const isDraft = payload.status === "draft";
+    // Pending/rejected DRs are held like drafts: placeholder number, no handover, no PDF.
+    const isHeld = isHeldDrStatus(payload.status);
     if (!isDraft) {
       if (payload.deliveredByOptionId) {
         const option = (await getDriversFromSheets()).find((entry) => entry.deliveryOptionId === payload.deliveredByOptionId);
@@ -402,7 +431,7 @@ export async function processDeliveryReceipt(
         );
       }
       drNumber = payload.drNumber;
-    } else if (isDraft) {
+    } else if (isHeld) {
       // Draft without manual number: use negative timestamp placeholder
       // so multiple drafts can coexist without consuming real sequence numbers
       drNumber = -Math.floor(Date.now() / 1000);
@@ -458,7 +487,7 @@ export async function processDeliveryReceipt(
       referenceRow.salesOrderId, // S: immutable SalesOrderId
     ];
 
-    if (!isDraft) {
+    if (!isHeld) {
       await commitDocumentWithHandover(
         { sheet: "DeliveryReceipts", row: headerRow },
         { documentType: "delivery_receipt", documentNumber: String(drNumber), customerName: companyName,
@@ -477,11 +506,20 @@ export async function processDeliveryReceipt(
     // 3b. Log item rows to DeliveryReceiptItems sheet
     await replaceDeliveryItems(drNumber, payload.items);
 
-    // 4. Populate template and export PDF (skip for drafts)
+    // 3c. Warehouse and approval stamp (columns T:W)
+    await writeInventoryColumns(sheets, spreadsheetId, await findDrRow(sheets, spreadsheetId, drNumber), {
+      warehouseId: payload.warehouseId || "",
+      approvedBy: payload.approvedBy || "",
+      approvedAt: payload.approvedAt || "",
+      approvalNote: payload.approvalNote || "",
+      requestedStatus: payload.requestedStatus || "",
+    });
+
+    // 4. Populate template and export PDF (skip for drafts and held DRs)
     let pdfBase64: string | undefined;
     let printUrl: string | undefined;
 
-    if (payload.status !== "draft") {
+    if (!isHeld) {
       await sheets.spreadsheets.values.clear({
         spreadsheetId,
         range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
@@ -560,6 +598,7 @@ export async function processDeliveryReceipt(
       status: payload.status || "created",
       printUrl,
       pdfBase64,
+      warehouseId: payload.warehouseId || undefined,
     };
   } catch (error) {
     console.error("Failed to process delivery receipt:", error);
@@ -611,7 +650,7 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:X${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     if (payload.deliveredByOptionId) {
@@ -635,7 +674,7 @@ export async function updateDeliveryReceipt(
     // promoted to a real status (draft -> created/printed/completed), assign
     // a real sequential DR number now so the finalized receipt has one.
     let effectiveDrNumber = drNumber;
-    if (drNumber <= 0 && newStatus !== "draft") {
+    if (drNumber <= 0 && !isHeldDrStatus(newStatus)) {
       effectiveDrNumber = await generateNextDrNumber(sheets, spreadsheetId);
     }
 
@@ -700,7 +739,7 @@ export async function updateDeliveryReceipt(
 
     const companies = await getCompanies().catch(() => []);
     const company = companies.find(c => c.companyId === updatedRow[2] || c.id === updatedRow[2]);
-    if (!["draft", "deleted", "cancelled", "void"].includes(newStatus)) {
+    if (!["draft", "pending_approval", "rejected", "deleted", "cancelled", "void"].includes(newStatus)) {
       await commitDocumentWithHandover(
         { sheet: "DeliveryReceipts", row: updatedRow, rowNumber: drRowNumber },
         { documentType: "delivery_receipt", documentNumber: String(effectiveDrNumber), customerName: company?.companyName || updatedRow[2],
@@ -716,6 +755,15 @@ export async function updateDeliveryReceipt(
         requestBody: { values: [updatedRow] },
       });
     }
+
+    const inventoryColumns = {
+      warehouseId: payload.warehouseId ?? String(currentRow[19] ?? "").trim(),
+      approvedBy: payload.approvedBy ?? String(currentRow[20] ?? "").trim(),
+      approvedAt: payload.approvedAt ?? String(currentRow[21] ?? "").trim(),
+      approvalNote: payload.approvalNote ?? String(currentRow[22] ?? "").trim(),
+      requestedStatus: payload.requestedStatus ?? String(currentRow[23] ?? "").trim(),
+    };
+    await writeInventoryColumns(sheets, spreadsheetId, drRowNumber, inventoryColumns);
 
     // ── Log status change to DRStatusHistory if status actually changed ──
     if (newStatus !== oldStatus) {
@@ -767,6 +815,11 @@ export async function updateDeliveryReceipt(
       createdBy: updatedRow[12] || undefined,
       updatedBy: updatedRow[13] || undefined,
       updatedAt: updatedRow[14] || undefined,
+      warehouseId: inventoryColumns.warehouseId || undefined,
+      approvedBy: inventoryColumns.approvedBy || undefined,
+      approvedAt: inventoryColumns.approvedAt || undefined,
+      approvalNote: inventoryColumns.approvalNote || undefined,
+      requestedStatus: inventoryColumns.requestedStatus || undefined,
       items: payload.items || [],
     };
   } catch (error) {

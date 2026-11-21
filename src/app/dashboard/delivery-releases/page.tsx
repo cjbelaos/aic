@@ -71,6 +71,7 @@ import {
 } from "@/lib/deliveryReference";
 import { deliverySearchFields, formatSerialCell, matchesDeliverySearch, parseSerialInput } from "@/lib/deliverySerials";
 import { DeliverySerialInput } from "@/components/delivery-serial-input";
+import { StockLineHint, WarehouseSelect, approvalPrompt, useActiveWarehouses, useStockCheck } from "@/components/inventory/dr-stock";
 import { DeliveryItemSerialTags, DeliveryItemSummary } from "@/components/delivery-item-summary";
 import { EditDrSerialsDialog } from "@/components/edit-dr-serials-dialog";
 
@@ -98,6 +99,13 @@ const EMPTY_LINE_ITEM: LineItem = {
   description: "",
   quantity: 1,
 };
+
+/** Register card bucket: drafts, DRs held for approval (pending or rejected), everything else. */
+function registerBucket(status: string): "draft" | "pending" | "created" {
+  if (status === "draft") return "draft";
+  if (status === "pending_approval" || status === "rejected") return "pending";
+  return "created";
+}
 
 function getDeliveryAssigneeKey(receipt: DeliveryReceiptSummary) {
   if (receipt.deliveredById) return `user:${receipt.deliveredById}`;
@@ -138,6 +146,10 @@ export default function DeliveryReleasePage() {
 
   /* Create modal state */
   const [modalOpen, setModalOpen] = useState(false);
+  /* Inventory: the warehouse a DR ships from, and live stock hints */
+  const warehouses = useActiveWarehouses();
+  const [warehouseId, setWarehouseId] = useState("");
+  const [editWarehouseId, setEditWarehouseId] = useState("");
   const [contracts, setContracts] = useState<any[]>([]);
   const [selectedCompany, setSelectedCompany] = useState("");
   const [deliveryDate, setDeliveryDate] = useState(
@@ -366,8 +378,20 @@ export default function DeliveryReleasePage() {
     [companies],
   );
 
+  const warehouseName = (id: string) => warehouses.find((w) => w.warehouseId === id)?.name || id || "this warehouse";
+  const productIdOf = (line: { productId?: string; productCode?: string }) =>
+    line.productId || products.find((p) => p.code === line.productCode)?.id || "";
+  const productNameOf = (id: string) => products.find((p) => p.id === id)?.name || id;
+  const createStock = useStockCheck({ warehouseId, lines: lineItems, enabled: modalOpen });
+  const editStock = useStockCheck({
+    warehouseId: editWarehouseId,
+    lines: editLineItems,
+    excludeDrNumber: editTarget?.drNumber,
+    enabled: Boolean(editTarget),
+  });
+
   const productOptions = useMemo(
-    () => products.map((p) => ({ value: p.code, label: `${p.name} — ${p.category?.name || "Uncategorized"}`, categoryId: String(p.category?.id || "") })),
+    () => products.map((p) => ({ value: p.code, label: `${p.name} — ${p.category?.name || "Uncategorized"}`, categoryId: String(p.category?.id || ""), hidden: p.status === "inactive" })),
     [products],
   );
 
@@ -746,6 +770,8 @@ export default function DeliveryReleasePage() {
             }
           > = {
             draft: { label: "Draft", variant: "outline" },
+            pending_approval: { label: "Pending approval", variant: "outline" },
+            rejected: { label: "Rejected", variant: "destructive" },
             created: { label: "Created", variant: "secondary" },
             printed: { label: "Printed", variant: "default" },
             completed: { label: "Completed", variant: "default" },
@@ -808,9 +834,11 @@ export default function DeliveryReleasePage() {
           const locked = ["completed", "deleted", "cancelled"].includes(
             row.original.status,
           );
+          // DRs held for approval cannot be previewed or printed.
+          const held = ["pending_approval", "rejected"].includes(row.original.status);
           return (
             <div className="flex items-center gap-1">
-              <Button
+              {!held && <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
@@ -835,7 +863,7 @@ export default function DeliveryReleasePage() {
                 ) : (
                   <Eye className="h-4 w-4" />
                 )}
-              </Button>
+              </Button>}
               {row.original.driveFileLink && (
                 <Button
                   variant="ghost"
@@ -933,6 +961,7 @@ export default function DeliveryReleasePage() {
     setLineItems([]);
     setManualRows(new Set());
     setContracts([]);
+    setWarehouseId("");
     setModalOpen(true);
   }, []);
 
@@ -1024,6 +1053,12 @@ export default function DeliveryReleasePage() {
       toast.error("Please select a customer and add at least one valid item.");
       return;
     }
+    if (!warehouseId) {
+      toast.error("From warehouse is required.");
+      return;
+    }
+    const approvalText = approvalPrompt(createStock.check, createStock.level, warehouseName(warehouseId), productNameOf);
+    if (approvalText && !window.confirm(approvalText)) return;
 
     setPrinting(true);
     try {
@@ -1041,9 +1076,17 @@ export default function DeliveryReleasePage() {
         comments,
         items: toDeliveryItems(lineItems),
         status: "printed",
+        warehouseId,
       };
 
       const res = await deliveryService.createAndPopulateSheet(payload);
+      if (res.status === "pending_approval") {
+        // Held for a manager: no print, no contract release until approved.
+        toast.success("Sent for approval. It can be printed once a manager approves it.");
+        setModalOpen(false);
+        fetchList();
+        return;
+      }
       toast.success("Delivery receipt recorded!");
 
       const drNumber = res.drNumber;
@@ -1119,6 +1162,7 @@ export default function DeliveryReleasePage() {
         comments,
         items: toDeliveryItems(lineItems),
         status: "draft",
+        warehouseId: warehouseId || undefined,
       };
       await deliveryService.createAndPopulateSheet(payload);
       toast.success("Delivery receipt saved as draft.");
@@ -1257,6 +1301,7 @@ export default function DeliveryReleasePage() {
             : drivers.find((driver) => driver.label === editTarget.deliveredBy)?.value || "",
       );
       setEditStatus(editTarget.status || "created");
+      setEditWarehouseId(editTarget.warehouseId || "");
       setEditLineItems(
         editTarget.items.map((item) => ({
           productId: item.productId || "",
@@ -1316,9 +1361,14 @@ export default function DeliveryReleasePage() {
       if (editReferenceMode === "SALES_ORDER" && !editSalesOrderId && editTarget.trNo && !editTarget.salesOrderId) {
         throw new Error("Select a Sales Order, or switch the reference back to Legacy TR Number.");
       }
+      if (!["draft", "cancelled"].includes(editStatus)) {
+        const approvalText = approvalPrompt(editStock.check, editStock.level, warehouseName(editWarehouseId), productNameOf);
+        if (approvalText && !window.confirm(approvalText)) return;
+      }
       const payload = {
         date: editDate,
         poNo: editPoNo,
+        warehouseId: editWarehouseId || undefined,
         ...referencePayload(editReferenceMode, editSalesOrderId, editTrNo),
         comments: editComments,
         deliveredBy: selectedDriver.label,
@@ -1347,7 +1397,9 @@ export default function DeliveryReleasePage() {
           : `Draft DR updated.`,
       );
 
-      if (editStatus !== "draft") {
+      if (res?.status === "pending_approval") {
+        toast.message("Sent for approval. It can be printed once a manager approves it.");
+      } else if (editStatus !== "draft") {
         deliveryService
           .savePdfToDrive(updatedDrNumber, editTarget.companyName, editDate)
           .catch(() => {});
@@ -1365,12 +1417,12 @@ export default function DeliveryReleasePage() {
   return (
     <>
       <div className="space-y-6 min-w-0">
-        <DocumentRegisterHeader eyebrow="Delivery management" title="Delivery receipts" description="Review deliveries and manage documents." loading={loading} actions={<Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />New delivery receipt</Button>} cards={["all", "created", "draft"].map(status => ({ label: status === "all" ? "Total" : status === "draft" ? "Draft" : "Created", count: filteredReceipts.filter(receipt => status === "all" || (receipt.status === "draft" ? "draft" : "created") === status).length, selected: registerStatus === status, onClick: () => setRegisterStatus(status) }))} />
+        <DocumentRegisterHeader eyebrow="Delivery management" title="Delivery receipts" description="Review deliveries and manage documents." loading={loading} actions={<Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />New delivery receipt</Button>} cards={["all", "created", "draft", "pending"].map(status => ({ label: status === "all" ? "Total" : status === "draft" ? "Draft" : status === "pending" ? "Pending approval" : "Created", count: filteredReceipts.filter(receipt => status === "all" || registerBucket(receipt.status) === status).length, selected: registerStatus === status, onClick: () => setRegisterStatus(status) }))} />
         <EntityTable
           mobileLayout={{ primary: ["drNumber", "companyName", "reference", "status", "date", "itemCount"], labels: { drNumber: "DR number", companyName: "Customer", reference: "Sales Order / TR No.", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Delivery Receipts"
           columns={columns}
-          data={filteredReceipts.filter(receipt => registerStatus === "all" || (receipt.status === "draft" ? "draft" : "created") === registerStatus)}
+          data={filteredReceipts.filter(receipt => registerStatus === "all" || registerBucket(receipt.status) === registerStatus)}
           searchValue={registerSearch}
           onSearchChange={setRegisterSearch}
           loading={loading}
@@ -1477,6 +1529,10 @@ export default function DeliveryReleasePage() {
                 </Label>
                 <DatePickerInput value={deliveryDate} onChange={(selectedDate) => setDeliveryDate(selectedDate)} />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <WarehouseSelect value={warehouseId} onChange={setWarehouseId} warehouses={warehouses} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1623,6 +1679,12 @@ export default function DeliveryReleasePage() {
                   quantity={item.quantity}
                   requiresSerial={lineRequiresSerial(item)}
                   onChange={(v) => updateLineItem(idx, "serialText", v)}
+                />
+                <StockLineHint
+                  check={createStock.check}
+                  productId={productIdOf(item)}
+                  warehouseName={warehouseName(warehouseId)}
+                  productName={productNameOf(productIdOf(item))}
                 />
                 </Fragment>
               ))}
@@ -1771,6 +1833,15 @@ export default function DeliveryReleasePage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <WarehouseSelect
+                value={editWarehouseId}
+                onChange={setEditWarehouseId}
+                warehouses={warehouses}
+                required={Boolean(editTarget && (editTarget.warehouseId || editTarget.drNumber <= 0))}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <DeliveryReleaseReferenceField
                 mode={editReferenceMode}
                 onModeChange={(mode) => changeReferenceMode(mode, true)}
@@ -1914,6 +1985,12 @@ export default function DeliveryReleasePage() {
                   requiresSerial={lineRequiresSerial(item)}
                   onChange={(v) => updateEditLineItem(idx, "serialText", v)}
                 />
+                <StockLineHint
+                  check={editStock.check}
+                  productId={productIdOf(item)}
+                  warehouseName={warehouseName(editWarehouseId)}
+                  productName={productNameOf(productIdOf(item))}
+                />
                 </Fragment>
               ))}
             </div>
@@ -1948,6 +2025,8 @@ export default function DeliveryReleasePage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="draft">Draft</SelectItem>
+                  {editStatus === "pending_approval" && <SelectItem value="pending_approval">Pending approval</SelectItem>}
+                  {editStatus === "rejected" && <SelectItem value="rejected">Rejected</SelectItem>}
                   <SelectItem value="created">Created</SelectItem>
                   <SelectItem value="printed">Printed</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>

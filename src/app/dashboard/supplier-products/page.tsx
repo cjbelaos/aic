@@ -104,7 +104,7 @@ export default function SupplierProductsPage() {
 
   const productById = useMemo(() => new Map(products.map((product) => [product.productId ?? product.id, product])), [products]);
   const supplierById = useMemo(() => new Map(suppliers.map((supplier) => [supplier.companyId, supplier])), [suppliers]);
-  const productOptions = useMemo(() => products.map((product) => ({ value: product.productId ?? product.id, label: `${product.code} - ${product.name}` })), [products]);
+  const productOptions = useMemo(() => products.map((product) => ({ value: product.productId ?? product.id, label: `${product.code} - ${product.name}`, hidden: product.status === "inactive" })), [products]);
   const supplierOptions = useMemo(() => suppliers.map((supplier) => ({ value: supplier.companyId, label: supplier.companyName })), [suppliers]);
 
   const visibleRows = useMemo(
@@ -156,7 +156,7 @@ export default function SupplierProductsPage() {
     { accessorKey: "status", header: "Status", cell: ({ row }) => <Badge variant={row.original.status === "active" ? "default" : "secondary"}>{row.original.status}</Badge> },
   ], [productById, supplierById]);
 
-  const similarProducts = products.filter((product) => {
+  const similarProducts = products.filter((product) => product.status !== "inactive").filter((product) => {
     const name = normalize(newProduct.name);
     const code = normalize(newProduct.code);
     return (code && normalize(product.code) === code) || (name.length >= 3 && normalize(product.name).includes(name));

@@ -34,12 +34,14 @@ interface ProductCategoryFormState {
   code: string;
   name: string;
   requiresSerial: boolean;
+  trackInventory: boolean;
 }
 
 const EMPTY_FORM: ProductCategoryFormState = {
   code: "",
   name: "",
   requiresSerial: false,
+  trackInventory: false,
 };
 
 /* ── Helper: build CreateProductCategoryPayload from form state ── */
@@ -50,6 +52,7 @@ function buildCreatePayload(
     code: form.code,
     name: form.name,
     requiresSerial: form.requiresSerial,
+    trackInventory: form.trackInventory,
   };
 }
 
@@ -87,6 +90,16 @@ const columns: ColumnDef<ProductCategory>[] = [
     cell: ({ row }) =>
       row.original.requiresSerial ? (
         <Badge variant="secondary">Required</Badge>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
+  },
+  {
+    id: "trackInventory",
+    header: "Inventory",
+    cell: ({ row }) =>
+      row.original.trackInventory ? (
+        <Badge variant="secondary">Tracked</Badge>
       ) : (
         <span className="text-muted-foreground">—</span>
       ),
@@ -133,6 +146,7 @@ export default function ProductCategoriesPage() {
       code: row.code,
       name: row.name,
       requiresSerial: row.requiresSerial === true,
+      trackInventory: row.trackInventory === true,
     });
     setError("");
     setModalOpen(true);
@@ -205,7 +219,7 @@ export default function ProductCategoriesPage() {
         onCreateNew={openCreate}
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
-        mobileLayout={{ primary: ["code", "name"], labels: { code: "Code", name: "Category", requiresSerial: "Serial", actions: "Actions" } }}
+        mobileLayout={{ primary: ["code", "name"], labels: { code: "Code", name: "Category", requiresSerial: "Serial", trackInventory: "Inventory", actions: "Actions" } }}
       />
 
       <Dialog
@@ -267,6 +281,24 @@ export default function ProductCategoriesPage() {
                 <Label htmlFor="pc-requires-serial">Requires serial number</Label>
                 <p className="text-xs text-muted-foreground">
                   Delivery receipt lines in this category are flagged when serial numbers are missing.
+                </p>
+              </div>
+            </div>
+
+            {/* Track inventory */}
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="pc-track-inventory"
+                checked={form.trackInventory}
+                disabled={saving}
+                onCheckedChange={(checked) =>
+                  setForm((f) => ({ ...f, trackInventory: checked === true }))
+                }
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="pc-track-inventory">Track inventory</Label>
+                <p className="text-xs text-muted-foreground">
+                  Products in this category appear on the Inventory page, and delivery receipts are checked against stock.
                 </p>
               </div>
             </div>

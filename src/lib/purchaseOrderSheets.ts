@@ -13,14 +13,17 @@ import {
 } from "@/types/purchaseOrder";
 import { getPurchaseOrderItems, renamePurchaseOrderItemReferences, replacePurchaseOrderItems } from "@/lib/transactionItemSheets";
 import { getSupplierProducts } from "@/lib/supplierProductSheets";
+import { getProducts } from "@/lib/productSheets";
 
 async function validateCatalogItemsForSupplier(items: PurchaseOrderItem[], supplierId: string): Promise<void> {
   const catalogItems = items.filter((item) => item.supplierProductId);
   if (!catalogItems.length) return;
-  const offerings = await getSupplierProducts({ supplierId, status: "active" });
+  const [offerings, products] = await Promise.all([getSupplierProducts({ supplierId, status: "active" }), getProducts()]);
   for (const item of catalogItems) {
     const offering = offerings.find((entry) => entry.supplierProductId === item.supplierProductId);
     if (!offering) throw new Error(`Supplier product "${item.supplierProductId}" is not active for supplier "${supplierId}".`);
+    const product = products.find((entry) => entry.productId === offering.productId);
+    if (product && product.status !== "active") throw new Error(`Product "${product.productCode}" is inactive and cannot be added to a purchase order.`);
     if (item.productId && item.productId !== offering.productId) throw new Error(`Supplier product "${item.supplierProductId}" does not match product "${item.productId}".`);
   }
 }

@@ -44,7 +44,7 @@ type SearchableSelectProps = {
 export function SearchableSelect({
   value,
   onValueChange,
-  options,
+  options: allOptions,
   placeholder = "Select...",
   searchPlaceholder = "Search...",
   emptyText = "No results found.",
@@ -59,7 +59,8 @@ export function SearchableSelect({
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => { setInternalOpen(next); onOpenChange?.(next); };
   const [search, setSearch] = React.useState("");
-  const selected = options.find((o) => o.value === value);
+  const selected = allOptions.find((o) => o.value === value);
+  const options = allOptions.filter((o) => !o.hidden || o.value === value);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);

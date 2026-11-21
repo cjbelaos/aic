@@ -21,6 +21,8 @@ export interface Product {
   defaultSellingPrice?: number;
   supplierCount?: number;
   supplier: Company;
+  /** Deleted products stay in the list as "inactive" so old records can resolve them; pickers must skip them. */
+  status?: "active" | "inactive";
 }
 
 /**

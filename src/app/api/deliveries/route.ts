@@ -9,12 +9,14 @@ import {
 import { getDriveUploadClient, resolveDriveFolderPath, MONTH_NAMES, getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { CreateDeliveryPayload } from "@/types/deliveryReceipt";
 import { getOrderDetail } from "@/lib/salesOrders/service";
+import { getProducts } from "@/lib/productSheets";
 import {
   isDeliveryReferenceMode,
   resolveDeliveryReference,
 } from "@/lib/deliveryReference";
 import { postFinalizedDeliveryReleaseFulfillment } from "@/lib/deliverySalesOrderIntegration";
 import { can } from "@/lib/salesOrders/permissions";
+import { activeWarehouseError, guardedDrWrite, inventoryErrorResponse } from "@/lib/inventory/drGuard";
 
 const DR_PARENT_FOLDER_ID = "1AuGCBFxa-wp-SdfYXf_YTgY7wgtYHILo";
 
@@ -117,6 +119,19 @@ export async function POST(request: Request) {
       }
     }
 
+    // Lines picked by hand must use an active product. Lines taken from a Sales Order are exempt so an
+    // order placed before a product was deactivated can still be delivered.
+    const manualLines = (body.items ?? []).filter((item) => !item.salesOrderItemId && (item.productId || item.productCode));
+    if (manualLines.length) {
+      const products = await getProducts();
+      for (const item of manualLines) {
+        const product = products.find((entry) => (item.productId ? entry.productId === item.productId : entry.productCode.toLowerCase() === String(item.productCode).toLowerCase()));
+        if (product && product.status !== "active") {
+          return NextResponse.json({ error: `Product "${product.productCode}" is inactive and cannot be added to a Delivery Release.` }, { status: 422 });
+        }
+      }
+    }
+
     if (!isDraft) {
       if (!body.preparedBy?.trim()) {
         return NextResponse.json(
@@ -138,9 +153,27 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await processDeliveryReceipt(body, session.userId);
+    if (!isDraft) {
+      const warehouseError = await activeWarehouseError(body.warehouseId);
+      if (warehouseError) return NextResponse.json({ error: warehouseError }, { status: 422 });
+    }
+
+    // Stock guard + write in one inventory lock. The guard decides the saved
+    // status: blocked (409), pending_approval, or the requested status.
+    const { result, decision } = await guardedDrWrite(
+      session,
+      { warehouseId: body.warehouseId ?? "", date: body.date, requestedStatus: body.status ?? "created", items: body.items ?? [] },
+      (stock) => {
+        body.status = stock.status;
+        // Server-owned fields: never trust values sent by the browser.
+        Object.assign(body, stock.approval, { requestedStatus: stock.requestedStatus });
+        return processDeliveryReceipt(body, session.userId);
+      },
+    );
+    // A DR waiting for approval is held like a draft: no fulfillment, no PDF.
+    const isHeld = isDraft || decision.status === "pending_approval";
     let fulfillment: { state: string; posted: number; alreadyPosted: number } | undefined;
-    if (!isDraft && body.salesOrderId) {
+    if (!isHeld && body.salesOrderId) {
       const permission = can("so.fulfill", { roleId: session.userRoleId, actorUserId: session.userId });
       if (!permission.allowed) {
         fulfillment = { state: "PENDING_AUTHORIZATION", posted: 0, alreadyPosted: 0 };
@@ -162,7 +195,7 @@ export async function POST(request: Request) {
 
     // ── Auto-save PDF to Google Drive and store link (skip for drafts) ──
     let driveFileLink: string | undefined;
-    if (!isDraft && body.pdfFormat !== "html") {
+    if (!isHeld && body.pdfFormat !== "html") {
       try {
       const { year, monthName, monthYear } = (() => {
         if (body.date) {
@@ -237,10 +270,12 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { ...result, driveFileLink, fulfillment },
+      { ...result, driveFileLink, fulfillment, check: decision.check },
       { status: 201 },
     );
   } catch (error) {
+    const inventoryResponse = inventoryErrorResponse(error);
+    if (inventoryResponse) return inventoryResponse;
     const message =
       error instanceof Error
         ? error.message
