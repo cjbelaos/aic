@@ -1,7 +1,7 @@
 # Purchase Request — Contract Items, Typed Items, Signatories (Design)
 
 Date: 2026-11-21
-Status: Draft — awaiting Chris's approval
+Status: Implemented on feat/pr-contract-items (2026-11-21); requires `npm run setup:purchase-requests -- --apply` (adds 4 trailing header cells) before use
 Builds on: `2026-11-21-purchase-request-design.md` (amends decisions 1, 4, 8 and the "Free-text items" non-goal)
 
 ## Intent
