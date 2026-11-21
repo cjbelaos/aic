@@ -36,6 +36,8 @@ export function PurchaseRequestForm({ open, onOpenChange, editing, requesterName
     ? editing.lines.map((l) => ({ productId: l.productId, quantity: l.quantity, salesOrderItemId: l.salesOrderItemId, remarks: l.remarks }))
     : [blankLine()]));
   const [saving, setSaving] = useState(false);
+  /** Latest saved copy; a failed submit is retried against it (no duplicate draft, current version). */
+  const [current, setCurrent] = useState<PrView | null>(editing);
   const [pickSoLines, setPickSoLines] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
@@ -71,11 +73,16 @@ export function PurchaseRequestForm({ open, onOpenChange, editing, requesterName
     if (items.some((l) => !(l.quantity > 0))) { toast.error("Every quantity must be more than zero."); return; }
     setSaving(true);
     try {
-      const body = JSON.stringify({ salesOrderId, neededByDate, purpose, items, version: editing?.version });
-      let pr = editing
-        ? await prApi<PrView>(`/api/purchase-requests/${encodeURIComponent(editing.prId)}`, { method: "PUT", body })
+      const body = JSON.stringify({ salesOrderId, neededByDate, purpose, items, version: current?.version });
+      let pr = current
+        ? await prApi<PrView>(`/api/purchase-requests/${encodeURIComponent(current.prId)}`, { method: "PUT", body })
         : await prApi<PrView>("/api/purchase-requests", { method: "POST", body });
-      if (submit && pr.status === "DRAFT") pr = await prApi<PrView>(`/api/purchase-requests/${encodeURIComponent(pr.prId)}/submit`, { method: "POST" });
+      setCurrent(pr);
+      onSaved(pr);
+      if (submit && pr.status === "DRAFT") {
+        pr = await prApi<PrView>(`/api/purchase-requests/${encodeURIComponent(pr.prId)}/submit`, { method: "POST" });
+        setCurrent(pr);
+      }
       toast.success(pr.prNo ? `${pr.prNo} ${submit ? "submitted" : "saved"}.` : "Draft saved.");
       onSaved(pr);
       onOpenChange(false);
@@ -86,7 +93,7 @@ export function PurchaseRequestForm({ open, onOpenChange, editing, requesterName
     }
   };
 
-  const isSubmitted = editing && editing.status !== "DRAFT";
+  const isSubmitted = current && current.status !== "DRAFT";
 
   return (
     <Dialog open={open} onOpenChange={(value) => { if (!saving) onOpenChange(value); }}>

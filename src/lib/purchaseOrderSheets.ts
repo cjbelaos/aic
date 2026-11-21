@@ -193,7 +193,9 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
 
     // Items live in the canonical PurchaseOrderItems tab.
     const itemsByPO = await getPurchaseOrderItems();
-    const prLinks = (await readPurchaseRequestSnapshot().catch(() => ({ links: [] as PurchaseRequestLink[] }))).links;
+    // No catch: missing tabs already read as empty; any other failure must surface, or a later
+    // item save would replace this PO's links with an empty list.
+    const prLinks = (await readPurchaseRequestSnapshot()).links;
     const linksByLine = new Map<string, { prItemId: string; quantity: number }[]>();
     for (const link of prLinks) {
       const key = `${link.poNumber}#${link.poItemNo}`;

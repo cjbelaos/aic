@@ -144,7 +144,7 @@ export async function replacePurchaseRequestItems(prId: string, items: PurchaseR
   const { sheets, spreadsheetId } = await client();
   const rows = await readRows(`${PR_ITEMS_SHEET}!A2:B`);
   const existingRows = rows.map((r, i) => ({ row: r, rowNumber: i + 2 })).filter(({ row }) => text(row[1]) === prId);
-  await guardWrite(() => replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: PR_ITEMS_SHEET, columnCount: 23, existingRows, values: items.map(itemToRow) }));
+  await guardWrite(() => replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: PR_ITEMS_SHEET, columnCount: 23, existingRows, values: items.map(itemToRow), valueInputOption: "RAW" }));
 }
 
 /** Updates a single item row in place by PrItemId. */
@@ -167,7 +167,7 @@ export async function replaceLinksForPurchaseOrder(poNumber: string, links: Omit
   const newIds = allocateIds("PRL", rows.map((r) => text(r[0])), Math.max(0, links.length - keptIds.length));
   const ids = [...keptIds, ...newIds];
   const values = links.map((l, i) => [ids[i], l.poNumber, l.poItemNo, l.prId, l.prItemId, l.quantity, l.createdAt, l.createdBy]);
-  await guardWrite(() => replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: PR_LINKS_SHEET, columnCount: 8, existingRows, values }));
+  await guardWrite(() => replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: PR_LINKS_SHEET, columnCount: 8, existingRows, values, valueInputOption: "RAW" }));
 }
 
 /** Repoints a draft PO's links to its final number. */

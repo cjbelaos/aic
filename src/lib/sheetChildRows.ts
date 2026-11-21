@@ -11,13 +11,15 @@ async function sheetId(sheets: sheets_v4.Sheets, spreadsheetId: string, sheetNam
 }
 
 /** Replaces a document's child rows without leaving cleared physical rows behind. */
-export async function replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName, columnCount, existingRows, values }: {
+export async function replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName, columnCount, existingRows, values, valueInputOption = "USER_ENTERED" }: {
   sheets: sheets_v4.Sheets; spreadsheetId: string; sheetName: string; columnCount: number;
   existingRows: Row[]; values: unknown[][];
+  /** RAW keeps free text (e.g. "1/2", "0012", "=x") exactly as typed. */
+  valueInputOption?: "USER_ENTERED" | "RAW";
 }): Promise<void> {
   const overlap = Math.min(existingRows.length, values.length);
-  if (overlap) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: "USER_ENTERED", data: existingRows.slice(0, overlap).map((row, index) => ({ range: `${sheetName}!A${row.rowNumber}:${String.fromCharCode(64 + columnCount)}${row.rowNumber}`, values: [values[index]] })) } });
-  if (values.length > overlap) await sheets.spreadsheets.values.append({ spreadsheetId, range: `${sheetName}!A2:${String.fromCharCode(64 + columnCount)}`, valueInputOption: "USER_ENTERED", requestBody: { values: values.slice(overlap) } });
+  if (overlap) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption, data: existingRows.slice(0, overlap).map((row, index) => ({ range: `${sheetName}!A${row.rowNumber}:${String.fromCharCode(64 + columnCount)}${row.rowNumber}`, values: [values[index]] })) } });
+  if (values.length > overlap) await sheets.spreadsheets.values.append({ spreadsheetId, range: `${sheetName}!A2:${String.fromCharCode(64 + columnCount)}`, valueInputOption, requestBody: { values: values.slice(overlap) } });
   const surplus = existingRows.slice(overlap).map((row) => row.rowNumber).sort((a, b) => b - a);
   if (surplus.length) {
     const id = await sheetId(sheets, spreadsheetId, sheetName);

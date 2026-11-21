@@ -389,15 +389,20 @@ export default function PurchaseOrderPage() {
         toast.warning(`${product?.name ?? "A product"} is not in this supplier's catalogue; enter its price by hand.`);
       }
     }
-    const apply = (prev: LineItem[]) => mergePickedIntoLines(prev.filter((l) => l.productId || l.description.trim()), picked, lineFromPicked)
+    const apply = (prev: LineItem[]) => mergePickedIntoLines(prev, picked, lineFromPicked)
       .map((item, index) => ({ ...item, itemNo: index + 1, totalAmount: calculateTotal(item.quantity, item.pricePerUnit) }));
     if (prPickerFor === "edit") setEditLineItems(apply);
     else setLineItems(apply);
   };
   const removePrLinks = (form: "create" | "edit", index: number) => {
     const strip = (prev: LineItem[]) => prev.map((item, i) => (i === index ? { ...item, prLinks: undefined } : item));
-    if (form === "edit") setEditLineItems(strip);
-    else setLineItems(strip);
+    const items = strip(form === "edit" ? editLineItems : lineItems);
+    if (form === "edit") setEditLineItems(items);
+    else setLineItems(items);
+    if (!formHasPrLinks(items)) {
+      if (form === "edit") setEditPrNumber("");
+      else setPrNumber("");
+    }
   };
   const prChip = (form: "create" | "edit", item: LineItem, index: number) => (item.prLinks?.length ? (
     <div className="flex flex-wrap items-center gap-1 pl-12 text-xs">
@@ -405,12 +410,8 @@ export default function PurchaseOrderPage() {
       <Button variant="ghost" size="sm" className="h-6 px-1 text-xs" onClick={() => removePrLinks(form, index)}><X className="mr-1 h-3 w-3" />Unlink</Button>
     </div>
   ) : null);
-  const blockBelowLinked = (item: LineItem, quantity: number) => {
-    if (quantity < linkedQty(item)) {
-      toast.error(`This line has ${linkedQty(item)} linked from purchase requests. Unlink PR lines first.`);
-      return true;
-    }
-    return false;
+  const warnBelowLinked = (item: LineItem) => {
+    if (item.quantity < linkedQty(item)) toast.error(`This line has ${linkedQty(item)} linked from purchase requests. Raise the quantity or unlink PR lines before saving.`);
   };
   const formHasPrLinks = (items: LineItem[]) => items.some((item) => item.prLinks?.length);
 
@@ -1288,7 +1289,7 @@ export default function PurchaseOrderPage() {
                     </div>
                     <label className="min-w-0 md:w-20">
                       <span className="mb-1 block text-sm font-medium md:hidden">Quantity</span>
-                      <Input className="w-full" type="number" min="1" value={item.quantity} onChange={(e) => { const q = parseInt(e.target.value) || 1; if (!blockBelowLinked(item, q)) updateLineItem(idx, "quantity", q); }} />
+                      <Input className="w-full" type="number" min="1" value={item.quantity} step={item.prLinks?.length ? "any" : undefined} onChange={(e) => updateLineItem(idx, "quantity", (item.prLinks?.length ? parseFloat(e.target.value) : parseInt(e.target.value)) || 1)} onBlur={() => warnBelowLinked(item)} />
                     </label>
                     <label className="min-w-0 md:w-28">
                       <span className="mb-1 block text-sm font-medium md:hidden">Unit price</span>
@@ -1574,7 +1575,7 @@ export default function PurchaseOrderPage() {
                     </div>
                     <label className="min-w-0 md:w-20">
                       <span className="mb-1 block text-sm font-medium md:hidden">Quantity</span>
-                      <Input className="w-full" type="number" min="1" value={item.quantity} onChange={(e) => { const q = parseInt(e.target.value) || 1; if (!blockBelowLinked(item, q)) updateEditLineItem(idx, "quantity", q); }} />
+                      <Input className="w-full" type="number" min="1" value={item.quantity} step={item.prLinks?.length ? "any" : undefined} onChange={(e) => updateEditLineItem(idx, "quantity", (item.prLinks?.length ? parseFloat(e.target.value) : parseInt(e.target.value)) || 1)} onBlur={() => warnBelowLinked(item)} />
                     </label>
                     <label className="min-w-0 md:w-28">
                       <span className="mb-1 block text-sm font-medium md:hidden">Unit price</span>
