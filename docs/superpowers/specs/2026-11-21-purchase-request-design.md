@@ -1,7 +1,7 @@
 # Purchase Request (PR) — Design
 
 Date: 2026-11-21
-Status: Awaiting Chris's final approval (builder check done; answers folded in)
+Status: Implemented on feat/purchase-requests (2026-11-21); requires `npm run setup:purchase-requests -- --apply` before use
 
 ## Intent
 
