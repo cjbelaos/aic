@@ -1,4 +1,4 @@
-import { isAdminRole } from "@/lib/auth/session";
+import { isAdminUser } from "@/lib/auth/session";
 import { withInventoryLock } from "@/lib/inventory/lock";
 import { getProductsOnly } from "@/lib/productSheets";
 import { getProductUnits } from "@/lib/productReferenceSheets";
@@ -96,7 +96,7 @@ async function viewOf(prId: string): Promise<PrView> {
   return buildView(pr, snap, poStatus, soStatus);
 }
 
-const canSeeDraft = (pr: PurchaseRequest, session: SessionUser) => pr.requestedByUserId === session.userId || isAdminRole(session.userRoleId);
+const canSeeDraft = (pr: PurchaseRequest, session: SessionUser) => pr.requestedByUserId === session.userId || isAdminUser(session);
 
 export async function listPurchaseRequests(session: SessionUser): Promise<PrView[]> {
   const { snap, poStatus, soStatus } = await loadContext();
@@ -171,7 +171,7 @@ export async function createPurchaseRequest(input: PrDraftInput, session: Sessio
 }
 
 function requireEditable(view: PrView, session: SessionUser, version?: number) {
-  if (view.requestedByUserId !== session.userId && !isAdminRole(session.userRoleId)) throw httpError(403, "Only the requester or an admin can change this purchase request.");
+  if (view.requestedByUserId !== session.userId && !isAdminUser(session)) throw httpError(403, "Only the requester or an admin can change this purchase request.");
   if (view.status === "CANCELLED") throw httpError(409, "This purchase request is cancelled.");
   if (view.locked) throw httpError(409, "This PR already has POs or stock marks and can no longer be edited.");
   if (version !== undefined && version !== view.version) throw httpError(409, "This purchase request was changed by someone else. Reload and try again.");
@@ -197,7 +197,7 @@ export async function submitPurchaseRequest(prId: string, session: SessionUser):
     const { snap, so } = await loadContext();
     const pr = snap.prs.find((p) => p.prId === prId);
     if (!pr) throw httpError(404, "Purchase request not found.");
-    if (pr.requestedByUserId !== session.userId && !isAdminRole(session.userRoleId)) throw httpError(403, "Only the requester or an admin can submit this purchase request.");
+    if (pr.requestedByUserId !== session.userId && !isAdminUser(session)) throw httpError(403, "Only the requester or an admin can submit this purchase request.");
     if (pr.status !== "DRAFT") throw httpError(409, "This purchase request was already submitted.");
     requireConfirmed(so, pr.salesOrderId);
     if (!snap.items.some((i) => i.prId === prId)) throw httpError(400, "Add at least one item.");
