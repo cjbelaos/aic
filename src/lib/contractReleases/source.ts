@@ -3,9 +3,14 @@ import { getContractItems } from "@/lib/contractItemSheets";
 import { getContractReleases } from "@/lib/contractReleaseSheets";
 import { getDeliveryReceipts } from "@/lib/deliverySheets";
 import { manilaToday } from "@/lib/contractStatus";
-import { computeLedgers } from "@/lib/contractReleases/ledger";
+import { getCompanies } from "@/lib/companySheets";
+import { getProducts } from "@/lib/productSheets";
+import { getProductUnits } from "@/lib/productReferenceSheets";
+import { buildBacklog, buildCustomerLedger, computeLedgers } from "@/lib/contractReleases/ledger";
 import type { Contract, ContractItem } from "@/types/contract";
-import type { ContractPeriodSummary, ContractRelease, ItemLedger } from "@/types/contract-release";
+import type {
+  BacklogCustomer, ContractPeriodSummary, ContractRelease, CustomerLedger, ItemLedger,
+} from "@/types/contract-release";
 import type { DeliveryReceiptSummary } from "@/types/deliveryReceipt";
 
 export async function loadLedgers(): Promise<{
@@ -37,4 +42,20 @@ export async function getComputedPeriodSummaries(
   if (periodYear) summaries = summaries.filter((s) => s.periodYear === periodYear);
   if (periodMonth) summaries = summaries.filter((s) => s.periodMonth === periodMonth);
   return summaries;
+}
+
+export async function getBacklog(): Promise<BacklogCustomer[]> {
+  const [{ ledgers, contracts, today }, companies] = await Promise.all([loadLedgers(), getCompanies()]);
+  const names = new Map(companies.map((c) => [c.companyId, c.companyName]));
+  return buildBacklog(ledgers, contracts, names, today);
+}
+
+export async function getCustomerLedger(companyId: string): Promise<CustomerLedger> {
+  const [{ ledgers, contracts, releases, drs, today }, companies, products, units] = await Promise.all([
+    loadLedgers(), getCompanies(), getProducts(), getProductUnits(),
+  ]);
+  const unitCode = new Map(units.map((u) => [u.unitId, u.unitCode]));
+  const productRows = products.map((p) => ({ code: p.productCode, name: p.productName, unit: unitCode.get(p.unitId) || "" }));
+  const companyName = companies.find((c) => c.companyId === companyId)?.companyName || companyId;
+  return buildCustomerLedger(companyId, ledgers, contracts, productRows, releases, drs, companyName, today);
 }

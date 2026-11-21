@@ -53,3 +53,43 @@ export interface ItemLedger {
   oldestOpen: string; // "YYYY-MM" of oldest open period, "" if none
   extraQty: number;
 }
+
+export interface BacklogCustomer {
+  companyId: string;
+  companyName: string;
+  owedQty: number;
+  overduePeriods: number;
+  oldestOverdue: string; // "YYYY-MM", "" when nothing is overdue yet
+  agreementCount: number; // agreements with something owed
+}
+
+export interface ItemLedgerView extends ItemLedger {
+  productName: string;
+  unit: string;
+}
+
+export interface AgreementLedger {
+  contractId: string;
+  agreementType: "Contract" | "PO";
+  poNumber: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  items: ItemLedgerView[];
+}
+
+export interface LinkedDr {
+  drNumber: number;
+  date: string;
+  status: string;
+  itemCount: number;
+  contractId: string;
+  driveFileLink?: string;
+}
+
+export interface CustomerLedger {
+  companyId: string;
+  companyName: string;
+  agreements: AgreementLedger[];
+  linkedDrs: LinkedDr[];
+}

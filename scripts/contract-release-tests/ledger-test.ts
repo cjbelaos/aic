@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { computeItemLedger, computeLedgers, generatePeriods, isReleaseCounted } from "../../src/lib/contractReleases/ledger.ts";
+import { buildBacklog, buildCustomerLedger, computeItemLedger, computeLedgers, generatePeriods, isReleaseCounted } from "../../src/lib/contractReleases/ledger.ts";
 import type { Contract, ContractItem } from "../../src/types/contract.ts";
 import type { ContractRelease } from "../../src/types/contract-release.ts";
+import type { DeliveryReceiptSummary } from "../../src/types/deliveryReceipt.ts";
 
 const contract = (startDate: string, endDate: string): Contract =>
   ({ id: "CTR-0001", companyId: "C1", agreementType: "Contract", startDate, endDate, status: "Active" }) as Contract;
@@ -86,4 +87,53 @@ assert.deepEqual(generatePeriods("Semi-Annual", "2026-03-01", "2027-02-28", "202
   const extra = { ...rel("2026-11-02", 5), contractItemId: "" };
   const out = computeLedgers({ contracts: [contract("2026-11-01", "2027-10-31")], items, releases: [extra], drStatus: none, today: "2026-11-10" });
   assert.equal(out.length, 1); assert.equal(out[0].periods[0].releasedQty, 0); assert.equal(out[0].extraQty, 0);
+}
+
+// Backlog and customer ledger
+{
+  const today = "2026-11-10";
+  const ctr = (id: string, companyId: string, startDate: string, endDate: string, extra: Partial<Contract> = {}): Contract =>
+    ({ id, companyId, agreementType: "Contract", startDate, endDate, status: "Active", description: `${id} desc`, ...extra }) as Contract;
+  const it = (id: string, contractId: string, productCode = "SKU"): ContractItem =>
+    ({ id, contractId, productCode, productId: "", entitledQty: 2, frequency: "Monthly", status: "Active" }) as ContractItem;
+  const contracts = [
+    ctr("CTR-0001", "A", "2026-10-01", "2027-09-30"),             // A: Oct+Nov owed, oldest overdue 2026-10
+    ctr("CTR-0002", "B", "2026-09-01", "2027-08-31"),             // B: oldest overdue 2026-09
+    ctr("CTR-0003", "C", "2026-11-01", "2027-10-31"),             // C: only current month owed
+    ctr("CTR-0004", "D", "2025-01-01", "2026-10-31"),             // D: expired, shortfall excluded
+    ctr("CTR-0005", "E", "2026-11-01", "2027-10-31"),             // E: fully released
+    ctr("CTR-0006", "A", "2026-11-01", "2027-10-31", { agreementType: "PO", poNumber: "PO-9" }),
+  ];
+  const items = [it("I1", "CTR-0001"), it("I2", "CTR-0002"), it("I3", "CTR-0003"), it("I4", "CTR-0004"), it("I5", "CTR-0005"), it("I6", "CTR-0006", "INK")];
+  const r = (id: string, contractItemId: string, contractId: string, releaseDate: string, quantity: number, drNumber?: number): ContractRelease =>
+    ({ id, contractItemId, contractId, periodYear: 0, periodMonth: 0, periodQuarter: 0, frequency: "Monthly", releaseDate, quantity, releasedBy: "t", status: "Completed", drNumber }) as ContractRelease;
+  const releases = [r("R1", "I5", "CTR-0005", "2026-11-02", 2, 10), r("R2", "I1", "CTR-0001", "2026-10-05", 1, 11), r("R3", "I6", "CTR-0006", "2026-11-03", 1, 12), r("R4", "I2", "CTR-0002", "2026-11-04", 1, 13)];
+  const ledgers = computeLedgers({ contracts, items, releases, drStatus: none, today });
+  const names = new Map([["A", "Alpha"], ["B", "Bravo"], ["C", "Charlie"], ["D", "Delta"], ["E", "Echo"]]);
+  const backlog = buildBacklog(ledgers, contracts, names, today);
+  assert.deepEqual(backlog.map(b => b.companyId), ["B", "A", "C"]);
+  assert.equal(backlog[1].companyName, "Alpha");
+  assert.equal(backlog[1].owedQty, 4); // CTR-0001: 1 (Oct) + 2 (Nov); CTR-0006: 1 (Nov)
+  assert.equal(backlog[1].overduePeriods, 1);
+  assert.equal(backlog[1].oldestOverdue, "2026-10");
+  assert.equal(backlog[1].agreementCount, 2);
+  assert.equal(backlog[2].oldestOverdue, ""); assert.equal(backlog[2].overduePeriods, 0);
+  assert.equal(backlog.find(b => b.companyId === "D"), undefined);
+
+  const drs = [
+    { drNumber: 11, date: "2026-10-05", companyId: "A", status: "printed", items: [{}], driveFileLink: "x" },
+    { drNumber: 12, date: "2026-11-03", companyId: "A", status: "printed", items: [{}, {}] },
+    { drNumber: 13, date: "2026-11-04", companyId: "B", status: "printed", items: [{}] },
+  ] as unknown as DeliveryReceiptSummary[];
+  const products = [{ code: "SKU", name: "Salt", unit: "BAG" }];
+  const cl = buildCustomerLedger("A", ledgers, contracts, products, releases, drs, "Alpha", today);
+  assert.deepEqual(cl.agreements.map(a => a.contractId), ["CTR-0001", "CTR-0006"]);
+  assert.equal(cl.agreements[1].poNumber, "PO-9"); assert.equal(cl.agreements[1].agreementType, "PO");
+  assert.equal(cl.agreements[0].items[0].productName, "Salt"); assert.equal(cl.agreements[0].items[0].unit, "BAG");
+  assert.equal(cl.agreements[1].items[0].productName, "INK"); // falls back to code
+  assert.deepEqual(cl.linkedDrs.map(d => d.drNumber), [12, 11]);
+  assert.equal(cl.linkedDrs[0].itemCount, 2); assert.equal(cl.linkedDrs[0].contractId, "CTR-0006");
+  assert.equal(cl.linkedDrs[1].driveFileLink, "x");
+  // expired agreements are left out of the customer ledger
+  assert.deepEqual(buildCustomerLedger("D", ledgers, contracts, products, releases, drs, "Delta", today).agreements, []);
 }

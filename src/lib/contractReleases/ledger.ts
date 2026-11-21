@@ -1,7 +1,11 @@
 // Pure catch-up ledger: contract period status computed from the release log (no stored summaries).
 // A release pays the oldest open period first (only periods already started); leftover is extraQty.
 import type { Contract, ContractItem } from "../../types/contract.ts";
-import type { ContractRelease, ItemLedger, LedgerPeriod } from "../../types/contract-release.ts";
+import type {
+  AgreementLedger, BacklogCustomer, ContractRelease, CustomerLedger, ItemLedger, LedgerPeriod, LinkedDr,
+} from "../../types/contract-release.ts";
+import type { DeliveryReceiptSummary } from "../../types/deliveryReceipt.ts";
+import { effectiveContractStatus } from "../contractStatus.ts";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const NOT_COUNTED_DR = new Set(["draft", "pending_approval", "rejected", "deleted"]);
@@ -148,4 +152,90 @@ export function computeLedgers(input: {
     out.push(computeItemLedger(item, c, input.releases, input.drStatus, input.today));
   }
   return out;
+}
+
+const periodKey = (p: LedgerPeriod) => `${p.periodYear}-${pad(p.periodMonth)}`;
+
+/** Customers owed something on an effective-Active agreement, most overdue first. */
+export function buildBacklog(
+  ledgers: ItemLedger[],
+  contracts: Contract[],
+  companyNames: Map<string, string>,
+  today: string,
+): BacklogCustomer[] {
+  const active = new Map(contracts.filter(c => effectiveContractStatus(c, today) === "Active").map(c => [c.id, c]));
+  const byCompany = new Map<string, BacklogCustomer & { agreements: Set<string> }>();
+  for (const l of ledgers) {
+    const c = active.get(l.contractId);
+    if (!c || l.owedNow <= 0) continue;
+    let row = byCompany.get(c.companyId);
+    if (!row) {
+      row = { companyId: c.companyId, companyName: companyNames.get(c.companyId) || c.companyName || c.companyId,
+        owedQty: 0, overduePeriods: 0, oldestOverdue: "", agreementCount: 0, agreements: new Set() };
+      byCompany.set(c.companyId, row);
+    }
+    row.owedQty += l.owedNow;
+    row.agreements.add(c.id);
+    for (const p of l.periods) {
+      if (p.status !== "Overdue") continue;
+      row.overduePeriods++;
+      const key = periodKey(p);
+      if (!row.oldestOverdue || key < row.oldestOverdue) row.oldestOverdue = key;
+    }
+  }
+  return [...byCompany.values()]
+    .map(({ agreements, ...row }) => ({ ...row, agreementCount: agreements.size }))
+    .sort((a, b) => {
+      if (a.oldestOverdue !== b.oldestOverdue) {
+        if (!a.oldestOverdue) return 1;
+        if (!b.oldestOverdue) return -1;
+        return a.oldestOverdue < b.oldestOverdue ? -1 : 1;
+      }
+      return b.owedQty - a.owedQty;
+    });
+}
+
+/** One customer's effective-Active agreements with their item ledgers and the DRs that released them. */
+export function buildCustomerLedger(
+  companyId: string,
+  ledgers: ItemLedger[],
+  contracts: Contract[],
+  products: { code: string; name: string; unit: string }[],
+  releases: ContractRelease[],
+  drs: DeliveryReceiptSummary[],
+  companyName: string,
+  today: string,
+): CustomerLedger {
+  const mine = contracts
+    .filter(c => c.companyId === companyId && effectiveContractStatus(c, today) === "Active")
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const product = new Map(products.map(p => [p.code.toLowerCase(), p]));
+  const agreements: AgreementLedger[] = mine.map(c => ({
+    contractId: c.id,
+    agreementType: c.agreementType,
+    poNumber: c.poNumber || "",
+    description: c.description || "",
+    startDate: c.startDate,
+    endDate: c.endDate,
+    items: ledgers.filter(l => l.contractId === c.id).map(l => {
+      const p = product.get(l.productCode.toLowerCase());
+      return { ...l, productName: p?.name || l.productCode, unit: p?.unit || "" };
+    }),
+  }));
+
+  const customerContracts = new Set(contracts.filter(c => c.companyId === companyId).map(c => c.id));
+  const contractOfDr = new Map<number, string>();
+  for (const r of releases) {
+    if (r.drNumber && customerContracts.has(r.contractId) && !contractOfDr.has(r.drNumber)) contractOfDr.set(r.drNumber, r.contractId);
+  }
+  const drByNo = new Map(drs.map(d => [d.drNumber, d]));
+  const linkedDrs: LinkedDr[] = [...contractOfDr.entries()]
+    .map(([drNumber, contractId]) => {
+      const d = drByNo.get(drNumber);
+      return { drNumber, date: d?.date || "", status: d?.status || "", itemCount: d?.items?.length ?? 0, contractId,
+        ...(d?.driveFileLink ? { driveFileLink: d.driveFileLink } : {}) };
+    })
+    .sort((a, b) => (a.date === b.date ? b.drNumber - a.drNumber : a.date < b.date ? 1 : -1));
+
+  return { companyId, companyName, agreements, linkedDrs };
 }
