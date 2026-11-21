@@ -35,3 +35,21 @@ export interface ContractPeriodSummary {
   periodStart: string; // "2026-01-01"
   periodEnd: string; // "2026-01-31"
 }
+
+export interface LedgerPeriod extends ContractPeriodSummary {
+  shortfall: number;
+}
+
+export interface ItemLedger {
+  contractItemId: string;
+  contractId: string;
+  productCode: string;
+  productId: string;
+  frequency: string;
+  entitledQty: number;
+  periods: LedgerPeriod[]; // oldest first
+  owedNow: number; // sum of shortfall over all generated periods
+  openPeriods: number; // periods with shortfall > 0
+  oldestOpen: string; // "YYYY-MM" of oldest open period, "" if none
+  extraQty: number;
+}
