@@ -27,6 +27,8 @@
     ,"test:warehouses": "npx tsc -p scripts/warehouse-tests/tsconfig.json && node tmp/warehouse-tests/out/scripts/warehouse-tests/rules-test.js"
     ,"setup:inventory": "node --env-file=.env.local scripts/setup-inventory-sheets.mjs"
     ,"test:inventory": "npx tsc -p scripts/inventory-tests/tsconfig.json && node tmp/inventory-tests/out/scripts/inventory-tests/run.js && node scripts/test-inventory-lock.cjs"
+    ,"test:purchase-requests": "npx tsc -p scripts/purchase-request-tests/tsconfig.json && node tmp/purchase-request-tests/out/scripts/purchase-request-tests/run.js"
+    ,"setup:purchase-requests": "node --env-file=.env.local scripts/setup-purchase-request-sheets.mjs"
     ,"test:delivery-releases": "npx tsc -p scripts/delivery-release-tests/tsconfig.json && node tmp/delivery-release-tests/out/scripts/delivery-release-tests/run.js && node scripts/test-delivery-deletion.cjs && node scripts/test-delivery-service-errors.cjs"
     ,"test:proforma-invoices": "node scripts/test-proforma-invoices.cjs"
     ,"audit:proforma-migration": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs"

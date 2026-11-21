@@ -1,6 +1,9 @@
 // purchaseOrder.ts
+import type { PoLineLinkInput } from "./purchaseRequest";
 
 export interface PurchaseOrderItem {
+  /** Purchase Request lines this PO line fulfils (quantities allocated per PR line). */
+  prLinks?: PoLineLinkInput[];
   purchaseOrderId?: string;
   itemNo: number;
   productCode?: string;
