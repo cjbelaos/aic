@@ -18,6 +18,7 @@
     "*.ts",
     "../../src/lib/purchaseRequests/domain.ts",
     "../../src/lib/purchaseRequests/rows.ts",
+    "../../src/lib/purchaseRequests/contractDue.ts",
     "../../src/types/purchaseRequest.ts"
   ]
 }
