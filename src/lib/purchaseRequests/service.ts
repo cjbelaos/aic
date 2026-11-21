@@ -8,7 +8,7 @@ import { getContractItems } from "@/lib/contractItemSheets";
 import { getPeriodSummaries } from "@/lib/contractPeriodSummarySheets";
 import { getCompanies } from "@/lib/companySheets";
 import { effectiveContractStatus } from "@/lib/contractStatus";
-import { computeContractDue, type ContractDueLine } from "@/lib/purchaseRequests/contractDue";
+import { computeContractDue, contractProductIssue, type ContractDueLine, type ContractProductIssue } from "@/lib/purchaseRequests/contractDue";
 import {
   deriveLineProgress,
   derivePrStatus,
@@ -61,6 +61,8 @@ export interface EligibleContract {
 export interface ContractDueView extends ContractDueLine {
   productName: string;
   unit: string;
+  /** Set when the item can't be added until an admin links it to an active product. */
+  productIssue: ContractProductIssue;
 }
 
 export interface EligibleSalesOrder {
@@ -401,6 +403,9 @@ export async function getContractDue(contractId: string, excludePrId?: string): 
   return computeContractDue({ items, summaries, prs: snap.prs, prItems: snap.items, today: manilaToday(), excludePrId }).map((line) => {
     const product = productById.get(line.productId) ?? productByCode.get(line.productCode);
     const unit = product ? unitById.get(product.unitId) : undefined;
-    return { ...line, productId: product?.productId ?? line.productId, productName: product?.productName ?? line.productCode, unit: unit?.unitName || unit?.unitCode || "" };
+    return {
+      ...line, productId: product?.productId ?? line.productId, productName: product?.productName ?? line.productCode,
+      unit: unit?.unitName || unit?.unitCode || "", productIssue: contractProductIssue(product),
+    };
   });
 }

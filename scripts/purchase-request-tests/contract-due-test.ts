@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { computeContractDue, periodWindow } from "../../src/lib/purchaseRequests/contractDue.ts";
+import { computeContractDue, contractProductIssue, periodWindow } from "../../src/lib/purchaseRequests/contractDue.ts";
 import type { ContractItem } from "../../src/types/contract.ts";
 import type { ContractPeriodSummary } from "../../src/types/contract-release.ts";
 import type { PurchaseRequest, PurchaseRequestItem } from "../../src/types/purchaseRequest.ts";
@@ -61,3 +61,8 @@ assert.equal(d4.dueQty, 0);
 // editing PR A: its own lines are not "already requested"
 const editing = computeContractDue({ items, summaries, prs, prItems, today: "2026-11-21", excludePrId: "A" });
 assert.deepEqual(editing[0].alreadyRequested, [{ prNo: "Draft", quantity: 2 }]);
+
+// ── product problems block "Add from contract" until an admin fixes the contract item ──
+assert.equal(contractProductIssue(undefined), "unlinked");
+assert.equal(contractProductIssue({ status: "inactive" }), "inactive");
+assert.equal(contractProductIssue({ status: "active" }), "");

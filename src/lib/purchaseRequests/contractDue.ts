@@ -65,3 +65,10 @@ export function computeContractDue(input: {
       };
     });
 }
+
+/** Why a contract item can't be added to a PR yet: no product linked, or its product is inactive. "" when fine. */
+export type ContractProductIssue = "" | "unlinked" | "inactive";
+export function contractProductIssue(product: { status: string } | undefined): ContractProductIssue {
+  if (!product) return "unlinked";
+  return product.status === "active" ? "" : "inactive";
+}

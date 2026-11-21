@@ -12,13 +12,15 @@ const n = (v: number) => v.toLocaleString("en-PH", { maximumFractionDigits: 4 })
 
 /** Checklist of a contract's active items; rows with something still due start ticked. */
 export function ContractItemsPicker({ due, loading, onAdd }: { due: ContractDueView[]; loading: boolean; onAdd: (lines: PickedContractLine[]) => void }) {
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(due.filter((d) => d.dueQty > 0).map((d) => d.contractItemId)));
+  const addable = (d: ContractDueView) => !d.productIssue;
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(due.filter((d) => d.dueQty > 0 && addable(d)).map((d) => d.contractItemId)));
+  const blocked = due.filter((d) => !addable(d)).length;
 
   if (loading) return <div className="rounded-md border p-3 text-center"><Loader2 className="mx-auto h-4 w-4 animate-spin" /></div>;
   if (!due.length) return <p className="rounded-md border p-3 text-sm text-muted-foreground">This contract has no active items.</p>;
 
   const toggle = (id: string, on: boolean) => setPicked((prev) => { const next = new Set(prev); if (on) next.add(id); else next.delete(id); return next; });
-  const add = () => onAdd(due.filter((d) => picked.has(d.contractItemId) && d.productId)
+  const add = () => onAdd(due.filter((d) => picked.has(d.contractItemId) && addable(d))
     .map((d) => ({ productId: d.productId, quantity: Math.max(1, d.dueQty), contractItemId: d.contractItemId })));
 
   return (
@@ -31,11 +33,15 @@ export function ContractItemsPicker({ due, loading, onAdd }: { due: ContractDueV
           <tbody>
             {due.map((d) => (
               <tr key={d.contractItemId} className="border-t align-top">
-                <td className="p-1"><Checkbox checked={picked.has(d.contractItemId)} disabled={!d.productId} onCheckedChange={(c) => toggle(d.contractItemId, !!c)} aria-label={`Select ${d.productName}`} /></td>
+                <td className="p-1"><Checkbox checked={picked.has(d.contractItemId)} disabled={!addable(d)} onCheckedChange={(c) => toggle(d.contractItemId, !!c)} aria-label={`Select ${d.productName}`} /></td>
                 <td className="p-1">
                   <div>{d.productName}</div>
                   {d.alreadyRequested.map((r, i) => <div key={i} className="text-xs text-muted-foreground">{n(r.quantity)} already on {r.prNo}</div>)}
-                  {!d.productId && <div className="text-xs text-destructive">Not linked to a product; add it by hand.</div>}
+                  {d.productIssue && (
+                    <div className="text-xs text-destructive">
+                      {d.productIssue === "inactive" ? "Its product is inactive." : "Not linked to a product."} Ask an admin to update this contract item to an active product in <a className="underline" href="/dashboard/customer-contracts" target="_blank" rel="noreferrer">Customer Contracts</a>.
+                    </div>
+                  )}
                 </td>
                 <td className="p-1">{d.frequency}</td>
                 <td className="p-1 text-right">{n(d.entitledQty)}</td>
@@ -46,7 +52,8 @@ export function ContractItemsPicker({ due, loading, onAdd }: { due: ContractDueV
           </tbody>
         </table>
       </div>
-      <Button size="sm" disabled={!picked.size} onClick={add}>Add selected</Button>
+      {blocked > 0 && <p className="text-xs text-muted-foreground">{blocked} item{blocked === 1 ? "" : "s"} cannot be added until an admin links {blocked === 1 ? "it" : "them"} to an active product.</p>}
+      <Button size="sm" disabled={!due.some((d) => picked.has(d.contractItemId) && addable(d))} onClick={add}>Add selected</Button>
     </div>
   );
 }
