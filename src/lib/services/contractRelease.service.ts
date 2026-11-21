@@ -1,38 +1,19 @@
 import axios from "axios";
-import { ContractRelease, ContractPeriodSummary } from "@/types/contract-release";
+import { ContractRelease, ContractPeriodSummary, BacklogCustomer, CustomerLedger } from "@/types/contract-release";
 
 const API_BASE_URL = "/api/contract-releases";
 
 const contractReleaseService = {
-  /**
-   * Process a new release
-   */
-  processRelease: async (
-    contractItemId: string,
-    quantity: number,
-    releaseDate: string,
-    releasedBy: string,
-    remarks?: string,
-    contractId?: string,
-    productCode?: string,
-    drNumber?: number,
-  ): Promise<ContractRelease | null> => {
-    try {
-      const response = await axios.post<ContractRelease>(`${API_BASE_URL}/process`, {
-        contractItemId,
-        contractId,
-        productCode,
-        quantity,
-        releaseDate,
-        releasedBy,
-        remarks,
-        drNumber,
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Failed to process release:", error);
-      throw error;
-    }
+  /** Customers owed releases on effective-Active agreements, most overdue first. */
+  getBacklog: async (): Promise<BacklogCustomer[]> => {
+    const response = await axios.get<BacklogCustomer[]>(`${API_BASE_URL}/backlog`);
+    return Array.isArray(response.data) ? response.data : [];
+  },
+
+  /** One customer's agreements, item ledgers and linked DRs. */
+  getCustomerLedger: async (companyId: string): Promise<CustomerLedger> => {
+    const response = await axios.get<CustomerLedger>(`${API_BASE_URL}/customers/${encodeURIComponent(companyId)}`);
+    return response.data;
   },
 
   /**
@@ -99,21 +80,6 @@ const contractReleaseService = {
       return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.error("Failed to fetch compliance report:", error);
-      return [];
-    }
-  },
-
-  /**
-   * Get overdue releases
-   */
-  getOverdueReleases: async (): Promise<ContractPeriodSummary[]> => {
-    try {
-      const response = await axios.get<ContractPeriodSummary[]>(
-        "/api/contract-releases/overdue",
-      );
-      return Array.isArray(response.data) ? response.data : [];
-    } catch (error) {
-      console.error("Failed to fetch overdue releases:", error);
       return [];
     }
   },

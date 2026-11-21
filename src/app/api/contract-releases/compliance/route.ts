@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { ContractPeriodSummary } from "@/types/contract-release";
 import { getContractItems } from "@/lib/contractItemSheets";
-import { getPeriodSummaries } from "@/lib/contractPeriodSummarySheets";
+import { getComputedPeriodSummaries } from "@/lib/contractReleases/source";
 import { getProducts } from "@/lib/productSheets";
 
 /**
@@ -44,10 +44,11 @@ export async function GET(request: Request) {
 
     const contractItems = await getContractItems(contractId);
     const allProducts = await getProducts();
+    const allSummaries = await getComputedPeriodSummaries(undefined, year, month, contractId);
     const reports = [];
 
     for (const item of contractItems) {
-      const summaries = await getPeriodSummaries(item.id, year, month);
+      const summaries = allSummaries.filter((s) => s.contractItemId === item.id);
 
       const totalExpected = summaries.reduce((sum, s) => sum + s.entitledQty, 0);
       const totalReleased = summaries.reduce((sum, s) => sum + s.releasedQty, 0);

@@ -35,3 +35,61 @@ export interface ContractPeriodSummary {
   periodStart: string; // "2026-01-01"
   periodEnd: string; // "2026-01-31"
 }
+
+export interface LedgerPeriod extends ContractPeriodSummary {
+  shortfall: number;
+}
+
+export interface ItemLedger {
+  contractItemId: string;
+  contractId: string;
+  productCode: string;
+  productId: string;
+  frequency: string;
+  entitledQty: number;
+  periods: LedgerPeriod[]; // oldest first
+  owedNow: number; // sum of shortfall over all generated periods
+  openPeriods: number; // periods with shortfall > 0
+  oldestOpen: string; // "YYYY-MM" of oldest open period, "" if none
+  extraQty: number;
+}
+
+export interface BacklogCustomer {
+  companyId: string;
+  companyName: string;
+  owedQty: number;
+  overduePeriods: number;
+  oldestOverdue: string; // "YYYY-MM", "" when nothing is overdue yet
+  agreementCount: number; // agreements with something owed
+}
+
+export interface ItemLedgerView extends ItemLedger {
+  productName: string;
+  unit: string;
+}
+
+export interface AgreementLedger {
+  contractId: string;
+  agreementType: "Contract" | "PO";
+  poNumber: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  items: ItemLedgerView[];
+}
+
+export interface LinkedDr {
+  drNumber: number;
+  date: string;
+  status: string;
+  itemCount: number;
+  contractId: string;
+  driveFileLink?: string;
+}
+
+export interface CustomerLedger {
+  companyId: string;
+  companyName: string;
+  agreements: AgreementLedger[];
+  linkedDrs: LinkedDr[];
+}

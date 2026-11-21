@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isPmsCycleStart } from "@/lib/contractBillingPeriod";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import {
   getContracts,
@@ -64,6 +65,9 @@ export async function PUT(
 
     if (body.serviceFeeFrequency !== undefined && body.serviceFeeFrequency !== "Monthly" && body.serviceFeeFrequency !== "Quarterly") {
       return NextResponse.json({ error: "PMS service frequency must be Monthly or Quarterly." }, { status: 400 });
+    }
+    if (body.pmsCycleStart !== undefined && body.pmsCycleStart !== "" && !isPmsCycleStart(body.pmsCycleStart)) {
+      return NextResponse.json({ error: "PMS cycle start must be a month (YYYY-MM)." }, { status: 400 });
     }
 
     const payload: UpdateContractPayload = {

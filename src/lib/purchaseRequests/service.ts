@@ -5,7 +5,7 @@ import { getProductUnits } from "@/lib/productReferenceSheets";
 import { readSalesOrderListSnapshot } from "@/lib/salesOrders/repository";
 import { getContracts } from "@/lib/contractSheets";
 import { getContractItems } from "@/lib/contractItemSheets";
-import { getPeriodSummaries } from "@/lib/contractPeriodSummarySheets";
+import { getComputedPeriodSummaries } from "@/lib/contractReleases/source";
 import { getCompanies } from "@/lib/companySheets";
 import { effectiveContractStatus } from "@/lib/contractStatus";
 import { computeContractDue, contractProductIssue, type ContractDueLine, type ContractProductIssue } from "@/lib/purchaseRequests/contractDue";
@@ -395,7 +395,7 @@ export async function listEligibleContracts(): Promise<EligibleContract[]> {
 /** Active items of a contract with what is still due this period, for "Add from contract". */
 export async function getContractDue(contractId: string, excludePrId?: string): Promise<ContractDueView[]> {
   const [items, summaries, snap, products, units] = await Promise.all([
-    getContractItems(contractId), getPeriodSummaries(undefined, undefined, undefined, contractId), readPurchaseRequestSnapshot(), getProductsOnly(), getProductUnits(),
+    getContractItems(contractId), getComputedPeriodSummaries(undefined, undefined, undefined, contractId), readPurchaseRequestSnapshot(), getProductsOnly(), getProductUnits(),
   ]);
   const productById = new Map(products.map((p) => [p.productId, p]));
   const productByCode = new Map(products.map((p) => [p.productCode, p]));

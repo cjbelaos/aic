@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { getPeriodSummaries } from "@/lib/contractPeriodSummarySheets";
+import { getComputedPeriodSummaries } from "@/lib/contractReleases/source";
 
 /**
  * GET /api/contract-period-summaries
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
       ? parseInt(searchParams.get("periodMonth")!, 10)
       : undefined;
 
-    const summaries = await getPeriodSummaries(
+    const summaries = await getComputedPeriodSummaries(
       contractItemId,
       periodYear,
       periodMonth,

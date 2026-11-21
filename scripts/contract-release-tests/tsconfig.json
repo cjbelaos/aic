@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "rootDir": "../..",
+    "outDir": "../../tmp/contract-release-tests/out"
+  },
+  "include": [
+    "*.ts",
+    "../../src/lib/contractReleases/ledger.ts",
+    "../../src/lib/contractReleases/lines.ts",
+    "../../src/types/deliveryReceipt.ts",
+    "../../src/lib/contractStatus.ts",
+    "../../src/types/contract.ts",
+    "../../src/types/contract-release.ts"
+  ]
+}

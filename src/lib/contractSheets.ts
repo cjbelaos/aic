@@ -9,12 +9,13 @@ import {
 import { ContractConflictError, duplicateContractIds, nextContractId } from "@/lib/contractIntegrity";
 import type { sheets_v4 } from "googleapis";
 import { serviceFrequencyForItems } from "./contractServiceFrequency";
+import { toPmsCycleStart } from "./contractBillingPeriod";
 import { appendContractWithInitialNote, getContractNotes, ContractNoteError, CONTRACT_NOTES_TAB } from "./contractNoteSheets";
 import { sortContractNotes } from "./contractNotes";
 
 const CONTRACTS_SHEET = "Contracts";
-const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:O`;
-// Columns: A:I contract header, J: Notes, K: SoftCopyDriveLink, L: ScannedSignedCopyDriveLink, M: ServiceFeeFrequency, N: PaperworkStatus, O: NotarizedHardcopyStatus
+const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:P`;
+// Columns: A:I contract header, J: Notes, K: SoftCopyDriveLink, L: ScannedSignedCopyDriveLink, M: ServiceFeeFrequency, N: PaperworkStatus, O: NotarizedHardcopyStatus, P: PmsCycleStart (YYYY-MM)
 
 /**
  * GET: Fetches all contract header rows from Google Sheets.
@@ -68,6 +69,7 @@ export async function getContracts(): Promise<Contract[]> {
         paperworkStatus: row[13] === "Complete" ? "Complete" : "Pending",
         notarizedHardcopyStatus: row[14] === "Yes" ? "Yes" : row[14] === "No" ? "No" : "Unknown",
         serviceFeeFrequency: serviceFrequencyForItems(itemsByContract.get(String(row[0])) ?? [], row[12] === "Quarterly" ? "Quarterly" : "Monthly"),
+        ...(toPmsCycleStart(row[15]) ? { pmsCycleStart: toPmsCycleStart(row[15]) } : {}),
       };
     });
   } catch (error) {
@@ -120,6 +122,7 @@ export async function addContract(
       payload.serviceFeeFrequency ?? "Monthly", // M
       payload.paperworkStatus ?? "Pending", // N
       payload.notarizedHardcopyStatus ?? "Unknown", // O
+      payload.pmsCycleStart || "", // P
     ];
 
     const noteHistory = payload.notes?.trim()
@@ -145,6 +148,7 @@ export async function addContract(
       serviceFeeFrequency: payload.serviceFeeFrequency ?? "Monthly",
       paperworkStatus: payload.paperworkStatus ?? "Pending",
       notarizedHardcopyStatus: payload.notarizedHardcopyStatus ?? "Unknown",
+      ...(payload.pmsCycleStart ? { pmsCycleStart: payload.pmsCycleStart } : {}),
       notes: payload.notes,
       noteHistory,
     };
@@ -207,7 +211,7 @@ export async function updateContractInSheets(
       });
     }
 
-    for (const [column, value] of [["N", payload.paperworkStatus], ["O", payload.notarizedHardcopyStatus]] as const) {
+    for (const [column, value] of [["N", payload.paperworkStatus], ["O", payload.notarizedHardcopyStatus], ["P", payload.pmsCycleStart]] as const) {
       if (value !== undefined) await sheets.spreadsheets.values.update({ spreadsheetId, range: `${CONTRACTS_SHEET}!${column}${rowNumber}`, valueInputOption: "RAW", requestBody: { values: [[value]] } });
     }
 
@@ -230,6 +234,7 @@ export async function updateContractInSheets(
       notes: existing.notes,
       noteHistory: existing.noteHistory,
       serviceFeeFrequency: payload.serviceFeeFrequency ?? existing.serviceFeeFrequency,
+      pmsCycleStart: payload.pmsCycleStart !== undefined ? payload.pmsCycleStart || undefined : existing.pmsCycleStart,
     };
   } catch (error) {
     console.error(`Failed to update contract ${payload.id}:`, error);
