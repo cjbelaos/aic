@@ -26,7 +26,7 @@ import type { SessionUser } from "@/types/user";
 export interface PrView extends PurchaseRequest {
   derivedStatus: PrStatus;
   salesOrderStatus: string;
-  lines: (PurchaseRequestItem & PrLineProgress)[];
+  lines: (PurchaseRequestItem & PrLineProgress & { forLabel: string })[];
   poNumbers: string[];
   locked: boolean;
 }
@@ -69,14 +69,16 @@ function manilaToday(): string {
 
 type Snapshot = Awaited<ReturnType<typeof readPurchaseRequestSnapshot>>;
 
-function buildView(pr: PurchaseRequest, snap: Snapshot, poStatus: ReadonlyMap<string, string>, soStatus: ReadonlyMap<string, string>): PrView {
+interface SoIndex { status: ReadonlyMap<string, string>; lineLabel: ReadonlyMap<string, string> }
+
+function buildView(pr: PurchaseRequest, snap: Snapshot, poStatus: ReadonlyMap<string, string>, soIndex: SoIndex): PrView {
   const items = snap.items.filter((i) => i.prId === pr.prId).sort((a, b) => a.lineNo - b.lineNo);
   const links = snap.links.filter((l) => l.prId === pr.prId);
-  const lines = items.map((i) => ({ ...i, ...deriveLineProgress(i, links, poStatus) }));
+  const lines = items.map((i) => ({ ...i, ...deriveLineProgress(i, links, poStatus), forLabel: soIndex.lineLabel.get(i.salesOrderItemId) ?? "" }));
   return {
     ...pr,
     derivedStatus: derivePrStatus(pr, lines),
-    salesOrderStatus: soStatus.get(pr.salesOrderId) ?? "",
+    salesOrderStatus: soIndex.status.get(pr.salesOrderId) ?? "",
     lines,
     poNumbers: [...new Set(lines.flatMap((l) => l.poNumbers))].sort(),
     locked: isPrLocked(lines, links),
@@ -85,7 +87,10 @@ function buildView(pr: PurchaseRequest, snap: Snapshot, poStatus: ReadonlyMap<st
 
 async function loadContext() {
   const [snap, poStatus, so] = await Promise.all([readPurchaseRequestSnapshot(), readPoStatusMap(), readSalesOrderListSnapshot()]);
-  const soStatus = new Map(so.orders.map((o) => [o.salesOrderId, o.orderStatus]));
+  const soStatus: SoIndex = {
+    status: new Map(so.orders.map((o) => [o.salesOrderId, o.orderStatus])),
+    lineLabel: new Map(so.items.map((i) => [i.salesOrderItemId, `Line ${i.lineNo}: ${i.productNameSnapshot || i.description}`])),
+  };
   return { snap, poStatus, so, soStatus };
 }
 
@@ -292,7 +297,7 @@ export async function listOpenPrLines(excludePoNumber?: string): Promise<OpenPrL
     out.push({
       prId: pr.prId, prNo: pr.prNo, prItemId: item.prItemId, salesOrderNo: pr.salesOrderNoSnapshot, productId: item.productId,
       productCode: item.productCodeSnapshot, productName: item.productNameSnapshot, unit: item.unitSnapshot, claimable,
-      salesOrderStatus: soStatus.get(pr.salesOrderId) ?? "",
+      salesOrderStatus: soStatus.status.get(pr.salesOrderId) ?? "",
     });
   }
   return out.sort((a, b) => a.prNo.localeCompare(b.prNo, undefined, { numeric: true }));
