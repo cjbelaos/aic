@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { getPeriodSummaries } from "@/lib/contractPeriodSummarySheets";
+import { manilaToday } from "@/lib/contractStatus";
+import { getComputedPeriodSummaries } from "@/lib/contractReleases/source";
 
 /**
  * GET /api/contract-period-summaries/current?contractId=CTR-0001
@@ -21,11 +22,9 @@ export async function GET(request: Request) {
       );
     }
 
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-
-    const status = await getPeriodSummaries(undefined, year, month, contractId);
+    const today = manilaToday();
+    const all = await getComputedPeriodSummaries(undefined, undefined, undefined, contractId);
+    const status = all.filter((s) => s.periodStart <= today && today <= s.periodEnd);
     return NextResponse.json(status, { status: 200 });
   } catch (error) {
     const message =

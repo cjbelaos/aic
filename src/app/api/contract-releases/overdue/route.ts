@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { getPeriodSummaries } from "@/lib/contractPeriodSummarySheets";
+import { effectiveContractStatus } from "@/lib/contractStatus";
+import { loadLedgers } from "@/lib/contractReleases/source";
 
 /**
  * GET /api/contract-releases/overdue
@@ -11,14 +12,14 @@ export async function GET() {
   if (session instanceof Response) return session;
 
   try {
-    const allSummaries = await getPeriodSummaries();
-    const today = new Date();
-
-    const overdue = allSummaries.filter((s) => {
-      if (s.status === "Completed") return false;
-      const periodEnd = new Date(s.periodEnd);
-      return today > periodEnd;
-    });
+    const { ledgers, contracts, today } = await loadLedgers();
+    const active = new Set(
+      contracts.filter((c) => effectiveContractStatus(c, today) === "Active").map((c) => c.id),
+    );
+    const overdue = ledgers
+      .filter((l) => active.has(l.contractId))
+      .flatMap((l) => l.periods)
+      .filter((p) => p.status === "Overdue");
 
     return NextResponse.json(overdue, { status: 200 });
   } catch (error) {
