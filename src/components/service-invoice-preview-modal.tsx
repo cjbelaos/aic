@@ -311,11 +311,13 @@ export function ServiceInvoicePreviewModal({ si, open, onOpenChange }: Props) {
               <TabsContent value="details" className="mt-0">
                 {detailsView}
               </TabsContent>
-              {/* forceMount keeps #si-html-content in the DOM so Print always works */}
+              {/* forceMount keeps #si-html-content in the DOM so Print always works.
+                  Inactive state moves it off-screen rather than display:none, because
+                  html2canvas renders a display:none element as a 0x0 canvas and fails. */}
               <TabsContent
                 value="print"
                 forceMount
-                className="mt-0 data-[state=inactive]:hidden"
+                className="mt-0 data-[state=inactive]:pointer-events-none data-[state=inactive]:fixed data-[state=inactive]:top-0 data-[state=inactive]:-left-[9999px]"
               >
                 {printDocument}
               </TabsContent>
