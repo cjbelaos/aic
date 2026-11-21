@@ -14,7 +14,7 @@
 
 - Dates are `YYYY-MM-DD` strings; "today" is `manilaToday()` from `src/lib/contractStatus.ts`. No `Date` timezone math in the engine.
 - Periods are calendar-aligned exactly like `getPeriodInfo` (`src/lib/utils/contractRelease.utils.ts`): Monthly, Quarterly (Jan/Apr/Jul/Oct), Semi-Annual (Jan/Jul), Annual (Jan); `One-Time` = a single period, the one containing the contract start, spanning to contract end.
-- Periods start at the contract start date with **no cut-off** (Chris).
+- Periods start at the contract start date (or its PMS cycle start), but periods that began before **2026-08-26** (the first DR recorded in AIC) are dropped (Chris, revised 2026-11-21).
 - Catch-up: a release pays the oldest open period first, and only periods whose `periodStart <= releaseDate`. Leftover is `extraQty`; never pre-pays.
 - A release counts unless its status is `Deleted`/`Cancelled`, or it has a `drNumber` whose DR status (lower-cased, trimmed) is one of `draft`, `pending_approval`, `rejected`, `deleted`. Unknown DR numbers and releases without a DR count.
 - Release DRs never carry a Sales Order. One DR per agreement. PO agreements prefill `poNo` from `contract.poNumber`.

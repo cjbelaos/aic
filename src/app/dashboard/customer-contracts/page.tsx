@@ -175,6 +175,7 @@ interface CustomerContractFormState {
   notarizedHardcopyStatus: NotarizedHardcopyStatus;
   monthlyServiceFee: string;
   serviceFeeFrequency: "Monthly" | "Quarterly";
+  pmsCycleStart: string; // "YYYY-MM" or "" (use Start Date)
   notes: string;
   items: ContractFormItem[];
 }
@@ -198,6 +199,7 @@ const EMPTY_FORM: CustomerContractFormState = {
   notarizedHardcopyStatus: "Unknown",
   monthlyServiceFee: "",
   serviceFeeFrequency: "Monthly",
+  pmsCycleStart: "",
   notes: "",
   items: [],
 };
@@ -509,6 +511,7 @@ export default function CustomerContractsPage() {
       monthlyServiceFee:
         row.monthlyServiceFee != null ? String(row.monthlyServiceFee) : "",
       serviceFeeFrequency: row.serviceFeeFrequency ?? "Monthly",
+      pmsCycleStart: row.pmsCycleStart ?? "",
       notes: "",
       items: row.items.map((item) => ({
         id: item.id,
@@ -620,6 +623,7 @@ export default function CustomerContractsPage() {
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
           serviceFeeFrequency: effectiveServiceFrequency,
+          pmsCycleStart: form.pmsCycleStart,
           paperworkStatus: form.paperworkStatus,
           notarizedHardcopyStatus: form.notarizedHardcopyStatus,
         });
@@ -705,6 +709,7 @@ export default function CustomerContractsPage() {
             ? parseFloat(form.monthlyServiceFee)
             : undefined,
           serviceFeeFrequency: effectiveServiceFrequency,
+          pmsCycleStart: form.pmsCycleStart,
           paperworkStatus: form.paperworkStatus,
           notarizedHardcopyStatus: form.notarizedHardcopyStatus,
           notes: form.notes.trim(),
@@ -882,6 +887,7 @@ export default function CustomerContractsPage() {
                 <div><p className="text-xs text-muted-foreground">PO Number</p><p className="mt-1 font-medium">{viewTarget.poNumber || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Start Date</p><p className="mt-1 font-medium">{viewTarget.startDate || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">End Date</p><p className="mt-1 font-medium">{viewTarget.endDate || "—"}</p></div>
+                {viewTarget.pmsCycleStart && <div><p className="text-xs text-muted-foreground">PMS Cycle Start</p><p className="mt-1 font-medium">{viewTarget.pmsCycleStart}</p></div>}
                 <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={effectiveContractStatus(viewTarget, today) === "Active" ? "default" : "destructive"}>{effectiveContractStatus(viewTarget, today)}</Badge></div></div>
                 <div><p className="text-xs text-muted-foreground">Paperwork</p><p>{viewTarget.paperworkStatus ?? "Pending"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Notarized Hardcopy on File</p><p>{viewTarget.notarizedHardcopyStatus ?? "Unknown"}</p></div>
@@ -1121,6 +1127,20 @@ export default function CustomerContractsPage() {
                   startMonth={todayStart}
                   endMonth={endDateMax}
                 />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="cc-pms-cycle-start">PMS cycle start (optional)</Label>
+                <Input
+                  id="cc-pms-cycle-start"
+                  type="month"
+                  className="sm:max-w-56"
+                  value={form.pmsCycleStart}
+                  onChange={(e) => setForm((f) => ({ ...f, pmsCycleStart: e.target.value }))}
+                  disabled={saving}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use when the real PMS schedule differs from the Start Date (e.g. the MOA was notarized later, or PMS before this app isn&apos;t recorded). Quarterly invoices and contract releases count from this month; nothing before it is owed. Leave blank to use the Start Date.
+                </p>
               </div>
               </div>
             </section>

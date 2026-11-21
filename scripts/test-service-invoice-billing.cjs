@@ -24,7 +24,8 @@ async function main() {
   assert.equal(resolve([release], [contract], "other"), undefined);
   assert.equal(resolve([release], [{ ...contract, status: "Expired" }]), undefined);
   assert.equal(resolve([release], [{ ...contract, monthlyServiceFee: 0 }]), undefined);
-  assert.equal(resolve([release, { ...release, contractId: "CTR-OTHER" }]), undefined, "Do not guess for multiple source contracts");
+  assert.equal(resolve([release, { ...release, contractId: "CTR-OTHER" }], [contract, { ...contract, id: "CTR-OTHER" }]), undefined, "Do not guess for multiple source contracts of the same customer");
+  assert.equal(resolve([release, { ...release, contractId: "CTR-TANAY" }], [contract, { ...contract, id: "CTR-TANAY", companyId: "COMP-TANAY" }]), contract, "Another customer's item riding on the DR is ignored");
   const regular = { customerId: "COMP-284", billingMode: "REGULAR", manualCategories: ["Service"], items: [{ description: "SEMI AUTO REPROCESSING MACHINE BASIC PMS", quantity: 1, unitPrice: 4500 }] };
   const pms = { ...regular, billingMode: "PMS_CONTRACT", manualCategories: [], contractId: contract.id, items: [billing.pmsInvoiceItem("2026-10-08", 23000)] };
   assert.deepEqual(billing.validateInvoiceBilling(regular, contract), { billingMode: "REGULAR", contractId: "", manualCategories: ["Service"] });
@@ -33,10 +34,14 @@ async function main() {
   assert.equal(billing.validateInvoiceBilling({ ...pms, drNumber: 3856 }, contract).billingMode, "PMS_CONTRACT", "Monthly PMS can retain its delivery receipt");
   assert.equal(pms.items[0].description, "PMS FOR THE MONTH OF OCTOBER 2026");
   const quarterlyContract = { ...contract, serviceFeeFrequency: "Quarterly" };
-  const quarterlyItem = billing.pmsInvoiceItem("2026-10-08", 17000, "Quarterly", "2026-02-15");
-  assert.equal(quarterlyItem.description, "PMS FOR THE QUARTER OF 2026-08-15 TO 2026-11-14");
+  const quarterlyItem = billing.pmsInvoiceItem("2026-10-08", 17000, "Quarterly", "2026-02");
+  assert.equal(quarterlyItem.description, "PMS FOR THE QUARTER OF AUGUST 2026 TO OCTOBER 2026");
+  const tanay = { ...contract, serviceFeeFrequency: "Quarterly", startDate: "2026-04-27", pmsCycleStart: "2026-08" };
+  const tanayItem = { description: "PMS FOR THE QUARTER OF NOVEMBER 2026 TO JANUARY 2027", quantity: 1, unitPrice: 15000 };
+  assert.equal(billing.validateInvoiceBilling({ ...pms, date: "2026-11-22", items: [tanayItem] }, tanay).contractId, contract.id, "PMS cycle start overrides the MOA date");
+  assert.throws(() => billing.validateInvoiceBilling({ ...pms, date: "2026-11-22", items: [tanayItem] }, { ...tanay, pmsCycleStart: undefined }), /billing period/, "MOA-anchored quarter is OCTOBER TO DECEMBER");
   assert.equal(quarterlyItem.unitPrice, 17000, "Quarterly fee is charged as entered");
-  assert.equal(billing.validateInvoiceBilling({ ...pms, items: [quarterlyItem] }, quarterlyContract).contractId, contract.id);
+  assert.equal(billing.validateInvoiceBilling({ ...pms, date: "2026-10-08", items: [quarterlyItem] }, { ...quarterlyContract, startDate: "2026-02-15" }).contractId, contract.id);
   assert.throws(() => billing.validateInvoiceBilling(pms, quarterlyContract), /matching the contract frequency/);
   assert.equal(billing.validateInvoiceBilling(pms, quarterlyContract, true).contractId, contract.id, "Issued monthly invoices remain editable after correcting the contract to quarterly");
   assert.throws(() => billing.validateInvoiceBilling({ ...pms, items: [quarterlyItem] }, contract), /matching the contract frequency/);

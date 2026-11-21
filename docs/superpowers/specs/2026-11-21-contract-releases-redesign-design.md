@@ -51,7 +51,7 @@ Today the page fails that job:
 
 `computeContractLedger(contract, items, releases, deliveryStatuses, today)` in `src/lib/contractReleases/ledger.ts`:
 
-- For each **Active** contract item, generate its periods using the existing `getPeriodInfo` rules (Monthly, Quarterly, Semi-Annual, Annual). Range: from `contract.startDate` (no cut-off; decided by Chris) to the period containing `today` (Manila date, `manilaToday()`), capped at `contract.endDate`.
+- For each **Active** contract item, generate its periods using the existing `getPeriodInfo` rules (Monthly, Quarterly, Semi-Annual, Annual). Range: from `contract.pmsCycleStart` when set, else `contract.startDate`, to the period containing `today` (Manila date, `manilaToday()`), capped at `contract.endDate`. Periods that began before 2026-08-26 (the first DR recorded in AIC) are dropped (revised by Chris 2026-11-21).
 - `One-Time` items have a single period (the contract start period).
 - **Counted releases:** release rows with status not `Deleted`/`Cancelled`, whose linked DR (if any) is in a counted status (`created`, `printed`, `completed`). Releases whose DR is `pending_approval`, `draft`, `rejected`, or deleted are not counted. Releases with no DR number (legacy) are counted.
 - Allocate counted releases for the item in release-date order, oldest period first. Each period gets at most `entitledQty`. Quantity left after all periods up to today is **extra**: shown as "extra released", never pre-paying a future period.

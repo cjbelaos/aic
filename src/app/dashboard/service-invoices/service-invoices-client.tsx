@@ -67,6 +67,7 @@ import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
 import { pmsContractForDelivery, pmsInvoiceItem, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
+import { pmsCycleAnchor } from "@/lib/contractBillingPeriod";
 import type { ContractRelease } from "@/types/contract-release";
 import type { Contract } from "@/types/contract";
 import contractService from "@/lib/services/contract.service";
@@ -431,7 +432,7 @@ export default function ServiceInvoicesClient({
           const contract = pmsContractForDelivery(dr.drNumber, customer.companyId, releases, availableContracts);
           setContracts(availableContracts);
           if (!isSales && contract) {
-            const item = pmsInvoiceItem(new Date().toISOString().split("T")[0], contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate);
+            const item = pmsInvoiceItem(new Date().toISOString().split("T")[0], contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract));
             setBillingMode("PMS_CONTRACT");
             setSelectedContractId(contract.id);
             setCreateCategories([]);
@@ -2214,7 +2215,7 @@ export default function ServiceInvoicesClient({
                   onChange={(selectedDate) => {
                     const contract = contracts.find(c => c.id === selectedContractId);
                     try {
-                      if (billingMode === "PMS_CONTRACT" && contract) setLineItems([pmsInvoiceItem(selectedDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate)]);
+                      if (billingMode === "PMS_CONTRACT" && contract) setLineItems([pmsInvoiceItem(selectedDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract))]);
                       setInvoiceDate(selectedDate);
                     } catch (error) { toast.error(error instanceof Error ? error.message : "Invalid billing date."); }
                   }}
@@ -2230,7 +2231,7 @@ export default function ServiceInvoicesClient({
               onModeChange={(mode) => {
                 try {
                   const contract = contracts.find(c => c.id === selectedContractId && c.companyId === (serviceBranch?.companyId || selectedCustomer));
-                  const items = mode === "PMS_CONTRACT" && contract ? [pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate)] : [];
+                  const items = mode === "PMS_CONTRACT" && contract ? [pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract))] : [];
                   setBillingMode(mode);
                   setLineItems(items);
                   setLinkedDrNumber(""); setLinkedSalesOrderId("");
@@ -2243,7 +2244,7 @@ export default function ServiceInvoicesClient({
                 const contract = contracts.find(c => c.id === id && c.companyId === (serviceBranch?.companyId || selectedCustomer));
                 if (!contract) return;
                 try {
-                  const item = pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate);
+                  const item = pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract));
                   setSelectedContractId(id);
                   setLineItems([item]);
                 } catch (error) { toast.error(error instanceof Error ? error.message : "Invalid billing date."); }
@@ -2600,7 +2601,7 @@ export default function ServiceInvoicesClient({
                   const contract = contracts.find(c => c.id === editContractId && c.companyId === (editServiceBranch?.companyId || editTarget?.customerId));
                   // Keep existing non-PMS charges when detaching an accidental contract link.
                   const items = mode === "PMS_CONTRACT"
-                    ? (contract ? [pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate)] : [])
+                    ? (contract ? [pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract))] : [])
                     : editLineItems.filter(item => !/^PMS FOR THE (MONTH|QUARTER)\b/i.test(item.description.trim()));
                   setEditBillingMode(mode);
                   setEditDrNumber(""); setEditSalesOrderId(""); setEditReferenceMode("TR_NUMBER");
@@ -2612,7 +2613,7 @@ export default function ServiceInvoicesClient({
                 const contract = contracts.find(c => c.id === id && c.companyId === (editServiceBranch?.companyId || editTarget?.customerId));
                 if (!contract) return;
                 try {
-                  const item = pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate);
+                  const item = pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract));
                   setEditContractId(id);
                   setEditLineItems([item]);
                 } catch (error) { toast.error(error instanceof Error ? error.message : "Invalid billing date."); }
@@ -2633,7 +2634,7 @@ export default function ServiceInvoicesClient({
                   onChange={(selectedDate) => {
                     const contract = contracts.find(c => c.id === editContractId);
                     try {
-                      if (editBillingMode === "PMS_CONTRACT" && contract) setEditLineItems([pmsInvoiceItem(selectedDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, contract.startDate)]);
+                      if (editBillingMode === "PMS_CONTRACT" && contract) setEditLineItems([pmsInvoiceItem(selectedDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract))]);
                       setEditDate(selectedDate);
                     } catch (error) { toast.error(error instanceof Error ? error.message : "Invalid billing date."); }
                   }}

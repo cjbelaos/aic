@@ -42,7 +42,7 @@ const none = new Map<number, string>();
 }
 // Never pre-pays
 {
-  const l = computeItemLedger(item("Monthly", 2), contract("2026-01-01", "2026-12-31"), [rel("2026-01-10", 4)], none, "2026-02-15");
+  const l = computeItemLedger(item("Monthly", 2), contract("2026-09-01", "2027-08-31"), [rel("2026-09-10", 4)], none, "2026-10-15");
   assert.equal(l.periods[0].releasedQty, 2); assert.equal(l.periods[0].status, "Completed");
   assert.equal(l.periods[1].releasedQty, 0); assert.equal(l.periods[1].status, "Pending");
   assert.equal(l.extraQty, 2); assert.equal(l.owedNow, 2);
@@ -64,8 +64,8 @@ for (const [s, e] of [["", "2027-01-01"], ["2026/01/01", "2027-01-01"], ["2026-0
   assert.deepEqual(generatePeriods("Monthly", s, e, "2026-12-01"), []);
 // Mid-period start
 {
-  const l = computeItemLedger(item("Quarterly", 2), contract("2026-02-15", "2027-02-14"), [], none, "2026-05-01");
-  assert.deepEqual(l.periods.map(p => p.periodStart), ["2026-01-01", "2026-04-01"]);
+  const l = computeItemLedger(item("Quarterly", 2), contract("2027-02-15", "2028-02-14"), [], none, "2027-05-01");
+  assert.deepEqual(l.periods.map(p => p.periodStart), ["2027-01-01", "2027-04-01"]);
   assert.deepEqual(l.periods.map(p => p.entitledQty), [2, 2]);
 }
 // Contract end
@@ -160,4 +160,28 @@ assert.deepEqual(generatePeriods("Semi-Annual", "2026-03-01", "2027-02-28", "202
   const out = computeLedgers({ contracts: [closed], items: [item("Monthly", 2)], releases: [rel("2026-09-03", 2)], drStatus: none, today: "2026-11-10" });
   assert.deepEqual(out[0].periods.map(p => p.periodStart), ["2026-09-01"]);
   assert.equal(out[0].owedNow, 0); assert.equal(out[0].openPeriods, 0); assert.equal(out[0].oldestOpen, "");
+}
+
+// PMS cycle start (Tanay: MOA notarized 2026-04-27, last PMS in Aug 2026 before the first DR)
+{
+  const c = { ...contract("2026-04-27", "2027-04-26"), pmsCycleStart: "2026-08" } as Contract;
+  const l = computeItemLedger(item("Quarterly", 1), c, [], none, "2026-11-22");
+  assert.deepEqual(l.periods.map(p => [p.periodStart, p.periodEnd, p.status]),
+    [["2026-11-01", "2027-01-31", "Pending"]], "Aug–Oct began before the first DR; tracking starts with Nov–Jan");
+  // DR #4089 on Nov 22 releases the filters but not the salt: it pays November, not an old quarter.
+  const nov = computeItemLedger(item("Quarterly", 1), c, [rel("2026-11-22", 1)], none, "2026-11-22");
+  assert.equal(nov.periods[0].status, "Completed"); assert.equal(nov.extraQty, 0);
+  // Salt skipped in November, released on a separate DR in February: it catches up November first.
+  const late = computeItemLedger(item("Quarterly", 1), c, [rel("2027-02-10", 1)], none, "2027-02-15");
+  assert.deepEqual(late.periods.map(p => [p.periodStart, p.status]), [["2026-11-01", "Completed"], ["2027-02-01", "Pending"]]);
+  // Without a cycle start the MOA date keeps calendar quarters.
+  assert.equal(computeItemLedger(item("Quarterly", 2), contract("2026-04-27", "2027-04-26"), [], none, "2026-11-22").periods[0].periodStart, "2026-10-01", "Calendar quarters; Jul–Sep began before the first DR");
+  assert.deepEqual(generatePeriods("Semi-Annual", "2026-11-01", "2028-01-01", "2027-06-01", true).map(p => p.periodEnd), ["2027-04-30", "2027-10-31"]);
+}
+
+// Release tracking starts 2026-08-26 (first DR): periods that began earlier are never owed
+{
+  const m = computeItemLedger(item("Monthly", 1), contract("2026-04-27", "2027-04-26"), [], none, "2026-10-10");
+  assert.deepEqual(m.periods.map(p => p.periodStart), ["2026-09-01", "2026-10-01"], "August began before the first DR");
+  assert.equal(m.owedNow, 2);
 }

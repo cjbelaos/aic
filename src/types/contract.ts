@@ -33,6 +33,8 @@ export interface Contract {
   notarizedHardcopyStatus?: NotarizedHardcopyStatus; // Sheet: O; legacy rows default to Unknown
   monthlyServiceFee?: number; // Legacy Sheet: MonthlyServiceFee; amount per serviceFeeFrequency, e.g., 20000
   serviceFeeFrequency?: ServiceFeeFrequency; // Sheet: M; legacy contracts default to Monthly
+  /** Sheet: P ("YYYY-MM"). Month the real PMS cycle counts from when it differs from startDate (the MOA date). */
+  pmsCycleStart?: string;
   notes?: string; // Read-only summary; legacy text is stored in column J until migrated.
   noteHistory?: ContractNote[];
   softCopyDriveLink?: string; // Sheet: SoftCopyDriveLink
@@ -51,6 +53,8 @@ export interface CreateContractPayload {
   notarizedHardcopyStatus?: NotarizedHardcopyStatus;
   monthlyServiceFee?: number;
   serviceFeeFrequency?: ServiceFeeFrequency;
+  /** "YYYY-MM", or "" to clear (fall back to startDate). */
+  pmsCycleStart?: string;
   notes?: string;
 }
 

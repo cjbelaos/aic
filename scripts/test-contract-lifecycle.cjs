@@ -24,20 +24,23 @@ async function main() {
   for (const status of ["Closed", "Inactive"]) assert.equal(contractRowClass({ ...contract, status }), "");
 
   const { quarterlyBillingPeriod: period } = load("src/lib/contractBillingPeriod.ts");
-  assert.deepEqual(period("2026-02-15", "2026-02-15"), { start: "2026-02-15", end: "2026-05-14" });
-  assert.deepEqual(period("2026-02-15", "2026-05-14"), { start: "2026-02-15", end: "2026-05-14" });
-  assert.deepEqual(period("2026-02-15", "2026-05-15"), { start: "2026-05-15", end: "2026-08-14" });
-  assert.deepEqual(period("2026-01-31", "2026-04-30"), { start: "2026-04-30", end: "2026-07-30" });
-  assert.deepEqual(period("2026-01-31", "2026-07-31"), { start: "2026-07-31", end: "2026-10-30" });
-  assert.deepEqual(period("2023-11-30", "2024-02-29"), { start: "2024-02-29", end: "2024-05-29" });
-  assert.deepEqual(period("2024-02-29", "2025-02-28"), { start: "2025-02-28", end: "2025-05-28" });
-  assert.throws(() => period("2026-02-15", "2026-02-14"), /precede/);
-  assert.throws(() => period("2026-02-30", "2026-03-01"), /valid/);
+  assert.deepEqual(period("2026-02-15", "2026-02-15"), { start: "2026-02", end: "2026-04" });
+  assert.deepEqual(period("2026-02", "2026-04-30"), { start: "2026-02", end: "2026-04" });
+  assert.deepEqual(period("2026-02", "2026-05-01"), { start: "2026-05", end: "2026-07" });
+  assert.deepEqual(period("2026-08", "2026-11-22"), { start: "2026-11", end: "2027-01" });
+  assert.deepEqual(period("2026-11", "2027-02-28"), { start: "2027-02", end: "2027-04" });
+  assert.throws(() => period("2026-02", "2026-01-31"), /precede/);
+  assert.throws(() => period("2026-02", "2026-02-30"), /valid/);
   assert.throws(() => period("", "2026-03-01"), /valid/);
+  const { toPmsCycleStart, pmsCycleAnchor } = load("src/lib/contractBillingPeriod.ts");
+  for (const raw of ["2026-08", "2026-08-01", "8/1/2026", " 8/23/2026 "]) assert.equal(toPmsCycleStart(raw), "2026-08", raw);
+  for (const raw of ["", "Aug", "2026-13", undefined]) assert.equal(toPmsCycleStart(raw), undefined);
+  assert.equal(pmsCycleAnchor({ startDate: "2026-04-27", pmsCycleStart: "2026-08" }), "2026-08");
+  assert.equal(pmsCycleAnchor({ startDate: "2026-04-27" }), "2026-04");
 
   const billing = load("src/lib/serviceInvoiceBilling.ts");
   const quarterly = { ...contract, id: "CTR-1", companyId: "COMP-1", startDate: "2026-02-15", serviceFeeFrequency: "Quarterly", monthlyServiceFee: 3000 };
-  const item = billing.pmsInvoiceItem("2026-05-15", 3000, "Quarterly", quarterly.startDate);
+  const item = billing.pmsInvoiceItem("2026-05-15", 3000, "Quarterly", "2026-02");
   assert.equal(item.unitPrice, 3000);
   const input = { date: "2026-05-15", billingMode: "PMS_CONTRACT", contractId: "CTR-1", customerId: "COMP-1", items: [item] };
   assert.equal(billing.validateInvoiceBilling(input, quarterly).contractId, "CTR-1", "Pending paperwork allows billing");
@@ -51,12 +54,13 @@ async function main() {
     "@/lib/auth/session": { requireAuthenticatedSession: async () => ({}) },
     "@/lib/contractSheets": { addContract: async body => { writes++; return body; }, updateContractInSheets: async body => { writes++; return body; } },
     "@/lib/companySheets": { getCustomers: async () => [{ companyId: "COMP-1" }] },
+    "@/lib/contractBillingPeriod": load("src/lib/contractBillingPeriod.ts"),
   };
   const create = load("src/app/api/contracts/route.ts", mocks).POST;
   const update = load("src/app/api/contracts/[id]/route.ts", mocks).PUT;
   const request = body => new Request("http://localhost/api/contracts", { method: "POST", body: JSON.stringify(body) });
   const base = { companyId: "COMP-1", agreementType: "Contract", startDate: "2026-02-15", endDate: "2027-02-14" };
-  for (const invalid of [{ paperworkStatus: "Other" }, { notarizedHardcopyStatus: "Maybe" }]) {
+  for (const invalid of [{ paperworkStatus: "Other" }, { notarizedHardcopyStatus: "Maybe" }, { pmsCycleStart: "Aug 2026" }]) {
     assert.equal((await create(request({ ...base, ...invalid }))).status, 400);
     assert.equal((await update(request(invalid), { params: Promise.resolve({ id: "CTR-1" }) })).status, 400);
   }

@@ -2,7 +2,7 @@ import type { Contract, ServiceFeeFrequency } from "../types/contract";
 import type { ContractRelease } from "../types/contract-release";
 import type { ServiceInvoiceItem } from "../types/serviceInvoice";
 import { validateManualCategories } from "./serviceInvoiceFilters";
-import { quarterlyBillingPeriod } from "./contractBillingPeriod";
+import { billingMonthLabel, pmsCycleAnchor, quarterlyBillingPeriod } from "./contractBillingPeriod";
 
 export type InvoiceBillingMode = "REGULAR" | "PMS_CONTRACT";
 
@@ -14,8 +14,11 @@ export function pmsContractForDelivery(
   releases: ContractRelease[],
   contracts: Contract[],
 ): Contract | undefined {
+  // Only this customer's contracts: a DR can also carry another customer's
+  // contract item (same truck), which must not make the receipt ambiguous.
+  const own = new Set(contracts.filter(contract => contract.companyId === customerId).map(contract => contract.id));
   const ids = new Set(releases.filter(release =>
-    release.drNumber === drNumber && release.status !== "Cancelled" && release.status !== "Deleted",
+    release.drNumber === drNumber && release.status !== "Cancelled" && release.status !== "Deleted" && own.has(release.contractId),
   ).map(release => release.contractId).filter(Boolean));
   // A receipt spanning multiple contracts needs an explicit billing choice.
   if (ids.size !== 1) return undefined;
@@ -24,12 +27,13 @@ export function pmsContractForDelivery(
     (contract.monthlyServiceFee ?? 0) > 0);
 }
 
-export function pmsInvoiceItem(date: string, fee: number, frequency: ServiceFeeFrequency = "Monthly", contractStartDate?: string): ServiceInvoiceItem {
+/** `cycleStart` is the quarter anchor month ("YYYY-MM"); pass `pmsCycleAnchor(contract)`. */
+export function pmsInvoiceItem(date: string, fee: number, frequency: ServiceFeeFrequency = "Monthly", cycleStart?: string): ServiceInvoiceItem {
   const month = new Date(`${date.slice(0, 10)}T12:00:00`);
   const label = Number.isNaN(month.getTime()) ? "" : month.toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
   if (frequency === "Quarterly") {
-    const period = quarterlyBillingPeriod(contractStartDate ?? "", date.slice(0, 10));
-    return { description: `PMS FOR THE QUARTER OF ${period.start} TO ${period.end}`, quantity: 1, unitPrice: fee };
+    const period = quarterlyBillingPeriod(cycleStart ?? "", date.slice(0, 10));
+    return { description: `PMS FOR THE QUARTER OF ${billingMonthLabel(period.start)} TO ${billingMonthLabel(period.end)}`, quantity: 1, unitPrice: fee };
   }
   return { description: `PMS FOR THE MONTH${label ? ` OF ${label}` : ""}`, quantity: 1, unitPrice: fee };
 }
@@ -62,7 +66,7 @@ export function validateInvoiceBilling(input: {
     if (input.items.length !== 1 || !item || !descriptionPattern.test(item.description.trim()) || item.quantity !== 1 || !Number.isFinite(item.unitPrice) || item.unitPrice <= 0 || item.productId || item.salesOrderItemId) fail("PMS contract billing requires one PMS charge matching the contract frequency. Bill additional services or parts separately.");
     if (!allowInactiveContract && contract!.serviceFeeFrequency === "Quarterly" && input.date) {
       let expected: string;
-      try { expected = pmsInvoiceItem(input.date, item.unitPrice, "Quarterly", contract!.startDate).description; }
+      try { expected = pmsInvoiceItem(input.date, item.unitPrice, "Quarterly", pmsCycleAnchor(contract!)).description; }
       catch (error) { return fail(error instanceof Error ? error.message : "Invalid quarterly billing period."); }
       if (item.description.trim() !== expected) fail("The quarterly PMS description must match the contract billing period for the invoice date.");
     }

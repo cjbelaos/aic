@@ -6,9 +6,12 @@ import type {
 } from "../../types/contract-release.ts";
 import type { DeliveryReceiptSummary } from "../../types/deliveryReceipt.ts";
 import { effectiveContractStatus } from "../contractStatus.ts";
+import { isPmsCycleStart } from "../contractBillingPeriod.ts";
 import { isCountedDrStatus, toIsoDate } from "../inventory/domain.ts";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** First DR recorded in AIC (Chris). Only periods starting on/after it are tracked: an earlier period may have been served with no record (e.g. Tanay's Aug PMS). */
+export const RELEASE_TRACKING_START = "2026-08-26";
 const pad = (n: number) => String(n).padStart(2, "0");
 const lastDay = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
 const dayNumber = (d: string) => Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10))) / 86400000;
@@ -33,14 +36,15 @@ function monthsPerPeriod(frequency: string): number {
   }
 }
 
-export function generatePeriods(frequency: string, startDate: string, endDate: string, today: string) {
+/** `anchored`: periods step from the start month itself (a PMS cycle start), not calendar quarters/halves/years. */
+export function generatePeriods(frequency: string, startDate: string, endDate: string, today: string, anchored = false) {
   const out: { periodStart: string; periodEnd: string; year: number; month: number; quarter: number }[] = [];
   if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate) || startDate > endDate) return out;
   const step = monthsPerPeriod(frequency);
   const limit = today < endDate ? today : endDate;
   let year = Number(startDate.slice(0, 4));
   const startMonth = Number(startDate.slice(5, 7));
-  let month = step === 0 || step === 1 ? startMonth : Math.floor((startMonth - 1) / step) * step + 1;
+  let month = step === 0 || step === 1 || anchored ? startMonth : Math.floor((startMonth - 1) / step) * step + 1;
   for (let i = 0; i < 600; i++) {
     const periodStart = `${year}-${pad(month)}-01`;
     if (periodStart > limit) break;
@@ -50,8 +54,10 @@ export function generatePeriods(frequency: string, startDate: string, endDate: s
     if (step === 0) {
       periodEnd = endDate;
     } else {
-      const endMonthIdx = month + step - 1; // may exceed 12 only for misaligned steps; aligned never does
-      periodEnd = `${year}-${pad(endMonthIdx)}-${pad(lastDay(year, endMonthIdx))}`;
+      // An anchored period can cross the year end (e.g. Nov–Jan).
+      const endYear = year + Math.floor((month + step - 2) / 12);
+      const endMonthIdx = ((month + step - 2) % 12) + 1;
+      periodEnd = `${endYear}-${pad(endMonthIdx)}-${pad(lastDay(endYear, endMonthIdx))}`;
       if (nextMonth > 12) { nextYear += 1; nextMonth -= 12; }
       if (periodEnd > endDate) periodEnd = endDate;
     }
@@ -70,7 +76,12 @@ export function computeItemLedger(
   drStatus: Map<number, string>,
   today: string,
 ): ItemLedger {
-  const gen = generatePeriods(item.frequency, contract.startDate, contract.endDate, today);
+  // A PMS cycle start replaces the MOA date: periods follow the real PMS schedule and
+  // nothing before it (e.g. before AIC recorded releases) is owed.
+  const cycleStart = isPmsCycleStart(contract.pmsCycleStart) ? `${contract.pmsCycleStart}-01` : contract.startDate;
+  // Periods that began before release tracking have no records to prove them either way.
+  const gen = generatePeriods(item.frequency, cycleStart, contract.endDate, today, cycleStart !== contract.startDate)
+    .filter((p) => p.periodStart >= RELEASE_TRACKING_START);
   const allocated = gen.map(() => 0);
   const relIds = gen.map(() => new Set<string>());
   const firsts: string[] = gen.map(() => "");
