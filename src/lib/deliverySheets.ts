@@ -868,11 +868,6 @@ export async function deleteDeliveryReceipt(drNumber: number, actor: Actor, role
 
     // ── 2. Fetch all ContractReleases linked to this DR ──
     const { getContractReleases } = await import("@/lib/contractReleaseSheets");
-    const { upsertPeriodSummary } =
-      await import("@/lib/contractPeriodSummarySheets");
-    const { getContractItems } = await import("@/lib/contractItemSheets");
-    const { getPeriodInfo, getPeriodId, formatDate } =
-      await import("@/lib/utils/contractRelease.utils");
 
     const allReleases = await getContractReleases();
     const linkedReleases = allReleases.filter((r) => r.drNumber === drNumber);
@@ -900,108 +895,8 @@ export async function deleteDeliveryReceipt(drNumber: number, actor: Actor, role
           });
         }
       }
-
-      // ── 3. Rebuild ALL period summaries (including zero-release periods) ──
-      const affectedItems = [
-        ...new Set(linkedReleases.map((r) => r.contractItemId)),
-      ];
-      const items = await getContractItems();
-
-      for (const itemId of affectedItems) {
-        const item = items.find((i) => i.id === itemId);
-        if (!item) continue;
-
-        const remaining = allReleases.filter(
-          (r) =>
-            r.contractItemId === itemId &&
-            r.drNumber !== drNumber &&
-            r.status !== "Deleted",
-        );
-
-        const periodMap = new Map<
-          string,
-          { releases: typeof remaining; start: Date; end: Date }
-        >();
-
-        for (const rel of remaining) {
-          const date = new Date(rel.releaseDate);
-          const info = getPeriodInfo(date, rel.frequency);
-          const pid = getPeriodId(itemId, info);
-          if (!periodMap.has(pid)) {
-            periodMap.set(pid, {
-              releases: [],
-              start: info.periodStart,
-              end: info.periodEnd,
-            });
-          }
-          periodMap.get(pid)!.releases.push(rel);
-        }
-
-        // Also include periods from deleted releases (now with zero releases)
-        for (const rel of linkedReleases) {
-          const date = new Date(rel.releaseDate);
-          const info = getPeriodInfo(date, rel.frequency);
-          const pid = getPeriodId(itemId, info);
-          if (!periodMap.has(pid)) {
-            periodMap.set(pid, {
-              releases: [],
-              start: info.periodStart,
-              end: info.periodEnd,
-            });
-          }
-        }
-
-        for (const [pid, data] of periodMap) {
-          const sorted = [...data.releases].sort(
-            (a, b) =>
-              new Date(a.releaseDate).getTime() -
-              new Date(b.releaseDate).getTime(),
-          );
-          const totalReleased = sorted.reduce((s, r) => s + r.quantity, 0);
-          const entitledQty = item.entitledQty;
-
-          let status: "Completed" | "Partial" | "Overdue" | "Pending";
-          if (totalReleased >= entitledQty) status = "Completed";
-          else if (totalReleased === 0) status = "Pending";
-          else status = "Partial";
-
-          const today = new Date();
-          if (status !== "Completed" && today > data.end && totalReleased > 0)
-            status = "Overdue";
-
-          const daysToComplete =
-            status === "Completed" && sorted.length >= 2
-              ? Math.ceil(
-                  (new Date(sorted[sorted.length - 1].releaseDate).getTime() -
-                    new Date(sorted[0].releaseDate).getTime()) /
-                    86400000,
-                )
-              : undefined;
-
-          await upsertPeriodSummary({
-            periodId: pid,
-            contractItemId: itemId,
-            contractId: item.contractId,
-            productCode: item.productCode,
-            periodYear: getPeriodInfo(new Date(data.start), item.frequency)
-              .year,
-            periodMonth: getPeriodInfo(new Date(data.start), item.frequency)
-              .month,
-            periodQuarter: getPeriodInfo(new Date(data.start), item.frequency)
-              .quarter,
-            frequency: item.frequency,
-            entitledQty,
-            releasedQty: totalReleased,
-            releaseCount: sorted.length,
-            firstReleaseDate: sorted[0]?.releaseDate,
-            lastReleaseDate: sorted[sorted.length - 1]?.releaseDate,
-            status,
-            daysToComplete,
-            periodStart: formatDate(data.start),
-            periodEnd: formatDate(data.end),
-          });
-        }
-      }
+      // Period status is computed from the release log, so marking the rows
+      // Deleted is enough to reopen their periods.
     }
   } catch (error) {
     console.error("Failed to delete delivery receipt:", error);

@@ -17,37 +17,6 @@ const contractReleaseService = {
   },
 
   /**
-   * Process a new release
-   */
-  processRelease: async (
-    contractItemId: string,
-    quantity: number,
-    releaseDate: string,
-    releasedBy: string,
-    remarks?: string,
-    contractId?: string,
-    productCode?: string,
-    drNumber?: number,
-  ): Promise<ContractRelease | null> => {
-    try {
-      const response = await axios.post<ContractRelease>(`${API_BASE_URL}/process`, {
-        contractItemId,
-        contractId,
-        productCode,
-        quantity,
-        releaseDate,
-        releasedBy,
-        remarks,
-        drNumber,
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Failed to process release:", error);
-      throw error;
-    }
-  },
-
-  /**
    * Get releases for a specific period
    */
   getReleasesForPeriod: async (
@@ -111,21 +80,6 @@ const contractReleaseService = {
       return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.error("Failed to fetch compliance report:", error);
-      return [];
-    }
-  },
-
-  /**
-   * Get overdue releases
-   */
-  getOverdueReleases: async (): Promise<ContractPeriodSummary[]> => {
-    try {
-      const response = await axios.get<ContractPeriodSummary[]>(
-        "/api/contract-releases/overdue",
-      );
-      return Array.isArray(response.data) ? response.data : [];
-    } catch (error) {
-      console.error("Failed to fetch overdue releases:", error);
       return [];
     }
   },
