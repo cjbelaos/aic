@@ -3,13 +3,21 @@ import { withInventoryLock } from "@/lib/inventory/lock";
 import { getProductsOnly } from "@/lib/productSheets";
 import { getProductUnits } from "@/lib/productReferenceSheets";
 import { readSalesOrderListSnapshot } from "@/lib/salesOrders/repository";
+import { getContracts } from "@/lib/contractSheets";
+import { getContractItems } from "@/lib/contractItemSheets";
+import { getPeriodSummaries } from "@/lib/contractPeriodSummarySheets";
+import { getCompanies } from "@/lib/companySheets";
+import { effectiveContractStatus } from "@/lib/contractStatus";
+import { computeContractDue, type ContractDueLine } from "@/lib/purchaseRequests/contractDue";
 import {
   deriveLineProgress,
   derivePrStatus,
   isPrLocked,
   nextPrNo,
   validateCancelRemaining,
+  validateDraftLine,
   validateFromStock,
+  type DraftLineInput,
 } from "@/lib/purchaseRequests/domain";
 import {
   allocateIds,
@@ -19,8 +27,9 @@ import {
   savePurchaseRequestRow,
   updatePurchaseRequestItemRow,
 } from "@/lib/purchaseRequests/sheets";
-import type { SalesOrder, SalesOrderItem } from "@/types/salesOrder";
-import type { PrLineProgress, PrStatus, PurchaseRequest, PurchaseRequestItem, PurchaseRequestLink } from "@/types/purchaseRequest";
+import type { SalesOrder } from "@/types/salesOrder";
+import type { Contract } from "@/types/contract";
+import type { PrLineProgress, PrRequestType, PrStatus, PurchaseRequest, PurchaseRequestItem, PurchaseRequestLink } from "@/types/purchaseRequest";
 import type { SessionUser } from "@/types/user";
 
 export interface PrView extends PurchaseRequest {
@@ -32,11 +41,26 @@ export interface PrView extends PurchaseRequest {
 }
 
 export interface PrDraftInput {
-  salesOrderId: string;
+  /** Defaults to SALES_ORDER when omitted (older clients). */
+  requestType?: PrRequestType;
+  salesOrderId?: string;
+  contractId?: string;
   neededByDate: string;
   purpose: string;
   version?: number;
-  items: { productId: string; quantity: number; salesOrderItemId?: string; remarks?: string }[];
+  items: DraftLineInput[];
+}
+
+export interface EligibleContract {
+  contractId: string;
+  contractNo: string;
+  customerName: string;
+  description: string;
+}
+
+export interface ContractDueView extends ContractDueLine {
+  productName: string;
+  unit: string;
 }
 
 export interface EligibleSalesOrder {
@@ -53,6 +77,8 @@ export interface OpenPrLine {
   prNo: string;
   prItemId: string;
   salesOrderNo: string;
+  /** What the PR is for: SO no., contract no., or "". */
+  reference: string;
   productId: string;
   productCode: string;
   productName: string;
@@ -78,7 +104,7 @@ function buildView(pr: PurchaseRequest, snap: Snapshot, poStatus: ReadonlyMap<st
   return {
     ...pr,
     derivedStatus: derivePrStatus(pr, lines),
-    salesOrderStatus: soIndex.status.get(pr.salesOrderId) ?? "",
+    salesOrderStatus: pr.requestType === "SALES_ORDER" ? soIndex.status.get(pr.salesOrderId) ?? "" : "",
     lines,
     poNumbers: [...new Set(lines.flatMap((l) => l.poNumbers))].sort(),
     locked: isPrLocked(lines, links),
@@ -124,48 +150,96 @@ function requireConfirmed(so: { orders: SalesOrder[] }, salesOrderId: string): S
   return order;
 }
 
-async function buildItems(input: PrDraftInput, prId: string, existingIds: string[], soItems: SalesOrderItem[], actor: string, now: string): Promise<PurchaseRequestItem[]> {
+interface LineRefs { requestType: PrRequestType; soItemIds: ReadonlySet<string>; contractItemIds: ReadonlySet<string> }
+
+async function buildItems(input: PrDraftInput, prId: string, existingIds: string[], refs: LineRefs, actor: string, now: string): Promise<PurchaseRequestItem[]> {
   if (!input.items?.length) throw httpError(400, "Add at least one item.");
   const [products, units] = await Promise.all([getProductsOnly(), getProductUnits()]);
   const productById = new Map(products.map((p) => [p.productId, p]));
   const unitById = new Map(units.map((u) => [u.unitId, u]));
   const ids = allocateIds("PRI", existingIds, input.items.length);
   return input.items.map((line, index) => {
-    const product = productById.get(String(line.productId ?? ""));
-    if (!product) throw httpError(400, `Line ${index + 1}: product not found.`);
-    if (product.status !== "active") throw httpError(400, `Line ${index + 1}: product ${product.productCode} is inactive.`);
-    const quantity = Number(line.quantity);
-    if (!(quantity > 0)) throw httpError(400, `Line ${index + 1}: quantity must be more than zero.`);
-    const salesOrderItemId = String(line.salesOrderItemId ?? "").trim();
-    if (salesOrderItemId && !soItems.some((s) => s.salesOrderItemId === salesOrderItemId)) throw httpError(400, `Line ${index + 1}: the sales order line it is for was not found.`);
-    const unit = unitById.get(product.unitId);
-    return {
-      prItemId: ids[index], prId, lineNo: index + 1, productId: product.productId, productCodeSnapshot: product.productCode,
-      productNameSnapshot: product.productName, unitId: product.unitId, unitSnapshot: unit?.unitName || unit?.unitCode || "",
-      quantity, salesOrderItemId, contractItemId: "", remarks: String(line.remarks ?? "").trim(),
+    const error = validateDraftLine(line, index, refs);
+    if (error) throw httpError(400, error);
+    const productId = String(line.productId ?? "").trim();
+    const common = {
+      prItemId: ids[index], prId, lineNo: index + 1, quantity: Number(line.quantity),
+      salesOrderItemId: String(line.salesOrderItemId ?? "").trim(), contractItemId: String(line.contractItemId ?? "").trim(),
+      remarks: String(line.remarks ?? "").trim(),
       fromStockQty: 0, fromStockNote: "", fromStockBy: "", fromStockAt: "", cancelledQty: 0, cancelReason: "", cancelledBy: "", cancelledAt: "",
       createdAt: now, createdBy: actor, updatedAt: now, updatedBy: actor,
+    };
+    if (!productId) {
+      // Typed (non-catalog) item: description lives in productNameSnapshot, unit in unitSnapshot.
+      return { ...common, productId: "", productCodeSnapshot: "", productNameSnapshot: String(line.description ?? "").trim(), unitId: "", unitSnapshot: String(line.unit ?? "").trim() };
+    }
+    const product = productById.get(productId);
+    if (!product) throw httpError(400, `Line ${index + 1}: product not found.`);
+    if (product.status !== "active") throw httpError(400, `Line ${index + 1}: product ${product.productCode} is inactive.`);
+    const unit = unitById.get(product.unitId);
+    return {
+      ...common, productId: product.productId, productCodeSnapshot: product.productCode, productNameSnapshot: product.productName,
+      unitId: product.unitId, unitSnapshot: unit?.unitName || unit?.unitCode || "",
     };
   });
 }
 
-function soSnapshot(order: SalesOrder) {
-  return {
-    requestType: "SALES_ORDER" as const, contractId: "", contractNoSnapshot: "",
-    salesOrderId: order.salesOrderId, salesOrderNoSnapshot: order.salesOrderNo, customerNameSnapshot: order.customerNameSnapshot,
-    quotationNoSnapshot: order.quotationNo, deliveryAddressSnapshot: order.deliveryAddressSnapshot,
-  };
+const BLANK_REFERENCE = {
+  salesOrderId: "", salesOrderNoSnapshot: "", customerNameSnapshot: "", quotationNoSnapshot: "", deliveryAddressSnapshot: "",
+  contractId: "", contractNoSnapshot: "",
+};
+
+function requestTypeOf(input: PrDraftInput): PrRequestType {
+  const type = String(input.requestType ?? "SALES_ORDER").toUpperCase();
+  if (type === "SALES_ORDER" || type === "CONTRACT" || type === "NONE") return type;
+  throw httpError(400, "Choose what this request is for.");
+}
+
+function requireActiveContract(contracts: Contract[], contractId: string): Contract {
+  const contract = contracts.find((c) => c.id === contractId);
+  if (!contract) throw httpError(400, "Contract not found.");
+  const status = effectiveContractStatus(contract);
+  if (status !== "Active") throw httpError(400, `Contract ${contract.id} is ${status.toLowerCase()}; only active contracts can have purchase requests.`);
+  return contract;
+}
+
+/** Header reference snapshot + the ids lines may point at, for the chosen request type. */
+async function resolveReference(input: PrDraftInput, so: Awaited<ReturnType<typeof readSalesOrderListSnapshot>>): Promise<{ header: Pick<PurchaseRequest, "requestType" | keyof typeof BLANK_REFERENCE>; refs: LineRefs }> {
+  const requestType = requestTypeOf(input);
+  if (requestType === "SALES_ORDER") {
+    const order = requireConfirmed(so, String(input.salesOrderId ?? ""));
+    return {
+      header: {
+        ...BLANK_REFERENCE, requestType, salesOrderId: order.salesOrderId, salesOrderNoSnapshot: order.salesOrderNo,
+        customerNameSnapshot: order.customerNameSnapshot, quotationNoSnapshot: order.quotationNo, deliveryAddressSnapshot: order.deliveryAddressSnapshot,
+      },
+      refs: { requestType, soItemIds: new Set(so.items.filter((i) => i.salesOrderId === order.salesOrderId).map((i) => i.salesOrderItemId)), contractItemIds: new Set() },
+    };
+  }
+  if (requestType === "CONTRACT") {
+    const [contracts, companies] = await Promise.all([getContracts(), getCompanies()]);
+    const contract = requireActiveContract(contracts, String(input.contractId ?? ""));
+    const items = await getContractItems(contract.id);
+    return {
+      header: {
+        ...BLANK_REFERENCE, requestType, contractId: contract.id, contractNoSnapshot: contract.id,
+        customerNameSnapshot: companies.find((c) => c.companyId === contract.companyId)?.companyName ?? "",
+      },
+      refs: { requestType, soItemIds: new Set(), contractItemIds: new Set(items.map((i) => i.id)) },
+    };
+  }
+  return { header: { ...BLANK_REFERENCE, requestType }, refs: { requestType, soItemIds: new Set(), contractItemIds: new Set() } };
 }
 
 export async function createPurchaseRequest(input: PrDraftInput, session: SessionUser): Promise<PrView> {
   const prId = await withInventoryLock(async () => {
     const { snap, so } = await loadContext();
-    const order = requireConfirmed(so, String(input.salesOrderId ?? ""));
+    const { header, refs } = await resolveReference(input, so);
     const now = new Date().toISOString();
     const [prId] = allocateIds("PR", snap.prs.map((p) => p.prId), 1);
-    const items = await buildItems(input, prId, snap.items.map((i) => i.prItemId), so.items.filter((i) => i.salesOrderId === order.salesOrderId), session.userId, now);
+    const items = await buildItems(input, prId, snap.items.map((i) => i.prItemId), refs, session.userId, now);
     const pr: PurchaseRequest = {
-      prId, prNo: "", status: "DRAFT", ...soSnapshot(order), requestedByUserId: session.userId, requestedByName: session.fullName,
+      prId, prNo: "", status: "DRAFT", ...header, requestedByUserId: session.userId, requestedByName: session.fullName,
       requestedDate: manilaToday(), neededByDate: String(input.neededByDate ?? "").trim(), purpose: String(input.purpose ?? "").trim(),
       cancelReason: "", version: 1, createdAt: now, createdBy: session.userId, updatedAt: now, updatedBy: session.userId,
     };
@@ -189,10 +263,10 @@ export async function updatePurchaseRequest(prId: string, input: PrDraftInput, s
     const pr = snap.prs.find((p) => p.prId === prId);
     if (!pr) throw httpError(404, "Purchase request not found.");
     requireEditable(buildView(pr, snap, poStatus, soStatus), session, input.version);
-    const order = requireConfirmed(so, String(input.salesOrderId ?? ""));
+    const { header, refs } = await resolveReference(input, so);
     const now = new Date().toISOString();
-    const items = await buildItems(input, prId, snap.items.map((i) => i.prItemId), so.items.filter((i) => i.salesOrderId === order.salesOrderId), session.userId, now);
-    await savePurchaseRequestRow({ ...pr, ...soSnapshot(order), neededByDate: String(input.neededByDate ?? "").trim(), purpose: String(input.purpose ?? "").trim(), version: pr.version + 1, updatedAt: now, updatedBy: session.userId });
+    const items = await buildItems(input, prId, snap.items.map((i) => i.prItemId), refs, session.userId, now);
+    await savePurchaseRequestRow({ ...pr, ...header, neededByDate: String(input.neededByDate ?? "").trim(), purpose: String(input.purpose ?? "").trim(), version: pr.version + 1, updatedAt: now, updatedBy: session.userId });
     await replacePurchaseRequestItems(prId, items);
   });
   return viewOf(prId);
@@ -205,7 +279,8 @@ export async function submitPurchaseRequest(prId: string, session: SessionUser):
     if (!pr) throw httpError(404, "Purchase request not found.");
     if (pr.requestedByUserId !== session.userId && !isAdminUser(session)) throw httpError(403, "Only the requester or an admin can submit this purchase request.");
     if (pr.status !== "DRAFT") throw httpError(409, "This purchase request was already submitted.");
-    requireConfirmed(so, pr.salesOrderId);
+    if (pr.requestType === "SALES_ORDER") requireConfirmed(so, pr.salesOrderId);
+    if (pr.requestType === "CONTRACT") requireActiveContract(await getContracts(), pr.contractId);
     if (!snap.items.some((i) => i.prId === prId)) throw httpError(400, "Add at least one item.");
     const today = manilaToday();
     const now = new Date().toISOString();
@@ -296,10 +371,36 @@ export async function listOpenPrLines(excludePoNumber?: string): Promise<OpenPrL
     const { claimable } = deriveLineProgress(item, links, poStatus);
     if (claimable <= 0) continue;
     out.push({
-      prId: pr.prId, prNo: pr.prNo, prItemId: item.prItemId, salesOrderNo: pr.salesOrderNoSnapshot, productId: item.productId,
+      prId: pr.prId, prNo: pr.prNo, prItemId: item.prItemId, salesOrderNo: pr.salesOrderNoSnapshot,
+      reference: pr.requestType === "CONTRACT" ? pr.contractNoSnapshot : pr.requestType === "SALES_ORDER" ? pr.salesOrderNoSnapshot : "",
+      productId: item.productId,
       productCode: item.productCodeSnapshot, productName: item.productNameSnapshot, unit: item.unitSnapshot, claimable,
       salesOrderStatus: soStatus.status.get(pr.salesOrderId) ?? "",
     });
   }
   return out.sort((a, b) => a.prNo.localeCompare(b.prNo, undefined, { numeric: true }));
+}
+
+export async function listEligibleContracts(): Promise<EligibleContract[]> {
+  const [contracts, companies] = await Promise.all([getContracts(), getCompanies()]);
+  const nameOf = new Map(companies.map((c) => [c.companyId, c.companyName]));
+  return contracts
+    .filter((c) => effectiveContractStatus(c) === "Active")
+    .map((c) => ({ contractId: c.id, contractNo: c.id, customerName: nameOf.get(c.companyId) ?? "", description: c.description ?? "" }))
+    .sort((a, b) => b.contractNo.localeCompare(a.contractNo, undefined, { numeric: true }));
+}
+
+/** Active items of a contract with what is still due this period, for "Add from contract". */
+export async function getContractDue(contractId: string, excludePrId?: string): Promise<ContractDueView[]> {
+  const [items, summaries, snap, products, units] = await Promise.all([
+    getContractItems(contractId), getPeriodSummaries(undefined, undefined, undefined, contractId), readPurchaseRequestSnapshot(), getProductsOnly(), getProductUnits(),
+  ]);
+  const productById = new Map(products.map((p) => [p.productId, p]));
+  const productByCode = new Map(products.map((p) => [p.productCode, p]));
+  const unitById = new Map(units.map((u) => [u.unitId, u]));
+  return computeContractDue({ items, summaries, prs: snap.prs, prItems: snap.items, today: manilaToday(), excludePrId }).map((line) => {
+    const product = productById.get(line.productId) ?? productByCode.get(line.productCode);
+    const unit = product ? unitById.get(product.unitId) : undefined;
+    return { ...line, productId: product?.productId ?? line.productId, productName: product?.productName ?? line.productCode, unit: unit?.unitName || unit?.unitCode || "" };
+  });
 }

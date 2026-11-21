@@ -1,5 +1,5 @@
 // Client helpers shared by the Purchase Request screens.
-export type { EligibleSalesOrder, OpenPrLine, PrView } from "@/lib/purchaseRequests/service";
+export type { ContractDueView, EligibleContract, EligibleSalesOrder, OpenPrLine, PrView } from "@/lib/purchaseRequests/service";
 
 export async function prApi<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
