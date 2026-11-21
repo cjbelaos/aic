@@ -377,6 +377,18 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
+                  isActive={isItemActive("/dashboard/purchase-requests")}
+                  tooltip="Purchase Requests"
+                >
+                  <Link href="/dashboard/purchase-requests">
+                    <ClipboardList />
+                    <span>Purchase Requests</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
                   isActive={isItemActive("/dashboard/purchase-orders")}
                   tooltip="Purchase Orders"
                 >

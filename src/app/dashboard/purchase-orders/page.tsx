@@ -1,7 +1,7 @@
 "use client";
 
 import { DatePickerInput } from "@/components/ui/date-picker";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { Fragment, useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,12 @@ import {
   Search,
   FileText,
   Download,
+  ClipboardList,
+  X,
 } from "lucide-react";
+import { PrLinePicker } from "@/components/purchase-requests/pr-line-picker";
+import { mergePickedIntoLines, type PickedPoLine } from "@/lib/purchaseRequests/domain";
+import type { PoLineLinkInput } from "@/types/purchaseRequest";
 import { toast } from "sonner";
 
 import companyService from "@/lib/services/company.service";
@@ -73,7 +78,11 @@ interface LineItem {
   quantity: number;
   pricePerUnit: number;
   totalAmount: number;
+  /** Purchase Request lines this PO line fulfils. */
+  prLinks?: PoLineLinkInput[];
 }
+
+const linkedQty = (item: LineItem) => (item.prLinks ?? []).reduce((sum, link) => sum + link.quantity, 0);
 
 const EMPTY_LINE_ITEM: LineItem = {
   itemNo: 1,
@@ -343,6 +352,68 @@ export default function PurchaseOrderPage() {
   const calculateTotal = (quantity: number, pricePerUnit: number): number => {
     return quantity * pricePerUnit;
   };
+
+  /* ── Purchase Request picker ── */
+  const [prPickerFor, setPrPickerFor] = useState<"create" | "edit" | null>(null);
+  const [prLabels, setPrLabels] = useState<Map<string, string>>(new Map());
+  const mergePrLabels = useCallback((labels: Map<string, string>) => setPrLabels((prev) => new Map([...prev, ...labels])), []);
+  const linkedInForm = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const item of prPickerFor === "edit" ? editLineItems : lineItems) {
+      for (const link of item.prLinks ?? []) totals.set(link.prItemId, (totals.get(link.prItemId) ?? 0) + link.quantity);
+    }
+    return totals;
+  }, [prPickerFor, lineItems, editLineItems]);
+  /** A PO line for a picked product, priced from the supplier's offering when it has one. */
+  const lineFromPicked = (p: PickedPoLine): LineItem => {
+    const offering = supplierProducts.find((sp) => sp.productId === p.productId);
+    const product = products.find((x) => x.id === p.productId || x.productId === p.productId);
+    const pricePerUnit = offering?.costPerUnit || 0;
+    return {
+      ...EMPTY_LINE_ITEM,
+      productId: p.productId,
+      supplierProductId: offering?.supplierProductId || "",
+      productCode: product?.code || "",
+      unit: product?.unit?.code || "PC",
+      description: offering?.supplierProductName || product?.name || "",
+      quantity: p.quantity,
+      pricePerUnit,
+      totalAmount: calculateTotal(p.quantity, pricePerUnit),
+      prLinks: p.prLinks,
+    };
+  };
+  const addPickedPrLines = (picked: PickedPoLine[]) => {
+    for (const p of picked) {
+      if (!supplierProducts.some((sp) => sp.productId === p.productId)) {
+        const product = products.find((x) => x.id === p.productId || x.productId === p.productId);
+        toast.warning(`${product?.name ?? "A product"} is not in this supplier's catalogue; enter its price by hand.`);
+      }
+    }
+    const apply = (prev: LineItem[]) => mergePickedIntoLines(prev, picked, lineFromPicked)
+      .map((item, index) => ({ ...item, itemNo: index + 1, totalAmount: calculateTotal(item.quantity, item.pricePerUnit) }));
+    if (prPickerFor === "edit") setEditLineItems(apply);
+    else setLineItems(apply);
+  };
+  const removePrLinks = (form: "create" | "edit", index: number) => {
+    const strip = (prev: LineItem[]) => prev.map((item, i) => (i === index ? { ...item, prLinks: undefined } : item));
+    const items = strip(form === "edit" ? editLineItems : lineItems);
+    if (form === "edit") setEditLineItems(items);
+    else setLineItems(items);
+    if (!formHasPrLinks(items)) {
+      if (form === "edit") setEditPrNumber("");
+      else setPrNumber("");
+    }
+  };
+  const prChip = (form: "create" | "edit", item: LineItem, index: number) => (item.prLinks?.length ? (
+    <div className="flex flex-wrap items-center gap-1 pl-12 text-xs">
+      {item.prLinks.map((link) => <Badge key={link.prItemId} variant="secondary">{prLabels.get(link.prItemId) ?? "PR"} × {link.quantity}</Badge>)}
+      <Button variant="ghost" size="sm" className="h-6 px-1 text-xs" onClick={() => removePrLinks(form, index)}><X className="mr-1 h-3 w-3" />Unlink</Button>
+    </div>
+  ) : null);
+  const warnBelowLinked = (item: LineItem) => {
+    if (item.quantity < linkedQty(item)) toast.error(`This line has ${linkedQty(item)} linked from purchase requests. Raise the quantity or unlink PR lines before saving.`);
+  };
+  const formHasPrLinks = (items: LineItem[]) => items.some((item) => item.prLinks?.length);
 
   /* Calculate order total */
   const orderTotal = useMemo(() => {
@@ -692,6 +763,7 @@ export default function PurchaseOrderPage() {
           quantity: item.quantity,
           pricePerUnit: item.pricePerUnit,
           totalAmount: calculateTotal(item.quantity, item.pricePerUnit),
+          prLinks: item.prLinks,
         })),
         status: "printed",
       };
@@ -752,6 +824,7 @@ export default function PurchaseOrderPage() {
           quantity: item.quantity,
           pricePerUnit: item.pricePerUnit,
           totalAmount: calculateTotal(item.quantity, item.pricePerUnit),
+          prLinks: item.prLinks,
         })),
         status: "draft",
       };
@@ -900,8 +973,15 @@ export default function PurchaseOrderPage() {
           quantity: item.quantity || 0,
           pricePerUnit: item.pricePerUnit || 0,
           totalAmount: item.totalAmount || 0,
+          prLinks: item.prLinks,
         })),
       );
+      if (editTarget.items.some((item) => item.prLinks?.length)) {
+        fetch(`/api/purchase-requests/open-lines?excludePo=${encodeURIComponent(editTarget.poNumber)}`)
+          .then((r) => (r.ok ? r.json() : []))
+          .then((rows: { prItemId: string; prNo: string }[]) => mergePrLabels(new Map(rows.map((r) => [r.prItemId, r.prNo]))))
+          .catch(() => {});
+      }
       const manual = new Set<number>();
       editTarget.items.forEach((item, i) => {
         if (!item.productCode && item.description?.trim()) manual.add(i);
@@ -984,6 +1064,7 @@ export default function PurchaseOrderPage() {
             quantity: li.quantity,
             pricePerUnit: li.pricePerUnit,
             totalAmount: calculateTotal(li.quantity, li.pricePerUnit),
+            prLinks: li.prLinks,
           })),
       };
       const res = await purchaseOrderService.update(
@@ -1087,9 +1168,10 @@ export default function PurchaseOrderPage() {
               <div className="space-y-2">
                 <Label>PR# (Purchase Request)</Label>
                 <Input
-                  value={prNumber}
+                  value={formHasPrLinks(lineItems) ? "" : prNumber}
                   onChange={(e) => setPrNumber(e.target.value)}
-                  placeholder="e.g. PR-2024-001"
+                  placeholder={formHasPrLinks(lineItems) ? "Filled from linked purchase requests" : "e.g. PR-2024-001"}
+                  disabled={formHasPrLinks(lineItems)}
                 />
               </div>
               <div className="space-y-2">
@@ -1114,9 +1196,14 @@ export default function PurchaseOrderPage() {
                 <Label className="text-base font-semibold">
                   Products / Items
                 </Label>
-                <Button size="sm" variant="outline" onClick={addLineItem} disabled={!selectedSupplier}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Item
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setPrPickerFor("create")} disabled={!selectedSupplier}>
+                    <ClipboardList className="h-4 w-4 mr-1" /> Add from Purchase Requests
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={addLineItem} disabled={!selectedSupplier}>
+                    <Plus className="h-4 w-4 mr-1" /> Add Item
+                  </Button>
+                </div>
               </div>
 
               {!selectedSupplier && <p className="text-sm text-muted-foreground">Select a supplier first.</p>}
@@ -1134,7 +1221,7 @@ export default function PurchaseOrderPage() {
               )}
 
               {lineItems.map((item, idx) => (
-                <div key={idx} className="po-item-row flex min-w-0 flex-col gap-2 items-stretch md:flex-row md:items-center">
+                <Fragment key={idx}><div className="po-item-row flex min-w-0 flex-col gap-2 items-stretch md:flex-row md:items-center">
                   <div className="w-10 shrink-0 text-center text-sm text-muted-foreground">
                     {item.itemNo}
                   </div>
@@ -1202,7 +1289,7 @@ export default function PurchaseOrderPage() {
                     </div>
                     <label className="min-w-0 md:w-20">
                       <span className="mb-1 block text-sm font-medium md:hidden">Quantity</span>
-                      <Input className="w-full" type="number" min="1" value={item.quantity} onChange={(e) => updateLineItem(idx, "quantity", parseInt(e.target.value) || 1)} />
+                      <Input className="w-full" type="number" min="1" value={item.quantity} step={item.prLinks?.length ? "any" : undefined} onChange={(e) => updateLineItem(idx, "quantity", (item.prLinks?.length ? parseFloat(e.target.value) : parseInt(e.target.value)) || 1)} onBlur={() => warnBelowLinked(item)} />
                     </label>
                     <label className="min-w-0 md:w-28">
                       <span className="mb-1 block text-sm font-medium md:hidden">Unit price</span>
@@ -1217,6 +1304,7 @@ export default function PurchaseOrderPage() {
                     <Trash2 className="h-4 w-4" /><span className="md:hidden">Remove item</span>
                   </Button>
                 </div>
+                {prChip("create", item, idx)}</Fragment>
               ))}
 
               {lineItems.length > 0 && (
@@ -1306,6 +1394,14 @@ export default function PurchaseOrderPage() {
         }}
       />
 
+      <PrLinePicker
+        open={prPickerFor !== null}
+        onOpenChange={(open) => { if (!open) setPrPickerFor(null); }}
+        excludePoNumber={prPickerFor === "edit" ? editTarget?.poNumber : undefined}
+        alreadyLinked={linkedInForm}
+        onAdd={addPickedPrLines}
+        onLabels={mergePrLabels}
+      />
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         title="Delete Purchase Order"
@@ -1365,8 +1461,10 @@ export default function PurchaseOrderPage() {
               <div className="space-y-2">
                 <Label>PR#</Label>
                 <Input
-                  value={editPrNumber}
+                  value={formHasPrLinks(editLineItems) ? "" : editPrNumber}
                   onChange={(e) => setEditPrNumber(e.target.value)}
+                  placeholder={formHasPrLinks(editLineItems) ? "Filled from linked purchase requests" : undefined}
+                  disabled={formHasPrLinks(editLineItems)}
                 />
               </div>
               <div className="space-y-2">
@@ -1385,9 +1483,14 @@ export default function PurchaseOrderPage() {
                 <Label className="text-base font-semibold">
                   Products / Items
                 </Label>
-                <Button size="sm" variant="outline" onClick={addEditLineItem}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Item
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setPrPickerFor("edit")} disabled={!selectedSupplier}>
+                    <ClipboardList className="h-4 w-4 mr-1" /> Add from Purchase Requests
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={addEditLineItem}>
+                    <Plus className="h-4 w-4 mr-1" /> Add Item
+                  </Button>
+                </div>
               </div>
 
               {editLineItems.length > 0 && (
@@ -1404,7 +1507,7 @@ export default function PurchaseOrderPage() {
               )}
 
               {editLineItems.map((item, idx) => (
-                <div key={idx} className="po-item-row flex min-w-0 flex-col gap-2 items-stretch md:flex-row md:items-center">
+                <Fragment key={idx}><div className="po-item-row flex min-w-0 flex-col gap-2 items-stretch md:flex-row md:items-center">
                   <div className="w-10 shrink-0 text-center text-sm text-muted-foreground">
                     {item.itemNo}
                   </div>
@@ -1472,7 +1575,7 @@ export default function PurchaseOrderPage() {
                     </div>
                     <label className="min-w-0 md:w-20">
                       <span className="mb-1 block text-sm font-medium md:hidden">Quantity</span>
-                      <Input className="w-full" type="number" min="1" value={item.quantity} onChange={(e) => updateEditLineItem(idx, "quantity", parseInt(e.target.value) || 1)} />
+                      <Input className="w-full" type="number" min="1" value={item.quantity} step={item.prLinks?.length ? "any" : undefined} onChange={(e) => updateEditLineItem(idx, "quantity", (item.prLinks?.length ? parseFloat(e.target.value) : parseInt(e.target.value)) || 1)} onBlur={() => warnBelowLinked(item)} />
                     </label>
                     <label className="min-w-0 md:w-28">
                       <span className="mb-1 block text-sm font-medium md:hidden">Unit price</span>
@@ -1487,6 +1590,7 @@ export default function PurchaseOrderPage() {
                     <Trash2 className="h-4 w-4" /><span className="md:hidden">Remove item</span>
                   </Button>
                 </div>
+                {prChip("edit", item, idx)}</Fragment>
               ))}
 
               {editLineItems.length > 0 && (

@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "rootDir": "../..",
+    "outDir": "../../tmp/purchase-request-tests/out"
+  },
+  "include": [
+    "*.ts",
+    "../../src/lib/purchaseRequests/domain.ts",
+    "../../src/types/purchaseRequest.ts"
+  ]
+}
