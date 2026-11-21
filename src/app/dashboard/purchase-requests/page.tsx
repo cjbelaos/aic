@@ -12,6 +12,7 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { DocumentRegisterHeader } from "@/components/document-register-header";
 import { PurchaseRequestForm } from "@/components/purchase-requests/purchase-request-form";
 import { PurchaseRequestDetailDialog } from "@/components/purchase-requests/purchase-request-detail-dialog";
+import { PurchaseRequestPreviewModal } from "@/components/purchase-request-preview-modal";
 import { prApi, salesOrderWarning, type PrView } from "@/components/purchase-requests/api";
 import { PR_STATUS_LABELS, type PrStatus } from "@/types/purchaseRequest";
 
@@ -157,8 +158,7 @@ export default function PurchaseRequestsPage() {
 
       {formOpen && <PurchaseRequestForm key={editing?.prId ?? "new"} open={formOpen} onOpenChange={setFormOpen} editing={editing} requesterName={me.fullName} onSaved={replace} />}
       {viewing && <PurchaseRequestDetailDialog pr={viewing} onClose={() => setViewing(null)} onChanged={replace} />}
-      {/* Print (Task 7) mounts here. */}
-      {viewing && printing === undefined && null}
+      {printing && <PurchaseRequestPreviewModal pr={printing} onClose={() => setPrinting(null)} />}
     </>
   );
 }
