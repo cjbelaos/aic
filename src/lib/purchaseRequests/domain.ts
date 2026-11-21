@@ -218,3 +218,8 @@ export function productPickerLabels(products: { productId: string; productCode: 
     return [p.productId, (counts.get(key(p.productName)) ?? 0) > 1 ? `${name} (${p.productCode})` : name];
   }));
 }
+
+/** Indices of lines appended after `prevLength` that have no product (typed PR items → description-only PO lines). */
+export function addedTypedLineIndices(prevLength: number, merged: { productId: string }[]): number[] {
+  return merged.flatMap((line, index) => (index >= prevLength && !line.productId ? [index] : []));
+}

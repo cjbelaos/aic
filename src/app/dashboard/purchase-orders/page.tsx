@@ -35,7 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { PrLinePicker } from "@/components/purchase-requests/pr-line-picker";
-import { mergePickedIntoLines, type PickedPoLine } from "@/lib/purchaseRequests/domain";
+import { addedTypedLineIndices, mergePickedIntoLines, type PickedPoLine } from "@/lib/purchaseRequests/domain";
 import type { PoLineLinkInput } from "@/types/purchaseRequest";
 import { toast } from "sonner";
 
@@ -397,8 +397,13 @@ export default function PurchaseOrderPage() {
     }
     const apply = (prev: LineItem[]) => mergePickedIntoLines(prev, picked, lineFromPicked)
       .map((item, index) => ({ ...item, itemNo: index + 1, totalAmount: calculateTotal(item.quantity, item.pricePerUnit) }));
-    if (prPickerFor === "edit") setEditLineItems(apply);
-    else setLineItems(apply);
+    // Typed PR items become description-only rows, so show them with the description input.
+    const current = prPickerFor === "edit" ? editLineItems : lineItems;
+    const next = apply(current);
+    const typedRows = addedTypedLineIndices(current.length, next);
+    const markManual = (prev: Set<number>) => (typedRows.length ? new Set([...prev, ...typedRows]) : prev);
+    if (prPickerFor === "edit") { setEditLineItems(next); setEditManualRows(markManual); }
+    else { setLineItems(next); setManualRows(markManual); }
   };
   const removePrLinks = (form: "create" | "edit", index: number) => {
     const strip = (prev: LineItem[]) => prev.map((item, i) => (i === index ? { ...item, prLinks: undefined } : item));
