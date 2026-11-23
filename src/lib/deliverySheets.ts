@@ -693,6 +693,13 @@ export async function updateDeliveryReceipt(
     const nextForCompanyId = typeof payload.forCompanyId === "string"
       ? payload.forCompanyId.trim()
       : companyChanged ? "" : storedForCompanyId;
+    // A DR's contract releases were matched to its FOR client, so that client is fixed once any exist.
+    if (nextForCompanyId !== storedForCompanyId && drNumber > 0) {
+      const { getContractReleases } = await import("@/lib/contractReleaseSheets");
+      if ((await getContractReleases()).some((release) => release.drNumber === drNumber)) {
+        throw new Error("This DR released contract items, so its FOR client can't change.");
+      }
+    }
     if (nextForCompanyId && (nextForCompanyId !== storedForCompanyId || companyChanged)) {
       const forError = validateForCompany(await getCompanies(), targetCompanyId, nextForCompanyId);
       if (forError) throw new Error(forError);
