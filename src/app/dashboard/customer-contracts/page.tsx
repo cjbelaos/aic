@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ArrowUpDown, ExternalLink, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowUpDown, ExternalLink, FileClock, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { contractReady, effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
+import { effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
+import { cn } from "@/lib/utils";
 import { exportContractNotes, formatNoteDate } from "@/lib/contractNotes";
 
 import { serviceFrequencyForItems } from "@/lib/contractServiceFrequency";
@@ -209,8 +210,58 @@ interface GroupedCustomerContract extends ContractWithItems {
   companyName: string; // Denormalized for display
 }
 
-function ContractCompanyBadge({ contract, today }: { contract: GroupedCustomerContract; today: string }) {
-  return <Badge variant="outline" title={`Status: ${effectiveContractStatus(contract, today)}; Paperwork: ${contract.paperworkStatus ?? "Pending"}`} className={`max-w-full whitespace-normal break-words px-3 py-1.5 text-left text-sm font-semibold leading-relaxed sm:max-w-72 ${contractReady(contract, today) ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300" : "border-red-500/30 bg-red-500/10 text-red-800 dark:text-red-300"}`}>{contract.companyName}</Badge>;
+/* ── List display helpers ───────────────────────────────── */
+const RENEWAL_WINDOW_DAYS = 60;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
+// Contract dates are calendar days (YYYY-MM-DD); format them in UTC so the
+// viewer's timezone can never shift them by a day.
+const dayFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const isoDayToUtc = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+};
+const formatDay = (iso?: string) => (iso && ISO_DAY.test(iso) ? dayFormatter.format(isoDayToUtc(iso)) : iso || "—");
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+const STATUS_DOT: Record<ContractStatus, string> = {
+  Active: "bg-emerald-500",
+  Expired: "bg-rose-500",
+  Closed: "bg-muted-foreground/50",
+  Inactive: "bg-muted-foreground/50",
+};
+
+function ContractClientName({ contract, today }: { contract: GroupedCustomerContract; today: string }) {
+  const paperworkPending = effectiveContractStatus(contract, today) === "Active" && (contract.paperworkStatus ?? "Pending") !== "Complete";
+  return (
+    <div className="max-w-64 space-y-1 whitespace-normal">
+      <span className="block break-words text-sm font-semibold leading-snug">{contract.companyName}</span>
+      {paperworkPending && (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+          <FileClock className="size-3.5" aria-hidden />
+          Paperwork pending
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ContractTerm({ contract, today }: { contract: GroupedCustomerContract; today: string }) {
+  const status = effectiveContractStatus(contract, today);
+  const daysLeft = ISO_DAY.test(contract.endDate) ? Math.round((isoDayToUtc(contract.endDate) - isoDayToUtc(today)) / DAY_MS) : null;
+  return (
+    <div className="space-y-0.5 text-sm">
+      <span className="block whitespace-nowrap">{formatDay(contract.startDate)} – {formatDay(contract.endDate)}</span>
+      {daysLeft !== null && status === "Active" && daysLeft <= RENEWAL_WINDOW_DAYS && (
+        <span className="block text-xs font-medium text-amber-700 dark:text-amber-400">
+          {daysLeft === 0 ? "Ends today" : `Ends in ${plural(daysLeft, "day")}`}
+        </span>
+      )}
+      {daysLeft !== null && status === "Expired" && (
+        <span className="block text-xs text-muted-foreground">Ended {plural(-daysLeft, "day")} ago</span>
+      )}
+    </div>
+  );
 }
 
 /* ── Page ───────────────────────────────────────────────── */
@@ -296,48 +347,28 @@ export default function CustomerContractsPage() {
           </Button>
         ),
         cell: ({ row }) => (
-          <ContractCompanyBadge contract={row.original} today={today} />
+          <ContractClientName contract={row.original} today={today} />
         ),
       },
       {
-        accessorKey: "agreementType",
+        id: "agreementType",
+        // PO number lives in this column now; keep it searchable.
+        accessorFn: contract => [contract.agreementType, contract.poNumber].filter(Boolean).join(" "),
         header: "Agreement",
         cell: ({ row }) => (
-          <Badge variant="secondary" className="text-xs">
-            {row.original.agreementType}
-          </Badge>
+          <div className="space-y-1">
+            <Badge variant="secondary" className="text-xs">{row.original.agreementType}</Badge>
+            {row.original.poNumber && (
+              <span className="block font-mono text-xs text-muted-foreground">PO {row.original.poNumber}</span>
+            )}
+          </div>
         ),
       },
       {
-        accessorKey: "poNumber",
-        header: "PO Number",
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {row.original.poNumber || "N/A"}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "startDate",
-        header: "Start Date",
-        cell: ({ row }) => (
-          <span className="text-xs">
-            {row.original.startDate
-              ? new Date(row.original.startDate).toLocaleDateString()
-              : "N/A"}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "endDate",
-        header: "End Date",
-        cell: ({ row }) => (
-          <span className="text-xs">
-            {row.original.endDate
-              ? new Date(row.original.endDate).toLocaleDateString()
-              : "N/A"}
-          </span>
-        ),
+        id: "term",
+        accessorFn: contract => contract.endDate,
+        header: "Term",
+        cell: ({ row }) => <ContractTerm contract={row.original} today={today} />,
       },
       {
         id: "status",
@@ -345,24 +376,38 @@ export default function CustomerContractsPage() {
         header: "Status",
         cell: ({ row }) => {
           const status = effectiveContractStatus(row.original, today);
-          const tone = status === "Active"
-            ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-            : status === "Expired"
-              ? "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-400"
-              : "bg-muted text-muted-foreground";
-          return <Badge variant="outline" className={tone}>{status}</Badge>;
+          return (
+            <span className={cn(
+              "inline-flex items-center gap-1.5 text-sm",
+              status === "Expired" ? "font-medium text-rose-700 dark:text-rose-400" : status === "Active" ? "text-foreground" : "text-muted-foreground",
+            )}>
+              <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[status] ?? STATUS_DOT.Inactive)} />
+              {status}
+            </span>
+          );
         },
       },
-      { accessorKey: "paperworkStatus", header: "Paperwork", cell: ({ row }) => <Badge variant="outline" className={row.original.paperworkStatus === "Complete" ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-400"}>{row.original.paperworkStatus ?? "Pending"}</Badge> },
-      { accessorKey: "notarizedHardcopyStatus", header: () => <span className="block whitespace-normal leading-tight">Notarized copy<br /><span className="font-normal text-muted-foreground">on file</span></span>, cell: ({ row }) => row.original.notarizedHardcopyStatus ?? "Unknown" },
+      {
+        accessorKey: "paperworkStatus",
+        header: "Paperwork",
+        cell: ({ row }) => {
+          const paperwork = row.original.paperworkStatus ?? "Pending";
+          return (
+            <div className="space-y-0.5">
+              <span className={cn("block text-sm", paperwork !== "Complete" && "font-medium")}>{paperwork}</span>
+              <span className="block text-xs text-muted-foreground">Notarized: {row.original.notarizedHardcopyStatus ?? "Unknown"}</span>
+            </div>
+          );
+        },
+      },
       {
         accessorKey: "monthlyServiceFee",
         id: "monthlyServiceFee",
-        header: "Service Fee",
+        header: () => <div className="text-right">Service Fee</div>,
         cell: ({ row }) => (
-          <span className="text-sm font-medium tabular-nums text-foreground">
-            {formatCurrency(row.original.monthlyServiceFee)}{(row.original.monthlyServiceFee ?? 0) > 0 && <span className="ml-1 text-xs text-muted-foreground">/ {row.original.serviceFeeFrequency === "Quarterly" ? "quarter" : "month"}</span>}
-          </span>
+          <div className="whitespace-nowrap text-sm font-medium tabular-nums text-foreground md:text-right">
+            {formatCurrency(row.original.monthlyServiceFee)}{(row.original.monthlyServiceFee ?? 0) > 0 && <span className="ml-1 text-xs font-normal text-muted-foreground">/ {row.original.serviceFeeFrequency === "Quarterly" ? "quarter" : "month"}</span>}
+          </div>
         ),
       },
       {
@@ -385,7 +430,7 @@ export default function CustomerContractsPage() {
               {hasNotes ? (
                 <>
                   <span className="line-clamp-2 whitespace-normal break-words leading-relaxed">{notes[0].text}</span>
-                  <span className="mt-1 block text-xs text-muted-foreground">{formatNoteDate(notes[0].createdAt)}</span>
+                  {Number.isFinite(Date.parse(notes[0].createdAt ?? "")) && <span className="mt-1 block text-xs text-muted-foreground">{formatNoteDate(notes[0].createdAt)}</span>}
                   <span className="mt-1 block text-xs text-muted-foreground group-hover:text-foreground">{notes.length} {notes.length === 1 ? "note" : "notes"} · Manage notes</span>
                 </>
               ) : <span className="text-muted-foreground group-hover:text-foreground">+ Add notes</span>}
@@ -396,15 +441,10 @@ export default function CustomerContractsPage() {
       {
         id: "totalProducts",
         header: "Entitlements",
-        cell: ({ row }) => (
-          <Badge variant="outline" className="font-semibold">
-            {row.original.items.length === 0
-              ? "None"
-              : `${row.original.items.length} Product${
-                  row.original.items.length > 1 ? "s" : ""
-                }`}
-          </Badge>
-        ),
+        cell: ({ row }) => {
+          const count = row.original.items.length;
+          return <span className={cn("text-sm", count === 0 && "text-muted-foreground")}>{count === 0 ? "None" : plural(count, "product")}</span>;
+        },
       },
     ],
     [today],
@@ -824,26 +864,20 @@ export default function CustomerContractsPage() {
         hideImportButton
         columns={columns}
         data={filteredContracts}
-        belowToolbar={
-          <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:flex-wrap sm:items-end">
-            <div className="space-y-2 sm:w-48">
-              <Label htmlFor="contract-status-filter" className="text-xs font-medium text-muted-foreground">Contract status</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger id="contract-status-filter" className="w-full bg-background"><SelectValue /></SelectTrigger>
-                <SelectContent>{["All", ...CONTRACT_STATUS_OPTIONS].map(value => <SelectItem key={value} value={value}>{value === "All" ? "All statuses" : value}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2 sm:w-48">
-              <Label htmlFor="paperwork-status-filter" className="text-xs font-medium text-muted-foreground">Paperwork status</Label>
-              <Select value={paperworkFilter} onValueChange={setPaperworkFilter}>
-                <SelectTrigger id="paperwork-status-filter" className="w-full bg-background"><SelectValue /></SelectTrigger>
-                <SelectContent>{["All", "Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value === "All" ? "All paperwork" : value}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+        toolbarFilters={
+          <>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger aria-label="Filter by contract status" className="h-8 w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectContent>{["All", ...CONTRACT_STATUS_OPTIONS].map(value => <SelectItem key={value} value={value}>{value === "All" ? "All statuses" : value}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={paperworkFilter} onValueChange={setPaperworkFilter}>
+              <SelectTrigger aria-label="Filter by paperwork status" className="h-8 w-[160px]"><SelectValue /></SelectTrigger>
+              <SelectContent>{["All", "Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value === "All" ? "All paperwork" : `Paperwork ${value.toLowerCase()}`}</SelectItem>)}</SelectContent>
+            </Select>
             {(statusFilter !== "All" || paperworkFilter !== "All") && (
-              <Button variant="ghost" onClick={() => { setStatusFilter("All"); setPaperworkFilter("All"); }}>Clear filters</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setStatusFilter("All"); setPaperworkFilter("All"); }}>Clear filters</Button>
             )}
-          </div>
+          </>
         }
         loading={loading}
         onCreateNew={openCreate}
@@ -851,7 +885,7 @@ export default function CustomerContractsPage() {
         onEdit={openEdit}
         onDelete={(row) => setDeleteTarget(row)}
         onExport={(rows) => exportToExcel(rows, productMap)}
-        mobileLayout={{ primary: ["companyName", "agreementType", "status", "notes"], renderTitle: contract => <ContractCompanyBadge contract={contract} today={today} />, labels: { companyName: "Customer", agreementType: "Agreement", poNumber: "PO number", startDate: "Start date", endDate: "End date", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", paperworkStatus: "Paperwork", notarizedHardcopyStatus: "Notarized Hardcopy on File", status: "Status", actions: "Actions" } }}
+        mobileLayout={{ primary: ["companyName", "status", "term", "paperworkStatus", "notes"], renderTitle: contract => <ContractClientName contract={contract} today={today} />, labels: { companyName: "Customer", agreementType: "Agreement", term: "Term", monthlyServiceFee: "Service fee", notes: "Notes", totalProducts: "Entitlements", paperworkStatus: "Paperwork", status: "Status", actions: "Actions" } }}
         getRowId={(row) => row.id}
       />
       </div>
