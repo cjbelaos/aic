@@ -12,3 +12,17 @@ No new Google Sheet tabs or columns are needed. Tracking fields reuse the existi
 Before relying on payment filters, reconcile existing Created invoices against the legacy payment sheet using the app's admin Update payment action. Existing Created invoices default to Unpaid; existing Paid invoices default to Fully paid. Do not replace the JSON metadata with a plain payment label.
 
 Verification: `node scripts/test-service-invoice-tracking.cjs`, `node scripts/test-service-invoice-reporting.cjs`, `node scripts/test-service-invoice-category.cjs`.
+
+## Accounting tracker sync
+
+Service Invoices **1801 and later** are copied to the accountants' **INVOICE AND PAYMENT TRACKER → Service Invoice** tab (`src/lib/serviceInvoiceTracker/`). Design: `docs/superpowers/specs/2026-11-23-service-invoice-tracker-sync-design.md`.
+
+- **Columns written:** A Category (`Contracted` when the invoice has a ContractId, else `Service`), B PO No., C Date, E Customer, H Description (linked Sales Order's active lines; otherwise every invoice line), J Total. D is written only on newly appended rows. F/G lookup formulas and columns I, K onward are never written.
+- **Cancelled, void and deleted** invoices: B = `CANCELLED`, A and J blank.
+- **When:** automatically after create, edit, corrected copy and delete (`after()` in the service-invoice routes), plus the admin **Sync to tracker** button, which reports added, updated, unchanged, need review and failed. Drafts are never copied.
+- **Need review:** the row was filled or edited by hand, has a duplicate invoice number, or holds a formula or manual TIN/address. The app never overwrites it. Fix the row in the sheet (or clear it), then press the button.
+- **Not on tracker** badge: the automatic copy failed (`trackerSync.status = "failed"` in ServiceInvoices col T). Press the button to retry.
+- **Customers:** the tracker's Client Directory is an IMPORTRANGE of SALES ORDER TRACKER → Client Directory. Missing customers are appended **there** (name, TIN, address), never to the tracker's copy. The import stops at row 500, and new customers past that are reported as need review.
+- One-time: `node --env-file=.env.local scripts/seed-tracker-spoiled-1811.cjs [--apply]` marks spoiled paper 1811 as CANCELLED.
+
+Verification: `npm run test:service-invoice-tracker`.
