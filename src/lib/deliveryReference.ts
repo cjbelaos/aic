@@ -31,6 +31,9 @@
 
 export type DeliveryReferenceMode = "SALES_ORDER" | "TR_NUMBER" | "NO_CHARGE";
 
+/** Invoices reference a Sales Order or a legacy TR number only; they are never no-charge. */
+export type InvoiceReferenceMode = Exclude<DeliveryReferenceMode, "NO_CHARGE">;
+
 export const DELIVERY_REFERENCE_MODES: readonly DeliveryReferenceMode[] = [
   "SALES_ORDER",
   "TR_NUMBER",
@@ -250,8 +253,9 @@ export function referenceModeForRecord(record: {
 export function legacyTrNumberForRecord(record: {
   salesOrderId?: string | null;
   trNo?: string | null;
+  noChargeReason?: string | null;
 }): string {
-  return text(record.salesOrderId) ? "" : normalizeTrNumber(record.trNo);
+  return text(record.salesOrderId) || isNoChargeDelivery(record) ? "" : normalizeTrNumber(record.trNo);
 }
 
 /** Reference shown in lists, previews and the print document ("" when absent). */

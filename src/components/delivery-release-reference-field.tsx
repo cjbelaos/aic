@@ -7,17 +7,23 @@ import {
   DELIVERY_REFERENCE_MODE_CHOICES,
   TR_NUMBER_FIELD_LABEL,
   type DeliveryReferenceMode,
+  type InvoiceReferenceMode,
 } from "@/lib/deliveryReference";
 
+/** Invoices offer only the Sales Order and legacy TR choices. */
+const INVOICE_REFERENCE_MODE_CHOICES = DELIVERY_REFERENCE_MODE_CHOICES.filter(
+  (choice): choice is (typeof DELIVERY_REFERENCE_MODE_CHOICES)[number] & { value: InvoiceReferenceMode } => choice.value !== "NO_CHARGE",
+);
+
 export function InvoiceReferenceTypeSelector({ mode, onChange, disabled }: {
-  mode: DeliveryReferenceMode | null;
-  onChange: (mode: DeliveryReferenceMode) => void;
+  mode: InvoiceReferenceMode | null;
+  onChange: (mode: InvoiceReferenceMode) => void;
   disabled?: boolean;
 }) {
   return <fieldset className="space-y-2" disabled={disabled}>
     <legend className="text-sm font-medium">Choose reference type</legend>
     <div className="grid grid-cols-2 gap-2">
-      {DELIVERY_REFERENCE_MODE_CHOICES.map((choice) => <label key={choice.value} className={`flex items-center gap-2 rounded-md border p-3 text-sm ${mode === choice.value ? "border-primary bg-primary/5" : "border-input"}`}>
+      {INVOICE_REFERENCE_MODE_CHOICES.map((choice) => <label key={choice.value} className={`flex items-center gap-2 rounded-md border p-3 text-sm ${mode === choice.value ? "border-primary bg-primary/5" : "border-input"}`}>
         <input type="radio" checked={mode === choice.value} onChange={() => onChange(choice.value)} />
         {choice.value === "TR_NUMBER" ? "Legacy SO / TR Number" : choice.label}
       </label>)}

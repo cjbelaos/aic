@@ -6,7 +6,7 @@ import { invoiceItemsFromDelivery } from "@/lib/serviceInvoicePresentation";
 import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 
 import { InvoiceReferenceTypeSelector } from "@/components/delivery-release-reference-field";
-import type { DeliveryReferenceMode } from "@/lib/deliveryReference";
+import type { InvoiceReferenceMode } from "@/lib/deliveryReference";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -231,9 +231,9 @@ export default function ServiceInvoicesClient({
   const [printing, setPrinting] = useState(false);
 
   const [referenceMode, setReferenceMode] =
-    useState<DeliveryReferenceMode | null>(null);
+    useState<InvoiceReferenceMode | null>(null);
   const [editReferenceMode, setEditReferenceMode] =
-    useState<DeliveryReferenceMode>("SALES_ORDER");
+    useState<InvoiceReferenceMode>("SALES_ORDER");
 
   /* Linked DR */
   const [linkedDrNumber, setLinkedDrNumber] = useState("");

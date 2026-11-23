@@ -21,6 +21,7 @@ import { commitDocumentWithHandover } from "@/lib/documentHandoverCommit";
 import {
   deliveryReferenceFromRow,
   deliveryReferenceRowValues,
+  noChargeReasonDisplay,
 } from "@/lib/deliveryReference";
 import { getOrderDetail, type Actor } from "@/lib/salesOrders/service";
 import { can } from "@/lib/salesOrders/permissions";
@@ -30,11 +31,12 @@ const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:Y`;
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:AA`;
 // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:SalesOrderNo (legacy TRNumber)
 // F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink
 // M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType
 // R:DeliveredByOptionId S:SalesOrderId T:WarehouseId U:ApprovedBy V:ApprovedAt W:ApprovalNote X:RequestedStatus
+// Y:ForCompanyId Z:NoChargeReason AA:NoChargeNote
 // Writers of A:S leave T:W untouched; writeInventoryColumns() owns T:W.
 
 /** Statuses that keep a DR unnumbered, unprinted and out of stock and fulfillment. */
@@ -72,6 +74,24 @@ async function writeForCompanyColumn(
     range: `${DELIVERY_RECEIPTS_SHEET}!Y${rowNumber}`,
     valueInputOption: "RAW",
     requestBody: { values: [[forCompanyId]] },
+  });
+}
+
+/** Writes the no-charge reason and note (columns Z:AA); "" clears them. Headers are
+ * provisioned by scripts/setup-inventory-sheets.mjs. */
+async function writeNoChargeColumns(
+  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+  rowNumber: number,
+  reason: string,
+  note: string,
+): Promise<void> {
+  if (rowNumber <= 1) return;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${DELIVERY_RECEIPTS_SHEET}!Z${rowNumber}:AA${rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[reason, note]] },
   });
 }
 
@@ -200,6 +220,8 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           companyId: String(row[2] ?? "").trim(),
           poNo: String(row[3] ?? "").trim(),
           trNo: reference.displayReference,
+          noChargeReason: reference.noChargeReason || undefined,
+          noChargeNote: reference.noChargeNote || undefined,
           salesOrderNo: reference.salesOrderNo || undefined,
           salesOrderId: reference.salesOrderId || undefined,
           srNo: String(row[5] ?? "").trim(),
@@ -250,17 +272,19 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
  * Resolves the current document references for a Delivery Receipt. A Sales
  * Order remains the source of truth for its Customer PO Number after creation.
  */
-export async function resolveDeliveryReceiptReferences(drNumber: number): Promise<{ poNo: string; trNo: string; salesOrderId?: string }> {
+export async function resolveDeliveryReceiptReferences(drNumber: number): Promise<{ poNo: string; trNo: string; salesOrderId?: string; noChargeReason?: string }> {
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const rowNumber = await findDrRow(sheets, spreadsheetId, drNumber);
   if (rowNumber <= 1) throw new Error(`Delivery Receipt #${drNumber} not found.`);
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${DELIVERY_RECEIPTS_SHEET}!A${rowNumber}:S${rowNumber}`,
+    range: `${DELIVERY_RECEIPTS_SHEET}!A${rowNumber}:AA${rowNumber}`,
   });
   const row = response.data.values?.[0] || [];
   const salesOrderId = String(row[18] ?? "").trim();
+  const noChargeReason = deliveryReferenceFromRow(row).noChargeReason;
+  if (noChargeReason) return { poNo: String(row[3] ?? "").trim(), trNo: "", noChargeReason };
   const storedPoNo = String(row[3] ?? "").trim();
   const storedTrNo = String(row[4] ?? "").trim();
   if (!salesOrderId) return { poNo: storedPoNo, trNo: storedTrNo };
@@ -479,6 +503,8 @@ export async function processDeliveryReceipt(
       salesOrderId: payload.salesOrderId,
       salesOrderNo: payload.salesOrderNo,
       trNo: payload.trNo,
+      noChargeReason: payload.noChargeReason,
+      noChargeNote: payload.noChargeNote,
     });
     if (referenceRow.error) throw new Error(referenceRow.error);
     if (payload.referenceMode === "SALES_ORDER" && referenceRow.salesOrderId && !referenceRow.reference) {
@@ -539,6 +565,11 @@ export async function processDeliveryReceipt(
     if (payload.forCompanyId) {
       await writeForCompanyColumn(sheets, spreadsheetId, await findDrRow(sheets, spreadsheetId, drNumber), payload.forCompanyId);
     }
+    if (referenceRow.noChargeReason) {
+      await writeNoChargeColumns(sheets, spreadsheetId, await findDrRow(sheets, spreadsheetId, drNumber),
+        referenceRow.noChargeReason, referenceRow.noChargeNote ?? "");
+    }
+    const printedReference = referenceRow.reference || noChargeReasonDisplay(referenceRow.noChargeReason);
 
     // 4. Populate template and export PDF (skip for drafts and held DRs)
     let pdfBase64: string | undefined;
@@ -569,7 +600,7 @@ export async function processDeliveryReceipt(
             },
             {
               range: `${PRINT_TEMPLATE_SHEET}!F11`,
-              values: [[payload.salesOrderNo || payload.trNo || ""]],
+              values: [[payload.salesOrderNo || payload.trNo || printedReference]],
             },
             {
               range: `${PRINT_TEMPLATE_SHEET}!A13:C${12 + templateRows.length}`,
@@ -619,6 +650,8 @@ export async function processDeliveryReceipt(
       date: payload.date,
       poNo: payload.poNo,
       trNo: referenceRow.reference,
+      noChargeReason: referenceRow.noChargeReason || undefined,
+      noChargeNote: referenceRow.noChargeNote || undefined,
       salesOrderNo: referenceRow.salesOrderId ? referenceRow.reference : undefined,
       salesOrderId: payload.salesOrderId,
       preparedBy: payload.preparedBy,
@@ -680,7 +713,7 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:Y${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:AA${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
     // FOR client (column Y): changing the company clears it unless a new one is sent.
@@ -738,6 +771,8 @@ export async function updateDeliveryReceipt(
         salesOrderId: payload.salesOrderId,
         salesOrderNo: payload.salesOrderNo,
         trNo: payload.trNo,
+        noChargeReason: payload.noChargeReason,
+        noChargeNote: payload.noChargeNote,
       },
       {
         trNo: String(currentRow[4] ?? "").trim(),
@@ -745,6 +780,14 @@ export async function updateDeliveryReceipt(
       },
     );
     if (referenceRow.error) throw new Error(referenceRow.error);
+    const storedReference = deliveryReferenceFromRow(currentRow);
+    // A DR whose contract releases already counted can't become free afterwards.
+    if (referenceRow.noChargeReason && !storedReference.noChargeReason) {
+      const { getContractReleases } = await import("@/lib/contractReleaseSheets");
+      if ((await getContractReleases()).some((release) => release.drNumber === drNumber)) {
+        throw new Error("This DR released contract items, so it can't be marked No charge.");
+      }
+    }
     if (payload.referenceMode === "SALES_ORDER" && referenceRow.salesOrderId) {
       // Server-resolved number (a browser cannot invent one) plus the same
       // cross-customer guard the create path applies.
@@ -818,6 +861,11 @@ export async function updateDeliveryReceipt(
     if (nextForCompanyId !== storedForCompanyId) {
       await writeForCompanyColumn(sheets, spreadsheetId, drRowNumber, nextForCompanyId);
     }
+    if (referenceRow.noChargeReason !== undefined) {
+      await writeNoChargeColumns(sheets, spreadsheetId, drRowNumber, referenceRow.noChargeReason, referenceRow.noChargeNote ?? "");
+    }
+    const nextNoChargeReason = referenceRow.noChargeReason ?? storedReference.noChargeReason;
+    const nextNoChargeNote = referenceRow.noChargeNote ?? storedReference.noChargeNote;
 
     // ── Log status change to DRStatusHistory if status actually changed ──
     if (newStatus !== oldStatus) {
@@ -852,6 +900,8 @@ export async function updateDeliveryReceipt(
       date: updatedRow[1],
       companyId: updatedRow[2],
       forCompanyId: nextForCompanyId || undefined,
+      noChargeReason: nextNoChargeReason || undefined,
+      noChargeNote: nextNoChargeNote || undefined,
       companyName: company?.companyName || updatedRow[2],
       poNo: updatedRow[3],
       trNo: updatedRow[4],
@@ -979,14 +1029,15 @@ export async function populateAndExportDeliveryReceiptFormPdf(
 
   const drResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:O${drRowNumber}`,
+    range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:AA${drRowNumber}`,
   });
   const drRow = drResponse.data.values?.[0] || [];
   // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:TRNumber F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink
   const deliveryDate = String(drRow[1] ?? "").trim();
   const companyId = String(drRow[2] ?? "").trim();
   const poNo = String(drRow[3] ?? "").trim();
-  const trNo = String(drRow[4] ?? "").trim();
+  // A no-charge DR prints its reason (e.g. WARRANTY) in the SO / TR cell.
+  const trNo = deliveryReferenceFromRow(drRow).displayReference;
   const comments = String(drRow[6] ?? "").trim();
   const preparedBy = String(drRow[7] ?? "").trim();
   const deliveredBy = String(drRow[8] ?? "").trim();

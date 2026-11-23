@@ -192,6 +192,7 @@ assert.equal(deliveryReferenceDisplay(ncRef), "GIFT");
 assert.equal(deliveryReferenceKindLabel(ncRef), "No charge");
 assert.equal(referenceModeForRecord(ncRef), "NO_CHARGE");
 assert.equal(isNoChargeDelivery(ncRef), true);
+assert.equal(legacyTrNumberForRecord({ ...ncRef, trNo: "GIFT" }), "", "a no-charge DR has no manual TR number");
 const oldRef = deliveryReferenceFromRow(receiptRow("TR-1", ""));
 assert.equal(oldRef.referenceMode, "TR_NUMBER");
 assert.equal(oldRef.noChargeReason, "");

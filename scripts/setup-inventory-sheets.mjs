@@ -40,6 +40,8 @@ const NEW_COLUMNS = [
   ["DeliveryReceipts!W1", "ApprovalNote"],
   ["DeliveryReceipts!X1", "RequestedStatus"],
   ["DeliveryReceipts!Y1", "ForCompanyId"],
+  ["DeliveryReceipts!Z1", "NoChargeReason"],
+  ["DeliveryReceipts!AA1", "NoChargeNote"],
   ["Contracts!Q1", "ForCompanyId"],
   ["DeliveryReceiptItems!L1", "WarehouseSources"],
 ];
