@@ -55,3 +55,12 @@ export function pivotStock(rows: StockRow[], warehouseIds: string[]): ProductRow
   }
   return [...products.values()];
 }
+
+/**
+ * Sort value for a warehouse column: counted on hand, else `undefined`.
+ * TanStack's `sortUndefined: "last"` only recognises `undefined`; `null` would sort as 0.
+ */
+export function warehouseSortValue(product: ProductRow, warehouseId: string): number | undefined {
+  const cell = product.cells[warehouseId];
+  return cell?.openingDate ? cell.onHand : undefined;
+}

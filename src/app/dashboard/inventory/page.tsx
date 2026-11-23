@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { canPerform, type AccessLevel, type EntryType, type HistoryRow } from "@/lib/inventory/domain";
 import { exportStockMovements } from "@/lib/inventory/export";
-import { pivotStock, type ProductRow, type StockRow } from "@/lib/inventory/pivot";
+import { pivotStock, warehouseSortValue, type ProductRow, type StockRow } from "@/lib/inventory/pivot";
 
 const NEG_ON_HAND = "font-semibold text-destructive";
 const NEG_AVAILABLE = "text-amber-600 dark:text-amber-400";
@@ -308,10 +308,7 @@ export default function InventoryPage() {
     ...shownWarehouses.map((w): ColumnDef<ProductRow> => ({
       id: `wh:${w.warehouseId}`,
       header: w.name,
-      accessorFn: (p) => {
-        const cell = p.cells[w.warehouseId];
-        return cell?.openingDate ? cell.onHand : null;
-      },
+      accessorFn: (p) => warehouseSortValue(p, w.warehouseId),
       sortUndefined: "last",
       cell: ({ row }) => <WarehouseCell cell={row.original.cells[w.warehouseId]} onOpen={openPanel} />,
     })),

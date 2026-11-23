@@ -4,7 +4,7 @@
 // counted warehouses only; rows for warehouses outside the shown list are ignored.
 
 import assert from "node:assert/strict";
-import { pivotStock, type StockRow } from "../../src/lib/inventory/pivot.ts";
+import { pivotStock, warehouseSortValue, type StockRow } from "../../src/lib/inventory/pivot.ts";
 
 function row(warehouseId: string, productId: string, onHand: number, available: number, counted = true): StockRow {
   return {
@@ -48,5 +48,10 @@ assert.equal(n[0].totalAvailable, -2);
 const x = pivotStock([row("W1", "P1", 5, 5), row("OLD", "P1", 9, 9)], ["W1"]);
 assert.equal(x[0].cells.OLD, undefined);
 assert.equal(x[0].totalOnHand, 5);
+
+// sort value: undefined (not null) for uncounted or missing, so TanStack sortUndefined "last" applies
+assert.equal(warehouseSortValue(u[0], "W1"), 5);
+assert.equal(warehouseSortValue(u[0], "W2"), undefined);
+assert.equal(warehouseSortValue(out[1], "W2"), undefined);
 
 console.log("pivot tests passed.");
