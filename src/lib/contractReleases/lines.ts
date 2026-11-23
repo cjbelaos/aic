@@ -10,6 +10,8 @@ import { effectiveContractStatus } from "../contractStatus.ts";
 export function validateContractLines(input: {
   lines: ContractLine[];
   companyId: string;
+  /** The DR's FOR client; must equal the agreement's (blank only with blank). */
+  forCompanyId?: string;
   salesOrderId?: string;
   items: DeliveryItem[];
   contractItems: ContractItem[];
@@ -18,7 +20,7 @@ export function validateContractLines(input: {
   date: string;
   today: string;
 }): { error: string } | { ok: true } {
-  const { lines, companyId, salesOrderId, items, contractItems, contracts, date, today } = input;
+  const { lines, companyId, forCompanyId, salesOrderId, items, contractItems, contracts, date, today } = input;
   if (!lines.length) return { ok: true };
   if (salesOrderId) return { error: "Contract releases cannot be recorded on a DR linked to a Sales Order." };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return { error: "A DR that releases contract items needs a valid date (YYYY-MM-DD)." };
@@ -31,6 +33,7 @@ export function validateContractLines(input: {
     const contract = contracts.find((c) => c.id === item.contractId);
     if (!contract) return { error: `Agreement ${item.contractId} for contract item ${item.id} not found.` };
     if (contract.companyId !== companyId) return { error: `Contract item ${item.id} belongs to a different customer.` };
+    if ((contract.forCompanyId || "") !== (forCompanyId || "")) return { error: `Agreement ${contract.id} is for a different client than this DR.` };
     if (effectiveContractStatus(contract, today) !== "Active") return { error: `Agreement ${contract.id} is not active.` };
 
     const idx = line.deliveryLineIndex;

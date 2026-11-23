@@ -163,6 +163,7 @@ export async function POST(request: Request) {
       const check = validateContractLines({
         lines: contractLines,
         companyId: body.companyId,
+        forCompanyId: body.forCompanyId,
         salesOrderId: body.salesOrderId,
         items: body.items ?? [],
         contractItems,

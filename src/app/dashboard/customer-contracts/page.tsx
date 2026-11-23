@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { forCompanyOptions } from "@/lib/deliveryPrintForm";
 import { DatePicker } from "@/components/ui/date-picker"; // Import the DatePicker component
 import { Textarea } from "@/components/ui/textarea";
 import { CompanyContactsDrawer } from "@/components/company-contacts-drawer";
@@ -177,6 +178,7 @@ interface CustomerContractFormState {
   monthlyServiceFee: string;
   serviceFeeFrequency: "Monthly" | "Quarterly";
   pmsCycleStart: string; // "YYYY-MM" or "" (use Start Date)
+  forCompanyId: string; // FOR client (column Q), "" = none
   notes: string;
   items: ContractFormItem[];
 }
@@ -201,6 +203,7 @@ const EMPTY_FORM: CustomerContractFormState = {
   monthlyServiceFee: "",
   serviceFeeFrequency: "Monthly",
   pmsCycleStart: "",
+  forCompanyId: "",
   notes: "",
   items: [],
 };
@@ -507,6 +510,15 @@ export default function CustomerContractsPage() {
     [companies],
   );
 
+  // FOR client: companies billed to the selected customer; keeps a stored one that is no longer listed.
+  const contractForOptions = useMemo(() => {
+    const options = forCompanyOptions(companies, form.customerId);
+    if (form.forCompanyId && !options.some((o) => o.value === form.forCompanyId)) {
+      options.push({ value: form.forCompanyId, label: companies.find((c) => c.companyId === form.forCompanyId)?.companyName || form.forCompanyId });
+    }
+    return options;
+  }, [companies, form.customerId, form.forCompanyId]);
+
   const productOptions = useMemo(
     () =>
       productsList.map((p) => ({
@@ -552,6 +564,7 @@ export default function CustomerContractsPage() {
         row.monthlyServiceFee != null ? String(row.monthlyServiceFee) : "",
       serviceFeeFrequency: row.serviceFeeFrequency ?? "Monthly",
       pmsCycleStart: row.pmsCycleStart ?? "",
+      forCompanyId: row.forCompanyId ?? "",
       notes: "",
       items: row.items.map((item) => ({
         id: item.id,
@@ -664,6 +677,7 @@ export default function CustomerContractsPage() {
             : undefined,
           serviceFeeFrequency: effectiveServiceFrequency,
           pmsCycleStart: form.pmsCycleStart,
+          forCompanyId: form.forCompanyId,
           paperworkStatus: form.paperworkStatus,
           notarizedHardcopyStatus: form.notarizedHardcopyStatus,
         });
@@ -750,6 +764,7 @@ export default function CustomerContractsPage() {
             : undefined,
           serviceFeeFrequency: effectiveServiceFrequency,
           pmsCycleStart: form.pmsCycleStart,
+          forCompanyId: form.forCompanyId,
           paperworkStatus: form.paperworkStatus,
           notarizedHardcopyStatus: form.notarizedHardcopyStatus,
           notes: form.notes.trim(),
@@ -921,6 +936,7 @@ export default function CustomerContractsPage() {
                 <div><p className="text-xs text-muted-foreground">PO Number</p><p className="mt-1 font-medium">{viewTarget.poNumber || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Start Date</p><p className="mt-1 font-medium">{viewTarget.startDate || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">End Date</p><p className="mt-1 font-medium">{viewTarget.endDate || "—"}</p></div>
+                {viewTarget.forCompanyId && <div><p className="text-xs text-muted-foreground">FOR (client)</p><p className="mt-1 font-medium">{companyMap.get(viewTarget.forCompanyId) || viewTarget.forCompanyId}</p></div>}
                 {viewTarget.pmsCycleStart && <div><p className="text-xs text-muted-foreground">PMS Cycle Start</p><p className="mt-1 font-medium">{viewTarget.pmsCycleStart}</p></div>}
                 <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={effectiveContractStatus(viewTarget, today) === "Active" ? "default" : "destructive"}>{effectiveContractStatus(viewTarget, today)}</Badge></div></div>
                 <div><p className="text-xs text-muted-foreground">Paperwork</p><p>{viewTarget.paperworkStatus ?? "Pending"}</p></div>
@@ -1050,7 +1066,7 @@ export default function CustomerContractsPage() {
                   triggerProps={{ id: "cc-customer" }}
                   value={form.customerId}
                   onValueChange={(v) =>
-                    setForm((f) => ({ ...f, customerId: v }))
+                    setForm((f) => ({ ...f, customerId: v, forCompanyId: v === f.customerId ? f.forCompanyId : "" }))
                   }
                   options={customerOptions}
                   placeholder="Select customer"
@@ -1058,6 +1074,19 @@ export default function CustomerContractsPage() {
                   disabled={saving || !!editTarget}
                 />
               </div>
+              {contractForOptions.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>FOR (client)</Label>
+                  <SearchableSelect
+                    value={form.forCompanyId || "__none__"}
+                    onValueChange={(v) => setForm((f) => ({ ...f, forCompanyId: v === "__none__" ? "" : v }))}
+                    options={[{ value: "__none__", label: "None" }, ...contractForOptions]}
+                    placeholder="Select client"
+                    disabled={saving}
+                  />
+                  <p className="text-xs text-muted-foreground">DRs count against this agreement only when they are FOR the same client.</p>
+                </div>
+              )}
               {/* Agreement Type */}
               <div className="space-y-1.5">
                 <Label htmlFor="cc-agreement-type">Agreement Type *</Label>
