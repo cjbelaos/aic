@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import {
+  billingCompanyOptions,
   defaultDeliveryReceiptPrintForm,
   forCompanyOptions,
   validateForCompany,
@@ -43,3 +44,20 @@ assert.equal(validateForCompany(cos, "COMP-96", "COMP-404"), WRONG_FOR);
 assert.equal(validateForCompany(cos, "COMP-96", "COMP-96"), WRONG_FOR);
 
 console.log("print-form tests passed.");
+
+// Billing company dropdown: active customers other than the company itself, by name.
+{
+  const all = [
+    { companyId: "COMP-96", companyName: "GOLDEN EAST RESOURCE TRADING, OPC", companyType: "Customer", status: "active" },
+    { companyId: "COMP-24", companyName: "B.BRAUN AVITUM PHILIPPINES INC.", companyType: "Both", status: "active" },
+    { companyId: "COMP-25", companyName: "B.BRAUN AVITUM PHILS. INC.", companyType: "Supplier", status: "active" },
+    { companyId: "COMP-50", companyName: "CLOSED CLINIC", companyType: "Customer", status: "inactive" },
+    { companyId: "COMP-122", companyName: "HOLY FAMILY HOSPITAL - PADRE GARCIA", companyType: "Customer", status: "active" },
+  ];
+  assert.deepEqual(billingCompanyOptions(all, "COMP-122"), [
+    { value: "COMP-24", label: "B.BRAUN AVITUM PHILIPPINES INC. (COMP-24)" },
+    { value: "COMP-96", label: "GOLDEN EAST RESOURCE TRADING, OPC (COMP-96)" },
+  ]);
+  assert.equal(billingCompanyOptions(all, "").length, 3); // new company: nothing to exclude
+}
+console.log("billing-company options tests passed.");

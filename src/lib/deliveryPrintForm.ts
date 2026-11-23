@@ -36,3 +36,17 @@ export function validateForCompany(companies: ForCompanyCandidate[], companyId: 
   const forCompany = companies.find((c) => c.companyId === forCompanyId);
   return forCompany && forCompany.billingCompanyId === companyId ? null : "The FOR client must be a company billed to this DR's company.";
 }
+
+/**
+ * Billing company choices for a company: active customers other than itself
+ * (mirrors validateBillingCompany in companySheets.ts), labelled "NAME (ID)".
+ */
+export function billingCompanyOptions(
+  companies: { companyId: string; companyName: string; companyType?: string; status?: string }[],
+  ownCompanyId: string,
+): { value: string; label: string }[] {
+  return companies
+    .filter((c) => (c.companyType === "Customer" || c.companyType === "Both") && (c.status ?? "active").toLowerCase() === "active" && c.companyId !== ownCompanyId)
+    .sort((a, b) => a.companyName.localeCompare(b.companyName))
+    .map((c) => ({ value: c.companyId, label: `${c.companyName} (${c.companyId})` }));
+}
