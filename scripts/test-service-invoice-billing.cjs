@@ -76,8 +76,8 @@ async function main() {
   const storage = load("src/lib/serviceInvoiceSheets.ts", {
     "@/lib/documentHandoverCommit": { commitDocumentWithHandover: async source => { writes.push(source.row); throw stop; } },
     "@/lib/googleSheets": { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => "fixture" },
-    "@/lib/companySheets": { getCompanies: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }], getCustomers: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }] },
-    "@/lib/deliverySheets": { getDeliveryReceipts: async () => [{ drNumber: 3941, companyId: "COMP-336", companyName: "HEMOTEK CABANATUAN" }], resolveDeliveryReceiptReferences: async () => ({ salesOrderId: "SO-TEST", poNo: "PO", trNo: "SO" }), resolveDeliveryReceiptDeliveredBy: async () => ({ deliveredById: "tech", deliveredByName: "Technician" }) },
+    "@/lib/companySheets": { getCompanies: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }, { companyId: "COMP-122", companyName: "HOLY FAMILY" }], getCustomers: async () => [{ companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER" }] },
+    "@/lib/deliverySheets": { getDeliveryReceipts: async () => [{ drNumber: 3941, companyId: "COMP-336", companyName: "HEMOTEK CABANATUAN" }, { drNumber: 4096, companyId: regular.customerId, companyName: "TAGAYTAY MEDICAL CENTER", forCompanyId: "COMP-122" }], resolveDeliveryReceiptReferences: async drNumber => drNumber === 4096 ? { poNo: "", trNo: "" } : ({ salesOrderId: "SO-TEST", poNo: "PO", trNo: "SO" }), resolveDeliveryReceiptDeliveredBy: async () => ({ deliveredById: "tech", deliveredByName: "Technician" }) },
     "@/lib/salesOrders/service": { getOrderDetail: async () => ({ order: { customerId: "COMP-336", salesOrderNo: "SO-1", billingType: "SERVICE_INVOICE" }, items: [], category: "Service", totals: { grandTotal: 1000000 } }) },
     "@/lib/userSheets": { getUserById: async id => ({ userId: id, fullName: "Technician" }) },
     "@/lib/contractSheets": { getContracts: async () => [contract] },
@@ -113,6 +113,9 @@ async function main() {
     await assert.rejects(storage.processServiceInvoice({ ...regular, invoiceNo: "1773", date: row[1], drNumber: 3941, status: "draft" }, "tester"), error => error === stop);
     assert.equal(writes[0][2], regular.customerId, "Explicit payer override survives even when SO belongs to the service branch");
     assert.equal(JSON.parse(writes[0][19]).serviceContext.serviceCompanyId, "COMP-336");
+    writes = [];
+    await assert.rejects(storage.processServiceInvoice({ ...pms, invoiceNo: "1774", date: row[1], drNumber: 4096, status: "draft" }, "tester"), error => error === stop);
+    assert.deepEqual(JSON.parse(writes[0][19]).serviceContext, { version: 1, serviceCompanyId: "COMP-122", serviceCompanyName: "HOLY FAMILY", drCompanyId: regular.customerId }, "A DR's FOR client is the service location; the DR company still owns the contract");
     writes = [];
     row[8] = "draft";
     await assert.rejects(storage.updateServiceInvoice("1721", { status: "created", billingMode: "REGULAR", contractId: "", manualCategories: [] }, "tester"), /Select an invoice category/);

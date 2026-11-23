@@ -6,6 +6,13 @@ export interface ServiceInvoiceContext {
   version: 1;
   serviceCompanyId?: string;
   serviceCompanyName?: string;
+  /** DR company when the service location is the DR's FOR client; owns the contract / SO. */
+  drCompanyId?: string;
+}
+
+/** Company that owns the linked DR's contract / sales order. */
+export function serviceOwnerCompanyId(context?: ServiceInvoiceContext): string | undefined {
+  return context?.drCompanyId ?? context?.serviceCompanyId;
 }
 
 export function invoicePrintItems(items: ServiceInvoiceItem[], context?: ServiceInvoiceContext): ServiceInvoiceItem[] {

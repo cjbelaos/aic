@@ -571,7 +571,9 @@ export default function ServiceInvoicesClient({
       const order = !isSales && billingMode !== "PMS_CONTRACT" && dr.salesOrderId ? await salesOrderService.get(dr.salesOrderId) : undefined;
       if (!active) return;
       setSelectedCustomer(payerId);
-      setServiceBranch({ companyId: dr.companyId, companyName: dr.companyName });
+      // companyId stays the DR company (contract / SO owner); the label shows the FOR client when set.
+      const site = dr.forCompanyId ? companies.find(c => c.companyId === dr.forCompanyId) : undefined;
+      setServiceBranch({ companyId: dr.companyId, companyName: site?.companyName || dr.companyName });
       if (!isSales && billingMode !== "PMS_CONTRACT") setLineItems(invoiceItemsFromDelivery(dr.items, order?.items));
       loadedDr.current = linkedDrNumber;
     }).catch(error => { if (active) { setDrLoadError(error.message); toast.error(error.message); } })
@@ -1497,7 +1499,7 @@ export default function ServiceInvoicesClient({
       setOrderItemsError("");
       setEditAssignedPicUserId(editTarget.assignedPicUserId || "");
       setEditDrLoading(false);
-      setEditServiceBranch(editTarget.serviceContext?.serviceCompanyId ? { companyId: editTarget.serviceContext.serviceCompanyId, companyName: editTarget.serviceContext.serviceCompanyName || "" } : null);
+      setEditServiceBranch(editTarget.serviceContext?.serviceCompanyId ? { companyId: editTarget.serviceContext.drCompanyId || editTarget.serviceContext.serviceCompanyId, companyName: editTarget.serviceContext.serviceCompanyName || "" } : null);
       setEditBillingCustomer(editTarget.customerId);
       setEditDate(editTarget.date);
       setEditStatus(editTarget.status || "created");
