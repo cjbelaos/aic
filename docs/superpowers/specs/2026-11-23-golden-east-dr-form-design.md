@@ -69,31 +69,25 @@ Where the FOR list comes from:
   name, plus "None".
 - Changing the DR's company clears the FOR choice.
 
-## The Golden East form (copied from the sample sheet)
+## The Golden East form (revised 2026-11-23 at Chris's request)
 
-- Header: the logo (`public/golden-east-logo.png`, white margins cropped) with
-  "GOLDEN EAST / RESOURCE TRADING OPC" in large bold text beside it, fixing the sample's typo
-  "TADING". Right box: "DELIVERY RECEIPT" and "NO: <DR number>" in red.
-- A blue bar, then Name / Address / TIN on the left and Date / PO NO. / TR# on the right, filled
-  from the DR (the company record, `poNo`, `trNo`).
-- Items table with a blue header: QTY | UNIT | DESCRIPTION | UNIT PRICE. Unit Price is left
-  blank. Serial numbers print under the description. Then the red **"FOR: <client name>"** row
-  when a FOR client is set. Then blank rows down to at least 12 body rows, so the grid looks like
-  the sample.
-- A light-blue "Comments or Special Instructions" band, with the DR's Comments printed under it.
-- Prepared by / Delivered by with app e-signatures and "Signature Over Printed Name", plus
-  "Received the above goods in good order and condition" with its signature line.
-- An A4 page, sized like the existing Aerich form. Drafts keep the DRAFT marking.
+The Golden East form is the **same layout as the Aerich DR form**, not a copy of the Google Sheets
+sample. Only three things differ:
 
-The Aerich form also prints the FOR client, as a "For:" line under "Delivered to". That way
-switching forms never loses it.
+- Header logo: `public/golden-east-logo-print.png` (cropped, near-white made transparent).
+- Header company name and address: "GOLDEN EAST RESOURCE TRADING, OPC" and Golden East's address
+  from its company record (the DR's company).
+- "Delivered to": the FOR client's name, address and TIN from its company record. With no FOR
+  client it falls back to the DR's company, and the separate "For:" line isn't shown.
+
+The Aerich form keeps "Delivered to" = the DR's company, plus a "For:" line when a FOR client is set.
 
 ## How it's built
 
 - `DeliveryReceiptResponse` gains `companyId`, `forCompanyId` and `forCompanyName`.
   `CreateDeliveryPayload` gains `forCompanyId`.
-- A new `GoldenEastDeliveryReceiptPrintDocument` component sits next to
-  `DeliveryReceiptPrintDocument`. A pure helper `defaultDeliveryReceiptPrintForm(dr)` returns
+- `DeliveryReceiptPrintDocument` takes `form`; `BusinessDocumentHeader` takes an optional `brand`
+  (defaults to Aerich). A pure helper `defaultDeliveryReceiptPrintForm(dr)` returns
   `"golden-east" | "aerich"` based on `companyId === "COMP-96"`.
 - `generateDeliveryReceiptPdfBase64(dr, form?)` renders the chosen form, and defaults through the
   helper.

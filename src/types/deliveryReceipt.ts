@@ -52,6 +52,8 @@ export interface CreateDeliveryPayload {
   deliveredByOptionId?: string;
   comments?: string;
   items: DeliveryItem[];
+  /** The client this delivery is for (DeliveryReceipts column Y): a company billed to `companyId`. */
+  forCompanyId?: string;
   /** Contract entitlements this DR releases. One agreement per DR; never with a Sales Order. */
   contractLines?: ContractLine[];
   status?: string; // "draft" for save-without-print, "created" default
@@ -68,6 +70,12 @@ export interface CreateDeliveryPayload {
 export interface DeliveryReceiptResponse {
   success: boolean;
   drNumber: number;
+  companyId?: string;
+  /** The FOR client (column Y) and its resolved name, printed as "FOR: …". */
+  forCompanyId?: string;
+  forCompanyName?: string;
+  forCompanyAddress?: string;
+  forCompanyTin?: string;
   companyName: string;
   address: string;
   tin: string;
@@ -123,6 +131,8 @@ export interface DeliveryReceiptSummary {
   approvedAt?: string;
   approvalNote?: string;
   requestedStatus?: string;
+  /** The client this delivery is for (column Y). */
+  forCompanyId?: string;
 }
 
 export interface DeliveryPersonOption {

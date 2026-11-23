@@ -61,7 +61,7 @@ export async function GET(
 
     const drResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:Y${drRowNumber}`,
     });
     const drRow = drResponse.data.values?.[0] || [];
     const deliveryDate = String(drRow[1] ?? "").trim();
@@ -73,6 +73,7 @@ export async function GET(
     const preparedBy = String(drRow[7] ?? "").trim();
     const deliveredBy = String(drRow[8] ?? "").trim();
     const status = String(drRow[10] ?? "created").trim();
+    const forCompanyId = String(drRow[24] ?? "").trim() || undefined;
 
     // 2. Fetch DR items from the canonical DeliveryReceiptItems tab
     const itemsByDr = await getDeliveryItems();
@@ -95,6 +96,8 @@ export async function GET(
     const companyName = company?.companyName || companyId;
     const address = company?.address || "";
     const tin = company?.tin || "";
+    const forCompany = forCompanyId ? companies.find((c) => c.companyId === forCompanyId) : undefined;
+    const forCompanyName = forCompanyId ? forCompany?.companyName || forCompanyId : undefined;
 
     // Current receipts use the in-app A4 document. Do not make their preview
     // depend on regenerating the retired Google Sheets PDF template.
@@ -109,6 +112,11 @@ export async function GET(
       {
         success: true,
         drNumber,
+        companyId,
+        forCompanyId,
+        forCompanyName,
+        forCompanyAddress: forCompany?.address || undefined,
+        forCompanyTin: forCompany?.tin || undefined,
         companyName,
         address,
         tin,

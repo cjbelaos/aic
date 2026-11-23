@@ -32,7 +32,8 @@ export async function generateBusinessDocumentPdf(content: ReactNode): Promise<s
     const maxHeight = 273 * 96 / 25.4; // A4 minus 12mm top/bottom margins.
     const newPage = () => {
       const page = doc.createElement("main");
-      page.className = "receipt";
+      // Keep the document's own classes (e.g. "receipt ge-doc") so its scoped styles still apply.
+      page.className = source.className;
       page.style.cssText = "width:186mm;max-width:none;margin:0;padding:0;display:flow-root";
       doc.body.appendChild(page);
       pages.push(page);

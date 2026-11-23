@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { BusinessDocumentPrintFrame, type BusinessDocumentPrintHandle } from "./business-document-print-frame";
 import { DeliveryReceiptPrintDocument } from "./delivery-receipt-print-document";
+import { defaultDeliveryReceiptPrintForm, type DeliveryReceiptPrintForm } from "@/lib/deliveryPrintForm";
 import { Printer, Save, Loader2, ExternalLink, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -30,6 +31,8 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
   const [legacy, setLegacy] = useState(
     () => initialDr?.previewFormat === "legacy",
   );
+  // Golden East DRs default to their letterhead; the choice lasts while the preview is open.
+  const [form, setForm] = useState<DeliveryReceiptPrintForm>(() => defaultDeliveryReceiptPrintForm(initialDr ?? {}));
   const [printSaving, setPrintSaving] = useState(false);
   const [driveSaving, setDriveSaving] = useState(false);
   const [signatureUrls, setSignatureUrls] = useState<UserSignatureUrls>({});
@@ -61,7 +64,7 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
     try {
       const { generateDeliveryReceiptPdfBase64 } = await import("@/lib/deliveryReceiptPdf");
       const latest = await deliveryService.getPreview(dr.drNumber);
-      const pdfBase64 = await generateDeliveryReceiptPdfBase64(latest);
+      const pdfBase64 = await generateDeliveryReceiptPdfBase64(latest, form);
       const result = await deliveryService.savePdfToDrive(
         dr.drNumber,
         latest.companyName,
@@ -107,11 +110,11 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
           {legacy ? (
             <iframe src={dr.pdfBase64 ? `data:application/pdf;base64,${dr.pdfBase64}` : dr.printUrl} className="w-full h-full border-none" title="Previous Delivery Receipt format" />
           ) : (
-            <BusinessDocumentPrintFrame ref={printFrame} title={`Delivery Receipt ${dr.drNumber}`}><DeliveryReceiptPrintDocument dr={dr} signatureUrls={signatureUrls} /></BusinessDocumentPrintFrame>
+            <BusinessDocumentPrintFrame ref={printFrame} title={`Delivery Receipt ${dr.drNumber}`}><DeliveryReceiptPrintDocument dr={dr} signatureUrls={signatureUrls} form={form} /></BusinessDocumentPrintFrame>
           )}
         </div>
 
-        <div className="order-0 rounded-md border bg-muted/30 p-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold">Receipt details</p><p className="text-xs text-muted-foreground">Review the latest saved items before printing or updating Drive.</p></div><Button className="self-start" variant="outline" size="sm" disabled={printSaving || driveSaving || (!legacy && !dr.pdfBase64 && !dr.printUrl)} onClick={() => setLegacy(!legacy)}>{legacy ? "Use new A4 format" : "View previous format"}</Button></div></div>
+        <div className="order-0 rounded-md border bg-muted/30 p-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold">Receipt details</p><p className="text-xs text-muted-foreground">Review the latest saved items before printing or updating Drive.</p></div><Button className="self-start" variant="outline" size="sm" disabled={printSaving || driveSaving || (!legacy && !dr.pdfBase64 && !dr.printUrl)} onClick={() => setLegacy(!legacy)}>{legacy ? "Use new A4 format" : "View previous format"}</Button>{!legacy && defaultDeliveryReceiptPrintForm(dr) === "golden-east" && <Button className="self-start" variant="outline" size="sm" disabled={printSaving || driveSaving} onClick={() => setForm(form === "golden-east" ? "aerich" : "golden-east")}>{form === "golden-east" ? "Use Aerich format" : "Use Golden East format"}</Button>}</div></div>
         <p className="order-1 text-xs text-muted-foreground">Print opens the print dialog. Drive saving uses the latest saved document. Switch to the new format to save.</p>
         {/* Action Footer */}
         <div className="dr-preview-actions order-1 grid grid-cols-2 sm:flex sm:flex-wrap items-center sm:justify-end gap-2 pt-1 shrink-0 [&>button]:whitespace-normal [&>button]:h-auto">

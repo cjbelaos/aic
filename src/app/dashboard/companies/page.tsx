@@ -32,6 +32,8 @@ import { Company, CompanyType, CreateCompanyPayload, CreateCompanyWithContactsPa
 import { CreateCompanyContactPayload } from "@/types/companyContact";
 import { CompanyContactsDrawer } from "@/components/company-contacts-drawer";
 import { Switch } from "@/components/ui/switch";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { billingCompanyOptions } from "@/lib/deliveryPrintForm";
 import "leaflet/dist/leaflet.css";
 import {
   MapContainer,
@@ -303,6 +305,14 @@ function CompaniesPageInner() {
   useEffect(() => {
     openContactsFor = (c) => setContactsCompany(c);
   }, []);
+
+  // Billing company choices; keeps a stored payer that is no longer selectable so editing doesn't hide it.
+  const billingOptions = useMemo(() => {
+    const options = billingCompanyOptions(data, editTarget?.companyId ?? "");
+    const stored = form.billingCompanyId;
+    if (stored && !options.some((o) => o.value === stored)) options.unshift({ value: stored, label: `${data.find((c) => c.companyId === stored)?.companyName ?? "Unknown company"} (${stored})` });
+    return [{ value: "__none__", label: "None — bill this company" }, ...options];
+  }, [data, editTarget, form.billingCompanyId]);
 
   const filteredData = useMemo(() => {
     if (typeFilter === "all") return data;
@@ -728,8 +738,14 @@ function CompaniesPageInner() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="co-billing">Default Service Invoice billing company (DR-linked)</Label>
-              <Input id="co-billing" value={form.billingCompanyId || ""} placeholder="Company ID, e.g. COMP-114; blank uses this company" onChange={e => setForm(f => ({ ...f, billingCompanyId: e.target.value.trim() }))} />
+              <Label>Billing company</Label>
+              <SearchableSelect
+                value={form.billingCompanyId || "__none__"}
+                onValueChange={(v) => setForm((f) => ({ ...f, billingCompanyId: v === "__none__" ? "" : v }))}
+                options={billingOptions}
+                placeholder="Select billing company"
+              />
+              <p className="text-xs text-muted-foreground">Service Invoices for this company bill the selected company, and it appears in that company&apos;s DR &quot;FOR (client)&quot; list.</p>
               <Label htmlFor="co-address">Address</Label>
               <div className="flex gap-2">
                 <Input
