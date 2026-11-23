@@ -158,6 +158,8 @@ export function ReleaseSheet({ customer, agreement, open, onOpenChange, onReleas
     });
     const payload: CreateDeliveryPayload = {
       companyId: customer.companyId,
+      // The agreement's FOR client: strict matching requires it, and it fills "Delivered to".
+      forCompanyId: agreement.forCompanyId || undefined,
       date,
       poNo: agreement.agreementType === "PO" ? agreement.poNumber : "",
       preparedBy,

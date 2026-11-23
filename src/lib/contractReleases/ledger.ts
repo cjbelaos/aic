@@ -237,6 +237,7 @@ export function buildCustomerLedger(
   const product = new Map(products.map(p => [p.code.toLowerCase(), p]));
   const agreements: AgreementLedger[] = mine.map(c => ({
     contractId: c.id,
+    forCompanyId: c.forCompanyId || "",
     agreementType: c.agreementType,
     poNumber: c.poNumber || "",
     description: c.description || "",

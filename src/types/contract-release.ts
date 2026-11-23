@@ -70,6 +70,8 @@ export interface ItemLedgerView extends ItemLedger {
 
 export interface AgreementLedger {
   contractId: string;
+  /** The agreement's FOR client (Contracts column Q); "" when none. A release DR must carry it. */
+  forCompanyId: string;
   agreementType: "Contract" | "PO";
   poNumber: string;
   description: string;

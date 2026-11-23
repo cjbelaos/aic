@@ -191,7 +191,12 @@ export async function updateContractInSheets(
     if (payload.forCompanyId === undefined && payload.companyId !== undefined && payload.companyId !== contracts[rowIndex].companyId && contracts[rowIndex].forCompanyId) {
       payload = { ...payload, forCompanyId: "" };
     }
-    if (payload.forCompanyId) await assertContractForCompany(payload.companyId ?? contracts[rowIndex].companyId, payload.forCompanyId);
+    if (typeof payload.forCompanyId === "string") payload = { ...payload, forCompanyId: payload.forCompanyId.trim() };
+    const effectiveCompanyId = payload.companyId ?? contracts[rowIndex].companyId;
+    // Only a changed value is validated, so a client later re-pointed elsewhere doesn't block unrelated edits.
+    if (payload.forCompanyId && (payload.forCompanyId !== (contracts[rowIndex].forCompanyId || "") || effectiveCompanyId !== contracts[rowIndex].companyId)) {
+      await assertContractForCompany(effectiveCompanyId, payload.forCompanyId);
+    }
 
     const rowNumber = rowIndex + 2; // Offset for header row
     const updateRange = `${CONTRACTS_SHEET}!A${rowNumber}:I${rowNumber}`;

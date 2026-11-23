@@ -131,6 +131,10 @@ assert.deepEqual(generatePeriods("Semi-Annual", "2026-03-01", "2027-02-28", "202
   assert.equal(cl.agreements[1].poNumber, "PO-9"); assert.equal(cl.agreements[1].agreementType, "PO");
   assert.equal(cl.agreements[0].items[0].productName, "Salt"); assert.equal(cl.agreements[0].items[0].unit, "BAG");
   assert.equal(cl.agreements[1].items[0].productName, "INK"); // falls back to code
+  // FOR client travels with the agreement so a release DR can send it ("" when none).
+  assert.equal(cl.agreements[0].forCompanyId, "");
+  const withFor = contracts.map(c => c.id === "CTR-0001" ? { ...c, forCompanyId: "HF" } : c);
+  assert.equal(buildCustomerLedger("A", ledgers, withFor, products, releases, drs, "Alpha", today).agreements[0].forCompanyId, "HF");
   assert.deepEqual(cl.linkedDrs.map(d => d.drNumber), [12, 11]);
   assert.equal(cl.linkedDrs[0].itemCount, 2); assert.equal(cl.linkedDrs[0].contractId, "CTR-0006");
   assert.equal(cl.linkedDrs[1].driveFileLink, "x");
