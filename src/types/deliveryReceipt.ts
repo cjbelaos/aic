@@ -10,6 +10,14 @@ export interface DeliveryItem {
   quantity: number;
   /** Serial numbers delivered on this line (DeliveryReceiptItems column K). */
   serialNumbers?: string[];
+  /** Warehouses this line's quantity is taken from (column L). Empty = all from the DR's default warehouse. */
+  sources?: WarehouseSource[];
+}
+
+/** One warehouse part of a DR line. Same shape as WarehouseSource in src/lib/deliverySources.ts. */
+export interface WarehouseSource {
+  warehouseId: string;
+  quantity: number;
 }
 
 /** One contract entitlement released on a DR line (server appends a ContractReleases row). */
@@ -47,7 +55,7 @@ export interface CreateDeliveryPayload {
   /** Contract entitlements this DR releases. One agreement per DR; never with a Sales Order. */
   contractLines?: ContractLine[];
   status?: string; // "draft" for save-without-print, "created" default
-  /** Warehouse the goods ship from (DeliveryReceipts column T). Required on non-draft saves. */
+  /** Default warehouse (DeliveryReceipts column T); lines without sources take their full qty from it. Required on non-draft saves. */
   warehouseId?: string;
   /** Approval stamp (columns U–W), set by the server only. */
   approvedBy?: string;

@@ -18,6 +18,7 @@
     "*.ts",
     "../../src/lib/inventory/domain.ts",
     "../../src/lib/deliverySerials.ts",
+    "../../src/lib/deliverySources.ts",
     "../../src/lib/positionUtils.ts"
   ]
 }

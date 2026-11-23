@@ -4,5 +4,6 @@
 import "./reference-test.ts";
 import "./serials-test.ts";
 import "./sales-order-lines-test.ts";
+import "./sources-test.ts";
 
 console.log("All delivery-release focused tests passed.");
