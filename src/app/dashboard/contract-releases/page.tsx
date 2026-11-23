@@ -161,7 +161,7 @@ export default function ContractReleasesPage() {
         />
       )}
 
-      <DeliveryReceiptPreviewModal dr={drPreview} open={!!drPreview} onOpenChange={(v) => !v && setDrPreview(null)} />
+      <DeliveryReceiptPreviewModal key={drPreview?.drNumber ?? "dr-preview"} dr={drPreview} open={!!drPreview} onOpenChange={(v) => !v && setDrPreview(null)} />
     </>
   );
 }
