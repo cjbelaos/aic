@@ -2,32 +2,30 @@
 
 import {
   useState,
-  type CSSProperties,
   type FormEvent,
+  type KeyboardEvent,
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Loader2, Lock, User, AlertCircle } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowBigUp,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import authService from "@/lib/services/auth.service";
 import { GoogleTokenPanel } from "@/components/auth/google-token-panel";
 
-/**
- * BRAND COLORS: change these 4 values to match your logo and the whole
- * login page follows. Tip: pick them straight from the logo file.
- *  - deep:   darkest logo color (side panel background, headings)
- *  - main:   primary logo color (button, focus rings, links)
- *  - accent: secondary logo color (small highlights only)
- *  - soft:   very light tint of the main color (page background)
- */
-const BRAND = {
-  "--brand-deep": "#12285f", // navy of the drop
-  "--brand-main": "#1f56a8", // mid blue of the drop
-  "--brand-accent": "#5f9f2f", // green of the leaf
-  "--brand-soft": "#f2f7fa", // pale blue-green tint
-} as CSSProperties;
+/** Company name shown on the brand panel, mobile header and footer. */
+const COMPANY = "AIC";
+// Brand colors (light and dark) live in globals.css under ".login-shell".
 
 interface FieldErrors {
   username?: string;
@@ -42,6 +40,10 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [serverError, setServerError] = useState("");
+  const [capsLock, setCapsLock] = useState(false);
+
+  const trackCapsLock = (e: KeyboardEvent<HTMLInputElement>) =>
+    setCapsLock(e.getModifierState("CapsLock"));
 
   /** Per-field validation — returns true if form is valid */
   const validate = (): boolean => {
@@ -124,203 +126,243 @@ export function LoginForm() {
     });
   };
 
-  const inputBase =
-    "h-11 border-slate-300 bg-white pl-10 text-slate-900 placeholder:text-slate-400 " +
-    "focus-visible:border-[var(--brand-main)] focus-visible:ring-2 focus-visible:ring-[var(--brand-main)]/25";
-  const inputError =
-    "border-red-400 focus-visible:border-red-500 focus-visible:ring-red-400/30";
+  const field =
+    "h-12 rounded-xl border-[var(--login-border)] bg-[var(--login-field)] pl-11 text-base text-[var(--login-text)] shadow-[0_1px_2px_rgb(15_27_51/0.04)] " +
+    "placeholder:text-[var(--login-muted)]/75 dark:bg-[var(--login-field)] md:text-[15px] " +
+    "transition-[border-color,box-shadow] hover:border-[color-mix(in_oklab,var(--login-border),var(--login-text)_18%)] " +
+    "focus-visible:border-[var(--login-focus)] focus-visible:ring-4 focus-visible:ring-[var(--login-focus)]/15";
+  const fieldError =
+    "border-red-400 hover:border-red-400 focus-visible:border-red-500 focus-visible:ring-red-500/15 dark:border-red-400/70";
+  const iconClass = (hasError: boolean) =>
+    `pointer-events-none absolute top-1/2 left-4 h-[18px] w-[18px] -translate-y-1/2 transition-colors ${
+      hasError
+        ? "text-red-500"
+        : "text-[var(--login-muted)] group-focus-within:text-[var(--login-focus)]"
+    }`;
+  const passwordHelp =
+    [
+      fieldErrors.password ? "password-error" : null,
+      capsLock ? "password-caps" : null,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   return (
-    <div
-      style={BRAND}
-      className="grid min-h-screen bg-[var(--brand-soft)] lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]"
-    >
+    <div className="login-shell grid min-h-screen bg-[var(--login-surface)] text-[var(--login-text)] lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
       {/* Brand panel (desktop only) */}
-      <aside className="relative hidden overflow-hidden bg-[var(--brand-deep)] lg:flex lg:flex-col lg:items-center lg:justify-center lg:p-12">
-        {/* Soft color glows taken from the logo palette */}
+      <aside className="relative hidden overflow-hidden bg-[var(--login-panel)] lg:flex lg:flex-col lg:items-center lg:justify-center lg:p-12">
+        {/* Light from the logo palette: blue above, leaf green below */}
         <div
           aria-hidden
-          className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-[var(--brand-main)] opacity-40 blur-3xl"
+          className="login-glow absolute -top-40 -left-40 h-[28rem] w-[28rem] rounded-full bg-[var(--brand-main)] opacity-40 blur-[100px]"
         />
         <div
           aria-hidden
-          className="absolute -right-24 -bottom-32 h-96 w-96 rounded-full bg-[var(--brand-accent)] opacity-25 blur-3xl"
+          className="login-glow absolute -right-40 -bottom-56 h-[24rem] w-[24rem] rounded-full bg-[var(--brand-accent)] opacity-20 blur-[100px]"
+        />
+        {/* Soft pool of light so the logo's navy edge reads against the panel */}
+        <div
+          aria-hidden
+          className="absolute top-1/2 left-1/2 h-80 w-80 -translate-x-1/2 -translate-y-[62%] rounded-full bg-white/10 blur-3xl"
         />
 
-        <div className="relative flex max-w-sm flex-col items-center text-center">
-          {/* White tile keeps the logo readable whatever its background is */}
-          <div className="flex h-36 w-36 items-center justify-center rounded-3xl bg-white p-5 shadow-2xl shadow-black/30">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo.png"
-              alt="Company logo"
-              className="h-full w-full object-contain"
-            />
-          </div>
-          <h2 className="mt-10 text-3xl font-semibold leading-tight tracking-tight text-white">
-            Everything your team needs, in one place.
-          </h2>
-          <p className="mt-4 text-base leading-relaxed text-white/70">
-            Sign in to manage your work, your people, and your reports.
-          </p>
-          <div
-            aria-hidden
-            className="mt-10 h-1 w-16 rounded-full bg-[var(--brand-accent)]"
+        <div className="login-rise relative flex flex-col items-center text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt=""
+            width={208}
+            height={208}
+            className="h-52 w-52 object-contain drop-shadow-[0_18px_32px_rgb(0_0_0/0.35)]"
           />
+          <p className="mt-8 text-6xl font-semibold tracking-[-0.03em] text-white">
+            {COMPANY}
+          </p>
         </div>
       </aside>
 
       {/* Form side */}
-      <main className="flex items-center justify-center px-5 py-12 sm:px-8">
-        <div className="w-full max-w-sm">
-          {/* Logo shown on mobile, where the brand panel is hidden */}
-          <div className="mb-8 flex justify-center lg:hidden">
-            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white p-3 shadow-md ring-1 ring-slate-200">
+      <main className="flex min-h-screen flex-col px-5 sm:px-8">
+        <div className="flex flex-1 items-center justify-center py-12">
+          <div className="login-rise-late w-full max-w-[380px]">
+            {/* Logo + name on mobile, where the brand panel is hidden */}
+            <div className="mb-10 flex items-center justify-center gap-3 lg:hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/logo.png"
-                alt="Company logo"
-                className="h-full w-full object-contain"
+                alt=""
+                width={56}
+                height={56}
+                className="h-14 w-14 object-contain"
               />
-            </div>
-          </div>
-
-          <div className="mb-8 text-center lg:text-left">
-            <h1 className="text-3xl font-semibold tracking-tight text-[var(--brand-deep)]">
-              Welcome back
-            </h1>
-            <p className="mt-2 text-base text-slate-600">
-              Sign in with your username and password.
-            </p>
-          </div>
-
-          <form className="space-y-5" onSubmit={handleSubmit} noValidate>
-            {serverError && (
-              <div
-                role="alert"
-                className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3"
-              >
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                <p className="text-sm text-red-700">{serverError}</p>
-              </div>
-            )}
-
-            {/* Username */}
-            <div className="space-y-2">
-              <Label
-                htmlFor="username"
-                className="text-sm font-medium text-slate-700"
-              >
-                Username
-              </Label>
-              <div className="relative">
-                <User
-                  className={`pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 ${
-                    fieldErrors.username ? "text-red-400" : "text-slate-400"
-                  }`}
-                />
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="Enter your username"
-                  autoComplete="username"
-                  autoFocus
-                  disabled={isPending}
-                  aria-invalid={!!fieldErrors.username}
-                  aria-describedby={
-                    fieldErrors.username ? "username-error" : undefined
-                  }
-                  className={`${inputBase} ${fieldErrors.username ? inputError : ""}`}
-                  value={username}
-                  onChange={(e) => {
-                    setUsername(e.target.value);
-                    if (fieldErrors.username)
-                      setFieldErrors((p) => ({ ...p, username: undefined }));
-                    setServerError("");
-                  }}
-                />
-              </div>
-              {fieldErrors.username && (
-                <p id="username-error" className="text-sm text-red-600">
-                  {fieldErrors.username}
-                </p>
-              )}
+              <span className="text-3xl font-semibold tracking-[-0.03em] text-[var(--login-heading)]">
+                {COMPANY}
+              </span>
             </div>
 
-            {/* Password */}
-            <div className="space-y-2">
-              <Label
-                htmlFor="password"
-                className="text-sm font-medium text-slate-700"
-              >
-                Password
-              </Label>
-              <div className="relative">
-                <Lock
-                  className={`pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 ${
-                    fieldErrors.password ? "text-red-400" : "text-slate-400"
-                  }`}
-                />
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                  disabled={isPending}
-                  aria-invalid={!!fieldErrors.password}
-                  aria-describedby={
-                    fieldErrors.password ? "password-error" : undefined
-                  }
-                  className={`${inputBase} pr-11 ${fieldErrors.password ? inputError : ""}`}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (fieldErrors.password)
-                      setFieldErrors((p) => ({ ...p, password: undefined }));
-                    setServerError("");
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  disabled={isPending}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showPassword}
-                  className="absolute top-1/2 right-1.5 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition-colors hover:text-[var(--brand-main)] focus-visible:ring-2 focus-visible:ring-[var(--brand-main)]/40 focus-visible:outline-none"
+            <div className="mb-9 text-center lg:text-left">
+              <h1 className="text-[2rem] leading-tight font-semibold tracking-[-0.025em] text-balance text-[var(--login-heading)]">
+                Welcome back
+              </h1>
+              <p className="mt-2 text-base text-[var(--login-muted)]">
+                Sign in with your username and password.
+              </p>
+            </div>
+
+            <form className="space-y-5" onSubmit={handleSubmit} noValidate>
+              {serverError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-500/30 dark:bg-red-500/10"
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </button>
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                  <p className="text-sm text-red-700 dark:text-red-300">
+                    {serverError}
+                  </p>
+                </div>
+              )}
+
+              {/* Username */}
+              <div className="space-y-2">
+                <Label
+                  htmlFor="username"
+                  className="text-sm font-medium text-[var(--login-text)]"
+                >
+                  Username
+                </Label>
+                <div className="group relative">
+                  <User className={iconClass(!!fieldErrors.username)} />
+                  <Input
+                    id="username"
+                    type="text"
+                    placeholder="Enter your username"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    autoFocus
+                    disabled={isPending}
+                    aria-invalid={!!fieldErrors.username}
+                    aria-describedby={
+                      fieldErrors.username ? "username-error" : undefined
+                    }
+                    className={`${field} ${fieldErrors.username ? fieldError : ""}`}
+                    value={username}
+                    onChange={(e) => {
+                      setUsername(e.target.value);
+                      if (fieldErrors.username)
+                        setFieldErrors((p) => ({ ...p, username: undefined }));
+                      setServerError("");
+                    }}
+                  />
+                </div>
+                {fieldErrors.username && (
+                  <p
+                    id="username-error"
+                    className="text-sm text-red-600 dark:text-red-400"
+                  >
+                    {fieldErrors.username}
+                  </p>
+                )}
               </div>
-              {fieldErrors.password && (
-                <p id="password-error" className="text-sm text-red-600">
-                  {fieldErrors.password}
+
+              {/* Password */}
+              <div className="space-y-2">
+                <Label
+                  htmlFor="password"
+                  className="text-sm font-medium text-[var(--login-text)]"
+                >
+                  Password
+                </Label>
+                <div className="group relative">
+                  <Lock className={iconClass(!!fieldErrors.password)} />
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                    disabled={isPending}
+                    aria-invalid={!!fieldErrors.password}
+                    aria-describedby={passwordHelp}
+                    className={`${field} pr-12 ${fieldErrors.password ? fieldError : ""}`}
+                    value={password}
+                    onKeyDown={trackCapsLock}
+                    onKeyUp={trackCapsLock}
+                    onBlur={() => setCapsLock(false)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (fieldErrors.password)
+                        setFieldErrors((p) => ({ ...p, password: undefined }));
+                      setServerError("");
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    disabled={isPending}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showPassword}
+                    className="absolute top-1/2 right-2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--login-muted)] transition-colors hover:bg-[var(--login-focus)]/10 hover:text-[var(--login-focus)] focus-visible:ring-2 focus-visible:ring-[var(--login-focus)]/50 focus-visible:outline-none"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-[18px] w-[18px]" />
+                    ) : (
+                      <Eye className="h-[18px] w-[18px]" />
+                    )}
+                  </button>
+                </div>
+                {fieldErrors.password && (
+                  <p
+                    id="password-error"
+                    className="text-sm text-red-600 dark:text-red-400"
+                  >
+                    {fieldErrors.password}
+                  </p>
+                )}
+                <p
+                  id="password-caps"
+                  aria-live="polite"
+                  className={
+                    capsLock
+                      ? "flex items-center gap-1.5 text-sm text-amber-700 dark:text-amber-400"
+                      : "sr-only"
+                  }
+                >
+                  {capsLock && (
+                    <>
+                      <ArrowBigUp className="h-4 w-4 shrink-0" />
+                      Caps Lock is on.
+                    </>
+                  )}
                 </p>
-              )}
-            </div>
+              </div>
 
-            <Button
-              type="submit"
-              disabled={isPending}
-              className="h-11 w-full bg-[var(--brand-main)] text-base font-medium text-white shadow-sm transition-colors hover:bg-[var(--brand-deep)] focus-visible:ring-2 focus-visible:ring-[var(--brand-main)]/40 focus-visible:ring-offset-2 disabled:opacity-80"
-            >
-              {isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in…
-                </>
-              ) : (
-                "Sign in"
-              )}
-            </Button>
-          </form>
+              <Button
+                type="submit"
+                disabled={isPending}
+                className="group/submit mt-2 h-12 w-full gap-2 rounded-xl bg-[var(--login-button)] text-base font-medium text-white shadow-[0_1px_2px_rgb(15_27_51/0.12),0_10px_24px_-10px_rgb(31_86_168/0.55)] transition-[background-color,box-shadow] hover:bg-[var(--login-button-hover)] focus-visible:ring-4 focus-visible:ring-[var(--login-focus)]/30 disabled:opacity-80 dark:bg-[var(--login-button)] dark:text-white dark:hover:bg-[var(--login-button-hover)]"
+              >
+                {isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Signing in…
+                  </>
+                ) : (
+                  <>
+                    Sign in
+                    <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover/submit:translate-x-0.5" />
+                  </>
+                )}
+              </Button>
+            </form>
+
+            <GoogleTokenPanel />
+          </div>
         </div>
-      </main>
 
-      <GoogleTokenPanel />
+        <footer className="pb-6 text-center text-xs text-[var(--login-muted)]">
+          © {new Date().getFullYear()} {COMPANY} · Internal use only
+        </footer>
+      </main>
     </div>
   );
 }

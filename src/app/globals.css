@@ -233,3 +233,62 @@
 .liquidation-table th, .liquidation-table td { overflow-wrap: anywhere; }
 .liquidation-table thead { display: table-header-group; }
 .liquidation-table tr, .liquidation-summary, .liquidation-signatures { break-inside: avoid; }
+
+/* Login page
+ * BRAND COLORS: the first 4 values come from the logo; change them and the
+ * whole login page follows. The rest are the light/dark surfaces built on them.
+ */
+.login-shell {
+  --brand-deep: #12285f;   /* navy of the drop */
+  --brand-main: #1f56a8;   /* mid blue of the drop */
+  --brand-accent: #5f9f2f; /* green of the leaf */
+  --brand-soft: #f3f6fa;   /* page background */
+
+  --login-panel: var(--brand-deep);
+  --login-surface: var(--brand-soft);
+  --login-field: #ffffff;
+  --login-border: #cfd8e3;
+  --login-text: #0f1b33;
+  --login-muted: #52607a;
+  --login-heading: var(--brand-deep);
+  --login-focus: var(--brand-main);
+  --login-button: var(--brand-main);
+  --login-button-hover: var(--brand-deep);
+}
+.dark .login-shell {
+  --login-panel: #0b1a3f;
+  --login-surface: #0c1322;
+  --login-field: #111b2e;
+  --login-border: #26344d;
+  --login-text: #e6ecf5;
+  --login-muted: #93a1b8;
+  --login-heading: #f1f5fb;
+  --login-focus: #6c9be0;
+  --login-button: #2a64bd;
+  --login-button-hover: #3672cf;
+}
+.login-shell ::selection { background: color-mix(in oklab, var(--brand-main) 22%, transparent); color: inherit; }
+.login-shell input { caret-color: var(--login-focus); }
+/* Keep Chrome's autofill from painting the fields pale yellow/blue. */
+.login-shell input:-webkit-autofill,
+.login-shell input:-webkit-autofill:hover,
+.login-shell input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--login-text);
+  box-shadow: 0 0 0 1000px var(--login-field) inset;
+  transition: background-color 9999s;
+}
+
+@keyframes login-rise {
+  from { opacity: 0.2; transform: translateY(14px); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes login-glow {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+.login-rise { animation: login-rise 700ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.login-rise-late { animation: login-rise 700ms 90ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.login-glow { animation: login-glow 1400ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .login-rise, .login-rise-late, .login-glow { animation: none; }
+}
