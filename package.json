@@ -36,6 +36,7 @@
     ,"migrate:proforma-invoices": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs --apply"
     ,"test:sales-invoices": "node scripts/test-sales-invoices.cjs"
     ,"test:service-invoice-billing": "node scripts/test-service-invoice-billing.cjs"
+    ,"test:service-invoice-tracker": "node scripts/test-service-invoice-tracker.cjs"
     ,"verify:service-report-schema": "node --env-file=.env.local scripts/verify-service-report-schema.mjs"
     ,"backfill:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs"
     ,"apply:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs --apply"
