@@ -260,7 +260,10 @@ function parseManualCompletionData(value: unknown): ManualCompletionData {
 /** A linked DR wins, then a direct Sales Order, then manual document references. */
 async function resolveInvoiceReferences(payload: Pick<CreateServiceInvoicePayload, "drNumber" | "salesOrderId" | "poNo" | "trNo" | "referenceMode">): Promise<{ poNo: string; trNo: string; salesOrderId?: string }> {
   if (payload.drNumber !== undefined && payload.drNumber !== null) {
-    return resolveDeliveryReceiptReferences(payload.drNumber);
+    const { noChargeReason, ...references } = await resolveDeliveryReceiptReferences(payload.drNumber);
+    // Warranty, gift and sample DRs are free; they are never invoiced.
+    if (noChargeReason) throw new InvoiceBillingError("A no-charge DR can't be billed.");
+    return references;
   }
   const salesOrderId = String(payload.salesOrderId ?? "").trim();
   if (payload.referenceMode === "TR_NUMBER") {
