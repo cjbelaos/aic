@@ -58,7 +58,8 @@ async function writeInventoryColumns(
   });
 }
 
-/** Writes the DR's FOR client (column Y), adding the ForCompanyId header the first time. */
+/** Writes the DR's FOR client (column Y). The column and its ForCompanyId header are
+ * provisioned by scripts/setup-inventory-sheets.mjs. */
 async function writeForCompanyColumn(
   sheets: Awaited<ReturnType<typeof getSheetsClient>>,
   spreadsheetId: string,
@@ -66,12 +67,6 @@ async function writeForCompanyColumn(
   forCompanyId: string,
 ): Promise<void> {
   if (rowNumber <= 1) return;
-  const header = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!Y1` });
-  const value = String(header.data.values?.[0]?.[0] || "");
-  if (value && value !== "ForCompanyId") throw new Error("DeliveryReceipts column Y is already in use.");
-  if (!value) {
-    await sheets.spreadsheets.values.update({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!Y1`, valueInputOption: "RAW", requestBody: { values: [["ForCompanyId"]] } });
-  }
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${DELIVERY_RECEIPTS_SHEET}!Y${rowNumber}`,
@@ -693,7 +688,7 @@ export async function updateDeliveryReceipt(
     const storedCompanyId = String(currentRow[2] ?? "").trim();
     const targetCompanyId = payload.companyId ?? storedCompanyId;
     const companyChanged = targetCompanyId !== storedCompanyId;
-    const nextForCompanyId = payload.forCompanyId !== undefined
+    const nextForCompanyId = typeof payload.forCompanyId === "string"
       ? payload.forCompanyId.trim()
       : companyChanged ? "" : storedForCompanyId;
     if (nextForCompanyId && (nextForCompanyId !== storedForCompanyId || companyChanged)) {

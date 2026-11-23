@@ -1539,7 +1539,7 @@ export default function DeliveryReleasePage() {
                 </Label>
                 <SearchableSelect
                   value={selectedCompany}
-                  onValueChange={setSelectedCompany}
+                  onValueChange={(v) => { setSelectedCompany(v); setForCompanyId(""); }}
                   options={companyOptions}
                   placeholder="Select Customer"
                 />
