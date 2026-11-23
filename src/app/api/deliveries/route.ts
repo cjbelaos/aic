@@ -11,6 +11,8 @@ import { CreateDeliveryPayload } from "@/types/deliveryReceipt";
 import { getOrderDetail } from "@/lib/salesOrders/service";
 import { salesOrderDeliveryLineError } from "@/lib/deliverySalesOrderLines";
 import { getProducts } from "@/lib/productSheets";
+import { getCompanies } from "@/lib/companySheets";
+import { validateForCompany } from "@/lib/deliveryPrintForm";
 import {
   isDeliveryReferenceMode,
   resolveDeliveryReference,
@@ -56,6 +58,10 @@ export async function POST(request: Request) {
         { error: "Company is required." },
         { status: 400 },
       );
+    }
+    if (body.forCompanyId) {
+      const forError = validateForCompany(await getCompanies(), body.companyId, body.forCompanyId);
+      if (forError) return NextResponse.json({ error: forError }, { status: 422 });
     }
 
     const isDraft = body.status === "draft";

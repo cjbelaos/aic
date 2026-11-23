@@ -6,6 +6,7 @@ import {
 } from "@/lib/googleSheets";
 import { Readable } from "stream";
 import { getCompanies } from "@/lib/companySheets";
+import { validateForCompany } from "@/lib/deliveryPrintForm";
 import {
   CreateDeliveryPayload,
   DeliveryReceiptResponse,
@@ -29,7 +30,7 @@ const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
 const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
-const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:X`;
+const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:Y`;
 // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:SalesOrderNo (legacy TRNumber)
 // F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink
 // M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType
@@ -54,6 +55,28 @@ async function writeInventoryColumns(
     range: `${DELIVERY_RECEIPTS_SHEET}!T${rowNumber}:X${rowNumber}`,
     valueInputOption: "RAW",
     requestBody: { values: [[values.warehouseId, values.approvedBy, values.approvedAt, values.approvalNote, values.requestedStatus]] },
+  });
+}
+
+/** Writes the DR's FOR client (column Y), adding the ForCompanyId header the first time. */
+async function writeForCompanyColumn(
+  sheets: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+  rowNumber: number,
+  forCompanyId: string,
+): Promise<void> {
+  if (rowNumber <= 1) return;
+  const header = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!Y1` });
+  const value = String(header.data.values?.[0]?.[0] || "");
+  if (value && value !== "ForCompanyId") throw new Error("DeliveryReceipts column Y is already in use.");
+  if (!value) {
+    await sheets.spreadsheets.values.update({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!Y1`, valueInputOption: "RAW", requestBody: { values: [["ForCompanyId"]] } });
+  }
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${DELIVERY_RECEIPTS_SHEET}!Y${rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[forCompanyId]] },
   });
 }
 
@@ -202,6 +225,7 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           approvedAt: String(row[21] ?? "").trim() || undefined,
           approvalNote: String(row[22] ?? "").trim() || undefined,
           requestedStatus: String(row[23] ?? "").trim() || undefined,
+          forCompanyId: String(row[24] ?? "").trim() || undefined,
           items: itemsByDr.get(drNumber) || [],
         };
       })
@@ -443,6 +467,9 @@ export async function processDeliveryReceipt(
     const companies = await getCompanies();
     const company = companies.find((c) => c.companyId === payload.companyId);
     if (!company) throw new Error(`Company "${payload.companyId}" not found.`);
+    const forError = validateForCompany(companies, payload.companyId, payload.forCompanyId);
+    if (forError) throw new Error(forError);
+    const forCompany = payload.forCompanyId ? companies.find((c) => c.companyId === payload.forCompanyId) : undefined;
     const companyName = company.companyName;
     const address = company.address || "";
     const tin = company.tin || "";
@@ -514,6 +541,9 @@ export async function processDeliveryReceipt(
       approvalNote: payload.approvalNote || "",
       requestedStatus: payload.requestedStatus || "",
     });
+    if (payload.forCompanyId) {
+      await writeForCompanyColumn(sheets, spreadsheetId, await findDrRow(sheets, spreadsheetId, drNumber), payload.forCompanyId);
+    }
 
     // 4. Populate template and export PDF (skip for drafts and held DRs)
     let pdfBase64: string | undefined;
@@ -583,6 +613,9 @@ export async function processDeliveryReceipt(
     return {
       success: true,
       drNumber,
+      companyId: payload.companyId,
+      forCompanyId: payload.forCompanyId || undefined,
+      forCompanyName: forCompany?.companyName,
       companyName,
       address,
       tin,
@@ -650,9 +683,23 @@ export async function updateDeliveryReceipt(
 
     const currentResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:X${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:Y${drRowNumber}`,
     });
     const currentRow = currentResponse.data.values?.[0] || [];
+    // FOR client (column Y): changing the company clears it unless a new one is sent.
+    // Only a changed value is validated, so a client later re-pointed elsewhere
+    // doesn't block unrelated edits.
+    const storedForCompanyId = String(currentRow[24] ?? "").trim();
+    const storedCompanyId = String(currentRow[2] ?? "").trim();
+    const targetCompanyId = payload.companyId ?? storedCompanyId;
+    const companyChanged = targetCompanyId !== storedCompanyId;
+    const nextForCompanyId = payload.forCompanyId !== undefined
+      ? payload.forCompanyId.trim()
+      : companyChanged ? "" : storedForCompanyId;
+    if (nextForCompanyId && (nextForCompanyId !== storedForCompanyId || companyChanged)) {
+      const forError = validateForCompany(await getCompanies(), targetCompanyId, nextForCompanyId);
+      if (forError) throw new Error(forError);
+    }
     if (payload.deliveredByOptionId) {
       const option = (await getDriversFromSheets()).find((entry) => entry.deliveryOptionId === payload.deliveredByOptionId);
       if (!option) throw new Error("Delivered By must be an active delivery option.");
@@ -764,6 +811,9 @@ export async function updateDeliveryReceipt(
       requestedStatus: payload.requestedStatus ?? String(currentRow[23] ?? "").trim(),
     };
     await writeInventoryColumns(sheets, spreadsheetId, drRowNumber, inventoryColumns);
+    if (nextForCompanyId !== storedForCompanyId) {
+      await writeForCompanyColumn(sheets, spreadsheetId, drRowNumber, nextForCompanyId);
+    }
 
     // ── Log status change to DRStatusHistory if status actually changed ──
     if (newStatus !== oldStatus) {
@@ -797,6 +847,7 @@ export async function updateDeliveryReceipt(
       drNumber: effectiveDrNumber,
       date: updatedRow[1],
       companyId: updatedRow[2],
+      forCompanyId: nextForCompanyId || undefined,
       companyName: company?.companyName || updatedRow[2],
       poNo: updatedRow[3],
       trNo: updatedRow[4],
