@@ -326,3 +326,27 @@ export function deliveryReferenceRowValues(
 }
 
 
+
+/** What an existing DR has already counted toward, checked before it becomes No charge. */
+export interface NoChargeSwitchBlockers {
+  /** Contract release rows exist for this DR. */
+  contractReleases: boolean;
+  /** Net-posted Sales Order DELIVERY fulfillment exists for this DR. */
+  salesOrderFulfillment: boolean;
+  /** Numbers of live (not cancelled/void/deleted) invoices linked to this DR. */
+  linkedInvoices: string[];
+}
+
+/**
+ * Error for switching an existing DR to No charge, or undefined when allowed.
+ * A free delivery must not keep counting against a contract, a Sales Order or
+ * an invoice, so the switch is refused until those links are undone.
+ */
+export function noChargeSwitchError(blockers: NoChargeSwitchBlockers): string | undefined {
+  if (blockers.contractReleases) return "This DR released contract items, so it can't be marked No charge.";
+  if (blockers.salesOrderFulfillment) return "This DR posted Sales Order fulfillment, so it can't be marked No charge.";
+  if (blockers.linkedInvoices.length) {
+    return `This DR is linked to invoice ${blockers.linkedInvoices.join(", ")}, so it can't be marked No charge.`;
+  }
+  return undefined;
+}

@@ -22,6 +22,8 @@ import {
   deliveryReferenceFromRow,
   deliveryReferenceRowValues,
   noChargeReasonDisplay,
+  noChargeSwitchError,
+  type NoChargeSwitchBlockers,
 } from "@/lib/deliveryReference";
 import { getOrderDetail, type Actor } from "@/lib/salesOrders/service";
 import { can } from "@/lib/salesOrders/permissions";
@@ -93,6 +95,34 @@ async function writeNoChargeColumns(
     valueInputOption: "RAW",
     requestBody: { values: [[reason, note]] },
   });
+}
+
+/** What an existing DR already counts toward, read before it may become No charge. */
+async function noChargeSwitchBlockers(drNumber: number, salesOrderId: string): Promise<NoChargeSwitchBlockers> {
+  const [{ getContractReleases }, { readDrLinkedInvoiceNumbers }] = await Promise.all([
+    import("@/lib/contractReleaseSheets"),
+    import("@/lib/invoiceRepository"),
+  ]);
+  const [releases, linkedInvoices, order] = await Promise.all([
+    getContractReleases(),
+    readDrLinkedInvoiceNumbers(drNumber),
+    salesOrderId ? getOrderDetail(salesOrderId) : Promise.resolve(undefined),
+  ]);
+  // Net of reversals, as reverseDeletedDeliveryReleaseFulfillment computes it.
+  const fulfillments = order?.fulfillments ?? [];
+  const salesOrderFulfillment = fulfillments.some((source) => {
+    if (source.status !== "POSTED" || source.fulfillmentType !== "DELIVERY" ||
+        source.sourceDocumentType !== "DELIVERY_RECEIPT" || source.sourceDocumentId !== String(drNumber)) return false;
+    const reversed = fulfillments
+      .filter((entry) => entry.status === "POSTED" && entry.fulfillmentType === "REVERSAL" && entry.reversesFulfillmentId === source.fulfillmentId)
+      .reduce((sum, entry) => sum + entry.quantity, 0);
+    return Number((source.quantity - reversed).toFixed(2)) > 0;
+  });
+  return {
+    contractReleases: releases.some((release) => release.drNumber === drNumber),
+    salesOrderFulfillment,
+    linkedInvoices,
+  };
 }
 
 const DR_STATUS_HISTORY_SHEET = "DeliveryReceiptStatusHistory";
@@ -781,12 +811,11 @@ export async function updateDeliveryReceipt(
     );
     if (referenceRow.error) throw new Error(referenceRow.error);
     const storedReference = deliveryReferenceFromRow(currentRow);
-    // A DR whose contract releases already counted can't become free afterwards.
+    // A DR that already counted against a contract, a Sales Order or an invoice
+    // can't become free afterwards; those links must be undone first.
     if (referenceRow.noChargeReason && !storedReference.noChargeReason) {
-      const { getContractReleases } = await import("@/lib/contractReleaseSheets");
-      if ((await getContractReleases()).some((release) => release.drNumber === drNumber)) {
-        throw new Error("This DR released contract items, so it can't be marked No charge.");
-      }
+      const switchError = noChargeSwitchError(await noChargeSwitchBlockers(drNumber, storedReference.salesOrderId));
+      if (switchError) throw new Error(switchError);
     }
     if (payload.referenceMode === "SALES_ORDER" && referenceRow.salesOrderId) {
       // Server-resolved number (a browser cannot invent one) plus the same

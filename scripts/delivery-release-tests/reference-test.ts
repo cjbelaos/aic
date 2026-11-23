@@ -14,6 +14,7 @@ import {
   DELIVERY_REFERENCE_OTHER_NOTE_ERROR,
   NO_CHARGE_REASONS,
   isNoChargeDelivery,
+  noChargeSwitchError,
   DELIVERY_REFERENCE_ENTER_TR_NUMBER_ERROR,
   DELIVERY_REFERENCE_FIELD_LABEL,
   DELIVERY_REFERENCE_MODE_CHOICES,
@@ -163,7 +164,6 @@ assert.deepEqual(
   { reference: "TR-supplied", salesOrderId: "so-stored" },
 );
 
-console.log("delivery-release reference tests passed");
 // No charge: warranty, gift, sample or other — no Sales Order, no TR number.
 assert.deepEqual(NO_CHARGE_REASONS.map((r) => r.value), ["WARRANTY", "GIFT", "SAMPLE", "OTHER"]);
 assert.deepEqual(NO_CHARGE_REASONS.map((r) => r.label), ["Warranty", "Gift", "Sample", "Other"]);
@@ -197,5 +197,11 @@ const oldRef = deliveryReferenceFromRow(receiptRow("TR-1", ""));
 assert.equal(oldRef.referenceMode, "TR_NUMBER");
 assert.equal(oldRef.noChargeReason, "");
 assert.equal(isNoChargeDelivery(oldRef), false);
+
+// Switching an existing DR to No charge is blocked once it counted somewhere else.
+assert.equal(noChargeSwitchError({ contractReleases: false, salesOrderFulfillment: false, linkedInvoices: [] }), undefined);
+assert.equal(noChargeSwitchError({ contractReleases: true, salesOrderFulfillment: false, linkedInvoices: [] }), "This DR released contract items, so it can't be marked No charge.");
+assert.equal(noChargeSwitchError({ contractReleases: false, salesOrderFulfillment: true, linkedInvoices: [] }), "This DR posted Sales Order fulfillment, so it can't be marked No charge.");
+assert.equal(noChargeSwitchError({ contractReleases: false, salesOrderFulfillment: false, linkedInvoices: ["SR-0012", "SI-0040"] }), "This DR is linked to invoice SR-0012, SI-0040, so it can't be marked No charge.");
 
 console.log("delivery-release reference tests passed");
