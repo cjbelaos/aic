@@ -125,7 +125,7 @@ export default function StockTransfersPage() {
     if (!fromId || !toId) { toast.error("Choose both warehouses."); return; }
     if (fromId === toId) { toast.error("Choose two different warehouses."); return; }
     if (!items.length) { toast.error("Add at least one product."); return; }
-    const prompt = approvalPrompt(stock.check, stock.level, warehouseName(fromId), productName);
+    const prompt = approvalPrompt(stock.check, stock.level, warehouseName, productName);
     if (prompt && !window.confirm(prompt)) return;
     setSaving(true);
     try {

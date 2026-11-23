@@ -11,6 +11,7 @@ import {
   lineSources,
   parseSourcesCell,
   sourcesComplete,
+  storedSources,
   syncSingleSource,
   validateLineSources,
 } from "../../src/lib/deliverySources.ts";
@@ -64,5 +65,10 @@ assert.equal(sourcesComplete([{ quantity: 5, sources: [W("W1", 2), W("W2", 3)] }
 assert.equal(sourcesComplete([{ quantity: 6, sources: [W("W1", 2), W("W2", 3)] }]), false);
 assert.equal(sourcesComplete([{ quantity: 5, sources: [] }]), false);
 assert.equal(sourcesComplete([{ quantity: 0 }]), true);
+
+// storedSources: a single default-warehouse part is the same as "not set"
+assert.equal(storedSources([W("W1", 5)], "W1"), undefined);
+assert.deepEqual(storedSources([W("W2", 5)], "W1"), [W("W2", 5)]);
+assert.deepEqual(storedSources([W("W1", 2), W("W2", 3)], "W1"), [W("W1", 2), W("W2", 3)]);
 
 console.log("sources-test passed.");

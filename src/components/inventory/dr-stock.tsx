@@ -20,23 +20,24 @@ export function useActiveWarehouses(): Warehouse[] {
 }
 
 export function useStockCheck(input: {
-  warehouseId: string;
-  lines: { productId?: string; productCode?: string; quantity: number }[];
+  /** Fallback warehouse for lines without their own (Stock Transfers send only this). */
+  warehouseId?: string;
+  lines: { warehouseId?: string; productId?: string; productCode?: string; quantity: number }[];
   excludeDrNumber?: number;
   excludeTransferId?: string;
   enabled?: boolean;
 }): { check: StockCheck | null; level: AccessLevel | null } {
   const [state, setState] = useState<{ check: StockCheck | null; level: AccessLevel | null }>({ check: null, level: null });
   const key = useMemo(
-    () => JSON.stringify({ w: input.warehouseId, l: input.lines.map((l) => [l.productId || l.productCode || "", l.quantity]), d: input.excludeDrNumber, t: input.excludeTransferId }),
+    () => JSON.stringify({ w: input.warehouseId ?? "", l: input.lines.map((l) => [l.warehouseId ?? "", l.productId || l.productCode || "", l.quantity]), d: input.excludeDrNumber, t: input.excludeTransferId }),
     [input.warehouseId, input.lines, input.excludeDrNumber, input.excludeTransferId],
   );
-  const enabled = input.enabled !== false && Boolean(input.warehouseId);
+  const enabled = input.enabled !== false && (Boolean(input.warehouseId) || input.lines.some((l) => l.warehouseId));
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      const body = JSON.parse(key) as { w: string; l: [string, number][]; d?: number; t?: string };
+      const body = JSON.parse(key) as { w: string; d?: number; t?: string };
       fetch("/api/inventory/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -88,13 +89,15 @@ export function WarehouseSelect({ value, onChange, warehouses, disabled, label =
 }
 
 /** One line's stock status: "8 on hand · 4 safety · 4 available", in red when blocked. */
-export function StockLineHint({ check, productId, warehouseName, productName }: {
+export function StockLineHint({ check, productId, warehouseId, warehouseName, productName }: {
   check: StockCheck | null;
   productId: string;
+  /** Match the check line for this warehouse; omitted = the product's first line. */
+  warehouseId?: string;
   warehouseName: string;
   productName: string;
 }) {
-  const line = check?.lines.find((l) => l.productId === productId);
+  const line = check?.lines.find((l) => l.productId === productId && (!warehouseId || l.warehouseId === warehouseId));
   if (!line) return null;
   if (line.result === "blocked") {
     return (
@@ -112,10 +115,10 @@ export function StockLineHint({ check, productId, warehouseName, productName }: 
 }
 
 /** Confirm text when a save would dip into safety stock, or null when no approval is needed. */
-export function approvalPrompt(check: StockCheck | null, level: AccessLevel | null, warehouseName: string, productName: (id: string) => string): string | null {
+export function approvalPrompt(check: StockCheck | null, level: AccessLevel | null, warehouseName: (id: string) => string, productName: (id: string) => string): string | null {
   if (!check || check.result !== "needs_approval" || level === "manage") return null;
   const lines = check.lines
     .filter((l) => l.result === "needs_approval")
-    .map((l) => `${productName(l.productId)}: uses ${l.safetyUsed} of ${l.safetyStock} safety stock`);
-  return `Needs approval: uses safety stock at ${warehouseName}.\n\n${lines.join("\n")}\n\nIt will be sent to a manager and cannot be printed until approved. Continue?`;
+    .map((l) => `${productName(l.productId)} at ${warehouseName(l.warehouseId)}: uses ${l.safetyUsed} of ${l.safetyStock} safety stock`);
+  return `Needs approval: uses safety stock.\n\n${lines.join("\n")}\n\nIt will be sent to a manager and cannot be printed until approved. Continue?`;
 }

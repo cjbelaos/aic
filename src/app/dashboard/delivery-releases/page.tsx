@@ -73,7 +73,9 @@ import {
 } from "@/lib/deliveryReference";
 import { deliverySearchFields, formatSerialCell, matchesDeliverySearch, parseSerialInput } from "@/lib/deliverySerials";
 import { DeliverySerialInput } from "@/components/delivery-serial-input";
-import { StockLineHint, WarehouseSelect, approvalPrompt, useActiveWarehouses, useStockCheck } from "@/components/inventory/dr-stock";
+import { WarehouseSelect, approvalPrompt, useActiveWarehouses, useStockCheck } from "@/components/inventory/dr-stock";
+import { LineSources } from "@/components/inventory/line-sources";
+import { sourcesComplete, storedSources, syncSingleSource, type WarehouseSource } from "@/lib/deliverySources";
 import { DeliveryItemSerialTags, DeliveryItemSummary } from "@/components/delivery-item-summary";
 import { EditDrSerialsDialog } from "@/components/edit-dr-serials-dialog";
 
@@ -87,11 +89,21 @@ interface LineItem {
   quantity: number;
   /** Raw serial entry; sent as serialNumbers. */
   serialText?: string;
+  /**
+   * Warehouse parts the user chose (a split, or a non-default warehouse).
+   * Unset = the whole quantity from the default warehouse; see linePartsOf.
+   */
+  sources?: WarehouseSource[];
 }
 
-/** Converts form lines to API items: the raw serial text becomes serialNumbers. */
-function toDeliveryItems(lines: LineItem[]) {
-  return lines.map(({ serialText, ...line }) => ({ ...line, serialNumbers: parseSerialInput(serialText ?? "") }));
+/** The warehouse parts a form line takes stock from: an unsplit line follows its qty and the default warehouse. */
+function linePartsOf(line: Pick<LineItem, "quantity" | "sources">, defaultWarehouseId: string): WarehouseSource[] {
+  return syncSingleSource(line.sources, line.quantity, defaultWarehouseId);
+}
+
+/** Converts form lines to API items: the raw serial text becomes serialNumbers; every line carries its warehouse parts. */
+function toDeliveryItems(lines: LineItem[], defaultWarehouseId: string) {
+  return lines.map(({ serialText, ...line }) => ({ ...line, sources: linePartsOf(line, defaultWarehouseId), serialNumbers: parseSerialInput(serialText ?? "") }));
 }
 
 const EMPTY_LINE_ITEM: LineItem = {
@@ -391,10 +403,12 @@ export default function DeliveryReleasePage() {
   const productIdOf = (line: { productId?: string; productCode?: string }) =>
     line.productId || products.find((p) => p.code === line.productCode)?.id || "";
   const productNameOf = (id: string) => products.find((p) => p.id === id)?.name || id;
-  const createStock = useStockCheck({ warehouseId, lines: lineItems, enabled: modalOpen });
+  // Stock is checked per warehouse part, not per line.
+  const stockPartsOf = (lines: LineItem[], defaultWarehouseId: string) =>
+    lines.flatMap((line) => linePartsOf(line, defaultWarehouseId).map((part) => ({ warehouseId: part.warehouseId, productId: productIdOf(line), productCode: line.productCode, quantity: part.quantity })));
+  const createStock = useStockCheck({ lines: stockPartsOf(lineItems, warehouseId), enabled: modalOpen });
   const editStock = useStockCheck({
-    warehouseId: editWarehouseId,
-    lines: editLineItems,
+    lines: stockPartsOf(editLineItems, editWarehouseId),
     excludeDrNumber: editTarget?.drNumber,
     enabled: Boolean(editTarget),
   });
@@ -1063,10 +1077,14 @@ export default function DeliveryReleasePage() {
       return;
     }
     if (!warehouseId) {
-      toast.error("From warehouse is required.");
+      toast.error("Default warehouse is required.");
       return;
     }
-    const approvalText = approvalPrompt(createStock.check, createStock.level, warehouseName(warehouseId), productNameOf);
+    if (!sourcesComplete(lineItems.map((line) => ({ quantity: line.quantity, sources: linePartsOf(line, warehouseId) })))) {
+      toast.error("Warehouse quantities must add up to each line's quantity.");
+      return;
+    }
+    const approvalText = approvalPrompt(createStock.check, createStock.level, warehouseName, productNameOf);
     if (approvalText && !window.confirm(approvalText)) return;
 
     setPrinting(true);
@@ -1106,7 +1124,7 @@ export default function DeliveryReleasePage() {
         deliveredByType: selectedDriver.type,
         deliveredByOptionId: selectedDriver.deliveryOptionId,
         comments,
-        items: toDeliveryItems(lineItems),
+        items: toDeliveryItems(lineItems, warehouseId),
         status: "printed",
         warehouseId,
         contractLines,
@@ -1157,7 +1175,7 @@ export default function DeliveryReleasePage() {
         deliveredByType: selectedDriver?.type,
         deliveredByOptionId: selectedDriver?.deliveryOptionId,
         comments,
-        items: toDeliveryItems(lineItems),
+        items: toDeliveryItems(lineItems, warehouseId),
         status: "draft",
         warehouseId: warehouseId || undefined,
       };
@@ -1309,6 +1327,7 @@ export default function DeliveryReleasePage() {
           description: item.description,
           quantity: item.quantity,
           serialText: formatSerialCell(item.serialNumbers ?? []),
+          sources: item.sources?.length ? storedSources(item.sources, editTarget.warehouseId || "") : undefined,
         })),
       );
       const manual = new Set<number>();
@@ -1332,7 +1351,7 @@ export default function DeliveryReleasePage() {
   const updateEditLineItem = (
     idx: number,
     field: keyof LineItem,
-    value: string | number,
+    value: LineItem[keyof LineItem],
   ) =>
     setEditLineItems((prev) =>
       prev.map((item, i) => {
@@ -1359,7 +1378,11 @@ export default function DeliveryReleasePage() {
         throw new Error("Select a Sales Order, or switch the reference back to Legacy TR Number.");
       }
       if (!["draft", "cancelled"].includes(editStatus)) {
-        const approvalText = approvalPrompt(editStock.check, editStock.level, warehouseName(editWarehouseId), productNameOf);
+        const lines = editLineItems.filter((li) => li.productCode || li.description.trim());
+        if (editWarehouseId && !sourcesComplete(lines.map((li) => ({ quantity: li.quantity, sources: linePartsOf(li, editWarehouseId) })))) {
+          throw new Error("Warehouse quantities must add up to each line's quantity.");
+        }
+        const approvalText = approvalPrompt(editStock.check, editStock.level, warehouseName, productNameOf);
         if (approvalText && !window.confirm(approvalText)) return;
       }
       const payload = {
@@ -1384,6 +1407,7 @@ export default function DeliveryReleasePage() {
             description: li.description,
             quantity: li.quantity,
             serialNumbers: parseSerialInput(li.serialText ?? ""),
+            sources: linePartsOf(li, editWarehouseId),
           })),
       };
       const res = await deliveryService.update(editTarget.drNumber, payload);
@@ -1677,10 +1701,13 @@ export default function DeliveryReleasePage() {
                   requiresSerial={lineRequiresSerial(item)}
                   onChange={(v) => updateLineItem(idx, "serialText", v)}
                 />
-                <StockLineHint
+                <LineSources
+                  value={linePartsOf(item, warehouseId)}
+                  onChange={(next) => updateLineItem(idx, "sources", storedSources(next, warehouseId))}
+                  quantity={item.quantity}
+                  warehouses={warehouses}
                   check={createStock.check}
                   productId={productIdOf(item)}
-                  warehouseName={warehouseName(warehouseId)}
                   productName={productNameOf(productIdOf(item))}
                 />
                 </Fragment>
@@ -1982,10 +2009,13 @@ export default function DeliveryReleasePage() {
                   requiresSerial={lineRequiresSerial(item)}
                   onChange={(v) => updateEditLineItem(idx, "serialText", v)}
                 />
-                <StockLineHint
+                <LineSources
+                  value={linePartsOf(item, editWarehouseId)}
+                  onChange={(next) => updateEditLineItem(idx, "sources", storedSources(next, editWarehouseId))}
+                  quantity={item.quantity}
+                  warehouses={warehouses}
                   check={editStock.check}
                   productId={productIdOf(item)}
-                  warehouseName={warehouseName(editWarehouseId)}
                   productName={productNameOf(productIdOf(item))}
                 />
                 </Fragment>

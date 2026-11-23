@@ -84,3 +84,8 @@ export function sourcesComplete(lines: { quantity: number; sources?: readonly Wa
     return parts.length > 0 && parts.every((s) => s.warehouseId) && parts.reduce((t, s) => t + (Number(s.quantity) || 0), 0) === quantity;
   });
 }
+
+/** What a form keeps after the user edits a line's parts: one default-warehouse part is the same as unset. */
+export function storedSources(next: WarehouseSource[], defaultWarehouseId: string): WarehouseSource[] | undefined {
+  return next.length === 1 && next[0].warehouseId === defaultWarehouseId ? undefined : next;
+}
