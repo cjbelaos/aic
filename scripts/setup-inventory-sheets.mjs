@@ -75,7 +75,7 @@ if (!APPLY) process.exit(0);
 
 const requests = missingTabs.map((title) => ({ addSheet: { properties: { title } } }));
 // Widen existing tabs that are narrower than the new columns need.
-const neededColumns = { DeliveryReceipts: 25, DeliveryReceiptItems: 12, ProductCategories: 6 };
+const neededColumns = { DeliveryReceipts: 27, DeliveryReceiptItems: 12, ProductCategories: 6 };
 for (const { tab, columnCount } of narrowTabs) {
   if (columnCount < neededColumns[tab]) {
     const sheetId = (await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties(sheetId,title)" })).data.sheets.find((s) => s.properties.title === tab).properties.sheetId;
