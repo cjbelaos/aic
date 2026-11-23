@@ -1,5 +1,6 @@
 import type { DeliveryReceiptResponse } from "@/types/deliveryReceipt";
 import { printSerialLine } from "@/lib/deliverySerials";
+import { noChargeReasonDisplay } from "@/lib/deliveryReference";
 
 import { BusinessDocumentHeader, type DocumentBrand } from "./business-document-print-layout";
 import { deliveredToParty, type DeliveryReceiptPrintForm } from "@/lib/deliveryPrintForm";
@@ -34,7 +35,7 @@ export function DeliveryReceiptPrintDocument({ dr, signatureUrls = {}, form = "a
             <BusinessDocumentHeader title="DELIVERY RECEIPT" number={dr.drNumber > 0 ? `DR ${dr.drNumber}` : "DRAFT"} draft={dr.status === "draft" && dr.drNumber > 0} brand={brand} />
             <div className="details">
               <div><div className="label">Delivered to</div><div className="customer">{to.name}</div><div className="multiline">{to.address}</div><div>TIN: {to.tin || "—"}</div>{!goldenEast && dr.forCompanyName && <div><b>For:</b> {dr.forCompanyName}</div>}</div>
-              <div><div><b>Date:</b> {dr.date}</div><div><b>PO No.:</b> {dr.poNo || "—"}</div><div><b>SO / TR No.:</b> {dr.trNo || "—"}</div></div>
+              <div><div><b>Date:</b> {dr.date}</div><div><b>PO No.:</b> {dr.poNo || "—"}</div><div><b>SO / TR No.:</b> {dr.trNo || noChargeReasonDisplay(dr.noChargeReason) || "—"}</div></div>
             </div>
           </th></tr>
           <tr className="columns"><th scope="col">#</th><th scope="col">Description</th><th scope="col">Unit</th><th scope="col" className="qty">Quantity</th></tr>

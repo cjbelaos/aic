@@ -3,21 +3,29 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DELIVERY_REFERENCE_MODE_CHOICES,
+  NO_CHARGE_REASONS,
   TR_NUMBER_FIELD_LABEL,
   type DeliveryReferenceMode,
+  type InvoiceReferenceMode,
 } from "@/lib/deliveryReference";
 
+/** Invoices offer only the Sales Order and legacy TR choices. */
+const INVOICE_REFERENCE_MODE_CHOICES = DELIVERY_REFERENCE_MODE_CHOICES.filter(
+  (choice): choice is (typeof DELIVERY_REFERENCE_MODE_CHOICES)[number] & { value: InvoiceReferenceMode } => choice.value !== "NO_CHARGE",
+);
+
 export function InvoiceReferenceTypeSelector({ mode, onChange, disabled }: {
-  mode: DeliveryReferenceMode | null;
-  onChange: (mode: DeliveryReferenceMode) => void;
+  mode: InvoiceReferenceMode | null;
+  onChange: (mode: InvoiceReferenceMode) => void;
   disabled?: boolean;
 }) {
   return <fieldset className="space-y-2" disabled={disabled}>
     <legend className="text-sm font-medium">Choose reference type</legend>
     <div className="grid grid-cols-2 gap-2">
-      {DELIVERY_REFERENCE_MODE_CHOICES.map((choice) => <label key={choice.value} className={`flex items-center gap-2 rounded-md border p-3 text-sm ${mode === choice.value ? "border-primary bg-primary/5" : "border-input"}`}>
+      {INVOICE_REFERENCE_MODE_CHOICES.map((choice) => <label key={choice.value} className={`flex items-center gap-2 rounded-md border p-3 text-sm ${mode === choice.value ? "border-primary bg-primary/5" : "border-input"}`}>
         <input type="radio" checked={mode === choice.value} onChange={() => onChange(choice.value)} />
         {choice.value === "TR_NUMBER" ? "Legacy SO / TR Number" : choice.label}
       </label>)}
@@ -36,13 +44,17 @@ interface Props {
   onTrNoChange: (value: string) => void;
   /** Sales Order number of the current selection, shown as a hint. */
   selectedSalesOrderNo?: string;
+  noChargeReason: string;
+  onNoChargeReasonChange: (value: string) => void;
+  noChargeNote: string;
+  onNoChargeNoteChange: (value: string) => void;
   disabled?: boolean;
 }
 
 /**
- * Delivery Release reference: either a searchable Sales Order picker (current
- * flow) or a manual legacy TR Number. The two modes are mutually exclusive, so
- * the parent clears the other value whenever the mode changes.
+ * Delivery Release reference: a searchable Sales Order picker (current flow), a
+ * manual legacy TR Number, or No charge with a reason. The modes are mutually
+ * exclusive, so the parent clears the other values whenever the mode changes.
  */
 export function DeliveryReleaseReferenceField({
   mode,
@@ -53,12 +65,16 @@ export function DeliveryReleaseReferenceField({
   trNo,
   onTrNoChange,
   selectedSalesOrderNo,
+  noChargeReason,
+  onNoChargeReasonChange,
+  noChargeNote,
+  onNoChargeNoteChange,
   disabled,
 }: Props) {
   return (
     <div className="space-y-2">
       <Label>Choose reference type</Label>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {DELIVERY_REFERENCE_MODE_CHOICES.map((choice) => {
           const selected = mode === choice.value;
           return (
@@ -117,7 +133,34 @@ export function DeliveryReleaseReferenceField({
             {`Type the legacy ${TR_NUMBER_FIELD_LABEL} by hand. It is never generated, and it replaces any linked Sales Order when you save.`}
           </p>
         </>
-      ) : <p className="text-xs text-muted-foreground">Select Sales Order or Legacy TR Number to continue.</p>}
+      ) : mode === "NO_CHARGE" ? (
+        <>
+          <Label htmlFor="delivery-reference-no-charge-reason">Reason</Label>
+          <Select value={noChargeReason} onValueChange={onNoChargeReasonChange} disabled={disabled}>
+            <SelectTrigger id="delivery-reference-no-charge-reason">
+              <SelectValue placeholder="Choose a reason" />
+            </SelectTrigger>
+            <SelectContent>
+              {NO_CHARGE_REASONS.map((reason) => (
+                <SelectItem key={reason.value} value={reason.value}>{reason.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Label htmlFor="delivery-reference-no-charge-note">
+            {noChargeReason === "OTHER" ? "Note (required)" : "Note"}
+          </Label>
+          <Input
+            id="delivery-reference-no-charge-note"
+            value={noChargeNote}
+            onChange={(event) => onNoChargeNoteChange(event.target.value)}
+            placeholder={noChargeReason === "OTHER" ? "What is this delivery for?" : "Optional"}
+            disabled={disabled}
+          />
+          <p className="text-xs text-muted-foreground">
+            Free delivery. It never counts against a contract and can&apos;t be invoiced.
+          </p>
+        </>
+      ) : <p className="text-xs text-muted-foreground">Choose a reference type to continue.</p>}
     </div>
   );
 }

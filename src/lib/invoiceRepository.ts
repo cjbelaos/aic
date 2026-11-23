@@ -260,7 +260,10 @@ function parseManualCompletionData(value: unknown): ManualCompletionData {
 /** A linked DR wins, then a direct Sales Order, then manual document references. */
 async function resolveInvoiceReferences(payload: Pick<CreateServiceInvoicePayload, "drNumber" | "salesOrderId" | "poNo" | "trNo" | "referenceMode">): Promise<{ poNo: string; trNo: string; salesOrderId?: string }> {
   if (payload.drNumber !== undefined && payload.drNumber !== null) {
-    return resolveDeliveryReceiptReferences(payload.drNumber);
+    const { noChargeReason, ...references } = await resolveDeliveryReceiptReferences(payload.drNumber);
+    // Warranty, gift and sample DRs are free; they are never invoiced.
+    if (noChargeReason) throw new InvoiceBillingError("A no-charge DR can't be billed.");
+    return references;
   }
   const salesOrderId = String(payload.salesOrderId ?? "").trim();
   if (payload.referenceMode === "TR_NUMBER") {
@@ -1711,4 +1714,16 @@ export async function readSalesOrderLinkedInvoices(salesOrderId: string): Promis
     });
   }));
   return result.flat();
+}
+
+/** Live Service and Sales Invoice numbers linked to a DR (column L), ignoring cancelled, void and deleted ones. */
+export async function readDrLinkedInvoiceNumbers(drNumber: number): Promise<string[]> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const ranges = ["ServiceInvoices!A2:L", "SalesInvoices!A2:L"];
+  const responses = await Promise.all(ranges.map((range) => sheets.spreadsheets.values.get({ spreadsheetId, range })));
+  return responses.flatMap((response) => (response.data.values || [])
+    .filter((row) => Number(row[11]) === drNumber && !["cancelled", "void", "deleted"].includes(String(row[8] ?? "").trim()))
+    .map((row) => String(row[0] ?? "").trim())
+    .filter(Boolean));
 }

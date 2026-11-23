@@ -6,7 +6,15 @@ import { invoiceItemsFromDelivery } from "@/lib/serviceInvoicePresentation";
 import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 
 import { InvoiceReferenceTypeSelector } from "@/components/delivery-release-reference-field";
-import type { DeliveryReferenceMode } from "@/lib/deliveryReference";
+import { isNoChargeDelivery, type InvoiceReferenceMode } from "@/lib/deliveryReference";
+import type { DeliveryReceiptSummary } from "@/types/deliveryReceipt";
+
+/** Linked DR choices. No-charge DRs (warranty, gift, sample) are never billed. */
+function billableDrOptions(drs: DeliveryReceiptSummary[]): { value: string; label: string }[] {
+  return drs
+    .filter((d) => !isNoChargeDelivery(d))
+    .map((d) => ({ value: String(d.drNumber), label: `DR #${d.drNumber} — ${d.companyName} (${d.date})` }));
+}
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -231,9 +239,9 @@ export default function ServiceInvoicesClient({
   const [printing, setPrinting] = useState(false);
 
   const [referenceMode, setReferenceMode] =
-    useState<DeliveryReferenceMode | null>(null);
+    useState<InvoiceReferenceMode | null>(null);
   const [editReferenceMode, setEditReferenceMode] =
-    useState<DeliveryReferenceMode>("SALES_ORDER");
+    useState<InvoiceReferenceMode>("SALES_ORDER");
 
   /* Linked DR */
   const [linkedDrNumber, setLinkedDrNumber] = useState("");
@@ -385,14 +393,7 @@ export default function ServiceInvoicesClient({
   useEffect(() => {
     deliveryService
       .getAll()
-      .then((allDrs) =>
-        setDrOptions(
-          allDrs.map((d) => ({
-            value: String(d.drNumber),
-            label: `DR #${d.drNumber} — ${d.companyName} (${d.date})`,
-          })),
-        ),
-      )
+      .then((allDrs) => setDrOptions(billableDrOptions(allDrs)))
       .catch(() => setDrOptions([]));
   }, []);
 
@@ -413,14 +414,14 @@ export default function ServiceInvoicesClient({
 
         // Load DR options synchronously so the Linked DR dropdown is populated
         const allDrs = await deliveryService.getAll();
-        setDrOptions(
-          allDrs.map((d) => ({
-            value: String(d.drNumber),
-            label: `DR #${d.drNumber} — ${d.companyName} (${d.date})`,
-          })),
-        );
+        setDrOptions(billableDrOptions(allDrs));
 
         const dr = allDrs.find(d => d.drNumber === Number(prefill.drNumber));
+        if (dr && isNoChargeDelivery(dr)) {
+          sessionStorage.removeItem(isSales ? "salesInvoicePrefill" : "siPrefill");
+          toast.error("A no-charge DR can't be billed.");
+          return;
+        }
         const customer = customers.find(c => c.companyId === dr?.companyId) ||
           customers.find(c => c.companyName === prefill.companyName);
         if (customer && dr && !dr.salesOrderId) {
@@ -516,7 +517,7 @@ export default function ServiceInvoicesClient({
     let cancelled = false;
     void Promise.all([deliveryService.getAll(), contractService.getAll()]).then(([drs, available]) => {
       if (cancelled) return;
-      setDrOptions(drs.map(d => ({ value: String(d.drNumber), label: `DR #${d.drNumber} - ${d.companyName} (${d.date})` })));
+      setDrOptions(billableDrOptions(drs));
       setContracts(available);
       setDrSalesOrders(Object.fromEntries(drs.map(d => [String(d.drNumber), d.salesOrderId || ""])));
       setDrCustomers(Object.fromEntries(drs.map(d => [String(d.drNumber), d.companyId])));

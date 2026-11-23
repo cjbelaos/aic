@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import deliveryService from "@/lib/services/delivery.service";
 import { DeliveryReceiptResponse } from "@/types/deliveryReceipt";
+import { isNoChargeDelivery } from "@/lib/deliveryReference";
 import { resolveUserSignatureUrls, type UserSignatureUrls } from "@/lib/userSignatures";
 
 interface Props {
@@ -141,7 +142,7 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
             )}
             {printSaving ? "Preparing..." : "Print"}
           </Button>
-          <Button
+          {!isNoChargeDelivery(dr) && <Button
             variant="outline"
             size="sm"
             onClick={() => {
@@ -158,7 +159,7 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
           >
             <FileText className="mr-1.5 h-4 w-4" />
             Create SR
-          </Button>
+          </Button>}
           <Button
             size="sm"
             onClick={handleSaveToDrive}

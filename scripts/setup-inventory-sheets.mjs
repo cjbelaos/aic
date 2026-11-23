@@ -40,6 +40,8 @@ const NEW_COLUMNS = [
   ["DeliveryReceipts!W1", "ApprovalNote"],
   ["DeliveryReceipts!X1", "RequestedStatus"],
   ["DeliveryReceipts!Y1", "ForCompanyId"],
+  ["DeliveryReceipts!Z1", "NoChargeReason"],
+  ["DeliveryReceipts!AA1", "NoChargeNote"],
   ["Contracts!Q1", "ForCompanyId"],
   ["DeliveryReceiptItems!L1", "WarehouseSources"],
 ];
@@ -73,7 +75,7 @@ if (!APPLY) process.exit(0);
 
 const requests = missingTabs.map((title) => ({ addSheet: { properties: { title } } }));
 // Widen existing tabs that are narrower than the new columns need.
-const neededColumns = { DeliveryReceipts: 25, DeliveryReceiptItems: 12, ProductCategories: 6 };
+const neededColumns = { DeliveryReceipts: 27, DeliveryReceiptItems: 12, ProductCategories: 6 };
 for (const { tab, columnCount } of narrowTabs) {
   if (columnCount < neededColumns[tab]) {
     const sheetId = (await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties(sheetId,title)" })).data.sheets.find((s) => s.properties.title === tab).properties.sheetId;

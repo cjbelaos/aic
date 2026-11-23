@@ -75,6 +75,8 @@ export async function POST(request: Request) {
       salesOrderId: body.salesOrderId,
       salesOrderNo: body.salesOrderNo,
       trNo: body.trNo,
+      noChargeReason: body.noChargeReason,
+      noChargeNote: body.noChargeNote,
     });
     if (reference.error) {
       return NextResponse.json({ error: reference.error }, { status: 422 });
@@ -82,6 +84,12 @@ export async function POST(request: Request) {
     if (isDeliveryReferenceMode(body.referenceMode)) {
       body.salesOrderId = reference.salesOrderId || undefined;
       body.trNo = reference.trNo;
+      body.noChargeReason = reference.noChargeReason;
+      body.noChargeNote = reference.noChargeNote;
+    }
+    // A free delivery never counts against a contract.
+    if (reference.mode === "NO_CHARGE" && body.contractLines?.length) {
+      return NextResponse.json({ error: "A no-charge DR can't release contract items." }, { status: 422 });
     }
 
     // A Delivery Release may retain a legacy TR value, but newly linked

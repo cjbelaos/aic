@@ -1,3 +1,5 @@
+import type { DeliveryReferenceMode } from "../lib/deliveryReference";
+
 export interface DeliveryItem {
   /** Stable child-row key; required when this item is used as fulfillment evidence. */
   deliveryReceiptItemId?: string;
@@ -42,7 +44,10 @@ export interface CreateDeliveryPayload {
    * legacy TR Number (see src/lib/deliveryReference.ts). Optional — without it the
    * previous "Sales Order number, else TR number" mapping applies.
    */
-  referenceMode?: "SALES_ORDER" | "TR_NUMBER";
+  referenceMode?: DeliveryReferenceMode;
+  /** No-charge reason (column Z) and note (column AA) when referenceMode is NO_CHARGE. */
+  noChargeReason?: string;
+  noChargeNote?: string;
 
   srNo?: string;
   preparedBy: string;
@@ -84,6 +89,9 @@ export interface DeliveryReceiptResponse {
   salesOrderId?: string;
   salesOrderNo?: string;
   trNo?: string;
+  /** No-charge reason/note (columns Z/AA); set only on a no-charge DR. */
+  noChargeReason?: string;
+  noChargeNote?: string;
   preparedBy: string;
   deliveredBy: string;
   deliveredById?: string;
@@ -133,6 +141,9 @@ export interface DeliveryReceiptSummary {
   requestedStatus?: string;
   /** The client this delivery is for (column Y). */
   forCompanyId?: string;
+  /** No-charge reason/note (columns Z/AA); set only on a no-charge DR. */
+  noChargeReason?: string;
+  noChargeNote?: string;
 }
 
 export interface DeliveryPersonOption {

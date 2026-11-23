@@ -7,7 +7,14 @@
 
 import assert from "node:assert/strict";
 import {
+  DELIVERY_NO_CHARGE_NOTE_COLUMN,
+  DELIVERY_NO_CHARGE_REASON_COLUMN,
+  DELIVERY_REFERENCE_CHOOSE_REASON_ERROR,
   DELIVERY_REFERENCE_COLUMN,
+  DELIVERY_REFERENCE_OTHER_NOTE_ERROR,
+  NO_CHARGE_REASONS,
+  isNoChargeDelivery,
+  noChargeSwitchError,
   DELIVERY_REFERENCE_ENTER_TR_NUMBER_ERROR,
   DELIVERY_REFERENCE_FIELD_LABEL,
   DELIVERY_REFERENCE_MODE_CHOICES,
@@ -35,7 +42,7 @@ function receiptRow(reference: string, salesOrderId: string): string[] {
 // Contract: label, mode choices and the unchanged column positions.
 assert.equal(DELIVERY_REFERENCE_FIELD_LABEL, "Sales Order / TR Number");
 assert.equal(TR_NUMBER_FIELD_LABEL, "TR Number");
-assert.deepEqual(DELIVERY_REFERENCE_MODE_CHOICES.map((choice) => choice.value), ["SALES_ORDER", "TR_NUMBER"]);
+assert.deepEqual(DELIVERY_REFERENCE_MODE_CHOICES.map((choice) => choice.value), ["SALES_ORDER", "TR_NUMBER", "NO_CHARGE"]);
 assert.equal(DELIVERY_REFERENCE_COLUMN, 4, "reference column stays E");
 assert.equal(DELIVERY_SALES_ORDER_ID_COLUMN, 18, "Sales Order link stays column S");
 
@@ -46,7 +53,7 @@ const createdWithSalesOrder = deliveryReferenceRowValues({
   salesOrderId: "so-1001",
   salesOrderNo: "AIC-SO-2026-0001",
 });
-assert.deepEqual(createdWithSalesOrder, { reference: "AIC-SO-2026-0001", salesOrderId: "so-1001" });
+assert.deepEqual(createdWithSalesOrder, { reference: "AIC-SO-2026-0001", salesOrderId: "so-1001", noChargeReason: "", noChargeNote: "" });
 const createdRef = deliveryReferenceFromRow(
   receiptRow(createdWithSalesOrder.reference, createdWithSalesOrder.salesOrderId),
 );
@@ -64,7 +71,7 @@ const createdWithTr = deliveryReferenceRowValues({
   salesOrderId: "so-must-be-cleared",
   trNo: "  TR-8891  ",
 });
-assert.deepEqual(createdWithTr, { reference: "TR-8891", salesOrderId: "" });
+assert.deepEqual(createdWithTr, { reference: "TR-8891", salesOrderId: "", noChargeReason: "", noChargeNote: "" });
 const trRef = deliveryReferenceFromRow(receiptRow(createdWithTr.reference, createdWithTr.salesOrderId));
 assert.equal(trRef.referenceMode, "TR_NUMBER");
 assert.equal(trRef.isLinkedToSalesOrder, false);
@@ -80,7 +87,7 @@ const switchedToTr = deliveryReferenceRowValues(
   { referenceMode: "TR_NUMBER", trNo: "TR-4477" },
   currentSoRow,
 );
-assert.deepEqual(switchedToTr, { reference: "TR-4477", salesOrderId: "" });
+assert.deepEqual(switchedToTr, { reference: "TR-4477", salesOrderId: "", noChargeReason: "", noChargeNote: "" });
 const switchedTrRef = deliveryReferenceFromRow(receiptRow(switchedToTr.reference, switchedToTr.salesOrderId));
 assert.equal(switchedTrRef.isLinkedToSalesOrder, false, "the Sales Order link must be cleared");
 assert.equal(deliveryReferenceDisplay(switchedTrRef), "TR-4477");
@@ -94,7 +101,7 @@ const switchedToSo = deliveryReferenceRowValues(
   { referenceMode: "SALES_ORDER", salesOrderId: "so-2002", salesOrderNo: "AIC-SO-2026-0002" },
   currentTrRow,
 );
-assert.deepEqual(switchedToSo, { reference: "AIC-SO-2026-0002", salesOrderId: "so-2002" });
+assert.deepEqual(switchedToSo, { reference: "AIC-SO-2026-0002", salesOrderId: "so-2002", noChargeReason: "", noChargeNote: "" });
 const switchedSoRef = deliveryReferenceFromRow(receiptRow(switchedToSo.reference, switchedToSo.salesOrderId));
 assert.equal(switchedSoRef.isLinkedToSalesOrder, true);
 assert.equal(legacyTrNumberForRecord(switchedSoRef), "", "the manual TR number must be cleared");
@@ -157,5 +164,44 @@ assert.deepEqual(
   { reference: "TR-supplied", salesOrderId: "so-stored" },
 );
 
-console.log("delivery-release reference tests passed");
+// No charge: warranty, gift, sample or other — no Sales Order, no TR number.
+assert.deepEqual(NO_CHARGE_REASONS.map((r) => r.value), ["WARRANTY", "GIFT", "SAMPLE", "OTHER"]);
+assert.deepEqual(NO_CHARGE_REASONS.map((r) => r.label), ["Warranty", "Gift", "Sample", "Other"]);
+assert.equal(DELIVERY_NO_CHARGE_REASON_COLUMN, 25, "no-charge reason is column Z");
+assert.equal(DELIVERY_NO_CHARGE_NOTE_COLUMN, 26, "no-charge note is column AA");
+assert.equal(resolveDeliveryReference({ referenceMode: "NO_CHARGE" }).error, DELIVERY_REFERENCE_CHOOSE_REASON_ERROR);
+assert.equal(resolveDeliveryReference({ referenceMode: "NO_CHARGE", noChargeReason: "FREEBIE" }).error, DELIVERY_REFERENCE_CHOOSE_REASON_ERROR);
+assert.deepEqual(
+  deliveryReferenceRowValues({ referenceMode: "NO_CHARGE", noChargeReason: "WARRANTY", salesOrderId: "so-1", trNo: "TR-1", noChargeNote: "  unit swap " }),
+  { reference: "", salesOrderId: "", noChargeReason: "WARRANTY", noChargeNote: "unit swap" },
+);
+assert.equal(resolveDeliveryReference({ referenceMode: "NO_CHARGE", noChargeReason: "OTHER", noChargeNote: "   " }).error, DELIVERY_REFERENCE_OTHER_NOTE_ERROR);
+assert.equal(resolveDeliveryReference({ referenceMode: "NO_CHARGE", noChargeReason: "OTHER", noChargeNote: "demo unit" }).error, undefined);
+assert.deepEqual(
+  deliveryReferenceRowValues({ referenceMode: "TR_NUMBER", trNo: "TR-9" }),
+  { reference: "TR-9", salesOrderId: "", noChargeReason: "", noChargeNote: "" },
+);
+assert.equal("noChargeReason" in deliveryReferenceRowValues({ trNo: "TR-9" }), false, "no mode leaves Z/AA untouched");
 
+const ncRow = receiptRow("", "");
+ncRow[DELIVERY_NO_CHARGE_REASON_COLUMN] = "GIFT";
+const ncRef = deliveryReferenceFromRow(ncRow);
+assert.equal(ncRef.referenceMode, "NO_CHARGE");
+assert.equal(ncRef.noChargeReason, "GIFT");
+assert.equal(deliveryReferenceDisplay(ncRef), "GIFT");
+assert.equal(deliveryReferenceKindLabel(ncRef), "No charge");
+assert.equal(referenceModeForRecord(ncRef), "NO_CHARGE");
+assert.equal(isNoChargeDelivery(ncRef), true);
+assert.equal(legacyTrNumberForRecord({ ...ncRef, trNo: "GIFT" }), "", "a no-charge DR has no manual TR number");
+const oldRef = deliveryReferenceFromRow(receiptRow("TR-1", ""));
+assert.equal(oldRef.referenceMode, "TR_NUMBER");
+assert.equal(oldRef.noChargeReason, "");
+assert.equal(isNoChargeDelivery(oldRef), false);
+
+// Switching an existing DR to No charge is blocked once it counted somewhere else.
+assert.equal(noChargeSwitchError({ contractReleases: false, salesOrderFulfillment: false, linkedInvoices: [] }), undefined);
+assert.equal(noChargeSwitchError({ contractReleases: true, salesOrderFulfillment: false, linkedInvoices: [] }), "This DR released contract items, so it can't be marked No charge.");
+assert.equal(noChargeSwitchError({ contractReleases: false, salesOrderFulfillment: true, linkedInvoices: [] }), "This DR posted Sales Order fulfillment, so it can't be marked No charge.");
+assert.equal(noChargeSwitchError({ contractReleases: false, salesOrderFulfillment: false, linkedInvoices: ["SR-0012", "SI-0040"] }), "This DR is linked to invoice SR-0012, SI-0040, so it can't be marked No charge.");
+
+console.log("delivery-release reference tests passed");
