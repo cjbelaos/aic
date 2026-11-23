@@ -1,6 +1,7 @@
 import { getProductsOnly } from "@/lib/productSheets";
 import { getWarehouses } from "@/lib/warehouseSheets";
 import { withInventoryLock } from "@/lib/inventory/lock";
+import { lineSources, validateLineSources, type WarehouseSource } from "@/lib/deliverySources";
 import {
   appendMovements,
   listDrStockLines,
@@ -18,6 +19,7 @@ import {
   checkLines,
   computeBalances,
   dateBeforeOpening,
+  drCheckLines,
   resolveDocumentStatus,
   stockKey,
   toIsoDate,
@@ -80,16 +82,16 @@ async function labels() {
   };
 }
 
-/** Message for the first blocked line, using the spec's copy. */
-function blockedMessage(check: StockCheck, warehouseName: string, product: (id: string) => string): string {
+/** Message for the first blocked line, naming that line's warehouse. */
+function blockedMessage(check: StockCheck, warehouseName: (id: string) => string, product: (id: string) => string): string {
   const line = check.lines.find((l) => l.result === "blocked");
   if (!line) return "Not enough stock.";
-  return `Not enough stock at ${warehouseName}: ${product(line.productId)} needs ${line.requested}, ${line.onHand} on hand`;
+  return `Not enough stock at ${warehouseName(line.warehouseId)}: ${product(line.productId)} needs ${line.requested}, ${line.onHand} on hand`;
 }
 
-export async function previewCheck(input: { warehouseId: string; lines: { productId?: string; productCode?: string; quantity: number }[]; exclude?: Exclude }): Promise<StockCheck> {
+export async function previewCheck(input: { warehouseId: string; lines: { warehouseId?: string; productId?: string; productCode?: string; quantity: number }[]; exclude?: Exclude }): Promise<StockCheck> {
   const [{ balances, tracked }, names] = await Promise.all([loadBalances(input.exclude), labels()]);
-  const lines = input.lines.map((l) => ({ productId: l.productId || names.productIdByCode.get(String(l.productCode ?? "").toLowerCase()) || "", quantity: l.quantity }));
+  const lines = input.lines.map((l) => ({ warehouseId: l.warehouseId, productId: l.productId || names.productIdByCode.get(String(l.productCode ?? "").toLowerCase()) || "", quantity: l.quantity }));
   return checkLines(balances, input.warehouseId, lines, tracked);
 }
 
@@ -103,10 +105,11 @@ const RESUBMIT_STATUSES = new Set(["pending_approval", "rejected"]);
  */
 export async function guardDrStock(input: {
   drNumber?: number;
+  /** The DR's default warehouse; lines without sources take their full qty from it. */
   warehouseId: string;
   date: string;
   requestedStatus: string;
-  items: { productId?: string; productCode?: string; quantity: number }[];
+  items: { productId?: string; productCode?: string; quantity: number; sources?: WarehouseSource[] }[];
   level: AccessLevel;
 }): Promise<{ status: string; selfApproved: boolean; check: StockCheck }> {
   const requested = String(input.requestedStatus || "created").trim().toLowerCase();
@@ -115,25 +118,31 @@ export async function guardDrStock(input: {
     loadBalances(input.drNumber !== undefined ? { drNumber: input.drNumber } : undefined),
     labels(),
   ]);
-  const lines = input.items.map((item) => ({
+  const items = input.items.map((item) => ({
     productId: item.productId || names.productIdByCode.get(String(item.productCode ?? "").toLowerCase()) || "",
     quantity: Number(item.quantity) || 0,
+    sources: item.sources,
   }));
-  const inputError = validateDrGuardInput({ date: input.date, lines }, tracked, names.product);
+  const inputError = validateDrGuardInput({ date: input.date, lines: items }, tracked, names.product)
+    ?? validateLineSources(
+      items.map((item) => ({ productName: names.product(item.productId), quantity: item.quantity, tracked: Boolean(item.productId) && tracked.has(item.productId), sources: lineSources(item, input.warehouseId) })),
+      names.activeWarehouse,
+    );
   if (inputError) throw new InventoryValidationError(inputError);
-  for (const line of lines) {
-    if (line.productId && tracked.has(line.productId) && dateBeforeOpening(balances, input.warehouseId, line.productId, input.date)) {
-      const opening = balances.get(stockKey(input.warehouseId, line.productId))?.openingDate;
-      throw new InventoryBlockedError(`${names.product(line.productId)} cannot be delivered before its opening count date (${opening}) at ${names.warehouse(input.warehouseId)}.`);
+  const parts = drCheckLines(items, input.warehouseId);
+  for (const part of parts) {
+    if (part.productId && tracked.has(part.productId) && dateBeforeOpening(balances, part.warehouseId, part.productId, input.date)) {
+      const opening = balances.get(stockKey(part.warehouseId, part.productId))?.openingDate;
+      throw new InventoryBlockedError(`${names.product(part.productId)} cannot be delivered before its opening count date (${opening}) at ${names.warehouse(part.warehouseId)}.`);
     }
   }
-  const check = checkLines(balances, input.warehouseId, lines, tracked);
+  const check = checkLines(balances, input.warehouseId, parts, tracked);
   const resolved = resolveDocumentStatus({
     requested: RESUBMIT_STATUSES.has(requested) ? "created" : requested,
     check,
     level: input.level,
   });
-  if ("error" in resolved) throw new InventoryBlockedError(blockedMessage(check, names.warehouse(input.warehouseId), names.product), check);
+  if ("error" in resolved) throw new InventoryBlockedError(blockedMessage(check, names.warehouse, names.product), check);
   return { ...resolved, check };
 }
 
@@ -208,7 +217,7 @@ async function checkTransferStock(
   }
   const check = checkLines(balances, transfer.fromWarehouseId, transfer.items.map((i) => ({ productId: i.productId, quantity: i.qty })), tracked);
   const resolved = resolveDocumentStatus({ requested: "created", check, level });
-  if ("error" in resolved) throw new InventoryBlockedError(blockedMessage(check, names.warehouse(transfer.fromWarehouseId), names.product), check);
+  if ("error" in resolved) throw new InventoryBlockedError(blockedMessage(check, names.warehouse, names.product), check);
   return { ...resolved, check, zeroOpenings };
 }
 
@@ -259,7 +268,7 @@ export async function cancelTransfer(transferId: string, actor: Actor): Promise<
       const [{ balances, tracked }, names] = await Promise.all([loadBalances(), labels()]);
       // Cancelling takes the stock back out of the receiving warehouse; it must still be there.
       const check = checkLines(balances, transfer.toWarehouseId, transfer.items.map((i) => ({ productId: i.productId, quantity: i.qty })), tracked);
-      if (check.result === "blocked") throw new InventoryBlockedError(`Cannot cancel: ${blockedMessage(check, names.warehouse(transfer.toWarehouseId), names.product)}`, check);
+      if (check.result === "blocked") throw new InventoryBlockedError(`Cannot cancel: ${blockedMessage(check, names.warehouse, names.product)}`, check);
       const ids = (await listMovements()).filter((m) => m.sourceType === "TRANSFER" && m.sourceId === transferId && m.status === "active").map((m) => m.movementId);
       await setMovementStatus(ids, "void", actor.userId);
     }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { SalesOrderError } from "@/lib/salesOrders/errors";
 import { activeWarehouseError, guardedDrWrite, inventoryErrorResponse } from "@/lib/inventory/drGuard";
+import { effectiveSourcesKey } from "@/lib/deliverySources";
 import { isCountedDrStatus } from "@/lib/inventory/domain";
 import {
   getDeliveryReceipts,
@@ -188,12 +189,10 @@ export async function PUT(
     // A finalized DR whose stock-relevant fields (items, warehouse, date) are
     // unchanged keeps its earlier decision, so e.g. a comment edit on a
     // manager-approved DR does not send it back for approval.
-    const stockKeyOf = (items: { productId?: string; productCode?: string; quantity: number }[] | undefined) =>
-      JSON.stringify((items ?? []).map((item) => `${item.productId || item.productCode || ""}:${Number(item.quantity) || 0}`).sort());
     const stockUnchanged = Boolean(stored) && isCountedDrStatus(storedStatus) && isCountedDrStatus(requestedStatus)
       && warehouseId === (stored?.warehouseId ?? "")
       && (body.date === undefined || body.date === stored?.date)
-      && (body.items === undefined || stockKeyOf(body.items) === stockKeyOf(stored?.items));
+      && (body.items === undefined || effectiveSourcesKey(body.items, warehouseId) === effectiveSourcesKey(stored?.items, stored?.warehouseId));
     const guarded = !stockUnchanged
       && (isCountedDrStatus(requestedStatus) || ["pending_approval", "rejected"].includes(rawStatus))
       && (Boolean(warehouseId) || notYetFinal);

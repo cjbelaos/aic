@@ -5,6 +5,7 @@ import { withInventoryLock, InventoryWriteConflict } from "@/lib/inventory/lock"
 import { guardDrStock, InventoryBlockedError, InventoryForbiddenError, InventoryValidationError } from "@/lib/inventory/service";
 import type { StockCheck } from "@/lib/inventory/domain";
 import type { SessionUser } from "@/types/user";
+import type { WarehouseSource } from "@/lib/deliverySources";
 
 // Glue between the Delivery Receipt routes and the inventory service: one call
 // runs the stock guard and the DR write inside the same inventory lock.
@@ -12,9 +13,9 @@ import type { SessionUser } from "@/types/user";
 export const SELF_APPROVED_NOTE = "Self-approved (Manager)";
 
 export async function activeWarehouseError(warehouseId: string | undefined): Promise<string | null> {
-  if (!warehouseId?.trim()) return "From warehouse is required.";
+  if (!warehouseId?.trim()) return "Default warehouse is required.";
   const warehouse = (await getWarehouses()).find((w) => w.warehouseId === warehouseId);
-  return warehouse?.active ? null : "From warehouse must be an active warehouse.";
+  return warehouse?.active ? null : "Default warehouse must be an active warehouse.";
 }
 
 export interface DrStockDecision {
@@ -35,7 +36,7 @@ const NO_APPROVAL = { approvedBy: "", approvedAt: "", approvalNote: "" };
  */
 export async function guardedDrWrite<T>(
   session: SessionUser,
-  input: { drNumber?: number; warehouseId: string; date: string; requestedStatus: string; items: { productId?: string; productCode?: string; quantity: number }[] },
+  input: { drNumber?: number; warehouseId: string; date: string; requestedStatus: string; items: { productId?: string; productCode?: string; quantity: number; sources?: WarehouseSource[] }[] },
   write: (decision: DrStockDecision) => Promise<T>,
 ): Promise<{ result: T; decision: DrStockDecision }> {
   const requested = String(input.requestedStatus || "created").trim().toLowerCase();
