@@ -17,12 +17,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  StockLineHint,
   WarehouseSelect,
   approvalPrompt,
   useActiveWarehouses,
   useStockCheck,
 } from "@/components/inventory/dr-stock";
+import { LineSources } from "@/components/inventory/line-sources";
+import { sourcesComplete, storedSources, syncSingleSource, type WarehouseSource } from "@/lib/deliverySources";
 import deliveryService from "@/lib/services/delivery.service";
 import productService from "@/lib/services/product.service";
 import userService from "@/lib/services/user.service";
@@ -46,6 +47,8 @@ interface Row {
   unit: string;
   owed: number;
   quantity: number;
+  /** Warehouse parts the user chose; unset = all from the default warehouse. */
+  sources?: WarehouseSource[];
 }
 
 interface Props {
@@ -104,12 +107,16 @@ export function ReleaseSheet({ customer, agreement, open, onOpenChange, onReleas
   const productName = (id: string) => products.find((p) => p.id === id)?.name || rows.find((r) => r.productId === id)?.productName || id;
   const warehouseName = (id: string) => warehouses.find((w) => w.warehouseId === id)?.name || id;
 
+  const partsOf = (r: Row) => syncSingleSource(r.sources, r.quantity, warehouseId);
+  // Stock is checked per warehouse part, not per row.
   const stockLines = useMemo(
-    () => rows.filter((r) => r.productCode && r.quantity > 0).map((r) => ({ productId: productById(r), productCode: r.productCode, quantity: r.quantity })),
+    () => rows
+      .filter((r) => r.productCode && r.quantity > 0)
+      .flatMap((r) => partsOf(r).map((part) => ({ warehouseId: part.warehouseId, productId: productById(r), productCode: r.productCode, quantity: part.quantity }))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, products],
+    [rows, products, warehouseId],
   );
-  const stock = useStockCheck({ warehouseId, lines: stockLines, enabled: open });
+  const stock = useStockCheck({ lines: stockLines, enabled: open });
 
   const productOptions = useMemo(
     () => products.map((p) => ({ value: p.code, label: p.name ? `${p.name} (${p.code})` : p.code, hidden: p.status === "inactive" })),
@@ -132,14 +139,17 @@ export function ReleaseSheet({ customer, agreement, open, onOpenChange, onReleas
   const submit = async () => {
     if (savingRef.current) return;
     const driver = drivers.find((d) => d.value === deliveredBy);
-    if (!warehouseId) return void toast.error("Warehouse is required.");
+    if (!warehouseId) return void toast.error("Default warehouse is required.");
     if (!driver) return void toast.error("Delivered by is required.");
     if (!preparedBy.trim()) return void toast.error("Could not find your name for Prepared By. Sign in again.");
     const lines = rows.filter((r) => r.productCode && r.quantity > 0);
     if (!lines.length) return void toast.error("Add at least one item with a quantity.");
     if (lines.some((r) => !Number.isInteger(r.quantity))) return void toast.error("Quantities must be whole numbers.");
 
-    const approvalText = approvalPrompt(stock.check, stock.level, warehouseName(warehouseId), productName);
+    if (!sourcesComplete(lines.map((r) => ({ quantity: r.quantity, sources: partsOf(r) })))) {
+      return void toast.error("Warehouse quantities must add up to each line's quantity.");
+    }
+    const approvalText = approvalPrompt(stock.check, stock.level, warehouseName, productName);
     if (approvalText && !window.confirm(approvalText)) return;
 
     const contractLines: ContractLine[] = [];
@@ -163,6 +173,7 @@ export function ReleaseSheet({ customer, agreement, open, onOpenChange, onReleas
         description: r.productName,
         quantity: r.quantity,
         serialNumbers: [],
+        sources: partsOf(r),
       })),
       status: "printed",
       warehouseId,
@@ -203,7 +214,7 @@ export function ReleaseSheet({ customer, agreement, open, onOpenChange, onReleas
         </SheetHeader>
 
         <div className="space-y-4 px-4">
-          <WarehouseSelect value={warehouseId} onChange={setWarehouseId} warehouses={warehouses} label="Warehouse" />
+          <WarehouseSelect value={warehouseId} onChange={setWarehouseId} warehouses={warehouses} />
           <div className="space-y-2">
             <Label>
               Delivered By <span className="text-destructive">*</span>
@@ -277,10 +288,13 @@ export function ReleaseSheet({ customer, agreement, open, onOpenChange, onReleas
                   </p>
                 )}
                 {r.productCode && (
-                  <StockLineHint
+                  <LineSources
+                    value={partsOf(r)}
+                    onChange={(next) => update(r.key, { sources: storedSources(next, warehouseId) })}
+                    quantity={r.quantity}
+                    warehouses={warehouses}
                     check={stock.check}
                     productId={productById(r)}
-                    warehouseName={warehouseName(warehouseId)}
                     productName={r.productName}
                   />
                 )}

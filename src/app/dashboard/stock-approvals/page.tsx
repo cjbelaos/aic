@@ -19,7 +19,7 @@ interface ApprovalItem {
   warehouseName: string;
   requestedBy: string;
   preparedBy: string;
-  check: { result: string; lines: (LineCheck & { productName: string })[] };
+  check: { result: string; lines: (LineCheck & { productName: string; warehouseName?: string })[] };
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -108,8 +108,11 @@ export default function StockApprovalsPage() {
             </div>
             <ul className="space-y-1 text-sm">
               {item.check.lines.map((line) => (
-                <li key={line.productId} className="flex flex-wrap justify-between gap-2">
-                  <span>{line.productName} × {line.requested}</span>
+                <li key={`${line.warehouseId}|${line.productId}`} className="flex flex-wrap justify-between gap-2">
+                  <span>
+                    {line.productName} × {line.requested}
+                    {item.kind === "DR" && line.warehouseName ? <span className="text-muted-foreground"> · {line.warehouseName}</span> : null}
+                  </span>
                   <span className={line.result === "blocked" ? "text-destructive" : line.result === "needs_approval" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
                     {line.result === "blocked"
                       ? `Not enough stock now: ${line.onHand} on hand`
