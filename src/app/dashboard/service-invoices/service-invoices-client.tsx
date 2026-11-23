@@ -19,6 +19,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { FilterMultiSelect } from "@/components/ui/filter-multi-select";
 import { InvoiceCategoryPicker } from "@/components/invoice-category-picker";
 import ServiceInvoiceReporting from "@/components/service-invoice-reporting";
+import ServiceInvoiceTrackerSync from "@/components/service-invoice-tracker-sync";
 import {
   buildServiceInvoiceSummaryReport,
   reportRange,
@@ -762,6 +763,11 @@ export default function ServiceInvoicesClient({
                 ? "Scanned"
                 : "Not scanned"}
             </Badge>
+            {row.original.trackerSyncStatus === "failed" && (
+              <Badge variant="destructive" className="ml-1" title="Could not copy to the accounting tracker. Use Sync to tracker.">
+                Not on tracker
+              </Badge>
+            )}
             {row.original.scanVerificationPending && (
               <p className="text-xs text-muted-foreground">
                 Existing attachment could not be verified; upload a scan to
@@ -1769,6 +1775,7 @@ export default function ServiceInvoicesClient({
           showSummary={false}
         />
       )}
+      {isAdmin && invoiceKind === "service" && <ServiceInvoiceTrackerSync onDone={fetchList} />}
       <Button
         type="button"
         variant="outline"
