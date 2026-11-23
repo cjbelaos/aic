@@ -96,9 +96,8 @@ export async function GET(
     const companyName = company?.companyName || companyId;
     const address = company?.address || "";
     const tin = company?.tin || "";
-    const forCompanyName = forCompanyId
-      ? companies.find((c) => c.companyId === forCompanyId)?.companyName || forCompanyId
-      : undefined;
+    const forCompany = forCompanyId ? companies.find((c) => c.companyId === forCompanyId) : undefined;
+    const forCompanyName = forCompanyId ? forCompany?.companyName || forCompanyId : undefined;
 
     // Current receipts use the in-app A4 document. Do not make their preview
     // depend on regenerating the retired Google Sheets PDF template.
@@ -116,6 +115,8 @@ export async function GET(
         companyId,
         forCompanyId,
         forCompanyName,
+        forCompanyAddress: forCompany?.address || undefined,
+        forCompanyTin: forCompany?.tin || undefined,
         companyName,
         address,
         tin,

@@ -1,12 +1,23 @@
 import type { DeliveryReceiptResponse } from "@/types/deliveryReceipt";
 import { printSerialLine } from "@/lib/deliverySerials";
 
-import { BusinessDocumentHeader } from "./business-document-print-layout";
+import { BusinessDocumentHeader, type DocumentBrand } from "./business-document-print-layout";
+import { deliveredToParty, type DeliveryReceiptPrintForm } from "@/lib/deliveryPrintForm";
 import { UserSignatureImage } from "./user-signature-image";
 import { signerNameKey, type UserSignatureUrls } from "@/lib/userSignatures";
 export { businessDocumentPrintShell as deliveryReceiptPrintShell } from "./business-document-print-layout";
 
-export function DeliveryReceiptPrintDocument({ dr, signatureUrls = {} }: { dr: DeliveryReceiptResponse; signatureUrls?: UserSignatureUrls }) {
+/**
+ * The DR print form. `form="golden-east"` is the same layout issued under Golden East's
+ * name and logo, with "Delivered to" naming the FOR client (Aerich delivers on their behalf).
+ */
+export function DeliveryReceiptPrintDocument({ dr, signatureUrls = {}, form = "aerich" }: { dr: DeliveryReceiptResponse; signatureUrls?: UserSignatureUrls; form?: DeliveryReceiptPrintForm }) {
+  const goldenEast = form === "golden-east";
+  // Golden East issues the DR, so the header carries its name and its own (the DR company's) address.
+  const brand: DocumentBrand | undefined = goldenEast
+    ? { logoSrc: "/golden-east-logo-print.png", logoAlt: "Golden East Resource Trading, OPC logo", name: "GOLDEN EAST RESOURCE TRADING, OPC", lines: dr.address ? [dr.address] : [] }
+    : undefined;
+  const to = deliveredToParty(dr, form);
   return (
     <>
       <style>{`
@@ -20,9 +31,9 @@ export function DeliveryReceiptPrintDocument({ dr, signatureUrls = {} }: { dr: D
         <colgroup><col style={{ width: "6%" }} /><col style={{ width: "72%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} /></colgroup>
         <thead>
           <tr><th colSpan={4} className="heading-cell">
-            <BusinessDocumentHeader title="DELIVERY RECEIPT" number={dr.drNumber > 0 ? `DR ${dr.drNumber}` : "DRAFT"} draft={dr.status === "draft" && dr.drNumber > 0} />
+            <BusinessDocumentHeader title="DELIVERY RECEIPT" number={dr.drNumber > 0 ? `DR ${dr.drNumber}` : "DRAFT"} draft={dr.status === "draft" && dr.drNumber > 0} brand={brand} />
             <div className="details">
-              <div><div className="label">Delivered to</div><div className="customer">{dr.companyName}</div><div className="multiline">{dr.address}</div><div>TIN: {dr.tin || "—"}</div>{dr.forCompanyName && <div><b>For:</b> {dr.forCompanyName}</div>}</div>
+              <div><div className="label">Delivered to</div><div className="customer">{to.name}</div><div className="multiline">{to.address}</div><div>TIN: {to.tin || "—"}</div>{!goldenEast && dr.forCompanyName && <div><b>For:</b> {dr.forCompanyName}</div>}</div>
               <div><div><b>Date:</b> {dr.date}</div><div><b>PO No.:</b> {dr.poNo || "—"}</div><div><b>SO / TR No.:</b> {dr.trNo || "—"}</div></div>
             </div>
           </th></tr>

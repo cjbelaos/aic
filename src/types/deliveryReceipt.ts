@@ -74,6 +74,8 @@ export interface DeliveryReceiptResponse {
   /** The FOR client (column Y) and its resolved name, printed as "FOR: …". */
   forCompanyId?: string;
   forCompanyName?: string;
+  forCompanyAddress?: string;
+  forCompanyTin?: string;
   companyName: string;
   address: string;
   tin: string;

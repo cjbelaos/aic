@@ -50,3 +50,16 @@ export function billingCompanyOptions(
     .sort((a, b) => a.companyName.localeCompare(b.companyName))
     .map((c) => ({ value: c.companyId, label: `${c.companyName} (${c.companyId})` }));
 }
+
+export interface DeliveredToParty { name: string; address: string; tin: string }
+
+/** Who the "Delivered to" block names: the FOR client on the Golden East form, else the DR's company. */
+export function deliveredToParty(
+  dr: { companyName: string; address: string; tin: string; forCompanyName?: string; forCompanyAddress?: string; forCompanyTin?: string },
+  form: DeliveryReceiptPrintForm,
+): DeliveredToParty {
+  if (form === "golden-east" && dr.forCompanyName) {
+    return { name: dr.forCompanyName, address: dr.forCompanyAddress || "", tin: dr.forCompanyTin || "" };
+  }
+  return { name: dr.companyName, address: dr.address, tin: dr.tin };
+}

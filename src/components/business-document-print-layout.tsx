@@ -37,11 +37,21 @@ export const businessDocumentPrintShell = `<!doctype html><html><head><meta char
   @media print { body { background: white; color: black; } .receipt { max-width: none; margin: 0; padding: 0; } }
 </style></head><body></body></html>`;
 
-export function BusinessDocumentHeader({ title, number, draft = false }: { title: string; number: string; draft?: boolean }) {
+/** The issuing company shown in a document header. Defaults to Aerich. */
+export interface DocumentBrand { logoSrc: string; logoAlt: string; name: string; lines: string[] }
+
+export const AERICH_BRAND: DocumentBrand = {
+  logoSrc: "/logo.png",
+  logoAlt: "Aerich Innovation Corp. logo",
+  name: "AERICH INNOVATION CORP.",
+  lines: ["BLK 4 LOT 2 BAMBOO ORCHARD BANAY - BANAY", "CABUYAO CITY, LAGUNA", "aerichinnovationcorp@gmail.com"],
+};
+
+export function BusinessDocumentHeader({ title, number, draft = false, brand = AERICH_BRAND }: { title: string; number: string; draft?: boolean; brand?: DocumentBrand }) {
   return <div className="business-document-header">
     {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img src="/logo.png" alt="Aerich Innovation Corp. logo" />
-    <div className="company-info"><div className="company-name">AERICH INNOVATION CORP.</div><div>BLK 4 LOT 2 BAMBOO ORCHARD BANAY - BANAY</div><div>CABUYAO CITY, LAGUNA</div><div>aerichinnovationcorp@gmail.com</div></div>
+    <img src={brand.logoSrc} alt={brand.logoAlt} />
+    <div className="company-info"><div className="company-name">{brand.name}</div>{brand.lines.map((line, i) => <div key={i}>{line}</div>)}</div>
     <div className="title"><h1>{title}</h1><div className="number">{number}</div>{draft && <div>DRAFT</div>}</div>
   </div>;
 }

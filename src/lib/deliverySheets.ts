@@ -611,6 +611,8 @@ export async function processDeliveryReceipt(
       companyId: payload.companyId,
       forCompanyId: payload.forCompanyId || undefined,
       forCompanyName: forCompany?.companyName,
+      forCompanyAddress: forCompany?.address || undefined,
+      forCompanyTin: forCompany?.tin || undefined,
       companyName,
       address,
       tin,

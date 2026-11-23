@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { BusinessDocumentPrintFrame, type BusinessDocumentPrintHandle } from "./business-document-print-frame";
 import { DeliveryReceiptPrintDocument } from "./delivery-receipt-print-document";
-import { GoldenEastDeliveryReceiptPrintDocument } from "./golden-east-delivery-receipt-print-document";
 import { defaultDeliveryReceiptPrintForm, type DeliveryReceiptPrintForm } from "@/lib/deliveryPrintForm";
 import { Printer, Save, Loader2, ExternalLink, FileText } from "lucide-react";
 import { toast } from "sonner";
@@ -111,7 +110,7 @@ export function DeliveryReceiptPreviewModal({ dr: initialDr, open, onOpenChange,
           {legacy ? (
             <iframe src={dr.pdfBase64 ? `data:application/pdf;base64,${dr.pdfBase64}` : dr.printUrl} className="w-full h-full border-none" title="Previous Delivery Receipt format" />
           ) : (
-            <BusinessDocumentPrintFrame ref={printFrame} title={`Delivery Receipt ${dr.drNumber}`}>{form === "golden-east" ? <GoldenEastDeliveryReceiptPrintDocument dr={dr} signatureUrls={signatureUrls} /> : <DeliveryReceiptPrintDocument dr={dr} signatureUrls={signatureUrls} />}</BusinessDocumentPrintFrame>
+            <BusinessDocumentPrintFrame ref={printFrame} title={`Delivery Receipt ${dr.drNumber}`}><DeliveryReceiptPrintDocument dr={dr} signatureUrls={signatureUrls} form={form} /></BusinessDocumentPrintFrame>
           )}
         </div>
 

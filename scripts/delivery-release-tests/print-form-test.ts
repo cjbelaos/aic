@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import {
   billingCompanyOptions,
+  deliveredToParty,
   defaultDeliveryReceiptPrintForm,
   forCompanyOptions,
   validateForCompany,
@@ -61,3 +62,16 @@ console.log("print-form tests passed.");
   assert.equal(billingCompanyOptions(all, "").length, 3); // new company: nothing to exclude
 }
 console.log("billing-company options tests passed.");
+
+// "Delivered to": the FOR client on the Golden East form; the DR's company otherwise.
+{
+  const dr = { companyName: "GOLDEN EAST RESOURCE TRADING, OPC", address: "LIPA CITY", tin: "638-269-239-000",
+    forCompanyName: "HOLY FAMILY HOSPITAL - PADRE GARCIA", forCompanyAddress: "PADRE GARCIA, BATANGAS", forCompanyTin: "111-222-333-000" };
+  assert.deepEqual(deliveredToParty(dr, "golden-east"), { name: "HOLY FAMILY HOSPITAL - PADRE GARCIA", address: "PADRE GARCIA, BATANGAS", tin: "111-222-333-000" });
+  assert.deepEqual(deliveredToParty(dr, "aerich"), { name: "GOLDEN EAST RESOURCE TRADING, OPC", address: "LIPA CITY", tin: "638-269-239-000" });
+  const noFor = { companyName: "GOLDEN EAST RESOURCE TRADING, OPC", address: "LIPA CITY", tin: "638-269-239-000" };
+  assert.deepEqual(deliveredToParty(noFor, "golden-east"), { name: "GOLDEN EAST RESOURCE TRADING, OPC", address: "LIPA CITY", tin: "638-269-239-000" });
+  // FOR client with no address/TIN on record prints blanks, not Golden East's details.
+  assert.deepEqual(deliveredToParty({ ...noFor, forCompanyName: "PRIMELUCK RENAL CARE INC." }, "golden-east"), { name: "PRIMELUCK RENAL CARE INC.", address: "", tin: "" });
+}
+console.log("delivered-to tests passed.");
