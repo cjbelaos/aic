@@ -84,6 +84,13 @@ Drafts are never written. A draft has no paper number yet.
 
 ## Client Directory
 
+> **Revised 2026-11-23 (Chris, option A).** The tracker's `Client Directory` tab is an `IMPORTRANGE` of
+> **SALES ORDER TRACKER** (`14G57IKQ73FCxjZyba216vZlsbsqPYsgPGsjVKzcyzwY`) → `Client Directory!A1:H500`.
+> Writing into the tracker's copy would break the import and every TIN/Address lookup. So names are read from,
+> and new customers appended to, **the source**. The tracker's tab is never written. When the source reaches the
+> 500-row import limit, the invoice is reported `needs_review` ("extend the IMPORTRANGE"). Override:
+> `SERVICE_INVOICE_DIRECTORY_SPREADSHEET_ID`. Below, "Client Directory" means the source.
+
 Before writing E, the customer name must be in `Client Directory` col B, an exact match.
 
 - Missing → append a row: B = name, F = TIN, G = address from the app's Companies record. Other columns blank.
