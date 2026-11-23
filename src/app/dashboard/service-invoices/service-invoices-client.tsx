@@ -768,6 +768,11 @@ export default function ServiceInvoicesClient({
                 Not on tracker
               </Badge>
             )}
+            {row.original.trackerSyncStatus === "needs_review" && (
+              <Badge variant="outline" className="ml-1 border-amber-500 text-amber-700 dark:text-amber-400" title="The tracker row was filled or edited by hand, so the app left it unchanged. Check the row, then use Sync to tracker.">
+                Tracker: needs review
+              </Badge>
+            )}
             {row.original.scanVerificationPending && (
               <p className="text-xs text-muted-foreground">
                 Existing attachment could not be verified; upload a scan to

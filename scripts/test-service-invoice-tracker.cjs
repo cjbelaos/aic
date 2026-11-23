@@ -116,10 +116,10 @@ function trackerRow(d, cells = {}) {
 const SOURCE_ID = '14G57IKQ73FCxjZyba216vZlsbsqPYsgPGsjVKzcyzwY';
 const DIR_HEADER = ['', 'Company Name', 'Contact Person', 'Contact Number', 'Email Address', 'TIN', 'Address'];
 const directoryValues = (directory) => [DIR_HEADER, ...directory.map(([name]) => ['3/6/2021', name, '', '', '', '', ''])];
-function fakeSheets({ rows, directory = [['MEDICAL CENTER PARANAQUE']], directoryHeader }) {
+function fakeSheets({ rows, directory = [['MEDICAL CENTER PARANAQUE']], directoryHeader, rowCount = 1483 }) {
   const calls = [];
   const sheets = { spreadsheets: {
-    get: async () => ({ data: { sheets: [{ properties: { sheetId: 1, title: 'Other', gridProperties: { rowCount: 5 } } }, { properties: { sheetId: 449964054, title: 'Service Invoice', gridProperties: { rowCount: 1483 } } }] } }),
+    get: async () => ({ data: { sheets: [{ properties: { sheetId: 1, title: 'Other', gridProperties: { rowCount: 5 } } }, { properties: { sheetId: 449964054, title: 'Service Invoice', gridProperties: { rowCount } } }] } }),
     values: {
       batchGet: async (req) => { calls.push(['batchGet', req]); return { data: { valueRanges: [{ values: rows }] } }; },
       // Client Directory B is a spilled formula: FORMULA render returns no names.
@@ -200,7 +200,7 @@ test('planRow: hand-filled row is needs_review; unchanged owned row is changed=f
   const m = sheetModule();
   const rows = sampleRows(); rows[2] = trackerRow('1801', { 0: 'Contracted', 2: 46348, 4: 'MEDICAL CENTER PARANAQUE', 7: 'PMS FOR THE MONTH OF NOVEMBER 2026', 9: 25000 });
   const snap = await m.readTrackerSnapshot(fakeSheets({ rows }).sheets);
-  assert.equal(m.planRow(snap, '1801', proj, undefined, () => 99).kind, 'needs_review');
+  assert.equal(m.planRow(snap, '1801', { ...proj, j: 26000 }, undefined, () => 99).kind, 'needs_review', 'hand-filled row that differs from the app is left alone');
   const owned = m.planRow(snap, '1801', proj, ['Contracted', '', 46348, 'MEDICAL CENTER PARANAQUE', 'PMS FOR THE MONTH OF NOVEMBER 2026', 25000], () => 99);
   assert.equal(owned.kind, 'write'); assert.equal(owned.changed, false);
 });
@@ -260,7 +260,7 @@ test('applyTrackerWrites: D padded to 4 digits; nothing to write sends nothing',
 
 // ---------- Task 3: sync orchestration ----------
 const TRACKER_ID = '1izCz-qWLqLhAxOeUtn8qp11iLpdxRn3qnhxumutB43A';
-function syncWorld({ trackerRows, dbRows, summaries, directory = [['MEDICAL CENTER PARANAQUE']], companies = [], soItems = [], failApply = false, failRead = false }) {
+function syncWorld({ trackerRows, dbRows, summaries, directory = [['MEDICAL CENTER PARANAQUE']], companies, soItems = [], failApply = false, failRead = false, failInvoices = false, failMetaOnce = false, readDelay = 0 }) {
   const calls = [];
   const db = { rows: dbRows };
   const sheets = { spreadsheets: {
@@ -272,26 +272,26 @@ function syncWorld({ trackerRows, dbRows, summaries, directory = [['MEDICAL CENT
         assert.equal(req.spreadsheetId, 'db'); calls.push(['dbGet', req.range]); return { data: { values: db.rows } };
       },
       batchGet: async (req) => {
-        if (req.spreadsheetId === TRACKER_ID) { calls.push(['trackerRead']); if (failRead) throw new Error('Sheets unavailable'); return { data: { valueRanges: [{ values: trackerRows }] } }; }
+        if (req.spreadsheetId === TRACKER_ID) { calls.push(['trackerRead']); if (readDelay) await new Promise(r => setTimeout(r, readDelay)); if (failRead) throw new Error('Sheets unavailable'); return { data: { valueRanges: [{ values: trackerRows }] } }; }
         return { data: { valueRanges: req.ranges.map(range => ({ values: [[db.rows[Number(range.match(/T(\d+)$/)[1]) - 1][19] ?? '']] })) } };
       },
       append: async (req) => { calls.push(['append', req]); },
       batchUpdate: async (req) => {
-        calls.push(['dbWrite', req]);
+        calls.push(['dbWrite', req]); if (failMetaOnce) { failMetaOnce = false; throw new Error('Write quota'); }
         for (const entry of req.requestBody.data) db.rows[Number(entry.range.match(/T(\d+)$/)[1]) - 1][19] = entry.values[0][0];
       },
     },
   } };
   const mocks = {
     '@/lib/googleSheets': { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => 'db' },
-    '@/lib/serviceInvoiceSheets': { getServiceInvoices: async () => summaries() },
-    '@/lib/companySheets': { getCompanies: async () => companies },
+    '@/lib/serviceInvoiceSheets': { getServiceInvoices: async () => { if (failInvoices) throw new Error('Database read quota'); return summaries(); } },
+    '@/lib/companySheets': { getCompanies: async () => companies ?? [...new Map(summaries().map(x => [x.customerId, { companyId: x.customerId, companyName: x.companyName, tin: '', address: '' }])).values()] },
     '@/lib/salesOrders/repository': { readSalesOrderItemsAll: async () => soItems },
   };
   return { calls, db, sync: load('src/lib/serviceInvoiceTracker/sync.ts', mocks) };
 }
 const dbRow = (no, status, meta = {}) => { const r = Array(20).fill(''); r[0] = no; r[8] = status; r[19] = JSON.stringify({ billingMode: 'REGULAR', discountData: { discountAmount: 0 }, ...meta }); return r; };
-const summary = (no, extra = {}) => ({ invoiceNo: no, status: 'created', date: '2026-11-22', companyName: 'MEDICAL CENTER PARANAQUE', items: [item('PMS FOR THE MONTH OF NOVEMBER 2026', 25000)], ...extra });
+const summary = (no, extra = {}) => { const x = { invoiceNo: no, status: 'created', date: '2026-11-22', companyName: 'MEDICAL CENTER PARANAQUE', items: [item('PMS FOR THE MONTH OF NOVEMBER 2026', 25000)], ...extra }; x.customerId ??= 'C-' + x.companyName; return x; };
 function worldRows() {
   return [HEADER, trackerRow('1800'), trackerRow('1801'), trackerRow('1809', { 0: 'Contracted', 2: 46333, 4: 'IRENE PEDRO', 7: 'PMS FOR THE MONTH OF NOVEMBER 2026', 9: 7000 }), trackerRow('1842')];
 }
@@ -311,13 +311,14 @@ test('sync batch: scope, added/needs_review/appended, metadata merge', async () 
   assert.equal(meta.trackerSync.status, 'synced'); assert.equal(meta.trackerSync.row, 3);
   assert.deepEqual(meta.trackerSync.values, ['Service', '', 46348, 'MEDICAL CENTER PARANAQUE', 'PMS FOR THE MONTH OF NOVEMBER 2026', 25000]);
   assert.equal(JSON.parse(w.db.rows[1][19]).trackerSync, undefined, '1800 untouched');
-  assert.equal(JSON.parse(w.db.rows[3][19]).trackerSync, undefined, 'needs_review leaves metadata');
+  const review = JSON.parse(w.db.rows[3][19]).trackerSync;
+  assert.equal(review.status, 'needs_review'); assert.match(review.error, /by hand/);
   assert.equal(w.calls.filter(c => c[0] === 'trackerBatchUpdate').length, 1);
 });
 
 test('sync: missing customer added to directory once, with company TIN/address', async () => {
   const sums = [summary('1801', { companyName: 'GREEN CITY MEDICAL CENTER' }), summary('1843', { companyName: 'GREEN CITY MEDICAL CENTER' })];
-  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => sums, companies: [{ companyId: 'C1', companyName: 'GREEN CITY MEDICAL CENTER', tin: '123', address: 'SAN FERNANDO' }] });
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => sums, companies: [{ companyId: 'C-GREEN CITY MEDICAL CENTER', companyName: 'GREEN CITY MEDICAL CENTER', tin: '123', address: 'SAN FERNANDO' }] });
   const report = await w.sync.syncServiceInvoicesToTracker();
   assert.deepEqual(report.customersAdded, ['GREEN CITY MEDICAL CENTER']);
   const appends = w.calls.filter(c => c[0] === 'append');
@@ -504,6 +505,66 @@ test('tracker-sync route: admin gets report, non-admin 403, batch error 500', as
   route = load('src/app/api/service-invoices/tracker-sync/route.ts', w.mocks);
   res = await route.POST(new Request('http://test', { method: 'POST' }));
   assert.equal(res.status, 500); assert.match((await res.json()).error, /headers changed/);
+});
+
+// ---------- Final review fixes ----------
+test('I1a planRow: row already equal to the new projection is owned (no lastWritten)', async () => {
+  const m = sheetModule();
+  const rows = sampleRows(); rows[2] = trackerRow('1801', { 0: 'Contracted', 2: 46348, 4: 'MEDICAL CENTER PARANAQUE', 7: 'PMS FOR THE MONTH OF NOVEMBER 2026', 9: 25000 });
+  const snap = await m.readTrackerSnapshot(fakeSheets({ rows }).sheets);
+  const out = m.planRow(snap, '1801', proj, undefined, () => 99);
+  assert.equal(out.kind, 'write'); assert.equal(out.changed, false);
+});
+
+test('I1c auto-syncs run one at a time', async () => {
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => [summary('1801'), summary('1843')], readDelay: 20 });
+  await Promise.all([w.sync.syncServiceInvoiceToTracker('1801'), w.sync.syncServiceInvoiceToTracker('1843')]);
+  const order = w.calls.filter(c => c[0] === 'trackerRead' || c[0] === 'dbWrite').map(c => c[0]);
+  assert.deepEqual(order, ['trackerRead', 'dbWrite', 'trackerRead', 'dbWrite']);
+});
+
+test('I1b getServiceInvoices exposes needs_review status', async () => {
+  const tracking = load('src/lib/serviceInvoiceTracking.ts');
+  const filters = load('src/lib/serviceInvoiceFilters.ts', { './serviceInvoiceTracking': tracking, './serviceInvoiceSummary': load('src/lib/serviceInvoiceSummary.ts', { './serviceInvoiceTracking': tracking }) });
+  const row = Array(21).fill(''); row[0] = '1809'; row[1] = '2026-11-07'; row[2] = 'C1'; row[8] = 'created';
+  row[19] = JSON.stringify({ trackerSync: { status: 'needs_review', syncedAt: 'x', error: 'by hand' } });
+  const sheets = { spreadsheets: { values: { get: async ({ range }) => ({ data: { values: /Items/.test(range) ? [] : [Array(21).fill('h'), row] } }) } } };
+  const storage = load('src/lib/serviceInvoiceSheets.ts', { './serviceInvoiceTracking': tracking, '@/lib/googleSheets': { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => 'fixture' }, '@/lib/serviceInvoiceFilters': filters, '@/lib/companySheets': { getCompanies: async () => [] }, '@/lib/salesOrders/repository': { readSalesOrderListSnapshot: async () => ({ orders: [], items: [] }), readSalesOrderById: async () => null } });
+  assert.equal((await storage.getServiceInvoices())[0].trackerSyncStatus, 'needs_review');
+});
+
+test('I2 app data load failure records failed and rethrows', async () => {
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => [summary('1801')], failInvoices: true });
+  await assert.rejects(w.sync.syncServiceInvoicesToTracker(['1801']), /Database read quota/);
+  assert.equal(JSON.parse(w.db.rows[2][19]).trackerSync.status, 'failed');
+});
+
+test('I2 metadata write is retried once after a successful tracker write', async () => {
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => [summary('1801')], failMetaOnce: true });
+  const report = await w.sync.syncServiceInvoicesToTracker(['1801']);
+  assert.equal(report.results[0].outcome, 'added');
+  assert.equal(JSON.parse(w.db.rows[2][19]).trackerSync.status, 'synced');
+});
+
+test('I3 customer name comes from Companies by customerId; unknown id fails, never appends', async () => {
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => [summary('1801', { customerId: 'COMP-0042', companyName: 'COMP-0042' }), summary('1843', { customerId: 'C7', companyName: 'stale' })],
+    companies: [{ companyId: 'C7', companyName: 'MEDICAL CENTER PARANAQUE', tin: '', address: '' }] });
+  const report = await w.sync.syncServiceInvoicesToTracker();
+  const byNo = Object.fromEntries(report.results.map(r => [r.invoiceNo, r]));
+  assert.equal(byNo['1801'].outcome, 'failed'); assert.match(byNo['1801'].reason, /COMP-0042/);
+  assert.equal(byNo['1843'].outcome, 'added');
+  assert.equal(JSON.parse(w.db.rows[4][19]).trackerSync.values[3], 'MEDICAL CENTER PARANAQUE');
+  assert.equal(w.calls.filter(c => c[0] === 'append').length, 0);
+});
+
+test('I4 appending beyond the grid adds rows first', async () => {
+  const m = sheetModule();
+  const { sheets, calls } = fakeSheets({ rows: sampleRows(), rowCount: 7 });
+  const snap = await m.readTrackerSnapshot(sheets);
+  assert.equal(snap.rowCount, 7);
+  await m.applyTrackerWrites(sheets, snap, [{ invoiceNo: '1844', rowNumber: 8, appended: true, cells: ['', '', 1, '', '', ''] }, { invoiceNo: '1845', rowNumber: 9, appended: true, cells: ['', '', 1, '', '', ''] }], []);
+  const first = calls.find(c => c[0] === 'batchUpdate')[1].requestBody.requests[0];
+  assert.deepEqual(first, { appendDimension: { sheetId: 449964054, dimension: 'ROWS', length: 2 } });
 });
 
 module.exports = { load, test, tests };

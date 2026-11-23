@@ -504,7 +504,7 @@ async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
           status: status === "paid" ? "created" : status,
           paymentStatus: paymentStatusFor(status, manualCompletion),
           statusReason: manualCompletion.statusReason,
-          trackerSyncStatus: (manualCompletion.trackerSync as { status?: "synced" | "failed" } | undefined)?.status,
+          trackerSyncStatus: (manualCompletion.trackerSync as { status?: "synced" | "failed" | "needs_review" } | undefined)?.status,
           scannedFileLink: manualCompletion.scannedFileLink,
           scannedStatus: manualCompletion.scannedFileLink ? "scanned" : "not_scanned",
           driveFileLink: String(row[9] ?? "").trim() || undefined,

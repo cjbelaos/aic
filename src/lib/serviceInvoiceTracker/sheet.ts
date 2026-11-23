@@ -30,6 +30,8 @@ export interface TrackerSnapshot {
   directorySpreadsheetId: string;
   /** Rows used in the source Client Directory, header included. */
   directoryRowCount: number;
+  /** Grid rows in the tracker tab; appends beyond it add rows first. */
+  rowCount: number;
 }
 export interface PlannedRow { invoiceNo: string; rowNumber: number; appended: boolean; cells: TrackerCell[]; fillLookups?: boolean }
 export type PlanOutcome = { kind: "write"; row: PlannedRow; changed: boolean } | { kind: "needs_review"; reason: string };
@@ -56,7 +58,7 @@ export async function readTrackerSnapshot(sheets: sheets_v4.Sheets): Promise<Tra
   const directoryRows = (directory.data.values ?? []) as unknown[][];
   if (Object.entries(DIRECTORY_HEADER).some(([index, name]) => directoryRows[0]?.[Number(index)] !== name)) throw new Error("SALES ORDER TRACKER Client Directory headers changed; sync stopped to protect its data.");
   const directoryNames = new Set(directoryRows.slice(1).map(row => String(row[1] ?? "")).filter(Boolean));
-  return { spreadsheetId, sheetId, title, rows, directoryNames, directorySpreadsheetId, directoryRowCount: directoryRows.length };
+  return { spreadsheetId, sheetId, title, rows, directoryNames, directorySpreadsheetId, directoryRowCount: directoryRows.length, rowCount: tab.properties.gridProperties?.rowCount || rows.length };
 }
 
 /** First row number after the last row with an invoice number in D. */
@@ -77,7 +79,9 @@ export function planRow(snapshot: TrackerSnapshot, invoiceNo: string, projection
   if (current.some(isFormula)) return { kind: "needs_review", reason: `Row ${number} has a formula in a column the app fills; left unchanged.` };
   const lookups = [row[F], row[G]];
   if (lookups.some(value => !isBlank(value) && !isFormula(value))) return { kind: "needs_review", reason: `Row ${number} has manual TIN/address values; left unchanged.` };
-  if (!isRowWritable(current, lastWritten)) return { kind: "needs_review", reason: `Row ${number} was filled or edited by hand; left unchanged.` };
+  // A row already equal to what the app would write is the app's (covers lost or stale metadata).
+  const alreadyCurrent = cells.every((cell, index) => String(cell) === String(current[index] ?? ""));
+  if (!alreadyCurrent && !isRowWritable(current, lastWritten)) return { kind: "needs_review", reason: `Row ${number} was filled or edited by hand; left unchanged.` };
   const changed = cells.some((cell, index) => String(cell) !== String(current[index] ?? ""));
   return { kind: "write", changed, row: { invoiceNo, rowNumber: number, appended: false, cells, fillLookups: lookups.some(isBlank) || undefined } };
 }
@@ -101,6 +105,8 @@ export async function applyTrackerWrites(sheets: sheets_v4.Sheets, snapshot: Tra
   const range = (rowIndex: number, start: number, end: number) => ({ sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: start, endColumnIndex: end });
   const paste = (rowIndex: number, start: number, end: number, pasteType: string): sheets_v4.Schema$Request => ({ copyPaste: { source: range(EXEMPLAR_ROW_INDEX, start, end), destination: range(rowIndex, start, end), pasteType } });
   const requests: sheets_v4.Schema$Request[] = [];
+  const lastRow = Math.max(...rows.map(row => row.rowNumber));
+  if (lastRow > snapshot.rowCount) requests.push({ appendDimension: { sheetId, dimension: "ROWS", length: lastRow - snapshot.rowCount } });
   for (const row of rows) {
     const index = row.rowNumber - 1;
     if (row.appended) requests.push(paste(index, 0, 10, "PASTE_FORMAT"), paste(index, 0, 10, "PASTE_DATA_VALIDATION"), paste(index, F, G + 1, "PASTE_NORMAL"));
