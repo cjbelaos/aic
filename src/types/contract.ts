@@ -22,6 +22,8 @@ export type FrequencyType =
 export interface Contract {
   id: string; // Sheet: ContractId (e.g., "CTR-0001")
   companyId: string; // Sheet: CompanyId (Foreign key to Companies sheet)
+  /** Sheet: Q. The client this agreement serves, a company billed to companyId (e.g. Golden East → Holy Family). */
+  forCompanyId?: string;
   companyName?: string; // Optional: Hydrated in UI by joining with Companies sheet
   description?: string; // Sheet: Description (Optional contract description)
   agreementType: AgreementType; // Sheet: AgreementType ("Contract" | "PO")
@@ -43,6 +45,8 @@ export interface Contract {
 
 export interface CreateContractPayload {
   companyId: string;
+  /** Column Q: the client served; must be billed to companyId. Blank = none. */
+  forCompanyId?: string;
   description?: string;
   agreementType: AgreementType;
   poNumber?: string;
