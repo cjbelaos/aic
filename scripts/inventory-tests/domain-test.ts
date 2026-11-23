@@ -10,6 +10,7 @@ import {
   canPerform,
   checkLines,
   computeBalances,
+  drCheckLines,
   dateBeforeOpening,
   isCountedDrStatus,
   resolveDocumentStatus,
@@ -122,6 +123,36 @@ assert.equal(toIsoDate("x"), null);
   const manual = checkLines(balances, "W1", [{ quantity: 99 }, { productId: "P3", quantity: 99 }], tracked);
   assert.equal(manual.result, "ok");
   assert.equal(manual.lines.length, 0);
+}
+
+// checkLines per warehouse part (a DR line split across warehouses)
+{
+  const w2Opening = movement({ movementId: "MOV-W2", warehouseId: "W2", type: "OPENING", qty: 3 });
+  const balances = balanceOf([opening, w2Opening], []);
+  assert.equal(checkLines(balances, "W1", [{ productId: "P1", quantity: 6 }], tracked).lines[0].warehouseId, "W1");
+  const split = checkLines(balances, "", [{ warehouseId: "W1", productId: "P1", quantity: 2 }, { warehouseId: "W2", productId: "P1", quantity: 3 }], tracked);
+  assert.equal(split.result, "ok");
+  assert.equal(split.lines.length, 2);
+  const short = checkLines(balances, "", [{ warehouseId: "W1", productId: "P1", quantity: 2 }, { warehouseId: "W2", productId: "P1", quantity: 4 }], tracked);
+  assert.equal(short.result, "blocked");
+  const w2 = short.lines.find((line) => line.warehouseId === "W2");
+  assert.equal(w2?.result, "blocked");
+  assert.equal(w2?.shortfall, 1);
+  assert.equal(short.lines.find((line) => line.warehouseId === "W1")?.result, "ok");
+  assert.equal(checkLines(balances, "", [{ warehouseId: "W1", productId: "P1", quantity: 8 }, { warehouseId: "W2", productId: "P1", quantity: 1 }], tracked).result, "needs_approval");
+  const same = checkLines(balances, "", [{ warehouseId: "W1", productId: "P1", quantity: 2 }, { warehouseId: "W1", productId: "P1", quantity: 3 }], tracked);
+  assert.equal(same.lines.length, 1);
+  assert.equal(same.lines[0].requested, 5);
+  assert.equal(checkLines(balances, "", [{ productId: "P1", quantity: 2 }], tracked).lines.length, 0);
+}
+
+// drCheckLines flattens a DR's lines into warehouse parts
+{
+  assert.deepEqual(
+    drCheckLines([{ productId: "P1", quantity: 5, sources: [{ warehouseId: "W1", quantity: 2 }, { warehouseId: "W2", quantity: 3 }] }], "W1"),
+    [{ warehouseId: "W1", productId: "P1", quantity: 2 }, { warehouseId: "W2", productId: "P1", quantity: 3 }],
+  );
+  assert.deepEqual(drCheckLines([{ productId: "P1", quantity: 5 }], "W1"), [{ warehouseId: "W1", productId: "P1", quantity: 5 }]);
 }
 
 // checkLines sums duplicate products

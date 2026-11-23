@@ -1,3 +1,4 @@
+import { lineSources } from "@/lib/deliverySources";
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { isMissingSheetError, nextStableId, parseSheetNumber } from "@/lib/sheets.utils";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
@@ -241,7 +242,10 @@ export async function listDrStockLines(): Promise<DrStockLine[]> {
     const header = { drNumber, date: text(row[1]), status: text(row[10]) || "created", warehouseId: text(row[19]) };
     for (const item of itemsByDr.get(drNumber) ?? []) {
       const productId = text(item.productId) || idByCode.get(text(item.productCode).toLowerCase()) || "";
-      lines.push({ ...header, productId, quantity: Number(item.quantity) || 0 });
+      // One stock line per warehouse part; old lines take it all from the header warehouse.
+      for (const part of lineSources(item, header.warehouseId)) {
+        lines.push({ ...header, warehouseId: part.warehouseId, productId, quantity: part.quantity });
+      }
     }
   }
   return lines;

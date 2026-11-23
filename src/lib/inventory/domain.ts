@@ -8,6 +8,7 @@
 
 import { format } from "date-fns";
 import { parseDeliveryDate } from "../deliverySerials.ts";
+import { lineSources, type WarehouseSource } from "../deliverySources.ts";
 import { isExecutivePositionTitle } from "../positionUtils.ts";
 
 export type MovementType = "OPENING" | "RECEIVED" | "RETURN" | "ADJUSTMENT" | "TRANSFER_OUT" | "TRANSFER_IN";
@@ -56,6 +57,7 @@ export interface StockBalance {
 }
 
 export interface LineCheck {
+  warehouseId: string;
   productId: string;
   requested: number;
   onHand: number;
@@ -164,40 +166,60 @@ export function computeBalances(input: {
 
 const RESULT_RANK: Record<LineResult, number> = { ok: 0, needs_approval: 1, blocked: 2 };
 
+/**
+ * Classifies requested stock per (warehouse, product). A line's own warehouseId
+ * wins over `warehouseId` (DR lines split across warehouses); lines with no
+ * effective warehouse or an untracked product are skipped.
+ */
 export function checkLines(
   balances: Map<string, StockBalance>,
   warehouseId: string,
-  lines: { productId?: string; quantity: number }[],
+  lines: { warehouseId?: string; productId?: string; quantity: number }[],
   trackedProductIds: ReadonlySet<string>,
 ): StockCheck {
-  const requestedByProduct = new Map<string, number>();
+  const requested = new Map<string, { warehouseId: string; productId: string; quantity: number }>();
   for (const line of lines) {
     const productId = String(line.productId ?? "").trim();
-    if (!productId || !trackedProductIds.has(productId)) continue;
-    requestedByProduct.set(productId, (requestedByProduct.get(productId) ?? 0) + (Number(line.quantity) || 0));
+    const lineWarehouse = String(line.warehouseId || warehouseId || "").trim();
+    if (!productId || !lineWarehouse || !trackedProductIds.has(productId)) continue;
+    const key = stockKey(lineWarehouse, productId);
+    const entry = requested.get(key) ?? { warehouseId: lineWarehouse, productId, quantity: 0 };
+    entry.quantity += Number(line.quantity) || 0;
+    requested.set(key, entry);
   }
 
   const checked: LineCheck[] = [];
   let result: LineResult = "ok";
-  for (const [productId, requested] of requestedByProduct) {
-    const balance = balances.get(stockKey(warehouseId, productId));
+  for (const [key, { warehouseId: lineWarehouse, productId, quantity }] of requested) {
+    const balance = balances.get(key);
     const onHand = balance?.onHand ?? 0;
     const safetyStock = balance?.safetyStock ?? 0;
     const available = onHand - safetyStock;
-    const lineResult: LineResult = requested > onHand ? "blocked" : requested > available ? "needs_approval" : "ok";
+    const lineResult: LineResult = quantity > onHand ? "blocked" : quantity > available ? "needs_approval" : "ok";
     checked.push({
+      warehouseId: lineWarehouse,
       productId,
-      requested,
+      requested: quantity,
       onHand,
       safetyStock,
       available,
       result: lineResult,
-      safetyUsed: lineResult === "needs_approval" ? requested - Math.max(available, 0) : 0,
-      shortfall: lineResult === "blocked" ? requested - onHand : 0,
+      safetyUsed: lineResult === "needs_approval" ? quantity - Math.max(available, 0) : 0,
+      shortfall: lineResult === "blocked" ? quantity - onHand : 0,
     });
     if (RESULT_RANK[lineResult] > RESULT_RANK[result]) result = lineResult;
   }
   return { result, lines: checked };
+}
+
+/** A DR's lines as warehouse parts for checkLines; productIds must already be resolved. */
+export function drCheckLines(
+  items: { productId?: string; quantity: number; sources?: WarehouseSource[] }[],
+  headerWarehouseId: string,
+): { warehouseId: string; productId: string; quantity: number }[] {
+  return items.flatMap((item) =>
+    lineSources(item, headerWarehouseId).map((s) => ({ warehouseId: s.warehouseId, productId: String(item.productId ?? ""), quantity: s.quantity })),
+  );
 }
 
 export function resolveDocumentStatus(input: {
