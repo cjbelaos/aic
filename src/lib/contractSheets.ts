@@ -12,9 +12,18 @@ import { serviceFrequencyForItems } from "./contractServiceFrequency";
 import { toPmsCycleStart } from "./contractBillingPeriod";
 import { appendContractWithInitialNote, getContractNotes, ContractNoteError, CONTRACT_NOTES_TAB } from "./contractNoteSheets";
 import { sortContractNotes } from "./contractNotes";
+import { getCompanies } from "./companySheets";
+import { validateForCompany } from "./deliveryPrintForm";
+
+/** Throws when a contract's FOR client is not a company billed to its customer. */
+async function assertContractForCompany(companyId: string, forCompanyId: string | undefined): Promise<void> {
+  if (!forCompanyId) return;
+  const error = validateForCompany(await getCompanies(), companyId, forCompanyId);
+  if (error) throw new Error(error.replace("this DR's company", "this contract's customer"));
+}
 
 const CONTRACTS_SHEET = "Contracts";
-const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:P`;
+const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:Q`;
 // Columns: A:I contract header, J: Notes, K: SoftCopyDriveLink, L: ScannedSignedCopyDriveLink, M: ServiceFeeFrequency, N: PaperworkStatus, O: NotarizedHardcopyStatus, P: PmsCycleStart (YYYY-MM)
 
 /**
@@ -52,6 +61,7 @@ export async function getContracts(): Promise<Contract[]> {
       return {
         id: row[0] || `CTR-${String(index + 1).padStart(4, "0")}`,
         companyId: row[1] || "",
+        forCompanyId: String(row[16] ?? "").trim() || undefined,
         description: row[2] || undefined,
         agreementType: (row[3] as AgreementType) || "Contract",
         poNumber: row[4] || "",
@@ -85,6 +95,7 @@ export async function addContract(
   payload: CreateContractPayload,
 ): Promise<Contract> {
   try {
+    await assertContractForCompany(payload.companyId, payload.forCompanyId);
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
 
@@ -123,6 +134,7 @@ export async function addContract(
       payload.paperworkStatus ?? "Pending", // N
       payload.notarizedHardcopyStatus ?? "Unknown", // O
       payload.pmsCycleStart || "", // P
+      payload.forCompanyId || "", // Q: ForCompanyId
     ];
 
     const noteHistory = payload.notes?.trim()
@@ -138,6 +150,7 @@ export async function addContract(
     return {
       id: contractId,
       companyId: payload.companyId,
+      forCompanyId: payload.forCompanyId || undefined,
       description: payload.description,
       agreementType: payload.agreementType,
       poNumber: payload.poNumber,
@@ -174,6 +187,11 @@ export async function updateContractInSheets(
     if (rowIndex === -1) {
       throw new Error(`Contract with ID ${payload.id} not found.`);
     }
+    // A new customer invalidates the stored FOR client unless a new one is sent.
+    if (payload.forCompanyId === undefined && payload.companyId !== undefined && payload.companyId !== contracts[rowIndex].companyId && contracts[rowIndex].forCompanyId) {
+      payload = { ...payload, forCompanyId: "" };
+    }
+    if (payload.forCompanyId) await assertContractForCompany(payload.companyId ?? contracts[rowIndex].companyId, payload.forCompanyId);
 
     const rowNumber = rowIndex + 2; // Offset for header row
     const updateRange = `${CONTRACTS_SHEET}!A${rowNumber}:I${rowNumber}`;
@@ -211,7 +229,7 @@ export async function updateContractInSheets(
       });
     }
 
-    for (const [column, value] of [["N", payload.paperworkStatus], ["O", payload.notarizedHardcopyStatus], ["P", payload.pmsCycleStart]] as const) {
+    for (const [column, value] of [["N", payload.paperworkStatus], ["O", payload.notarizedHardcopyStatus], ["P", payload.pmsCycleStart], ["Q", payload.forCompanyId]] as const) {
       if (value !== undefined) await sheets.spreadsheets.values.update({ spreadsheetId, range: `${CONTRACTS_SHEET}!${column}${rowNumber}`, valueInputOption: "RAW", requestBody: { values: [[value]] } });
     }
 
@@ -235,6 +253,7 @@ export async function updateContractInSheets(
       noteHistory: existing.noteHistory,
       serviceFeeFrequency: payload.serviceFeeFrequency ?? existing.serviceFeeFrequency,
       pmsCycleStart: payload.pmsCycleStart !== undefined ? payload.pmsCycleStart || undefined : existing.pmsCycleStart,
+      forCompanyId: payload.forCompanyId !== undefined ? payload.forCompanyId || undefined : existing.forCompanyId,
     };
   } catch (error) {
     console.error(`Failed to update contract ${payload.id}:`, error);
