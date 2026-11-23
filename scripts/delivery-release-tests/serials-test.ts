@@ -95,9 +95,14 @@ assert.equal(legacy.item.deliveryReceiptItemId, "dri-1");
 assert.equal(legacy.item.quantity, 1);
 assert.deepEqual(parseDeliveryItemRow([...legacyRow, "A1, B2"]).item.serialNumbers, ["A1", "B2"]);
 
-// deliveryItemRowValues writes 11 columns with serials in K
+// deliveryItemRowValues writes 12 columns with serials in K and warehouse sources in L
 const values = deliveryItemRowValues(3700, 0, { ...legacy.item, serialNumbers: ["A1"] });
-assert.equal(values.length, 11);
+assert.equal(values.length, 12);
+assert.equal(values[11], "");
+assert.equal(legacy.item.sources, undefined);
+const splitRow = deliveryItemRowValues(7, 0, { ...legacy.item, sources: [{ warehouseId: "W1", quantity: 2 }, { warehouseId: "W2", quantity: 3 }] });
+assert.equal(splitRow[11], "W1:2;W2:3");
+assert.deepEqual(parseDeliveryItemRow(splitRow).item.sources, [{ warehouseId: "W1", quantity: 2 }, { warehouseId: "W2", quantity: 3 }]);
 assert.equal(values[1], 1);
 assert.equal(values[10], "'A1"); // apostrophe keeps USER_ENTERED from turning serials into numbers/dates
 assert.equal(serialCellValue(["00123"]), "'00123");

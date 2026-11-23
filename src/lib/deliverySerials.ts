@@ -5,6 +5,7 @@
 
 import { addYears, format, startOfDay } from "date-fns";
 import type { DeliveryItem } from "../types/deliveryReceipt.ts";
+import { formatSourcesCell, parseSourcesCell } from "./deliverySources.ts";
 
 /** Splits typed serials on commas or new lines; trims, drops blanks, dedupes (case-insensitive). */
 export function parseSerialInput(text: string): string[] {
@@ -100,9 +101,10 @@ export function deliveryPrintRows(
   });
 }
 
-/** Maps a `DeliveryReceiptItems` row (A:K) to a DR line. Legacy rows without K read as no serials. */
+/** Maps a `DeliveryReceiptItems` row (A:L) to a DR line. Legacy rows without K/L read as no serials / no sources. */
 export function parseDeliveryItemRow(row: readonly unknown[]): { drNumber: number; status: string; item: DeliveryItem } {
   const text = (index: number) => String(row[index] ?? "").trim();
+  const sources = parseSourcesCell(row[11]);
   return {
     drNumber: Number(row[0]),
     status: text(7) || "active",
@@ -115,11 +117,12 @@ export function parseDeliveryItemRow(row: readonly unknown[]): { drNumber: numbe
       quantity: Number(row[5]) || 0,
       unit: String(row[6] ?? ""),
       serialNumbers: parseSerialCell(row[10]),
+      ...(sources.length ? { sources } : {}),
     },
   };
 }
 
-/** Builds the `DeliveryReceiptItems` row (A:K) for a DR line. */
+/** Builds the `DeliveryReceiptItems` row (A:L) for a DR line. */
 export function deliveryItemRowValues(drNumber: number, index: number, item: DeliveryItem): (string | number)[] {
   return [
     drNumber,
@@ -133,6 +136,7 @@ export function deliveryItemRowValues(drNumber: number, index: number, item: Del
     item.deliveryReceiptItemId ?? globalThis.crypto.randomUUID(),
     item.salesOrderItemId ?? "",
     serialCellValue(cleanSerialList(item.serialNumbers)),
+    formatSourcesCell(item.sources),
   ];
 }
 

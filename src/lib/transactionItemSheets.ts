@@ -47,7 +47,7 @@ export async function renamePurchaseOrderItemReferences(fromPONumber: string, to
 export async function getDeliveryItems(): Promise<Map<number, DeliveryItem[]>> {
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:K` }); const result = new Map<number, DeliveryItem[]>();
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:L` }); const result = new Map<number, DeliveryItem[]>();
     for (const row of response.data.values ?? []) { const { drNumber: dr, status, item } = parseDeliveryItemRow(row); if (!dr || status === "deleted") continue;
       result.set(dr, [...(result.get(dr) ?? []), item]); }
     return result;
@@ -56,9 +56,9 @@ export async function getDeliveryItems(): Promise<Map<number, DeliveryItem[]>> {
 
 export async function replaceDeliveryItems(drNumber: number, items: DeliveryItem[]): Promise<void> {
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
-  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:K` }).catch(() => ({ data: { values: [] } })); const rows = existing.data.values ?? [];
+  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:L` }).catch(() => ({ data: { values: [] } })); const rows = existing.data.values ?? [];
   const matches = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => Number(row[0]) === drNumber);
-  await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DR_SHEET, columnCount: 11, existingRows: matches, values: items.map((item, index) => deliveryItemRowValues(drNumber, index, item)) });
+  await replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName: DR_SHEET, columnCount: 12, existingRows: matches, values: items.map((item, index) => deliveryItemRowValues(drNumber, index, item)) });
 }
 
 /** Repoints existing item rows when a draft DR is finalized to a real DR number. */
@@ -74,7 +74,7 @@ export async function renameDeliveryItemReferences(fromDrNumber: number, toDrNum
 export async function updateDeliveryItemSerials(drNumber: number, updates: SerialUpdate[]): Promise<void> {
   if (!updates.length) return;
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
-  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:K` });
+  const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:L` });
   const rowById = new Map<string, number>();
   (existing.data.values ?? []).forEach((row, index) => {
     const parsed = parseDeliveryItemRow(row);

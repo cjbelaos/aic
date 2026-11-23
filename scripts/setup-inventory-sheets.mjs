@@ -39,6 +39,7 @@ const NEW_COLUMNS = [
   ["DeliveryReceipts!V1", "ApprovedAt"],
   ["DeliveryReceipts!W1", "ApprovalNote"],
   ["DeliveryReceipts!X1", "RequestedStatus"],
+  ["DeliveryReceiptItems!L1", "WarehouseSources"],
 ];
 
 const auth = new google.auth.JWT({ ...credentials(), scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
@@ -57,7 +58,7 @@ for (const [range, header] of NEW_COLUMNS) {
     .catch((error) => { if (/exceeds grid limits/i.test(String(error?.message))) return ""; throw error; });
   columnStatus.push({ range, header, state: value === header ? "ok" : value ? `occupied by "${value}"` : "missing" });
 }
-const narrowTabs = ["DeliveryReceipts", "ProductCategories"].filter((t) => tabs.has(t)).map((t) => ({ tab: t, columnCount: tabs.get(t).columnCount }));
+const narrowTabs = ["DeliveryReceipts", "DeliveryReceiptItems", "ProductCategories"].filter((t) => tabs.has(t)).map((t) => ({ tab: t, columnCount: tabs.get(t).columnCount }));
 
 console.log(JSON.stringify({ mode: APPLY ? "apply" : "audit-only", missingTabs, columns: columnStatus, columnCounts: narrowTabs }, null, 2));
 
@@ -70,7 +71,7 @@ if (!APPLY) process.exit(0);
 
 const requests = missingTabs.map((title) => ({ addSheet: { properties: { title } } }));
 // Widen existing tabs that are narrower than the new columns need.
-const neededColumns = { DeliveryReceipts: 24, ProductCategories: 6 };
+const neededColumns = { DeliveryReceipts: 24, DeliveryReceiptItems: 12, ProductCategories: 6 };
 for (const { tab, columnCount } of narrowTabs) {
   if (columnCount < neededColumns[tab]) {
     const sheetId = (await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties(sheetId,title)" })).data.sheets.find((s) => s.properties.title === tab).properties.sheetId;
