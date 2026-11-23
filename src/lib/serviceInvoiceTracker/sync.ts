@@ -3,7 +3,7 @@ import { getServiceInvoices } from "@/lib/serviceInvoiceSheets";
 import { getCompanies } from "@/lib/companySheets";
 import { readSalesOrderItemsAll } from "@/lib/salesOrders/repository";
 import { isInScope, normalizeInvoiceNo, projectTrackerRow, type TrackerCell, type TrackerProjection } from "./projection.ts";
-import { applyTrackerWrites, firstAppendRow, planRow, readTrackerSnapshot, type PlannedRow } from "./sheet.ts";
+import { applyTrackerWrites, DIRECTORY_IMPORT_ROWS, firstAppendRow, planRow, readTrackerSnapshot, type PlannedRow } from "./sheet.ts";
 
 export interface TrackerSyncMeta { status: "synced" | "failed"; row?: number; syncedAt: string; error?: string; values?: TrackerCell[] }
 export type TrackerSyncOutcome = "added" | "updated" | "unchanged" | "needs_review" | "failed";
@@ -94,6 +94,10 @@ export async function syncServiceInvoicesToTracker(only?: string[]): Promise<Tra
     }
     const name = projection.e;
     if (name && !snapshot.directoryNames.has(name) && !newCustomers.some(customer => customer.name === name)) {
+      if (snapshot.directoryRowCount + newCustomers.length >= DIRECTORY_IMPORT_ROWS) {
+        report.results.push({ invoiceNo, outcome: "needs_review", reason: `Customer "${name}" is not in Client Directory and SALES ORDER TRACKER's Client Directory is at the tracker's 500-row import limit. Extend the IMPORTRANGE range, then sync again.` });
+        continue;
+      }
       const company = companies.find(candidate => candidate.companyName === name);
       newCustomers.push({ name, tin: company?.tin ?? "", address: company?.address ?? "" });
     }

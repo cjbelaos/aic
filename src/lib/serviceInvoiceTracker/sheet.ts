@@ -3,6 +3,14 @@ import { isRowWritable, normalizeInvoiceNo, projectionToCells, type TrackerCell,
 
 export const TRACKER_SPREADSHEET_ID = "1izCz-qWLqLhAxOeUtn8qp11iLpdxRn3qnhxumutB43A";
 export const TRACKER_SHEET_ID = 449964054;
+/**
+ * The tracker's "Client Directory" tab is an IMPORTRANGE of this spreadsheet's (SALES ORDER TRACKER)
+ * "Client Directory"!A1:H500. New customers go here; writing into the tracker's copy would break the import.
+ */
+export const DIRECTORY_SPREADSHEET_ID = "14G57IKQ73FCxjZyba216vZlsbsqPYsgPGsjVKzcyzwY";
+/** Rows the tracker's IMPORTRANGE carries over (header included). */
+export const DIRECTORY_IMPORT_ROWS = 500;
+const DIRECTORY_HEADER: Record<number, string> = { 1: "Company Name", 5: "TIN", 6: "Address" };
 const EXPECTED_HEADER = ["Category", "Purchase Order No.", "Date", "Invoice No.", "Customer Name", "TIN", "Address", "Description", "Classification", "Total Amount"];
 /** Tracker column index of each owned cell, in projection order A,B,C,E,H,J. */
 const OWNED_COLUMNS = [0, 1, 2, 4, 7, 9];
@@ -17,8 +25,11 @@ export interface TrackerSnapshot {
   title: string;
   /** A:J with FORMULA render; row 1 = header. */
   rows: unknown[][];
-  /** 'Client Directory'!B2:B, exact strings. */
+  /** Source Client Directory names (col B), exact strings. */
   directoryNames: Set<string>;
+  directorySpreadsheetId: string;
+  /** Rows used in the source Client Directory, header included. */
+  directoryRowCount: number;
 }
 export interface PlannedRow { invoiceNo: string; rowNumber: number; appended: boolean; cells: TrackerCell[]; fillLookups?: boolean }
 export type PlanOutcome = { kind: "write"; row: PlannedRow; changed: boolean } | { kind: "needs_review"; reason: string };
@@ -33,16 +44,19 @@ export async function readTrackerSnapshot(sheets: sheets_v4.Sheets): Promise<Tra
   const tab = metadata.data.sheets?.find(sheet => sheet.properties?.sheetId === sheetId);
   if (!tab?.properties?.title) throw new Error("Service Invoice tracker tab was not found.");
   const title = `'${tab.properties.title.replace(/'/g, "''")}'`;
-  const response = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId,
-    ranges: [`${title}!A1:J${tab.properties.gridProperties?.rowCount || 2000}`, "'Client Directory'!B2:B"],
-    valueRenderOption: "FORMULA",
-  });
-  const [trackerRange, directoryRange] = response.data.valueRanges ?? [];
-  const rows = (trackerRange?.values ?? []) as unknown[][];
+  const directorySpreadsheetId = process.env.SERVICE_INVOICE_DIRECTORY_SPREADSHEET_ID || DIRECTORY_SPREADSHEET_ID;
+  // Tracker rows need FORMULA render (to spot formulas). The directory is read from its source, which
+  // is current even while the tracker's IMPORTRANGE copy is still refreshing.
+  const [response, directory] = await Promise.all([
+    sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges: [`${title}!A1:J${tab.properties.gridProperties?.rowCount || 2000}`], valueRenderOption: "FORMULA" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: directorySpreadsheetId, range: "'Client Directory'!A1:G", valueRenderOption: "UNFORMATTED_VALUE" }),
+  ]);
+  const rows = (response.data.valueRanges?.[0]?.values ?? []) as unknown[][];
   if (EXPECTED_HEADER.some((name, index) => rows[0]?.[index] !== name)) throw new Error("Service Invoice tracker headers changed; sync stopped to protect its data.");
-  const directoryNames = new Set((directoryRange?.values ?? []).map(row => String(row[0] ?? "")).filter(Boolean));
-  return { spreadsheetId, sheetId, title, rows, directoryNames };
+  const directoryRows = (directory.data.values ?? []) as unknown[][];
+  if (Object.entries(DIRECTORY_HEADER).some(([index, name]) => directoryRows[0]?.[Number(index)] !== name)) throw new Error("SALES ORDER TRACKER Client Directory headers changed; sync stopped to protect its data.");
+  const directoryNames = new Set(directoryRows.slice(1).map(row => String(row[1] ?? "")).filter(Boolean));
+  return { spreadsheetId, sheetId, title, rows, directoryNames, directorySpreadsheetId, directoryRowCount: directoryRows.length };
 }
 
 /** First row number after the last row with an invoice number in D. */
@@ -79,7 +93,7 @@ export async function applyTrackerWrites(sheets: sheets_v4.Sheets, snapshot: Tra
   // Strict dropdown on E: customers must exist in the directory before their rows are written.
   if (newCustomers.length) {
     await sheets.spreadsheets.values.append({
-      spreadsheetId, range: "'Client Directory'!A:G", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
+      spreadsheetId: snapshot.directorySpreadsheetId, range: "'Client Directory'!A:G", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
       requestBody: { values: newCustomers.map(customer => ["", customer.name, "", "", "", clean(customer.tin), clean(customer.address)]) },
     });
   }
