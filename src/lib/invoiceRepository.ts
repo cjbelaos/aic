@@ -1,4 +1,4 @@
-import { invoicePrintItems, type ServiceInvoiceContext } from "./serviceInvoicePresentation";
+import { invoicePrintItems, serviceOwnerCompanyId, type ServiceInvoiceContext } from "./serviceInvoicePresentation";
 import { commitDocumentWithHandover } from "@/lib/documentHandoverCommit";
 import { allocateInvoiceDiscounts, resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot, invoiceTotals, type InvoiceDiscountData } from "./serviceInvoiceDiscounts";
 import { assertInvoiceFitsOrder, billingTypeForKind, effectiveBillingType, BILLED_INVOICE_STATUSES, SalesOrderBillingError, type InvoiceKind } from "./salesOrders/billing";
@@ -63,6 +63,9 @@ export function createInvoiceRepository(invoiceKind: "service" | "sales") {
     if (!drNumber) return { version: 1 };
     const dr = (await getDeliveryReceipts()).find(row => row.drNumber === drNumber);
     if (!dr) throw new InvoiceBillingError("The selected Delivery Receipt was not found.");
+    // A DR "for" a client (e.g. a contract release billed to a parent) is serviced at that client.
+    const site = dr.forCompanyId ? (await getCompanies()).find(c => c.companyId === dr.forCompanyId) : undefined;
+    if (site) return { version: 1, serviceCompanyId: site.companyId, serviceCompanyName: site.companyName, drCompanyId: dr.companyId };
     return { version: 1, serviceCompanyId: dr.companyId, serviceCompanyName: dr.companyName };
   }
   async function resolveInvoicePic(id: string | undefined) {
@@ -755,10 +758,10 @@ async function processServiceInvoice(
     // that draft uses the same billing validation as any other invoice.
     const billing = copyExistingBilling && isDraft
       ? { billingMode: payload.billingMode ?? (payload.contractId ? "PMS_CONTRACT" : "REGULAR"), contractId: payload.contractId || "", manualCategories: payload.manualCategories ?? [] }
-      : validateBilling({ ...payload, customerId: serviceContext?.serviceCompanyId ?? payload.customerId, salesOrderId: references.salesOrderId }, payload.contractId ? (await getContracts()).find(contract => contract.id === payload.contractId) : undefined);
+      : validateBilling({ ...payload, customerId: serviceOwnerCompanyId(serviceContext) ?? payload.customerId, salesOrderId: references.salesOrderId }, payload.contractId ? (await getContracts()).find(contract => contract.id === payload.contractId) : undefined);
     if (references.salesOrderId) {
       const order = await getOrderDetail(references.salesOrderId);
-      if (order.order.customerId !== (serviceContext?.serviceCompanyId ?? payload.customerId)) {
+      if (order.order.customerId !== (serviceOwnerCompanyId(serviceContext) ?? payload.customerId)) {
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
@@ -1056,7 +1059,7 @@ async function updateServiceInvoice(
     if (references.salesOrderId) {
       const order = await getOrderDetail(references.salesOrderId);
       const customerId = payload.customerId ?? String(currentRow[2] ?? "").trim();
-      if (order.order.customerId !== (serviceContext?.serviceCompanyId ?? customerId)) {
+      if (order.order.customerId !== (serviceOwnerCompanyId(serviceContext) ?? customerId)) {
         throw new Error("The selected Sales Order belongs to a different customer.");
       }
     }
@@ -1068,7 +1071,7 @@ async function updateServiceInvoice(
     const billingMode = payload.billingMode ?? currentMetadata.billingMode ?? (contractId ? "PMS_CONTRACT" : "REGULAR");
     const billing = newStatus === "void"
       ? { billingMode: currentMetadata.billingMode ?? (currentRow[10] ? "PMS_CONTRACT" as const : "REGULAR" as const), contractId: String(currentRow[10] ?? ""), manualCategories: currentMetadata.manualCategories ?? [] }
-      : validateBilling({ date: payload.date ?? String(currentRow[1] ?? "").trim(), billingMode, contractId, customerId: serviceContext?.serviceCompanyId ?? payload.customerId ?? String(currentRow[2] ?? ""), salesOrderId: references.salesOrderId, drNumber: linkedDrNumber, manualCategories: payload.manualCategories ?? currentMetadata.manualCategories, items: discountItems }, contractId ? (await getContracts()).find(contract => contract.id === contractId) : undefined, oldStatus !== "draft" && contractId === String(currentRow[10] ?? ""));
+      : validateBilling({ date: payload.date ?? String(currentRow[1] ?? "").trim(), billingMode, contractId, customerId: serviceOwnerCompanyId(serviceContext) ?? payload.customerId ?? String(currentRow[2] ?? ""), salesOrderId: references.salesOrderId, drNumber: linkedDrNumber, manualCategories: payload.manualCategories ?? currentMetadata.manualCategories, items: discountItems }, contractId ? (await getContracts()).find(contract => contract.id === contractId) : undefined, oldStatus !== "draft" && contractId === String(currentRow[10] ?? ""));
     const billingHistory = [...(currentMetadata.billingHistory ?? [])];
     if (billing.contractId !== String(currentRow[10] ?? "")) billingHistory.push({ fromContractId: String(currentRow[10] ?? ""), toContractId: billing.contractId, billingMode: billing.billingMode, changedBy: userId, changedAt: updatedAt });
     const previousDiscount = invoiceDiscountSnapshot(currentMetadata.discountData);
