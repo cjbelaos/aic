@@ -1,7 +1,8 @@
 import { InvoiceBillingError } from "@/lib/serviceInvoiceBilling";
 import { resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot } from "@/lib/serviceInvoiceDiscounts";
 import { parseInvoiceMetadata, paymentStatusFor } from "@/lib/serviceInvoiceTracking";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { syncServiceInvoiceToTracker } from "@/lib/serviceInvoiceTracker/sync";
 import { requireAuthenticatedSession, isAdminUser } from "@/lib/auth/session";
 import {
   updateServiceInvoice,
@@ -195,6 +196,7 @@ export async function PUT(
     const body: UpdateServiceInvoicePayload = await request.json();
     if ("paymentStatus" in body) return NextResponse.json({ error: "Use the admin payment update action." }, { status: 400 });
     const result = await updateServiceInvoice(normalized, body, session.userId);
+    after(() => syncServiceInvoiceToTracker(result.invoiceNo || normalized));
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     const message =
@@ -217,6 +219,7 @@ export async function DELETE(
     const { invoiceNo } = await params;
     const normalized = decodeURIComponent(invoiceNo).trim();
     await deleteServiceInvoice(normalized);
+    after(() => syncServiceInvoiceToTracker(normalized));
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
     const message =

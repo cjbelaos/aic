@@ -1,5 +1,6 @@
 import { InvoiceBillingError } from "@/lib/serviceInvoiceBilling";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { syncServiceInvoiceToTracker } from "@/lib/serviceInvoiceTracker/sync";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import {
   processServiceInvoice,
@@ -90,6 +91,7 @@ export async function POST(request: Request) {
     // must not turn the printed name into a username.
     body.preparedBy = session.fullName?.trim() || (await getUserById(session.userId))?.fullName?.trim() || body.preparedBy;
     const result = await processServiceInvoice(body, session.userId);
+    if (result.status !== "draft") after(() => syncServiceInvoiceToTracker(result.invoiceNo));
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

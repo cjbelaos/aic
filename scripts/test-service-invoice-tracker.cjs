@@ -390,6 +390,91 @@ test('getServiceInvoices exposes trackerSyncStatus from metadata', async () => {
   assert.equal(invoice.trackerSyncStatus, 'failed');
 });
 
+// ---------- Task 4: routes ----------
+function routeWorld({ admin = true, syncRejects = false, batchRejects = false } = {}) {
+  const scheduled = [];
+  const synced = [];
+  const nextServer = { NextResponse: { json: (body, init) => Response.json(body, init) }, after: (fn) => scheduled.push(fn) };
+  const session = { userId: 'u1', fullName: 'Chris', userRoleId: admin ? '1' : '2' };
+  const sync = {
+    syncServiceInvoiceToTracker: async (no) => { synced.push(no); if (syncRejects) throw new Error('boom'); },
+    syncServiceInvoicesToTracker: async () => { if (batchRejects) throw new Error('Service Invoice tracker headers changed; sync stopped to protect its data.'); return { results: [{ invoiceNo: '1801', outcome: 'added', row: 859 }], customersAdded: [] }; },
+  };
+  const auth = { requireAuthenticatedSession: async () => session, isAdminUser: (s) => s.userRoleId === '1' };
+  const repo = {
+    processServiceInvoice: async (body) => ({ success: true, invoiceNo: body.status === 'draft' ? 'DRAFT-9' : body.invoiceNo, status: body.status || 'created' }),
+    updateServiceInvoice: async (no) => ({ success: true, invoiceNo: no, status: 'created' }),
+    deleteServiceInvoice: async () => {},
+    cancelAndCreateCorrectedServiceInvoice: async () => '1850',
+  };
+  const mocks = { 'next/server': nextServer, '@/lib/auth/session': auth, '@/lib/serviceInvoiceSheets': repo, '@/lib/serviceInvoiceTracker/sync': sync, '@/lib/userSheets': { getUserById: async () => null }, '@/lib/serviceInvoiceBilling': { InvoiceBillingError: class extends Error {} } };
+  const runScheduled = async () => { for (const fn of scheduled.splice(0)) await Promise.resolve(fn()).catch(() => {}); };
+  return { scheduled, synced, runScheduled, mocks };
+}
+const json = (method, body) => new Request('http://test', { method, body: JSON.stringify(body), headers: { 'content-type': 'application/json' } });
+const ctx = (invoiceNo) => ({ params: Promise.resolve({ invoiceNo }) });
+const createBody = (extra = {}) => ({ invoiceNo: '1844', customerId: 'C1', date: '2026-11-23', preparedBy: 'Chris', items: [{ description: 'X', quantity: 1, unitPrice: 1 }], ...extra });
+
+test('POST create schedules tracker sync after the save; draft schedules nothing', async () => {
+  const w = routeWorld();
+  const route = load('src/app/api/service-invoices/route.ts', w.mocks);
+  const res = await route.POST(json('POST', createBody()));
+  assert.equal(res.status, 201);
+  assert.equal(w.scheduled.length, 1);
+  await w.runScheduled();
+  assert.deepEqual(w.synced, ['1844']);
+  await route.POST(json('POST', createBody({ status: 'draft' })));
+  assert.equal(w.scheduled.length, 0);
+});
+
+test('POST create: failing save schedules nothing; rejecting sync leaves response intact', async () => {
+  const w = routeWorld({ syncRejects: true });
+  w.mocks['@/lib/serviceInvoiceSheets'].processServiceInvoice = async () => { throw new Error('Invoice No. already exists'); };
+  let route = load('src/app/api/service-invoices/route.ts', w.mocks);
+  assert.equal((await route.POST(json('POST', createBody()))).status, 500);
+  assert.equal(w.scheduled.length, 0);
+  const ok = routeWorld({ syncRejects: true });
+  route = load('src/app/api/service-invoices/route.ts', ok.mocks);
+  const res = await route.POST(json('POST', createBody()));
+  assert.equal(res.status, 201);
+  assert.equal((await res.json()).invoiceNo, '1844');
+  await ok.runScheduled();
+  assert.deepEqual(ok.synced, ['1844']);
+});
+
+test('PUT and DELETE schedule sync for the invoice', async () => {
+  const w = routeWorld();
+  const route = load('src/app/api/service-invoices/[invoiceNo]/route.ts', w.mocks);
+  assert.equal((await route.PUT(json('PUT', { items: [] }), ctx('1801'))).status, 200);
+  assert.equal((await route.DELETE(new Request('http://test', { method: 'DELETE' }), ctx('1802'))).status, 200);
+  await w.runScheduled();
+  assert.deepEqual(w.synced, ['1801', '1802']);
+});
+
+test('corrected copy schedules both original and replacement', async () => {
+  const w = routeWorld();
+  const route = load('src/app/api/service-invoices/[invoiceNo]/corrected-copy/route.ts', w.mocks);
+  assert.equal((await route.POST(json('POST', { reason: 'wrong amount' }), ctx('1801'))).status, 200);
+  await w.runScheduled();
+  assert.deepEqual(w.synced, ['1801', '1850']);
+});
+
+test('tracker-sync route: admin gets report, non-admin 403, batch error 500', async () => {
+  let w = routeWorld();
+  let route = load('src/app/api/service-invoices/tracker-sync/route.ts', w.mocks);
+  let res = await route.POST(new Request('http://test', { method: 'POST' }));
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).results[0], { invoiceNo: '1801', outcome: 'added', row: 859 });
+  w = routeWorld({ admin: false });
+  route = load('src/app/api/service-invoices/tracker-sync/route.ts', w.mocks);
+  res = await route.POST(new Request('http://test', { method: 'POST' }));
+  assert.equal(res.status, 403); assert.deepEqual(await res.json(), { error: 'Admin access required.' });
+  w = routeWorld({ batchRejects: true });
+  route = load('src/app/api/service-invoices/tracker-sync/route.ts', w.mocks);
+  res = await route.POST(new Request('http://test', { method: 'POST' }));
+  assert.equal(res.status, 500); assert.match((await res.json()).error, /headers changed/);
+});
+
 module.exports = { load, test, tests };
 
 if (require.main === module) {

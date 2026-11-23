@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { syncServiceInvoiceToTracker } from "@/lib/serviceInvoiceTracker/sync";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { cancelAndCreateCorrectedServiceInvoice } from "@/lib/serviceInvoiceSheets";
 
@@ -8,7 +9,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ inv
   try {
     const { invoiceNo } = await params;
     const body = await request.json();
-    const replacementInvoiceNo = await cancelAndCreateCorrectedServiceInvoice(decodeURIComponent(invoiceNo).trim(), session.userId, body.reason);
+    const originalInvoiceNo = decodeURIComponent(invoiceNo).trim();
+    const replacementInvoiceNo = await cancelAndCreateCorrectedServiceInvoice(originalInvoiceNo, session.userId, body.reason);
+    // Sequential so the two syncs never race for the same tracker row.
+    after(async () => { await syncServiceInvoiceToTracker(originalInvoiceNo); await syncServiceInvoiceToTracker(replacementInvoiceNo); });
     return NextResponse.json({ replacementInvoiceNo });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not create corrected copy.";
