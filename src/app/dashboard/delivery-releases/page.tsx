@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { forCompanyOptions } from "@/lib/deliveryPrintForm";
 import {
   Dialog,
   DialogContent,
@@ -180,6 +181,7 @@ export default function DeliveryReleasePage() {
   const [preparedBy, setPreparedBy] = useState("");
   const [deliveredBy, setDeliveredBy] = useState("");
   const [comments, setComments] = useState("");
+  const [forCompanyId, setForCompanyId] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [drafting, setDrafting] = useState(false);
@@ -221,6 +223,7 @@ export default function DeliveryReleasePage() {
   const [editTrNo, setEditTrNo] = useState("");
   const [editSalesOrderId, setEditSalesOrderId] = useState("");
   const [editComments, setEditComments] = useState("");
+  const [editForCompanyId, setEditForCompanyId] = useState("");
   const [editDeliveredBy, setEditDeliveredBy] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
@@ -398,6 +401,19 @@ export default function DeliveryReleasePage() {
     () => companies.map((c) => ({ value: c.companyId, label: c.companyName })),
     [companies],
   );
+  // FOR client: companies billed to the DR's company. A choice that no longer
+  // belongs to the selected company (the company changed) counts as none.
+  const forOptions = useMemo(() => forCompanyOptions(companies, selectedCompany), [companies, selectedCompany]);
+  const effectiveForCompanyId = forOptions.some((o) => o.value === forCompanyId) ? forCompanyId : "";
+  const editForOptions = useMemo(() => {
+    const options = forCompanyOptions(companies, editTarget?.companyId ?? "");
+    const stored = editTarget?.forCompanyId;
+    // Keep a stored client that is now inactive, so editing doesn't silently drop it.
+    if (stored && !options.some((o) => o.value === stored)) {
+      options.push({ value: stored, label: companies.find((c) => c.companyId === stored)?.companyName || stored });
+    }
+    return options;
+  }, [companies, editTarget]);
 
   const warehouseName = (id: string) => warehouses.find((w) => w.warehouseId === id)?.name || id || "this warehouse";
   const productIdOf = (line: { productId?: string; productCode?: string }) =>
@@ -981,6 +997,7 @@ export default function DeliveryReleasePage() {
     setReferenceMode(null);
     setDeliveredBy("");
     setComments("");
+    setForCompanyId("");
     setLineItems([]);
     setManualRows(new Set());
     setContracts([]);
@@ -1124,6 +1141,7 @@ export default function DeliveryReleasePage() {
         deliveredByType: selectedDriver.type,
         deliveredByOptionId: selectedDriver.deliveryOptionId,
         comments,
+        forCompanyId: effectiveForCompanyId || undefined,
         items: toDeliveryItems(lineItems, warehouseId),
         status: "printed",
         warehouseId,
@@ -1175,6 +1193,7 @@ export default function DeliveryReleasePage() {
         deliveredByType: selectedDriver?.type,
         deliveredByOptionId: selectedDriver?.deliveryOptionId,
         comments,
+        forCompanyId: effectiveForCompanyId || undefined,
         items: toDeliveryItems(lineItems, warehouseId),
         status: "draft",
         warehouseId: warehouseId || undefined,
@@ -1308,6 +1327,7 @@ export default function DeliveryReleasePage() {
       setEditTrNo(legacyTrNumberForRecord(editTarget));
       setEditSalesOrderId(editTarget.salesOrderId || "");
       setEditComments(editTarget.comments);
+      setEditForCompanyId(editTarget.forCompanyId || "");
       setEditDeliveredBy(
         editTarget.deliveredById
           ? `user:${editTarget.deliveredById}`
@@ -1391,6 +1411,7 @@ export default function DeliveryReleasePage() {
         warehouseId: editWarehouseId || undefined,
         ...referencePayload(editReferenceMode, editSalesOrderId, editTrNo),
         comments: editComments,
+        forCompanyId: editForCompanyId,
         deliveredBy: selectedDriver.label,
         deliveredById: selectedDriver.userId || "",
         deliveredByType: selectedDriver.type,
@@ -1734,6 +1755,18 @@ export default function DeliveryReleasePage() {
               </div>
             </div>
 
+            {forOptions.length > 0 && (
+              <div className="space-y-2">
+                <Label>FOR (client)</Label>
+                <SearchableSelect
+                  value={effectiveForCompanyId || "__none__"}
+                  onValueChange={(v) => setForCompanyId(v === "__none__" ? "" : v)}
+                  options={[{ value: "__none__", label: "None" }, ...forOptions]}
+                  placeholder="Select client"
+                />
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>Comments / Special Instructions</Label>
               <Textarea
@@ -2061,6 +2094,18 @@ export default function DeliveryReleasePage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {editForOptions.length > 0 && (
+              <div className="space-y-2">
+                <Label>FOR (client)</Label>
+                <SearchableSelect
+                  value={editForCompanyId || "__none__"}
+                  onValueChange={(v) => setEditForCompanyId(v === "__none__" ? "" : v)}
+                  options={[{ value: "__none__", label: "None" }, ...editForOptions]}
+                  placeholder="Select client"
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Comments / Special Instructions</Label>
