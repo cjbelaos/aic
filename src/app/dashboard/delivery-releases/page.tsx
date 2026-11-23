@@ -375,6 +375,7 @@ export default function DeliveryReleasePage() {
         const companyItems = allItems.filter((item) =>
           contractIds.has(item.contractId),
         );
+        const forOf = new Map(companyContracts.map((c) => [c.id, c.forCompanyId || ""]));
 
         const mapped = companyItems.map((item) => ({
           productName: productNameByCode[item.productCode] || item.productCode,
@@ -385,6 +386,7 @@ export default function DeliveryReleasePage() {
           productCode: item.productCode,
           productId: item.productId || "",
           contractId: item.contractId,
+          forCompanyId: forOf.get(item.contractId) || "",
           contractItemId: item.id,
           status: item.status,
         }));
@@ -405,6 +407,11 @@ export default function DeliveryReleasePage() {
   // belongs to the selected company (the company changed) counts as none.
   const forOptions = useMemo(() => forCompanyOptions(companies, selectedCompany), [companies, selectedCompany]);
   const effectiveForCompanyId = forOptions.some((o) => o.value === forCompanyId) ? forCompanyId : "";
+  // Strict: a DR only counts against agreements for the same FOR client (blank only with blank).
+  const forContracts = useMemo(
+    () => contracts.filter((c) => (c.forCompanyId || "") === effectiveForCompanyId),
+    [contracts, effectiveForCompanyId],
+  );
   const editForOptions = useMemo(() => {
     const options = forCompanyOptions(companies, editTarget?.companyId ?? "");
     const stored = editTarget?.forCompanyId;
@@ -1113,7 +1120,7 @@ export default function DeliveryReleasePage() {
       if (!reference.salesOrderId) {
         lineItems.forEach((row, index) => {
           if (!row.productCode || !(row.quantity > 0)) return;
-          const match = contracts.find(
+          const match = forContracts.find(
             (c: any) =>
               c.status === "Active" &&
               (c.productId && row.productId
@@ -1122,7 +1129,7 @@ export default function DeliveryReleasePage() {
           );
           if (match) contractLines.push({ contractItemId: match.contractItemId, quantity: row.quantity, deliveryLineIndex: index });
         });
-        const agreementOf = (line: ContractLine) => contracts.find((c: any) => c.contractItemId === line.contractItemId)?.contractId;
+        const agreementOf = (line: ContractLine) => forContracts.find((c: any) => c.contractItemId === line.contractItemId)?.contractId;
         const firstAgreement = contractLines.length ? agreementOf(contractLines[0]) : "";
         if (contractLines.some((line) => agreementOf(line) !== firstAgreement)) {
           contractLines = contractLines.filter((line) => agreementOf(line) === firstAgreement);
@@ -1777,10 +1784,10 @@ export default function DeliveryReleasePage() {
               />
             </div>
 
-            {selectedCompany && contracts.length > 0 && (
+            {selectedCompany && forContracts.length > 0 && (
               <Card>
                 <CardContent className="pt-4 space-y-2">
-                  {contracts.map((c, i) => (
+                  {forContracts.map((c, i) => (
                     <div
                       key={i}
                       className="p-3 border rounded-lg space-y-1 bg-muted/40 text-sm"
