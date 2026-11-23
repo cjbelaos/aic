@@ -61,7 +61,7 @@ export function useStockCheck(input: {
   return enabled ? state : { check: null, level: state.level };
 }
 
-export function WarehouseSelect({ value, onChange, warehouses, disabled, label = "From warehouse", required = true }: {
+export function WarehouseSelect({ value, onChange, warehouses, disabled, label = "Default warehouse", required = true }: {
   value: string;
   onChange: (value: string) => void;
   warehouses: Warehouse[];

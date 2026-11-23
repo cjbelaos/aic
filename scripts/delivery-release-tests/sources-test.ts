@@ -32,6 +32,8 @@ assert.deepEqual(lineSources({ quantity: 5 }, "W1"), [W("W1", 5)]);
 assert.deepEqual(lineSources({ quantity: 5, sources: [W("W2", 2), W("W3", 3)] }, "W1"), [W("W2", 2), W("W3", 3)]);
 assert.deepEqual(lineSources({ quantity: 5 }, ""), []);
 assert.deepEqual(lineSources({ quantity: 0 }, "W1"), []);
+// A DR with no header warehouse is outside inventory, even if parts were stored on it
+assert.deepEqual(lineSources({ quantity: 5, sources: [W("W1", 5)] }, ""), []);
 
 // validateLineSources
 const active = (id: string) => id !== "OLD";
@@ -42,6 +44,9 @@ assert.equal(validateLineSources(salt([W("OLD", 5)]), active), "Salt: warehouse 
 assert.equal(validateLineSources(salt([]), active), "Salt: choose a warehouse.");
 assert.equal(validateLineSources(salt([], false), active), null);
 assert.equal(validateLineSources(salt([W("W1", 2), W("W2", 3)]), active), null);
+assert.equal(validateLineSources(salt([W("W1", 2.5), W("W2", 2.5)]), active), "Salt: warehouse quantities must be whole numbers.");
+assert.equal(validateLineSources(salt([W("W1", 7), W("W2", -2)]), active), "Salt: warehouse quantities must be whole numbers.");
+assert.equal(validateLineSources(salt([W("W1", 5), W("W2", 0)]), active), null);
 
 // effectiveSourcesKey: an old row and an explicit header part are the same stock
 assert.equal(
@@ -65,6 +70,8 @@ assert.equal(sourcesComplete([{ quantity: 5, sources: [W("W1", 2), W("W2", 3)] }
 assert.equal(sourcesComplete([{ quantity: 6, sources: [W("W1", 2), W("W2", 3)] }]), false);
 assert.equal(sourcesComplete([{ quantity: 5, sources: [] }]), false);
 assert.equal(sourcesComplete([{ quantity: 0 }]), true);
+assert.equal(sourcesComplete([{ quantity: 5, sources: [W("W1", 2.5), W("W2", 2.5)] }]), false);
+assert.equal(sourcesComplete([{ quantity: 5, sources: [W("W1", 7), W("W2", -2)] }]), false);
 
 // storedSources: a single default-warehouse part is the same as "not set"
 assert.equal(storedSources([W("W1", 5)], "W1"), undefined);

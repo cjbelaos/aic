@@ -125,7 +125,7 @@ export async function guardDrStock(input: {
   }));
   const inputError = validateDrGuardInput({ date: input.date, lines: items }, tracked, names.product)
     ?? validateLineSources(
-      items.map((item) => ({ productName: names.product(item.productId), quantity: item.quantity, tracked: Boolean(item.productId) && tracked.has(item.productId), sources: lineSources(item, input.warehouseId) })),
+      items.map((item) => ({ productName: names.product(item.productId), quantity: item.quantity, tracked: Boolean(item.productId) && tracked.has(item.productId), sources: item.sources?.length ? item.sources : lineSources(item, input.warehouseId) })),
       names.activeWarehouse,
     );
   if (inputError) throw new InventoryValidationError(inputError);

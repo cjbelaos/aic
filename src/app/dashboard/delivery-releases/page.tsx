@@ -2009,7 +2009,7 @@ export default function DeliveryReleasePage() {
                   requiresSerial={lineRequiresSerial(item)}
                   onChange={(v) => updateEditLineItem(idx, "serialText", v)}
                 />
-                <LineSources
+                {editWarehouseId && <LineSources
                   value={linePartsOf(item, editWarehouseId)}
                   onChange={(next) => updateEditLineItem(idx, "sources", storedSources(next, editWarehouseId))}
                   quantity={item.quantity}
@@ -2017,7 +2017,7 @@ export default function DeliveryReleasePage() {
                   check={editStock.check}
                   productId={productIdOf(item)}
                   productName={productNameOf(productIdOf(item))}
-                />
+                />}
                 </Fragment>
               ))}
             </div>

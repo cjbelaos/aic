@@ -32,10 +32,12 @@ export function lineSources(
   item: { quantity: number; sources?: readonly WarehouseSource[] },
   headerWarehouseId: string | undefined,
 ): WarehouseSource[] {
+  // No header warehouse = an old DR outside inventory: no stock effect, whatever is stored.
+  if (!headerWarehouseId) return [];
   const stored = (item.sources ?? []).filter((s) => s.warehouseId && Number(s.quantity) > 0);
   if (stored.length) return stored.map((s) => ({ warehouseId: s.warehouseId, quantity: Number(s.quantity) }));
   const quantity = Number(item.quantity) || 0;
-  return headerWarehouseId && quantity > 0 ? [{ warehouseId: headerWarehouseId, quantity }] : [];
+  return quantity > 0 ? [{ warehouseId: headerWarehouseId, quantity }] : [];
 }
 
 /** First reason a DR's line warehouses cannot be saved, or null. Untracked products are not checked. */
@@ -47,6 +49,7 @@ export function validateLineSources(
     if (!line.tracked) continue;
     const name = line.productName;
     if (!line.sources.length) return `${name}: choose a warehouse.`;
+    if (line.sources.some((s) => !Number.isInteger(Number(s.quantity)) || Number(s.quantity) < 0)) return `${name}: warehouse quantities must be whole numbers.`;
     if (line.sources.some((s) => !isActiveWarehouse(s.warehouseId))) return `${name}: warehouse must be an active warehouse.`;
     if (new Set(line.sources.map((s) => s.warehouseId)).size !== line.sources.length) return `${name}: each warehouse can appear once.`;
     const sum = line.sources.reduce((total, s) => total + (Number(s.quantity) || 0), 0);
@@ -81,7 +84,9 @@ export function sourcesComplete(lines: { quantity: number; sources?: readonly Wa
     const quantity = Number(line.quantity) || 0;
     if (quantity <= 0) return true;
     const parts = line.sources ?? [];
-    return parts.length > 0 && parts.every((s) => s.warehouseId) && parts.reduce((t, s) => t + (Number(s.quantity) || 0), 0) === quantity;
+    return parts.length > 0
+      && parts.every((s) => s.warehouseId && Number.isInteger(Number(s.quantity)) && Number(s.quantity) >= 0)
+      && parts.reduce((t, s) => t + (Number(s.quantity) || 0), 0) === quantity;
   });
 }
 
