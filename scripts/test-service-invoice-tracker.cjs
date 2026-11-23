@@ -240,6 +240,156 @@ test('applyTrackerWrites: D padded to 4 digits; nothing to write sends nothing',
   assert.deepEqual(d.updateCells.rows[0].values[0].userEnteredValue, { stringValue: '0999' });
 });
 
+// ---------- Task 3: sync orchestration ----------
+const TRACKER_ID = '1izCz-qWLqLhAxOeUtn8qp11iLpdxRn3qnhxumutB43A';
+function syncWorld({ trackerRows, dbRows, summaries, directory = [['MEDICAL CENTER PARANAQUE']], companies = [], soItems = [], failApply = false, failRead = false }) {
+  const calls = [];
+  const db = { rows: dbRows };
+  const sheets = { spreadsheets: {
+    get: async () => ({ data: { sheets: [{ properties: { sheetId: 449964054, title: 'Service Invoice', gridProperties: { rowCount: 1483 } } }] } }),
+    batchUpdate: async (req) => { calls.push(['trackerBatchUpdate', req]); if (failApply) throw new Error('Quota exceeded'); },
+    values: {
+      get: async (req) => { assert.equal(req.spreadsheetId, 'db'); calls.push(['dbGet', req.range]); return { data: { values: db.rows } }; },
+      batchGet: async (req) => {
+        if (req.spreadsheetId === TRACKER_ID) { calls.push(['trackerRead']); if (failRead) throw new Error('Sheets unavailable'); return { data: { valueRanges: [{ values: trackerRows }, { values: directory }] } }; }
+        return { data: { valueRanges: req.ranges.map(range => ({ values: [[db.rows[Number(range.match(/T(\d+)$/)[1]) - 1][19] ?? '']] })) } };
+      },
+      append: async (req) => { calls.push(['append', req]); },
+      batchUpdate: async (req) => {
+        calls.push(['dbWrite', req]);
+        for (const entry of req.requestBody.data) db.rows[Number(entry.range.match(/T(\d+)$/)[1]) - 1][19] = entry.values[0][0];
+      },
+    },
+  } };
+  const mocks = {
+    '@/lib/googleSheets': { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => 'db' },
+    '@/lib/serviceInvoiceSheets': { getServiceInvoices: async () => summaries() },
+    '@/lib/companySheets': { getCompanies: async () => companies },
+    '@/lib/salesOrders/repository': { readSalesOrderItemsAll: async () => soItems },
+  };
+  return { calls, db, sync: load('src/lib/serviceInvoiceTracker/sync.ts', mocks) };
+}
+const dbRow = (no, status, meta = {}) => { const r = Array(20).fill(''); r[0] = no; r[8] = status; r[19] = JSON.stringify({ billingMode: 'REGULAR', discountData: { discountAmount: 0 }, ...meta }); return r; };
+const summary = (no, extra = {}) => ({ invoiceNo: no, status: 'created', date: '2026-11-22', companyName: 'MEDICAL CENTER PARANAQUE', items: [item('PMS FOR THE MONTH OF NOVEMBER 2026', 25000)], ...extra });
+function worldRows() {
+  return [HEADER, trackerRow('1800'), trackerRow('1801'), trackerRow('1809', { 0: 'Contracted', 2: 46333, 4: 'IRENE PEDRO', 7: 'PMS FOR THE MONTH OF NOVEMBER 2026', 9: 7000 }), trackerRow('1842')];
+}
+function worldDb() { return [Array(20).fill('H'), dbRow('1800', 'created'), dbRow('1801', 'created'), dbRow('1809', 'created'), dbRow('1843', 'created'), dbRow('DRAFT-1', 'draft')]; }
+
+test('sync batch: scope, added/needs_review/appended, metadata merge', async () => {
+  const sums = [summary('1800'), summary('1801'), summary('1809', { companyName: 'IRENE PEDRO' }), summary('1843', { contractId: 'CTR-0039' }), summary('DRAFT-1', { status: 'draft' })];
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => sums });
+  const report = await w.sync.syncServiceInvoicesToTracker();
+  const byNo = Object.fromEntries(report.results.map(r => [r.invoiceNo, r]));
+  assert.deepEqual(Object.keys(byNo).sort(), ['1801', '1809', '1843']);
+  assert.equal(byNo['1801'].outcome, 'added'); assert.equal(byNo['1801'].row, 3);
+  assert.equal(byNo['1809'].outcome, 'needs_review'); assert.match(byNo['1809'].reason, /by hand/);
+  assert.equal(byNo['1843'].outcome, 'added'); assert.equal(byNo['1843'].row, 6);
+  const meta = JSON.parse(w.db.rows[2][19]);
+  assert.equal(meta.billingMode, 'REGULAR'); assert.deepEqual(meta.discountData, { discountAmount: 0 });
+  assert.equal(meta.trackerSync.status, 'synced'); assert.equal(meta.trackerSync.row, 3);
+  assert.deepEqual(meta.trackerSync.values, ['Service', '', 46348, 'MEDICAL CENTER PARANAQUE', 'PMS FOR THE MONTH OF NOVEMBER 2026', 25000]);
+  assert.equal(JSON.parse(w.db.rows[1][19]).trackerSync, undefined, '1800 untouched');
+  assert.equal(JSON.parse(w.db.rows[3][19]).trackerSync, undefined, 'needs_review leaves metadata');
+  assert.equal(w.calls.filter(c => c[0] === 'trackerBatchUpdate').length, 1);
+});
+
+test('sync: missing customer added to directory once, with company TIN/address', async () => {
+  const sums = [summary('1801', { companyName: 'GREEN CITY MEDICAL CENTER' }), summary('1843', { companyName: 'GREEN CITY MEDICAL CENTER' })];
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => sums, companies: [{ companyId: 'C1', companyName: 'GREEN CITY MEDICAL CENTER', tin: '123', address: 'SAN FERNANDO' }] });
+  const report = await w.sync.syncServiceInvoicesToTracker();
+  assert.deepEqual(report.customersAdded, ['GREEN CITY MEDICAL CENTER']);
+  const appends = w.calls.filter(c => c[0] === 'append');
+  assert.equal(appends.length, 1);
+  assert.deepEqual(appends[0][1].requestBody.values, [['', 'GREEN CITY MEDICAL CENTER', '', '', '', '123', 'SAN FERNANDO']]);
+});
+
+test('sync: SO-linked invoice takes SO active lines', async () => {
+  const sums = [summary('1801', { salesOrderId: 'so-1470' })];
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => sums, soItems: [
+    { salesOrderId: 'so-1470', lineNo: 2, description: 'WATER SOFTENER REBEDDING (16x62)', lineStatus: 'ACTIVE' },
+    { salesOrderId: 'so-1470', lineNo: 1, description: 'REPLACEMENT OF DIGITAL HEAD (WATER SOFTENER)', lineStatus: 'ACTIVE' },
+    { salesOrderId: 'other', lineNo: 1, description: 'NOPE', lineStatus: 'ACTIVE' }] });
+  await w.sync.syncServiceInvoicesToTracker(['1801']);
+  assert.equal(JSON.parse(w.db.rows[2][19]).trackerSync.values[4], 'REPLACEMENT OF DIGITAL HEAD (WATER SOFTENER)\nWATER SOFTENER REBEDDING (16x62)');
+});
+
+test('sync twice: second run after an edit is updated, not needs_review', async () => {
+  let sums = [summary('1801')];
+  const rows = worldRows();
+  const w = syncWorld({ trackerRows: rows, dbRows: worldDb(), summaries: () => sums });
+  await w.sync.syncServiceInvoicesToTracker(['1801']);
+  // the tracker now holds what was written
+  Object.assign(rows[2], { 0: 'Service', 2: 46348, 4: 'MEDICAL CENTER PARANAQUE', 7: 'PMS FOR THE MONTH OF NOVEMBER 2026', 9: 25000 });
+  sums = [summary('1801', { items: [item('PMS FOR THE MONTH OF NOVEMBER 2026', 26000)] })];
+  const second = await w.sync.syncServiceInvoicesToTracker(['1801']);
+  assert.equal(second.results[0].outcome, 'updated');
+  Object.assign(rows[2], { 9: 26000 });
+  const third = await w.sync.syncServiceInvoicesToTracker(['1801']);
+  assert.equal(third.results[0].outcome, 'unchanged');
+});
+
+test('sync: deleted invoice previously written becomes CANCELLED', async () => {
+  const rows = worldRows();
+  Object.assign(rows[2], { 0: 'Service', 2: 46348, 4: 'MEDICAL CENTER PARANAQUE', 7: 'PMS', 9: 25000 });
+  const dbRows = worldDb();
+  dbRows[2] = dbRow('1801', 'deleted', { trackerSync: { status: 'synced', row: 3, syncedAt: 'x', values: ['Service', '', 46348, 'MEDICAL CENTER PARANAQUE', 'PMS', 25000] } });
+  const w = syncWorld({ trackerRows: rows, dbRows, summaries: () => [] });
+  const report = await w.sync.syncServiceInvoicesToTracker();
+  assert.equal(report.results[0].outcome, 'updated');
+  assert.deepEqual(JSON.parse(w.db.rows[2][19]).trackerSync.values, ['', 'CANCELLED', 46348, 'MEDICAL CENTER PARANAQUE', 'PMS', '']);
+});
+
+test('sync: apply failure marks every planned invoice failed', async () => {
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => [summary('1801'), summary('1843')], failApply: true });
+  const report = await w.sync.syncServiceInvoicesToTracker();
+  assert.deepEqual(report.results.map(r => [r.invoiceNo, r.outcome]), [['1801', 'failed'], ['1843', 'failed']]);
+  assert.equal(JSON.parse(w.db.rows[2][19]).trackerSync.status, 'failed');
+  assert.equal(JSON.parse(w.db.rows[2][19]).trackerSync.error, 'Quota exceeded');
+});
+
+test('syncServiceInvoiceToTracker never throws; records failed when the tracker cannot be read', async () => {
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => [summary('1801')], failRead: true });
+  const original = console.error; console.error = () => {};
+  try { await w.sync.syncServiceInvoiceToTracker('1801'); } finally { console.error = original; }
+  const meta = JSON.parse(w.db.rows[2][19]);
+  assert.equal(meta.trackerSync.status, 'failed'); assert.equal(meta.trackerSync.error, 'Sheets unavailable');
+  await assert.rejects(w.sync.syncServiceInvoicesToTracker(), /Sheets unavailable/);
+});
+
+test('sync: one invoice with an invalid date fails alone; others still sync', async () => {
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => [summary('1801', { date: '' }), summary('1843')] });
+  const report = await w.sync.syncServiceInvoicesToTracker();
+  const byNo = Object.fromEntries(report.results.map(r => [r.invoiceNo, r]));
+  assert.equal(byNo['1801'].outcome, 'failed'); assert.match(byNo['1801'].reason, /Invalid invoice date/);
+  assert.equal(byNo['1843'].outcome, 'added');
+  assert.equal(JSON.parse(w.db.rows[2][19]).trackerSync.status, 'failed');
+});
+
+test('syncServiceInvoiceToTracker ignores drafts and out-of-scope numbers', async () => {
+  const w = syncWorld({ trackerRows: worldRows(), dbRows: worldDb(), summaries: () => [summary('1800'), summary('DRAFT-1', { status: 'draft' })] });
+  await w.sync.syncServiceInvoiceToTracker('1800');
+  await w.sync.syncServiceInvoiceToTracker('DRAFT-1');
+  assert.equal(w.calls.filter(c => c[0] === 'trackerRead').length, 0);
+});
+
+test('getServiceInvoices exposes trackerSyncStatus from metadata', async () => {
+  const tracking = load('src/lib/serviceInvoiceTracking.ts');
+  const filters = load('src/lib/serviceInvoiceFilters.ts', { './serviceInvoiceTracking': tracking, './serviceInvoiceSummary': load('src/lib/serviceInvoiceSummary.ts', { './serviceInvoiceTracking': tracking }) });
+  const row = Array(21).fill(''); row[0] = '1801'; row[1] = '2026-11-22'; row[2] = 'C1'; row[8] = 'created';
+  row[19] = JSON.stringify({ trackerSync: { status: 'failed', syncedAt: 'x', error: 'boom' } });
+  const sheets = { spreadsheets: { values: { get: async ({ range }) => ({ data: { values: /Items/.test(range) ? [] : [Array(21).fill('h'), row] } }) } } };
+  const storage = load('src/lib/serviceInvoiceSheets.ts', {
+    './serviceInvoiceTracking': tracking,
+    '@/lib/googleSheets': { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => 'fixture' },
+    '@/lib/serviceInvoiceFilters': filters,
+    '@/lib/companySheets': { getCompanies: async () => [] },
+    '@/lib/salesOrders/repository': { readSalesOrderListSnapshot: async () => ({ orders: [], items: [] }), readSalesOrderById: async () => null },
+  });
+  const [invoice] = await storage.getServiceInvoices();
+  assert.equal(invoice.trackerSyncStatus, 'failed');
+});
+
 module.exports = { load, test, tests };
 
 if (require.main === module) {

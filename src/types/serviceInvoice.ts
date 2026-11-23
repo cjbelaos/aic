@@ -12,6 +12,8 @@ export interface InvoiceTrackingFields {
   scannedStatus?: "scanned" | "not_scanned";
   scanVerificationPending?: boolean;
   statusReason?: string;
+  /** Accounting tracker copy state (ServiceInvoices col T metadata `trackerSync.status`). */
+  trackerSyncStatus?: "synced" | "failed";
 }
 
 export interface ServiceInvoiceItem {
