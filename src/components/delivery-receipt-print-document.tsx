@@ -22,7 +22,7 @@ export function DeliveryReceiptPrintDocument({ dr, signatureUrls = {} }: { dr: D
           <tr><th colSpan={4} className="heading-cell">
             <BusinessDocumentHeader title="DELIVERY RECEIPT" number={dr.drNumber > 0 ? `DR ${dr.drNumber}` : "DRAFT"} draft={dr.status === "draft" && dr.drNumber > 0} />
             <div className="details">
-              <div><div className="label">Delivered to</div><div className="customer">{dr.companyName}</div><div className="multiline">{dr.address}</div><div>TIN: {dr.tin || "—"}</div></div>
+              <div><div className="label">Delivered to</div><div className="customer">{dr.companyName}</div><div className="multiline">{dr.address}</div><div>TIN: {dr.tin || "—"}</div>{dr.forCompanyName && <div><b>For:</b> {dr.forCompanyName}</div>}</div>
               <div><div><b>Date:</b> {dr.date}</div><div><b>PO No.:</b> {dr.poNo || "—"}</div><div><b>SO / TR No.:</b> {dr.trNo || "—"}</div></div>
             </div>
           </th></tr>
