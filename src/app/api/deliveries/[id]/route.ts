@@ -61,7 +61,7 @@ export async function GET(
 
     const drResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:Y${drRowNumber}`,
+      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:AA${drRowNumber}`,
     });
     const drRow = drResponse.data.values?.[0] || [];
     const deliveryDate = String(drRow[1] ?? "").trim();
@@ -125,6 +125,8 @@ export async function GET(
         salesOrderNo: reference.salesOrderNo || undefined,
         salesOrderId: String(drRow[18] ?? "").trim() || undefined,
         trNo,
+        noChargeReason: reference.noChargeReason || undefined,
+        noChargeNote: reference.noChargeNote || undefined,
         preparedBy,
         deliveredBy,
         comments,
@@ -174,6 +176,8 @@ export async function PUT(
       salesOrderId: body.salesOrderId,
       salesOrderNo: body.salesOrderNo,
       trNo: body.trNo,
+      noChargeReason: body.noChargeReason,
+      noChargeNote: body.noChargeNote,
     });
     if (reference.error) {
       return NextResponse.json({ error: reference.error }, { status: 422 });
@@ -181,6 +185,8 @@ export async function PUT(
     if (isDeliveryReferenceMode(body.referenceMode)) {
       body.salesOrderId = reference.salesOrderId || undefined;
       body.trNo = reference.trNo;
+      body.noChargeReason = reference.noChargeReason;
+      body.noChargeNote = reference.noChargeNote;
     }
     // Stock guard. Saving into a counted status (or resubmitting a pending or
     // rejected DR) is checked; historical finalized DRs without a warehouse are

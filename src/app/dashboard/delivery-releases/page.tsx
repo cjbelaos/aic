@@ -67,6 +67,7 @@ import { ProductUnit } from "@/types/product-unit";
 import {
   deliveryReferenceDisplay,
   deliveryReferenceKindLabel,
+  isNoChargeDelivery,
   legacyTrNumberForRecord,
   referenceModeForRecord,
   resolveDeliveryReference,
@@ -177,6 +178,8 @@ export default function DeliveryReleasePage() {
   const isContractRelease = Boolean(contractReleaseCompanyId && contractReleaseCompanyId === selectedCompany);
   const [trNo, setTrNo] = useState("");
   const [salesOrderId, setSalesOrderId] = useState("");
+  const [noChargeReason, setNoChargeReason] = useState("");
+  const [noChargeNote, setNoChargeNote] = useState("");
   const [drNo, setDrNo] = useState("");
   const [preparedBy, setPreparedBy] = useState("");
   const [deliveredBy, setDeliveredBy] = useState("");
@@ -222,6 +225,8 @@ export default function DeliveryReleasePage() {
   const [editReferenceMode, setEditReferenceMode] = useState<DeliveryReferenceMode>("SALES_ORDER");
   const [editTrNo, setEditTrNo] = useState("");
   const [editSalesOrderId, setEditSalesOrderId] = useState("");
+  const [editNoChargeReason, setEditNoChargeReason] = useState("");
+  const [editNoChargeNote, setEditNoChargeNote] = useState("");
   const [editComments, setEditComments] = useState("");
   const [editForCompanyId, setEditForCompanyId] = useState("");
   const [editDeliveredBy, setEditDeliveredBy] = useState("");
@@ -271,6 +276,8 @@ export default function DeliveryReleasePage() {
         setReferenceMode(null);
         setSalesOrderId("");
         setTrNo("");
+        setNoChargeReason("");
+        setNoChargeNote("");
         setPoNo("");
       }
       if (prefill.items && prefill.items.length > 0) {
@@ -510,24 +517,26 @@ export default function DeliveryReleasePage() {
   );
 
   /**
-   * Reference mode switch. The two modes are mutually exclusive, so choosing one
-   * clears the other: a Sales Order clears the manual TR Number, and a manual TR
-   * Number clears the Sales Order link.
+   * Reference mode switch. The modes are mutually exclusive, so choosing one
+   * clears the values of the others (Sales Order link, manual TR Number, or the
+   * no-charge reason and note).
    */
   const changeReferenceMode = useCallback((mode: DeliveryReferenceMode, editing = false) => {
     if (editing) {
       if (mode === editReferenceMode) return;
       setEditReferenceMode(mode);
       setEditPoNo("");
-      if (mode === "SALES_ORDER") setEditTrNo("");
-      else setEditSalesOrderId("");
+      if (mode !== "TR_NUMBER") setEditTrNo("");
+      if (mode !== "SALES_ORDER") setEditSalesOrderId("");
+      if (mode !== "NO_CHARGE") { setEditNoChargeReason(""); setEditNoChargeNote(""); }
       return;
     }
     if (mode === referenceMode) return;
     setReferenceMode(mode);
     setPoNo("");
-    if (mode === "SALES_ORDER") setTrNo("");
-    else setSalesOrderId("");
+    if (mode !== "TR_NUMBER") setTrNo("");
+    if (mode !== "SALES_ORDER") setSalesOrderId("");
+    if (mode !== "NO_CHARGE") { setNoChargeReason(""); setNoChargeNote(""); }
   }, [editReferenceMode, referenceMode]);
 
   /**
@@ -539,8 +548,12 @@ export default function DeliveryReleasePage() {
     mode: DeliveryReferenceMode | null,
     orderId: string,
     manualTr: string,
-  ): { referenceMode?: "SALES_ORDER" | "TR_NUMBER"; salesOrderId?: string; trNo?: string } => {
+    reason = "",
+    note = "",
+  ): { referenceMode?: DeliveryReferenceMode; salesOrderId?: string; trNo?: string; noChargeReason?: string; noChargeNote?: string } => {
     if (!mode) return {};
+    // Always sent, so the server validates the reason and note.
+    if (mode === "NO_CHARGE") return { referenceMode: "NO_CHARGE", noChargeReason: reason, noChargeNote: note.trim() };
     if (mode === "SALES_ORDER") {
       return orderId ? { referenceMode: "SALES_ORDER", salesOrderId: orderId } : {};
     }
@@ -727,7 +740,7 @@ export default function DeliveryReleasePage() {
           );
 
           if (linked.length === 0) {
-            if (locked) {
+            if (locked || isNoChargeDelivery(row.original)) {
               return <span className="text-xs text-muted-foreground">—</span>;
             }
             return (
@@ -1001,6 +1014,8 @@ export default function DeliveryReleasePage() {
     setPoNo("");
     setTrNo("");
     setSalesOrderId("");
+    setNoChargeReason("");
+    setNoChargeNote("");
     setReferenceMode(null);
     setDeliveredBy("");
     setComments("");
@@ -1078,11 +1093,20 @@ export default function DeliveryReleasePage() {
     });
   };
 
+  /** Toasts the reason/note error for an incomplete No charge reference. */
+  const noChargeIncomplete = (mode: DeliveryReferenceMode | null, reason: string, note: string): boolean => {
+    if (mode !== "NO_CHARGE") return false;
+    const error = resolveDeliveryReference({ referenceMode: mode, noChargeReason: reason, noChargeNote: note }).error;
+    if (error) toast.error(error);
+    return Boolean(error);
+  };
+
   const handleSaveAndPrint = async () => {
     if (!isContractRelease && !referenceMode) {
-      toast.error("Choose Sales Order or Legacy TR Number first.");
+      toast.error("Choose a reference type first.");
       return;
     }
+    if (!isContractRelease && noChargeIncomplete(referenceMode, noChargeReason, noChargeNote)) return;
     if (!preparedBy.trim()) {
       toast.error("Prepared by is required.");
       return;
@@ -1113,11 +1137,11 @@ export default function DeliveryReleasePage() {
 
     setPrinting(true);
     try {
-      const reference = isContractRelease ? {} : referencePayload(referenceMode, salesOrderId, trNo);
+      const reference = isContractRelease ? {} : referencePayload(referenceMode, salesOrderId, trNo, noChargeReason, noChargeNote);
       // Contract entitlements this DR releases: first Active item of the same
-      // product. Never on a Sales Order DR, and one agreement per DR.
+      // product. Never on a Sales Order or no-charge DR, and one agreement per DR.
       let contractLines: ContractLine[] = [];
-      if (!reference.salesOrderId) {
+      if (!reference.salesOrderId && reference.referenceMode !== "NO_CHARGE") {
         lineItems.forEach((row, index) => {
           if (!row.productCode || !(row.quantity > 0)) return;
           const match = forContracts.find(
@@ -1178,9 +1202,10 @@ export default function DeliveryReleasePage() {
 
   const handleSaveDraft = async () => {
     if (!isContractRelease && !referenceMode) {
-      toast.error("Choose Sales Order or Legacy TR Number first.");
+      toast.error("Choose a reference type first.");
       return;
     }
+    if (!isContractRelease && noChargeIncomplete(referenceMode, noChargeReason, noChargeNote)) return;
     if (!selectedCompany) {
       toast.error("Please select a customer.");
       return;
@@ -1193,7 +1218,7 @@ export default function DeliveryReleasePage() {
         date: deliveryDate,
         drNumber: drNo ? parseInt(drNo, 10) : undefined,
         poNo,
-        ...(isContractRelease ? {} : referencePayload(referenceMode, salesOrderId, trNo)),
+        ...(isContractRelease ? {} : referencePayload(referenceMode, salesOrderId, trNo, noChargeReason, noChargeNote)),
         preparedBy: preparedBy || "",
         deliveredBy: selectedDriver?.label || "",
         deliveredById: selectedDriver?.userId,
@@ -1333,6 +1358,8 @@ export default function DeliveryReleasePage() {
       setEditReferenceMode(referenceModeForRecord(editTarget));
       setEditTrNo(legacyTrNumberForRecord(editTarget));
       setEditSalesOrderId(editTarget.salesOrderId || "");
+      setEditNoChargeReason(editTarget.noChargeReason || "");
+      setEditNoChargeNote(editTarget.noChargeNote || "");
       setEditComments(editTarget.comments);
       setEditForCompanyId(editTarget.forCompanyId || "");
       setEditDeliveredBy(
@@ -1404,6 +1431,10 @@ export default function DeliveryReleasePage() {
       if (editReferenceMode === "SALES_ORDER" && !editSalesOrderId && editTarget.trNo && !editTarget.salesOrderId) {
         throw new Error("Select a Sales Order, or switch the reference back to Legacy TR Number.");
       }
+      if (editReferenceMode === "NO_CHARGE") {
+        const error = resolveDeliveryReference({ referenceMode: "NO_CHARGE", noChargeReason: editNoChargeReason, noChargeNote: editNoChargeNote }).error;
+        if (error) throw new Error(error);
+      }
       if (!["draft", "cancelled"].includes(editStatus)) {
         const lines = editLineItems.filter((li) => li.productCode || li.description.trim());
         if (editWarehouseId && !sourcesComplete(lines.map((li) => ({ quantity: li.quantity, sources: linePartsOf(li, editWarehouseId) })))) {
@@ -1416,7 +1447,7 @@ export default function DeliveryReleasePage() {
         date: editDate,
         poNo: editPoNo,
         warehouseId: editWarehouseId || undefined,
-        ...referencePayload(editReferenceMode, editSalesOrderId, editTrNo),
+        ...referencePayload(editReferenceMode, editSalesOrderId, editTrNo, editNoChargeReason, editNoChargeNote),
         comments: editComments,
         forCompanyId: editForCompanyId,
         deliveredBy: selectedDriver.label,
@@ -1594,13 +1625,17 @@ export default function DeliveryReleasePage() {
                 trNo={trNo}
                 onTrNoChange={setTrNo}
                 selectedSalesOrderNo={salesOrderNumberById.get(salesOrderId)}
+                noChargeReason={noChargeReason}
+                onNoChargeReasonChange={setNoChargeReason}
+                noChargeNote={noChargeNote}
+                onNoChargeNoteChange={setNoChargeNote}
                 disabled={printing || drafting}
               />}
               <div className="space-y-2">
                 <Label>PO NO.</Label>
                 <Input
                   value={poNo}
-                  disabled={!isContractRelease && referenceMode !== "TR_NUMBER"}
+                  disabled={!isContractRelease && referenceMode !== "TR_NUMBER" && referenceMode !== "NO_CHARGE"}
                   onChange={(e) => setPoNo(e.target.value)}
                   placeholder="e.g. PO-10293"
                 />
@@ -1915,13 +1950,17 @@ export default function DeliveryReleasePage() {
                 trNo={editTrNo}
                 onTrNoChange={setEditTrNo}
                 selectedSalesOrderNo={salesOrderNumberById.get(editSalesOrderId)}
+                noChargeReason={editNoChargeReason}
+                onNoChargeReasonChange={setEditNoChargeReason}
+                noChargeNote={editNoChargeNote}
+                onNoChargeNoteChange={setEditNoChargeNote}
                 disabled={editSubmitting}
               />
               <div className="space-y-2">
                 <Label>PO NO.</Label>
                 <Input
                   value={editPoNo}
-                  disabled={editReferenceMode !== "TR_NUMBER"}
+                  disabled={editReferenceMode !== "TR_NUMBER" && editReferenceMode !== "NO_CHARGE"}
                   onChange={(e) => setEditPoNo(e.target.value)}
                 />
               </div>
@@ -2264,7 +2303,7 @@ export default function DeliveryReleasePage() {
                 >
                   Close
                 </Button>
-                <Button
+                {!isNoChargeDelivery(viewItemsTarget) && <Button
                   size="sm"
                   onClick={() =>
                     handleCreateSR(
@@ -2277,7 +2316,7 @@ export default function DeliveryReleasePage() {
                 >
                   <FileText className="mr-1.5 h-4 w-4" />
                   Create SR
-                </Button>
+                </Button>}
               </DialogFooter>
             </div>
           )}
