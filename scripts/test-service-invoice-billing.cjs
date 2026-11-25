@@ -18,6 +18,8 @@ async function main() {
   assert.equal(resolve([release]), contract, "DR prefill selects its originating PMS contract");
   assert.equal(resolve([release, release]), contract, "Multiple released items from one contract are unambiguous");
   assert.equal(resolve([]), undefined, "Regular receipts do not infer a contract from the customer");
+  assert.equal(resolve([release], [{ ...contract, endDate: "2000-01-01" }]), undefined, "Date-expired contracts are not billed");
+  assert.equal(resolve([release], [{ ...contract, endDate: "", agreementType: "Continuous" }])?.id, contract.id, "Continuous contracts stay billable");
   assert.equal(resolve([{ ...release, drNumber: 1 }]), undefined);
   assert.equal(resolve([{ ...release, status: "Cancelled" }]), undefined);
   assert.equal(resolve([{ ...release, status: "Deleted" }]), undefined);
