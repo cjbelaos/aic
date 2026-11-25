@@ -65,4 +65,29 @@ assert.match(pdfModule, /"pdfjs-dist\/legacy\/build\/pdf\.worker\.min\.mjs"/);
 assert.match(fs.readFileSync('src/app/api/service-invoices/upload-scanned/route.ts', 'utf8'), /1bUpm-7ExZzgBvcmqBNd24iw6n3q_R1IM/);
 assert.match(fs.readFileSync('src/app/api/sales-invoices/upload-scanned/route.ts', 'utf8'), /166LGOl4qTL4Ukabnrk335OT0ccLQnCq_/);
 
-console.log('scanned invoice batch rules: ok');
+// Drafts are flagged like cancelled/void: a signed copy of an unprinted draft is almost certainly a misread.
+assert.equal(rules.rowStatus('1817', false, info({ status: 'draft' }), false), 'inactive');
+assert.equal(rules.blocksSave('inactive'), false);
+
+async function pageExtractorTests() {
+  const { PDFDocument } = require('pdf-lib');
+  const extractor = load('src/lib/scannedInvoicePageExtractor.ts');
+  const doc = await PDFDocument.create();
+  doc.addPage([100, 200]);
+  doc.addPage([300, 400]);
+  const bytes = await doc.save();
+
+  // Loads the batch once, then copies single original pages by index.
+  const extract = await extractor.createPageExtractor(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  const file = await extract(1, '1599');
+  assert.equal(file.name, 'SI 1599.pdf');
+  assert.equal(file.type, 'application/pdf');
+  const single = await PDFDocument.load(await file.arrayBuffer());
+  assert.equal(single.getPageCount(), 1);
+  assert.deepEqual(single.getPage(0).getSize(), { width: 300, height: 400 });
+
+  // A PDF pdf-lib cannot read fails when the batch is opened, not after the user has checked every row.
+  await assert.rejects(() => extractor.createPageExtractor(new TextEncoder().encode('not a pdf').buffer));
+}
+
+pageExtractorTests().then(() => console.log('scanned invoice batch rules: ok'), (error) => { console.error(error); process.exit(1); });

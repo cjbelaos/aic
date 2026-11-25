@@ -24,6 +24,7 @@ import {
   type BatchInvoiceInfo,
   type BatchRowStatus,
 } from "@/lib/scannedInvoiceBatch";
+import type { PageExtractor } from "@/lib/scannedInvoicePageExtractor";
 import type { ServiceInvoiceSummary } from "@/types/serviceInvoice";
 
 type SaveState = "idle" | "saving" | "saved" | "failed";
@@ -31,6 +32,7 @@ type SaveState = "idle" | "saving" | "saved" | "failed";
 interface BatchRow {
   pageIndex: number;
   thumbnailUrl: string;
+  previewUrl: string;
   numberCropUrl: string;
   invoiceNo: string;
   /** OCR was unsure; cleared once someone edits the number. */
@@ -44,7 +46,7 @@ const STATUS_LABELS: Record<BatchRowStatus, string> = {
   match: "Match",
   check_number: "Check number",
   replaces_scan: "Replaces scan",
-  inactive: "Cancelled/Void",
+  inactive: "Not active",
   not_found: "Not found",
   unread: "Unread",
   duplicate: "Duplicate",
@@ -84,11 +86,12 @@ export function BulkScanUploadDialog({
   upload: (invoiceNo: string, file: File) => Promise<{ fileLink: string }>;
   onSaved: () => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const disposeRef = useRef<(() => void) | null>(null);
+  const extractPageRef = useRef<PageExtractor | null>(null);
+  const mountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const invoiceInfo = useMemo(() => {
@@ -123,12 +126,26 @@ export function BulkScanUploadDialog({
   const reset = () => {
     disposeRef.current?.();
     disposeRef.current = null;
-    setFile(null);
+    extractPageRef.current = null;
     setRows([]);
     setProgress(null);
   };
 
-  useEffect(() => () => disposeRef.current?.(), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      disposeRef.current?.();
+    };
+  }, []);
+
+  // Closing the tab mid-save would leave some pages uploaded and some not.
+  useEffect(() => {
+    if (!saving) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [saving]);
 
   const handleOpenChange = (next: boolean) => {
     if (saving || reading) return; // keep the dialog open while work is running
@@ -143,16 +160,23 @@ export function BulkScanUploadDialog({
       return;
     }
     reset();
-    setFile(selected);
     setProgress({ done: 0, total: 0 });
     try {
       const { analyzeScannedPdf } = await import("@/lib/scannedInvoiceBatchPdf");
-      const result = await analyzeScannedPdf(selected, (done, total) => setProgress({ done, total }));
+      const result = await analyzeScannedPdf(selected, (done, total) => {
+        if (mountedRef.current) setProgress({ done, total });
+      });
+      if (!mountedRef.current) {
+        result.dispose(); // the page was left while reading
+        return;
+      }
       disposeRef.current = result.dispose;
+      extractPageRef.current = result.extractPage;
       setRows(
         result.pages.map((page) => ({
           pageIndex: page.pageIndex,
           thumbnailUrl: page.thumbnailUrl,
+          previewUrl: page.previewUrl,
           numberCropUrl: page.numberCropUrl,
           invoiceNo: page.detectedNo ?? "",
           uncertain: page.uncertain,
@@ -162,6 +186,7 @@ export function BulkScanUploadDialog({
       );
     } catch (error) {
       console.error("Could not read scanned batch:", error);
+      if (!mountedRef.current) return;
       toast.error(`Could not read the PDF: ${errorMessage(error)}`);
       reset();
     }
@@ -171,13 +196,13 @@ export function BulkScanUploadDialog({
     setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
   const saveRow = async (index: number): Promise<boolean> => {
-    if (!file) return false;
+    const extractPage = extractPageRef.current;
+    if (!extractPage) return false;
     const row = rows[index];
     const invoiceNo = row.invoiceNo.trim();
     updateRow(index, { saveState: "saving", error: undefined });
     try {
-      const { extractPagePdf } = await import("@/lib/scannedInvoiceBatchPdf");
-      await upload(invoiceNo, await extractPagePdf(file, row.pageIndex, invoiceNo));
+      await upload(invoiceNo, await extractPage(row.pageIndex, invoiceNo));
       updateRow(index, { saveState: "saved" });
       return true;
     } catch (error) {
@@ -258,7 +283,7 @@ export function BulkScanUploadDialog({
                     <tr key={row.pageIndex} className="border-b align-middle last:border-0">
                       <td className="p-2 tabular-nums">{row.pageIndex + 1}</td>
                       <td className="p-2">
-                        <a href={row.thumbnailUrl} target="_blank" rel="noopener noreferrer" title="Open full page">
+                        <a href={row.previewUrl} target="_blank" rel="noopener noreferrer" title="Open full page">
                           {/* eslint-disable-next-line @next/next/no-img-element -- local blob preview */}
                           <img src={row.thumbnailUrl} alt={`Page ${row.pageIndex + 1}`} className="h-20 w-auto rounded border" />
                         </a>
@@ -295,9 +320,13 @@ export function BulkScanUploadDialog({
                         ) : row.saveState === "saving" ? (
                           <Badge variant="outline"><Loader2 className="mr-1 h-3 w-3 animate-spin" />Saving</Badge>
                         ) : row.saveState === "failed" ? (
-                          <div className="flex items-center gap-1">
+                          <div className="flex flex-wrap items-center gap-1">
                             <Badge variant="destructive" title={row.error}>Failed</Badge>
-                            <Button size="sm" variant="ghost" className="h-7 px-2" disabled={saving || blocksSave(status)} onClick={() => void saveMany([index])}>
+                            {/* After the number is edited, show why Retry may now be unavailable. */}
+                            {(blocksSave(status) || row.skipped) && (
+                              <Badge variant="outline" className={STATUS_CLASSES[status]}>{STATUS_LABELS[status]}</Badge>
+                            )}
+                            <Button size="sm" variant="ghost" className="h-7 px-2" disabled={saving || row.skipped || blocksSave(status)} onClick={() => void saveMany([index])}>
                               <RotateCcw className="mr-1 h-3 w-3" />Retry
                             </Button>
                           </div>

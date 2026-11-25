@@ -5,10 +5,13 @@
  * (pdfjs, tesseract.js, pdf-lib) only download when someone uses the feature.
  */
 import { NUMBER_CROP, pickInvoiceNumber, redInkMask, isUncertainRead, typicalDigitLength } from "./scannedInvoiceBatch";
+import { createPageExtractor, type PageExtractor } from "./scannedInvoicePageExtractor";
 
 export interface ScannedPage {
   pageIndex: number;
   thumbnailUrl: string;
+  /** Full-page image large enough to read the customer name and signature. */
+  previewUrl: string;
   /** Zoomed crop of the red number area, shown beside the input to check digits. */
   numberCropUrl: string;
   detectedNo: string | null;
@@ -16,9 +19,18 @@ export interface ScannedPage {
   uncertain: boolean;
 }
 
+export interface ScannedBatch {
+  pages: ScannedPage[];
+  /** Copies one original page (no re-rendering) into `SI <invoiceNo>.pdf`. */
+  extractPage: PageExtractor;
+  /** Revokes the page image URLs. */
+  dispose: () => void;
+}
+
 /** Scale 3 (~216 dpi) read the 2026-11-25 sample batch 9/9; scale 2 misread 1599 as 1598. */
 const RENDER_SCALE = 3;
 const THUMBNAIL_WIDTH = 480;
+const PREVIEW_WIDTH = 1200;
 
 function canvasToBlobUrl(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -26,23 +38,36 @@ function canvasToBlobUrl(canvas: HTMLCanvasElement, type: string, quality?: numb
   });
 }
 
+function scaledCopy(source: HTMLCanvasElement, width: number): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = Math.round((source.height / source.width) * width);
+  canvas.getContext("2d")!.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
 /** Renders and reads pages one at a time; onProgress(done, total). */
 export async function analyzeScannedPdf(
   file: File,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ pages: ScannedPage[]; dispose: () => void }> {
+): Promise<ScannedBatch> {
+  const bytes = await file.arrayBuffer();
+  // Opened with pdf-lib first: a PDF it can't split fails now, not after every row is checked.
+  const extractPage = await createPageExtractor(bytes.slice(0));
+
   // Legacy build: polyfills newer JS (Map#getOrInsertComputed, Math.sumPrecise, Uint8Array#toHex) for older Chrome/Edge/Safari.
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
   const { createWorker, PSM } = await import("tesseract.js");
 
-  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
-  const pdf = await loadingTask.promise;
-  const worker = await createWorker("eng");
   const urls: string[] = [];
   const pages: ScannedPage[] = [];
   const confidences: number[] = [];
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+  let worker: Awaited<ReturnType<typeof createWorker>> | undefined;
   try {
+    const pdf = await loadingTask.promise;
+    worker = await createWorker("eng");
     await worker.setParameters({ tessedit_char_whitelist: "0123456789", tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
     onProgress?.(0, pdf.numPages);
     for (let n = 1; n <= pdf.numPages; n++) {
@@ -64,6 +89,7 @@ export async function analyzeScannedPdf(
       crop.height = h;
       crop.getContext("2d")!.drawImage(canvas, x, y, w, h, 0, 0, w, h);
       const numberCropUrl = await canvasToBlobUrl(crop, "image/jpeg", 0.85);
+      urls.push(numberCropUrl);
 
       const masked = document.createElement("canvas");
       masked.width = w;
@@ -71,14 +97,12 @@ export async function analyzeScannedPdf(
       masked.getContext("2d")!.putImageData(new ImageData(redInkMask(context.getImageData(x, y, w, h).data) as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
       const { data } = await worker.recognize(masked);
 
-      const thumb = document.createElement("canvas");
-      thumb.width = THUMBNAIL_WIDTH;
-      thumb.height = Math.round((canvas.height / canvas.width) * THUMBNAIL_WIDTH);
-      thumb.getContext("2d")!.drawImage(canvas, 0, 0, thumb.width, thumb.height);
-      const thumbnailUrl = await canvasToBlobUrl(thumb, "image/jpeg", 0.8);
+      const thumbnailUrl = await canvasToBlobUrl(scaledCopy(canvas, THUMBNAIL_WIDTH), "image/jpeg", 0.8);
+      urls.push(thumbnailUrl);
+      const previewUrl = await canvasToBlobUrl(scaledCopy(canvas, Math.min(PREVIEW_WIDTH, canvas.width)), "image/jpeg", 0.85);
+      urls.push(previewUrl);
 
-      urls.push(thumbnailUrl, numberCropUrl);
-      pages.push({ pageIndex: n - 1, thumbnailUrl, numberCropUrl, detectedNo: pickInvoiceNumber(data.text), uncertain: false });
+      pages.push({ pageIndex: n - 1, thumbnailUrl, previewUrl, numberCropUrl, detectedNo: pickInvoiceNumber(data.text), uncertain: false });
       confidences.push(data.confidence);
       page.cleanup();
       canvas.width = canvas.height = 0; // release the large page bitmap before the next page
@@ -88,21 +112,10 @@ export async function analyzeScannedPdf(
     urls.forEach((url) => URL.revokeObjectURL(url));
     throw error;
   } finally {
-    await worker.terminate();
+    await worker?.terminate();
     await loadingTask.destroy();
   }
   const typicalLength = typicalDigitLength(pages.map((page) => page.detectedNo));
   pages.forEach((page, i) => (page.uncertain = isUncertainRead(page.detectedNo, confidences[i], typicalLength)));
-  return { pages, dispose: () => urls.forEach((url) => URL.revokeObjectURL(url)) };
-}
-
-/** Copies one original page (no re-rendering) into its own PDF named `SI <invoiceNo>.pdf`. */
-export async function extractPagePdf(file: File, pageIndex: number, invoiceNo: string): Promise<File> {
-  const { PDFDocument } = await import("pdf-lib");
-  const source = await PDFDocument.load(await file.arrayBuffer());
-  const output = await PDFDocument.create();
-  const [page] = await output.copyPages(source, [pageIndex]);
-  output.addPage(page);
-  const bytes = await output.save();
-  return new File([bytes as Uint8Array<ArrayBuffer>], `SI ${invoiceNo}.pdf`, { type: "application/pdf" });
+  return { pages, extractPage, dispose: () => urls.forEach((url) => URL.revokeObjectURL(url)) };
 }

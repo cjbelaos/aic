@@ -65,7 +65,7 @@ export interface BatchInvoiceInfo {
   hasScan: boolean;
 }
 
-const INACTIVE_STATUSES = new Set(["cancelled", "void"]);
+const INACTIVE_STATUSES = new Set(["draft", "cancelled", "void"]);
 
 export function rowStatus(
   invoiceNo: string,
