@@ -27,6 +27,9 @@ import {
 } from "@/lib/salesOrders/quotationReference";
 import type { OptionsResponse, OrderInput, OrderLineInput } from "@/lib/services/sales-order.service";
 
+/** Picker value meaning "no recommending technician". */
+const NO_RECOMMENDER = "__none__";
+
 export interface OrderFormProps {
   initial: OrderInput;
   options: OptionsResponse;
@@ -56,6 +59,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
     receivedDate: initial.receivedDate,
     requiredDate: initial.requiredDate ?? "",
     assignedToUserId: initial.assignedToUserId ?? "",
+    recommendedByUserId: initial.recommendedByUserId ?? "",
     customerPONo: initial.customerPONo ?? "",
     paymentTermId: initial.paymentTermId ?? "",
     remarks: initial.remarks ?? "",
@@ -175,7 +179,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
               </Field>
             ) : (
               <Field label={INTERNAL_QUOTATION_FIELD_LABEL} className="min-w-0 flex-1">
-                <SearchableSelect value={header.sourceQuotationNo} onValueChange={(value) => patchHeader({ sourceQuotationNo: value })} options={options.quotations.map((quotation) => ({ value: quotation.quotationNo, label: `${quotation.quotationNo} — ${quotation.customer} — ${money(quotation.amount)}` }))} placeholder="Select quotation…" searchPlaceholder="Search quotation or customer…" />
+                <SearchableSelect value={header.sourceQuotationNo} onValueChange={(value) => patchHeader({ sourceQuotationNo: value, recommendedByUserId: options.quotations.find((quotation) => quotation.quotationNo === value)?.recommendedByUserId || header.recommendedByUserId })} options={options.quotations.map((quotation) => ({ value: quotation.quotationNo, label: `${quotation.quotationNo} — ${quotation.customer} — ${money(quotation.amount)}` }))} placeholder="Select quotation…" searchPlaceholder="Search quotation or customer…" />
               </Field>
             )}
             {header.quotationSource === "EXTERNAL" ? (
@@ -210,6 +214,10 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
                 <SelectContent>{(Object.keys(BILLING_TYPE_LABELS) as SalesOrderBillingType[]).map((type) => <SelectItem key={type} value={type}>{BILLING_TYPE_LABELS[type]}</SelectItem>)}</SelectContent>
               </Select>
               <p className="mt-1 text-xs text-muted-foreground">Replacement parts for a service job are billed as SR.</p>
+            </Field>
+            <Field label="Recommended by" className="md:col-span-4">
+              <SearchableSelect value={header.recommendedByUserId || undefined} onValueChange={(value) => patchHeader({ recommendedByUserId: value === NO_RECOMMENDER ? "" : value })} options={[{ value: NO_RECOMMENDER, label: "None" }, ...(options.recommenders ?? []).map((user) => ({ value: user.userId, label: user.fullName }))]} placeholder="Select technician (optional)…" searchPlaceholder="Search technicians…" />
+              <p className="mt-1 text-xs text-muted-foreground">Emailed to raise the Purchase Request when this order is confirmed.</p>
             </Field>
           </div>
           {selectedCustomer ? <div className="grid gap-2 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground sm:grid-cols-2"><span>TIN: {selectedCustomer.tin || "—"}</span><span>Address: {selectedCustomer.address || "—"}</span></div> : null}

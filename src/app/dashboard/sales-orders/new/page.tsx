@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
+import { showRecommenderNotice } from "@/components/sales-orders/recommender-toast";
 import { Button } from "@/components/ui/button";
 import { PageLoader } from "@/components/ui/logo-loader";
 import {
@@ -36,6 +37,7 @@ export default function NewSalesOrderPage(): React.ReactNode {
     referenceFiles?: SalesOrderReferenceFiles,
   ): Promise<void> => {
     const result = await salesOrderService.create(payload);
+    showRecommenderNotice(result.notice);
     const orderId = result.order.order.salesOrderId;
     let orderVersion = result.order.order.version;
     const uploads: Array<{
@@ -73,6 +75,7 @@ export default function NewSalesOrderPage(): React.ReactNode {
 
   const createFromQuotation = async (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED", customerPO?: File): Promise<void> => {
     const result = await salesOrderService.fromQuotation(quotationNo, initialStatus);
+    showRecommenderNotice(result.notice);
     const id = result.order.order.salesOrderId;
     if (customerPO) {
       try {

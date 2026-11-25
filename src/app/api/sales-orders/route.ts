@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { notifyRecommender } from "@/lib/salesOrders/recommenderNotice";
+import { shouldSendRecommenderNotice } from "@/lib/recommendedBy";
 import { resolveOrderRecommender } from "@/lib/salesOrders/recommender";
 import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/salesOrders/http-helpers";
 import { attachDocument, createOrder, listOrders } from "@/lib/salesOrders/service";
@@ -89,7 +91,10 @@ export async function POST(request: Request) {
       });
     }
     await syncSalesOrderToTracker(detail.order, detail.items, { quotation: quotationUrl });
-    return NextResponse.json({ success: true, order: detail }, { status: 201 });
+    const notice = shouldSendRecommenderNotice(null, detail.order.orderStatus)
+      ? await notifyRecommender(detail.order, detail.items, new URL(request.url).origin)
+      : undefined;
+    return NextResponse.json({ success: true, order: detail, notice }, { status: 201 });
   } catch (error) {
     return salesErrorResponse(error);
   }

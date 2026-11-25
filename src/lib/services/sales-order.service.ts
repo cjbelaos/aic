@@ -1,4 +1,5 @@
 import type { DiscountSettings } from "../discounts";
+import type { RecommenderNotice } from "@/lib/salesOrders/recommenderNotice";
 import api from "@/lib/apiClient";
 import type {
   SalesOrder,
@@ -147,13 +148,13 @@ const salesOrderService = {
 
   billing: (id: string): Promise<SalesOrderBilling> => api.get(`${BASE}/${id}/billing`),
 
-  create: (payload: OrderInput): Promise<{ success: boolean; order: SalesOrderDetail }> =>
+  create: (payload: OrderInput): Promise<{ success: boolean; order: SalesOrderDetail; notice?: RecommenderNotice }> =>
     mutate("post", `${BASE}`, { ...payload, commandId: payload.commandId }),
 
   updateDraft: (id: string, payload: OrderInput & { expectedVersion: number }): Promise<{ success: boolean; order: SalesOrderDetail }> =>
     mutate("patch", `${BASE}/${id}`, { ...payload, commandId: payload.commandId }),
 
-  confirm: (id: string, expectedVersion: number): Promise<{ success: boolean; order: SalesOrderDetail }> =>
+  confirm: (id: string, expectedVersion: number): Promise<{ success: boolean; order: SalesOrderDetail; notice?: RecommenderNotice }> =>
     mutate("post", `${BASE}/${id}/confirm`, { expectedVersion }),
 
   hold: (id: string, expectedVersion: number): Promise<{ success: boolean; order: SalesOrderDetail }> =>
@@ -208,7 +209,7 @@ const salesOrderService = {
     storage?: string;
   }> => mutate("post", `${BASE}/${id}/pdf`, {}),
 
-  fromQuotation: (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED" = "CONFIRMED"): Promise<{ success: boolean; order: SalesOrderDetail & { reusedExisting?: boolean } }> =>
+  fromQuotation: (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED" = "CONFIRMED"): Promise<{ success: boolean; order: SalesOrderDetail & { reusedExisting?: boolean }; notice?: RecommenderNotice }> =>
     mutate("post", `${BASE}/from-quotation`, { quotationNo, initialStatus }),
 
   history: (id: string): Promise<{ success: boolean; history: SalesOrderHistory[] }> =>
