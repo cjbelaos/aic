@@ -85,7 +85,7 @@ async function rejects(promise, pattern) {
   assert.equal(f.writes.length, 0, 'Unknown additive header must not be overwritten');
   f = fixture([], { columnCount: 26 });
   await f.api.ensureQuotationColumns();
-  assert.equal(f.writes[0].requestBody.requests[0].appendDimension.length, 1);
+  assert.equal(f.writes[0].requestBody.requests[0].appendDimension.length, 3);
   assert.ok(f.writes[1].requestBody.requests.every(request => request.updateCells.range.startColumnIndex >= 21));
   f = fixture();
   await rejects(f.api.saveQuotationData({ clientName: 'Test', quotationNo: 'Q-NEW', quotationDescription: 'Work', status: 'DRAFT', items: [], notations: [], terms: '' }, 'tester'), /payment/i);

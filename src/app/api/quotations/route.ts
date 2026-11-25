@@ -3,6 +3,7 @@ import { addQuotation, getQuotations } from "@/lib/quotationSheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { CreateQuotationPayload } from "@/types/quotation";
 import { QuotationError } from "@/lib/quotationTerms";
+import { resolveQuotationRecommender } from "@/lib/quotationRecommender";
 
 export async function GET() {
   const session = await requireAuthenticatedSession();
@@ -24,7 +25,8 @@ export async function POST(request: Request) {
 
   try {
     const body: CreateQuotationPayload = await request.json();
-    const created = await addQuotation(body, session.username);
+    const recommender = await resolveQuotationRecommender(body.recommendedByUserId);
+    const created = await addQuotation({ ...body, ...recommender }, session.username);
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
     const message =

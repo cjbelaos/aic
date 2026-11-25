@@ -27,6 +27,7 @@ import {
   quotationPricingCells,
   quotationRowValues,
   quotationSheetRange,
+  QUOTATION_ROW_COLUMN_COUNT,
   QUOTATION_ROW_HEADERS,
   columnLetter,
 } from "@/lib/quotationRow";
@@ -60,17 +61,22 @@ export async function ensureQuotationColumns(): Promise<void> {
   const sheet = metadata.data.sheets?.find(sheet => sheet.properties?.title === QUOTATIONS_SHEET)?.properties;
   if (sheet?.sheetId == null) throw new Error("Quotations sheet not found.");
   const columnCount = sheet.gridProperties?.columnCount || 0;
-  if (columnCount < 27) {
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [
-      { appendDimension: { sheetId: sheet.sheetId, dimension: "COLUMNS", length: 27 - columnCount } },
-    ] } });
-  }
-  const header = (await sheets.spreadsheets.values.get({ spreadsheetId, range: "Quotations!V1:AA1" })).data.values?.[0] || [];
+  // Validate the existing additive headers (within the current grid) before
+  // any write, so an unexpected header leaves the sheet untouched.
+  const headerEnd = Math.min(columnCount, QUOTATION_ROW_COLUMN_COUNT);
+  const header = headerEnd > 21
+    ? (await sheets.spreadsheets.values.get({ spreadsheetId, range: `Quotations!V1:${columnLetter(headerEnd - 1)}1` })).data.values?.[0] || []
+    : [];
   const requests = QUOTATION_ROW_HEADERS.slice(21).flatMap((label, index) => {
     const current = String(header[index] ?? "").trim();
     if (current && current !== label) throw new Error(`Quotations column ${index + 22} contains an unexpected header: ${current}.`);
     return current ? [] : [{ updateCells: { range: { sheetId: sheet.sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: index + 21, endColumnIndex: index + 22 }, rows: [{ values: [{ userEnteredValue: { stringValue: label } }] }], fields: "userEnteredValue" } }];
   });
+  if (columnCount < QUOTATION_ROW_COLUMN_COUNT) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [
+      { appendDimension: { sheetId: sheet.sheetId, dimension: "COLUMNS", length: QUOTATION_ROW_COLUMN_COUNT - columnCount } },
+    ] } });
+  }
   if (requests.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
 }
 
@@ -80,11 +86,19 @@ function assertSavableQuotation(payload: { terms?: unknown; delivery?: unknown; 
   if (payload.status === "SENT") throw new QuotationError("Use Send to Client to send a quotation and record its sent history.");
 }
 
+/** Quotations read range clamped to the grid, so a sheet not yet widened still reads. */
+async function quotationReadRange(spreadsheetId: string): Promise<string> {
+  const sheets = await getSheetsClient();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties" });
+  const width = metadata.data.sheets?.find(s => s.properties?.title === QUOTATIONS_SHEET)?.properties?.gridProperties?.columnCount ?? 27;
+  return `${QUOTATIONS_SHEET}!A2:${columnLetter(Math.min(width, QUOTATION_ROW_COLUMN_COUNT) - 1)}`;
+}
+
 async function fetchAllSheetData(spreadsheetId: string) {
   const sheets = await getSheetsClient();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties" });
   const width = metadata.data.sheets?.find(s => s.properties?.title === QUOTATIONS_SHEET)?.properties?.gridProperties?.columnCount ?? 27;
-  const readRange = `${QUOTATIONS_SHEET}!A2:${columnLetter(Math.min(width, 27) - 1)}`;
+  const readRange = `${QUOTATIONS_SHEET}!A2:${columnLetter(Math.min(width, QUOTATION_ROW_COLUMN_COUNT) - 1)}`;
   const response = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
     ranges: [readRange, RANGE_DETAILS, RANGE_NOTATIONS],
@@ -219,6 +233,8 @@ function parseQuotationRow(
     revision: values.revision,
     revisionPending: values.revisionPending,
     lastSentAt: values.lastSentAt,
+    recommendedByUserId: values.recommendedByUserId,
+    recommendedByName: values.recommendedByName,
   };
 }
 
@@ -285,6 +301,8 @@ function buildQuotationRow(
     revision: values.revision,
     revisionPending: values.revisionPending,
     lastSentAt: values.lastSentAt,
+    recommendedByUserId: values.recommendedByUserId,
+    recommendedByName: values.recommendedByName,
   };
 }
 
@@ -394,6 +412,8 @@ async function addQuotationUnlocked(
       approvedBy: payload.approvedBy || "",
       sentBy: payload.sentBy || "",
       status: payload.status || "DRAFT",
+      recommendedByUserId: payload.recommendedByUserId || "",
+      recommendedByName: payload.recommendedByName || "",
       ...auditCells,
     });
 
@@ -464,6 +484,8 @@ async function addQuotationUnlocked(
       revision: payload.revision ?? 0,
       revisionPending: payload.revisionPending ?? false,
       lastSentAt: payload.lastSentAt || "",
+      recommendedByUserId: payload.recommendedByUserId || "",
+      recommendedByName: payload.recommendedByName || "",
     };
   } catch (error) {
     console.error("Failed to add quotation:", error);
@@ -488,7 +510,7 @@ async function updateQuotationStatusUnlocked(
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: RANGE_QUOTATIONS,
+      range: await quotationReadRange(spreadsheetId),
     });
 
     const quotRows = response.data.values || [];
@@ -531,7 +553,7 @@ async function deleteQuotationByRefNoUnlocked(
     const metaResp = await sheets.spreadsheets.get({ spreadsheetId });
     const width = metaResp.data.sheets?.find(s => s.properties?.title === QUOTATIONS_SHEET)?.properties?.gridProperties?.columnCount ?? 27;
     const valueResp = await sheets.spreadsheets.values.batchGet({ spreadsheetId,
-      ranges: [`${QUOTATIONS_SHEET}!A2:${columnLetter(Math.min(width, 27) - 1)}`, RANGE_DETAILS, RANGE_NOTATIONS],
+      ranges: [`${QUOTATIONS_SHEET}!A2:${columnLetter(Math.min(width, QUOTATION_ROW_COLUMN_COUNT) - 1)}`, RANGE_DETAILS, RANGE_NOTATIONS],
     });
 
     const sheetMap = new Map<string, number>();
@@ -665,6 +687,8 @@ async function updateQuotationUnlocked(
             approvedBy: payload.approvedBy || "",
             sentBy: payload.sentBy || "",
             status: payload.status || "DRAFT",
+            recommendedByUserId: payload.recommendedByUserId || "",
+            recommendedByName: payload.recommendedByName || "",
             ...auditCells,
           }),
         ],
@@ -722,6 +746,8 @@ async function updateQuotationUnlocked(
       revision: payload.revision ?? 0,
       revisionPending: payload.revisionPending ?? false,
       lastSentAt: payload.lastSentAt || "",
+      recommendedByUserId: payload.recommendedByUserId || "",
+      recommendedByName: payload.recommendedByName || "",
     };
   } catch (error) {
     console.error(`Failed to update quotation ${quotationNo}:`, error);
@@ -810,6 +836,9 @@ type SaveQuotationDataParams = {
   pricingMode?: string;
   /** One combined price for the whole job (single-total mode only). */
   singleTotalPrice?: number;
+  /** Already resolved against the Users sheet by the route. */
+  recommendedByUserId?: string;
+  recommendedByName?: string;
 };
 export async function saveQuotationData(params: SaveQuotationDataParams, actor: string): Promise<{ refNumber: string; date: string }> {
   assertSavableQuotation(params);
@@ -863,6 +892,8 @@ async function saveQuotationDataUnlocked(params: SaveQuotationDataParams, actor:
       approvedBy: params.approvedBy || (params.status === "SENT" ? "Von Jeric Carmona" : ""),
       sentBy: params.sentByName || (params.status === "SENT" ? params.preparedByName : ""),
       status: params.status,
+      recommendedByUserId: params.recommendedByUserId || "",
+      recommendedByName: params.recommendedByName || "",
       ...auditCells,
     });
 

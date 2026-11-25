@@ -7,6 +7,7 @@ import {
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { CreateQuotationPayload } from "@/types/quotation";
 import { QuotationError } from "@/lib/quotationTerms";
+import { resolveQuotationRecommender } from "@/lib/quotationRecommender";
 
 export async function GET(
   _request: Request,
@@ -72,7 +73,8 @@ export async function PUT(
     if (body.pricingMode !== undefined && body.pricingMode !== "PER_LINE" && body.pricingMode !== "SINGLE_TOTAL") {
       return NextResponse.json({ error: "Pricing mode must be PER_LINE or SINGLE_TOTAL." }, { status: 400 });
     }
-    const updated = await updateQuotation(refNo, body, session.username);
+    const recommender = await resolveQuotationRecommender(body.recommendedByUserId);
+    const updated = await updateQuotation(refNo, { ...body, ...recommender }, session.username);
     return NextResponse.json(updated, { status: 200 });
   } catch (error) {
     const message =
