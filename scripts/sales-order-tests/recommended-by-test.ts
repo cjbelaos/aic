@@ -30,14 +30,20 @@ assert.deepEqual(resolveRecommendedBy(" u1 ", users), { recommendedByUserId: "u1
 const notAfterSales = { error: "The recommending technician must be an After Sales user." };
 assert.deepEqual(resolveRecommendedBy("u3", users), notAfterSales);
 assert.deepEqual(resolveRecommendedBy("nope", users), notAfterSales);
+// An unchanged stored recommender is kept even after they left After Sales.
+const stored = { recommendedByUserId: "u3", recommendedByName: "Admin Person (old)" };
+assert.deepEqual(resolveRecommendedBy("u3", users, stored), stored);
+assert.deepEqual(resolveRecommendedBy("u3", users, { recommendedByUserId: "u1", recommendedByName: "Juan Tech" }), notAfterSales);
 
 // Technician in To; After Sales managers and the company inbox in CC.
 assert.deepEqual(noticeRecipients("u1", users, positions), { to: "t@x.com", cc: ["m@x.com", COMPANY_INBOX] });
 // A manager who recommended is not repeated in CC.
 assert.deepEqual(noticeRecipients("u2", users, positions), { to: "m@x.com", cc: [COMPANY_INBOX] });
 // No email on the technician's account: nothing to send.
-assert.equal(noticeRecipients("u1", [{ ...tech, email: " " }, manager], positions), null);
-assert.equal(noticeRecipients("missing", users, positions), null);
+assert.deepEqual(noticeRecipients("u1", [{ ...tech, email: " " }, manager], positions), { problem: "NO_EMAIL" });
+assert.deepEqual(noticeRecipients("missing", users, positions), { problem: "NOT_A_USER" });
+// Moved out of After Sales since the quotation was saved: not emailed.
+assert.deepEqual(noticeRecipients("u3", users, positions), { problem: "NOT_AFTER_SALES" });
 // CC is de-duplicated case-insensitively.
 const dupManager = { ...manager, userId: "u4", email: "AERICHINNOVATIONCORP@gmail.com" };
 assert.deepEqual(noticeRecipients("u1", [tech, manager, dupManager], positions), { to: "t@x.com", cc: ["m@x.com", COMPANY_INBOX] });

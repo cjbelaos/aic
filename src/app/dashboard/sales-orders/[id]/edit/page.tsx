@@ -108,6 +108,7 @@ export default function EditSalesOrderPage(): React.ReactNode {
     requiredDate: order.requiredDate,
     assignedToUserId: order.assignedToUserId,
     recommendedByUserId: order.recommendedByUserId ?? "",
+    recommendedByName: order.recommendedByName ?? "",
     currency: order.currency,
     remarks: order.remarks,
     lines: detail.items

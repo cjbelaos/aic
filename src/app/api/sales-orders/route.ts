@@ -49,13 +49,15 @@ export async function POST(request: Request) {
     const session = auth.session;
     let quotationUrl = "";
     let quotationFileId = "";
+    let sourceQuotation: Awaited<ReturnType<typeof getQuotationByRefNo>> = null;
     if (input.quotationSource === "INTERNAL" && input.sourceQuotationNo) {
       const quotation = await getQuotationByRefNo(input.sourceQuotationNo);
+      sourceQuotation = quotation;
       quotationUrl = quotation?.file ?? "";
       quotationFileId = quotationUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? "";
       if (!quotationFileId) throw new Error(`Quotation ${input.sourceQuotationNo} has no saved PDF. Save its PDF before creating a Sales Order.`);
     }
-    const recommender = await resolveOrderRecommender(input.recommendedByUserId);
+    const recommender = await resolveOrderRecommender(input.recommendedByUserId, sourceQuotation ? { recommendedByUserId: sourceQuotation?.recommendedByUserId ?? "", recommendedByName: sourceQuotation?.recommendedByName ?? "" } : undefined);
     const detail = await createOrder(toActor(session), {
       ...recommender,
       commandId: input.commandId,
@@ -82,6 +84,10 @@ export async function POST(request: Request) {
       remarks: input.remarks,
       lines,
     });
+    // Email first: a later tracker or document step failing must not lose it.
+    const notice = shouldSendRecommenderNotice(null, detail.order.orderStatus)
+      ? await notifyRecommender(detail.order, detail.items, new URL(request.url).origin)
+      : undefined;
     if (quotationFileId) {
       await attachDocument(toActor(session), detail.order.salesOrderId, {
         commandId: crypto.randomUUID(), documentType: "QUOTATION",
@@ -91,9 +97,6 @@ export async function POST(request: Request) {
       });
     }
     await syncSalesOrderToTracker(detail.order, detail.items, { quotation: quotationUrl });
-    const notice = shouldSendRecommenderNotice(null, detail.order.orderStatus)
-      ? await notifyRecommender(detail.order, detail.items, new URL(request.url).origin)
-      : undefined;
     return NextResponse.json({ success: true, order: detail, notice }, { status: 201 });
   } catch (error) {
     return salesErrorResponse(error);

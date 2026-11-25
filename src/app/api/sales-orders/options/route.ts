@@ -58,6 +58,7 @@ export async function GET() {
         status: quotation.status,
         amount: quotation.amount,
         recommendedByUserId: quotation.recommendedByUserId ?? "",
+        recommendedByName: quotation.recommendedByName ?? "",
       }));
     return NextResponse.json(
       {

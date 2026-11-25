@@ -73,7 +73,8 @@ export async function PUT(
     if (body.pricingMode !== undefined && body.pricingMode !== "PER_LINE" && body.pricingMode !== "SINGLE_TOTAL") {
       return NextResponse.json({ error: "Pricing mode must be PER_LINE or SINGLE_TOTAL." }, { status: 400 });
     }
-    const recommender = await resolveQuotationRecommender(body.recommendedByUserId);
+    const current = await getQuotationByRefNo(refNo);
+    const recommender = await resolveQuotationRecommender(body.recommendedByUserId, { recommendedByUserId: current?.recommendedByUserId ?? "", recommendedByName: current?.recommendedByName ?? "" });
     const updated = await updateQuotation(refNo, { ...body, ...recommender }, session.username);
     return NextResponse.json(updated, { status: 200 });
   } catch (error) {

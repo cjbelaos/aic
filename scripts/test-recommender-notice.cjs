@@ -7,6 +7,7 @@ const users = [
   { userId: 'u1', username: 'jtech', fullName: 'Juan Tech', email: 't@x.com', departmentId: 1, positionId: 5 },
   { userId: 'u2', username: 'amgr', fullName: 'Ana Manager', email: 'm@x.com', departmentId: 1, positionId: 6 },
   { userId: 'u5', username: 'nomail', fullName: 'No Mail', email: '', departmentId: 1, positionId: 5 },
+  { userId: 'u6', username: 'moved', fullName: 'Moved Out', email: 'mo@x.com', departmentId: 2, positionId: 5 },
 ];
 const positions = [{ positionId: 5, positionTitle: 'Technician' }, { positionId: 6, positionTitle: 'After Sales Manager' }];
 const order = { salesOrderId: 'so-1', salesOrderNo: 'AIC-SO-2026-0001', customerNameSnapshot: 'ACME', quotationNo: 'Q-1', recommendedByUserId: 'u1', recommendedByName: 'Juan Tech' };
@@ -49,6 +50,18 @@ function notifier(send) {
     result = await n.api.notifyRecommender({ ...order, recommendedByUserId: 'u5', recommendedByName: 'No Mail' }, items, 'https://app.example');
     assert.equal(result.status, 'FAILED');
     assert.equal(result.warning, 'Technician was not notified: No Mail has no email address.');
+    assert.equal(n.sent.length, 0);
+
+    // Moved out of After Sales after the quotation was saved.
+    n = notifier(async () => ({ success: true }));
+    result = await n.api.notifyRecommender({ ...order, recommendedByUserId: 'u6', recommendedByName: 'Moved Out' }, items, 'https://app.example');
+    assert.deepEqual(result, { status: 'FAILED', warning: 'Technician was not notified: Moved Out is no longer in After Sales.' });
+    assert.equal(n.sent.length, 0);
+
+    // Deleted from Users.
+    n = notifier(async () => ({ success: true }));
+    result = await n.api.notifyRecommender({ ...order, recommendedByUserId: 'gone', recommendedByName: 'Gone Tech' }, items, 'https://app.example');
+    assert.deepEqual(result, { status: 'FAILED', warning: 'Technician was not notified: Gone Tech is no longer a user.' });
     assert.equal(n.sent.length, 0);
 
     // SMTP not configured.

@@ -100,6 +100,8 @@ export interface OrderInput {
   requiredDate?: string;
   assignedToUserId?: string;
   recommendedByUserId?: string;
+  /** Display only: the stored name, so a former technician stays visible. */
+  recommendedByName?: string;
   currency?: string;
   remarks?: string;
   lines: OrderLineInput[];
@@ -115,7 +117,7 @@ export interface OptionsResponse {
   units: Array<{ unitId: string; unitCode: string; unitName: string }>;
   serviceCategoryName: string | null;
   serviceUnitId: string | null;
-  quotations: Array<{ quotationNo: string; customer: string; customerId?: string; date: string; status: string; amount: number; recommendedByUserId?: string }>;
+  quotations: Array<{ quotationNo: string; customer: string; customerId?: string; date: string; status: string; amount: number; recommendedByUserId?: string; recommendedByName?: string }>;
   products: Array<{ productId: string; productCode: string; productName: string; productCategoryId: string; unitId: string; defaultSellingPrice: number | null }>;
   orderCategories: string[];
   assignmentMandatory: boolean;

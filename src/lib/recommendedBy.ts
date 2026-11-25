@@ -30,9 +30,18 @@ export function recommenderOptions(users: readonly UserLite[]): RecommenderOptio
 
 export type ResolvedRecommender = { recommendedByUserId: string; recommendedByName: string };
 
-export function resolveRecommendedBy(userId: string | undefined, users: readonly UserLite[]): ResolvedRecommender | { error: string } {
+/**
+ * `stored` is the record's current recommender: an unchanged id is kept as is,
+ * so a technician who later left After Sales never blocks unrelated edits.
+ */
+export function resolveRecommendedBy(
+  userId: string | undefined,
+  users: readonly UserLite[],
+  stored?: ResolvedRecommender,
+): ResolvedRecommender | { error: string } {
   const id = String(userId ?? "").trim();
   if (!id) return { recommendedByUserId: "", recommendedByName: "" };
+  if (stored && stored.recommendedByUserId === id) return stored;
   const user = users.find((candidate) => candidate.userId === id);
   if (!user || !isAfterSales(user)) return { error: "The recommending technician must be an After Sales user." };
   return { recommendedByUserId: user.userId, recommendedByName: displayName(user) };
@@ -40,14 +49,19 @@ export function resolveRecommendedBy(userId: string | undefined, users: readonly
 
 const normalEmail = (value: string | undefined): string => String(value ?? "").trim().toLowerCase();
 
+/** Why a recommender cannot be emailed. */
+export type NoticeProblem = "NOT_A_USER" | "NOT_AFTER_SALES" | "NO_EMAIL";
+
 export function noticeRecipients(
   technicianUserId: string,
   users: readonly UserLite[],
   positions: readonly Position[],
-): { to: string; cc: string[] } | null {
+): { to: string; cc: string[] } | { problem: NoticeProblem } {
   const technician = users.find((user) => user.userId === technicianUserId);
-  const to = normalEmail(technician?.email);
-  if (!to) return null;
+  if (!technician) return { problem: "NOT_A_USER" };
+  if (!isAfterSales(technician)) return { problem: "NOT_AFTER_SALES" };
+  const to = normalEmail(technician.email);
+  if (!to) return { problem: "NO_EMAIL" };
   const managerPositions = new Set(
     positions.filter((p) => /manager/i.test(p.positionTitle ?? "")).map((p) => Number(p.positionId)),
   );

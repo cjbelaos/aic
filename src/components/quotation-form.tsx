@@ -365,8 +365,12 @@ export function QuotationForm({
     () => [
       { value: NO_RECOMMENDER, label: "None" },
       ...recommenderOptions(allUsers).map((u) => ({ value: u.userId, label: u.fullName })),
+      // A stored recommender who left After Sales stays visible instead of looking blank.
+      ...(recommendedByUserId && !recommenderOptions(allUsers).some((u) => u.userId === recommendedByUserId)
+        ? [{ value: recommendedByUserId, label: `${initialData?.recommendedByUserId === recommendedByUserId ? initialData?.recommendedByName || recommendedByUserId : recommendedByUserId} (not in After Sales)` }]
+        : []),
     ],
-    [allUsers],
+    [allUsers, recommendedByUserId, initialData?.recommendedByUserId, initialData?.recommendedByName],
   );
   const recommendedByLabel =
     allUsers.find((u) => u.userId === recommendedByUserId)?.fullName ||

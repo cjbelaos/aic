@@ -60,6 +60,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
     requiredDate: initial.requiredDate ?? "",
     assignedToUserId: initial.assignedToUserId ?? "",
     recommendedByUserId: initial.recommendedByUserId ?? "",
+    recommendedByName: initial.recommendedByName ?? "",
     customerPONo: initial.customerPONo ?? "",
     paymentTermId: initial.paymentTermId ?? "",
     remarks: initial.remarks ?? "",
@@ -80,6 +81,20 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
 
   const markDirty = <T,>(fn: () => T): T => { dirty.current = true; return fn(); };
   const patchHeader = (patch: Partial<typeof header>): void => markDirty(() => setHeader((current) => ({ ...current, ...patch })));
+  /** Choosing a quotation takes that quotation's recommender, blank included. */
+  const recommenderFromQuotation = (quotationNo: string) => {
+    const quotation = options.quotations.find((item) => item.quotationNo === quotationNo);
+    return { sourceQuotationNo: quotationNo, recommendedByUserId: quotation?.recommendedByUserId ?? "", recommendedByName: quotation?.recommendedByName ?? "" };
+  };
+  const recommenders = options.recommenders ?? [];
+  const recommenderChoices = [
+    { value: NO_RECOMMENDER, label: "None" },
+    ...recommenders.map((user) => ({ value: user.userId, label: user.fullName })),
+    // A stored recommender who left After Sales stays visible instead of looking blank.
+    ...(header.recommendedByUserId && !recommenders.some((user) => user.userId === header.recommendedByUserId)
+      ? [{ value: header.recommendedByUserId, label: `${header.recommendedByName || header.recommendedByUserId} (not in After Sales)` }]
+      : []),
+  ];
 
   React.useEffect(() => {
     const handler = (event: BeforeUnloadEvent): void => { if (dirty.current) event.preventDefault(); };
@@ -179,7 +194,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
               </Field>
             ) : (
               <Field label={INTERNAL_QUOTATION_FIELD_LABEL} className="min-w-0 flex-1">
-                <SearchableSelect value={header.sourceQuotationNo} onValueChange={(value) => patchHeader({ sourceQuotationNo: value, recommendedByUserId: options.quotations.find((quotation) => quotation.quotationNo === value)?.recommendedByUserId || header.recommendedByUserId })} options={options.quotations.map((quotation) => ({ value: quotation.quotationNo, label: `${quotation.quotationNo} — ${quotation.customer} — ${money(quotation.amount)}` }))} placeholder="Select quotation…" searchPlaceholder="Search quotation or customer…" />
+                <SearchableSelect value={header.sourceQuotationNo} onValueChange={(value) => patchHeader(recommenderFromQuotation(value))} options={options.quotations.map((quotation) => ({ value: quotation.quotationNo, label: `${quotation.quotationNo} — ${quotation.customer} — ${money(quotation.amount)}` }))} placeholder="Select quotation…" searchPlaceholder="Search quotation or customer…" />
               </Field>
             )}
             {header.quotationSource === "EXTERNAL" ? (
@@ -216,7 +231,7 @@ export function OrderForm({ initial, options, submitLabel, onSubmit, onCancel, c
               <p className="mt-1 text-xs text-muted-foreground">Replacement parts for a service job are billed as SR.</p>
             </Field>
             <Field label="Recommended by" className="md:col-span-4">
-              <SearchableSelect value={header.recommendedByUserId || undefined} onValueChange={(value) => patchHeader({ recommendedByUserId: value === NO_RECOMMENDER ? "" : value })} options={[{ value: NO_RECOMMENDER, label: "None" }, ...(options.recommenders ?? []).map((user) => ({ value: user.userId, label: user.fullName }))]} placeholder="Select technician (optional)…" searchPlaceholder="Search technicians…" />
+              <SearchableSelect value={header.recommendedByUserId || undefined} onValueChange={(value) => patchHeader({ recommendedByUserId: value === NO_RECOMMENDER ? "" : value, recommendedByName: "" })} options={recommenderChoices} placeholder="Select technician (optional)…" searchPlaceholder="Search technicians…" />
               <p className="mt-1 text-xs text-muted-foreground">Emailed to raise the Purchase Request when this order is confirmed.</p>
             </Field>
           </div>

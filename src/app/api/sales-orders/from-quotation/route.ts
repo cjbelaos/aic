@@ -19,6 +19,10 @@ export async function POST(request: Request) {
       quotationNo: input.quotationNo,
       initialStatus: input.initialStatus,
     });
+    // Email first: a later tracker or document step failing must not lose it.
+    const notice = !detail.reusedExisting && shouldSendRecommenderNotice(null, detail.order.orderStatus)
+      ? await notifyRecommender(detail.order, detail.items, new URL(request.url).origin)
+      : undefined;
     if (!detail.reusedExisting) {
       const quotation = await getQuotationByRefNo(input.quotationNo);
       const quotationUrl = quotation?.file ?? "";
@@ -34,9 +38,6 @@ export async function POST(request: Request) {
     } else {
       await syncSalesOrderToTracker(detail.order, detail.items);
     }
-    const notice = !detail.reusedExisting && shouldSendRecommenderNotice(null, detail.order.orderStatus)
-      ? await notifyRecommender(detail.order, detail.items, new URL(request.url).origin)
-      : undefined;
     return NextResponse.json({ success: true, order: detail, notice }, { status: 201 });
   } catch (error) {
     return salesErrorResponse(error);

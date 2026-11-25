@@ -21,7 +21,12 @@ export async function notifyRecommender(order: NoticeOrder, items: readonly Noti
     const technician = users.find((user) => user.userId === technicianId);
     const technicianName = technician?.fullName || order.recommendedByName || "The technician";
     const recipients = noticeRecipients(technicianId, users, positions);
-    if (!recipients) return { status: "FAILED", warning: `Technician was not notified: ${technicianName} has no email address.` };
+    if ("problem" in recipients) {
+      const reason = recipients.problem === "NOT_A_USER" ? "is no longer a user"
+        : recipients.problem === "NOT_AFTER_SALES" ? "is no longer in After Sales"
+        : "has no email address";
+      return { status: "FAILED", warning: `Technician was not notified: ${technicianName} ${reason}.` };
+    }
     const { subject, html } = purchaseRequestNoticeEmail({
       salesOrderNo: order.salesOrderNo,
       customer: order.customerNameSnapshot,

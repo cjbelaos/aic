@@ -61,7 +61,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const lines = input.lines && catalog
       ? bindNewCatalogLines(input.lines, { products: catalog[0], categories: catalog[1], units: catalog[2] }, changedIdentity)
       : input.lines;
-    const recommender = await resolveOrderRecommender(input.recommendedByUserId);
+    const recommender = await resolveOrderRecommender(input.recommendedByUserId, { recommendedByUserId: existing?.recommendedByUserId ?? "", recommendedByName: existing?.recommendedByName ?? "" });
     const detail = await updateOrder(toActor(auth.session), id, {
       ...recommender,
       commandId: input.commandId,
