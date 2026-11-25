@@ -9,7 +9,7 @@ import {
 import { getDriveUploadClient, resolveDriveFolderPath, MONTH_NAMES, getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { CreateDeliveryPayload } from "@/types/deliveryReceipt";
 import { getOrderDetail } from "@/lib/salesOrders/service";
-import { salesOrderDeliveryLineError } from "@/lib/deliverySalesOrderLines";
+import { linkOrderProductLines, salesOrderDeliveryLineError } from "@/lib/deliverySalesOrderLines";
 import { getProducts } from "@/lib/productSheets";
 import { getCompanies } from "@/lib/companySheets";
 import { validateForCompany } from "@/lib/deliveryPrintForm";
@@ -118,7 +118,9 @@ export async function POST(request: Request) {
 
       // Parts without a Sales Order line are allowed on a service order; they
       // are checked below like any hand-picked line and never post fulfilment.
-      const lineError = salesOrderDeliveryLineError(body.items, salesOrder.items);
+      // A hand-entered line for a product the order sells is that order line.
+      body.items = linkOrderProductLines(body.items ?? [], salesOrder.items);
+      const lineError = salesOrderDeliveryLineError(body.items, salesOrder.items, salesOrder.order.salesOrderNo);
       if (lineError) return NextResponse.json({ error: lineError }, { status: 422 });
     }
 

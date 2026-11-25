@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { SalesOrderError } from "@/lib/salesOrders/errors";
+import { getOrderDetail } from "@/lib/salesOrders/service";
+import { can } from "@/lib/salesOrders/permissions";
+import { postFinalizedDeliveryReleaseFulfillment } from "@/lib/deliverySalesOrderIntegration";
+import {
+  linkOrderProductLines,
+  postedDeliveryLines,
+  postedLineEditError,
+  salesOrderDeliveryLineError,
+  withoutOwnFulfillment,
+} from "@/lib/deliverySalesOrderLines";
 import { activeWarehouseError, guardedDrWrite, inventoryErrorResponse } from "@/lib/inventory/drGuard";
 import { effectiveSourcesKey } from "@/lib/deliverySources";
 import { isCountedDrStatus } from "@/lib/inventory/domain";
@@ -192,6 +202,37 @@ export async function PUT(
     // rejected DR) is checked; historical finalized DRs without a warehouse are
     // outside inventory and are left alone.
     const stored = (await getDeliveryReceipts()).find((receipt) => receipt.drNumber === drNumber);
+
+    // Sales Order rules, as on create. A newly linked order must be open and the
+    // customer's; every line must fit the order; lines that already counted
+    // toward it are fixed.
+    const storedOrderId = stored?.salesOrderId || "";
+    const linkedOrderId = isDeliveryReferenceMode(body.referenceMode) ? body.salesOrderId || "" : storedOrderId;
+    if (storedOrderId && storedOrderId !== linkedOrderId) {
+      const previous = await getOrderDetail(storedOrderId);
+      if (postedDeliveryLines(previous.fulfillments, drNumber).size) {
+        return NextResponse.json({ error: `This DR already counted toward Sales Order ${previous.order.salesOrderNo}, so its Sales Order can't be changed.` }, { status: 422 });
+      }
+    }
+    if (linkedOrderId) {
+      const order = await getOrderDetail(linkedOrderId);
+      if (linkedOrderId !== storedOrderId) {
+        if (order.order.orderStatus !== "CONFIRMED" && order.order.orderStatus !== "ON_HOLD") {
+          return NextResponse.json({ error: "A Delivery Release can be linked only to a confirmed or on-hold Sales Order." }, { status: 422 });
+        }
+        if (order.order.customerId !== (body.companyId ?? stored?.companyId)) {
+          return NextResponse.json({ error: "The selected Sales Order belongs to a different customer." }, { status: 422 });
+        }
+      }
+      if (body.items) {
+        // A hand-entered line for a product the order sells is that order line.
+        body.items = linkOrderProductLines(body.items, order.items);
+        const posted = postedDeliveryLines(order.fulfillments, drNumber);
+        const lineError = postedLineEditError(body.items, stored?.items ?? [], posted, order.order.salesOrderNo)
+          ?? salesOrderDeliveryLineError(body.items, withoutOwnFulfillment(order.items, posted), order.order.salesOrderNo);
+        if (lineError) return NextResponse.json({ error: lineError }, { status: 422 });
+      }
+    }
     const rawStatus = String(body.status ?? stored?.status ?? "created").trim().toLowerCase();
     // Resubmitting a held DR goes back to the status it was originally saved for.
     const requestedStatus = ["pending_approval", "rejected"].includes(rawStatus) ? (stored?.requestedStatus || "created") : rawStatus;
@@ -229,7 +270,24 @@ export async function PUT(
     } catch (error) {
       console.error("Delivery Receipt saved but linked Service Invoice PDF refresh failed:", error);
     }
-    return NextResponse.json(result, { status: 200 });
+    // Post fulfilment for lines not yet counted, as on create. Idempotent per
+    // line, and a no-op unless the saved DR is printed or completed.
+    let fulfillment: { state: string; posted: number; alreadyPosted: number } | undefined;
+    if (linkedOrderId && result.drNumber > 0) {
+      const permission = can("so.fulfill", { roleId: session.userRoleId, actorUserId: session.userId });
+      if (!permission.allowed) {
+        fulfillment = { state: "PENDING_AUTHORIZATION", posted: 0, alreadyPosted: 0 };
+      } else {
+        try {
+          fulfillment = await postFinalizedDeliveryReleaseFulfillment(result.drNumber, { userId: session.userId, displayName: session.fullName });
+        } catch (error) {
+          // The DR is saved; the reconciliation endpoint can safely retry this.
+          console.error("Delivery Release updated but Sales Order fulfillment needs reconciliation:", error);
+          fulfillment = { state: "PENDING_RECONCILIATION", posted: 0, alreadyPosted: 0 };
+        }
+      }
+    }
+    return NextResponse.json({ ...result, fulfillment }, { status: 200 });
   } catch (error) {
     const inventoryResponse = inventoryErrorResponse(error);
     if (inventoryResponse) return inventoryResponse;

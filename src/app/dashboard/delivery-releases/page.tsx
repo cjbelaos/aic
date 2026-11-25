@@ -1071,6 +1071,8 @@ export default function DeliveryReleasePage() {
       const prod = products.find((p) => p.code === value);
       updated[index] = {
         ...updated[index],
+        // A different product is no longer the Sales Order line it came from.
+        salesOrderItemId: prod?.id && prod.id === updated[index].productId ? updated[index].salesOrderItemId : undefined,
         productId: prod?.id || "",
         productCode: value,
         unit: prod?.unit?.code || "PC",
@@ -1194,7 +1196,7 @@ export default function DeliveryReleasePage() {
       setModalOpen(false);
       fetchList();
     } catch (err: any) {
-      toast.error(err.message || "Failed to process delivery receipt.");
+      toast.error(err.message || "Failed to process delivery receipt.", { className: "whitespace-pre-line", duration: 12000 });
     } finally {
       setPrinting(false);
     }
@@ -1412,7 +1414,9 @@ export default function DeliveryReleasePage() {
         if (i !== idx) return item;
         if (field !== "productCode") return { ...item, [field]: value };
         const product = products.find((p) => p.code === value);
-        return { ...item, productCode: String(value), productId: product?.id || "", unit: product?.unit?.code || "PC", description: product?.name || "" };
+        // A different product is no longer the Sales Order line it came from.
+        const salesOrderItemId = product?.id && product.id === item.productId ? item.salesOrderItemId : undefined;
+        return { ...item, salesOrderItemId, productCode: String(value), productId: product?.id || "", unit: product?.unit?.code || "PC", description: product?.name || "" };
       }),
     );
 
@@ -1488,7 +1492,7 @@ export default function DeliveryReleasePage() {
       setEditTarget(null);
       fetchList();
     } catch (err: any) {
-      toast.error(err.message || "Failed to update delivery receipt.");
+      toast.error(err.message || "Failed to update delivery receipt.", { className: "whitespace-pre-line", duration: 12000 });
     } finally {
       setEditSubmitting(false);
     }
