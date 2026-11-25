@@ -77,6 +77,7 @@ import type {
 } from "@/types/quotation";
 import { upperText, upperTextList } from "@/lib/quotationText";
 import { quotationTermsError } from "@/lib/quotationTerms";
+import { recommenderOptions } from "@/lib/recommendedBy";
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -165,6 +166,9 @@ function lineIsComplete(row: LineItem): boolean {
     : Boolean(row.description.trim());
 }
 
+/** Picker value meaning "no recommending technician". */
+const NO_RECOMMENDER = "__none__";
+
 export type QuotationFormPayload = {
   quotationNo: string;
   date: Date;
@@ -183,6 +187,9 @@ export type QuotationFormPayload = {
   warranty: string;
   preparedBy: string;
   approvedBy: string;
+  /** After Sales user who recommended the work (blank when none). */
+  recommendedByUserId?: string;
+  recommendedByName?: string;
   status: "DRAFT" | "SAVED" | "SENT";
   vat: number;
   vatableAmount: number;
@@ -278,6 +285,9 @@ export function QuotationForm({
   const [allUsers, setAllUsers] = useState<PublicUser[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [approvedByUsername, setApprovedByUsername] = useState("");
+  const [recommendedByUserId, setRecommendedByUserId] = useState(
+    initialData?.recommendedByUserId || "",
+  );
   const [currentUserDepartmentId, setCurrentUserDepartmentId] = useState<
     number | null
   >(null);
@@ -350,6 +360,17 @@ export function QuotationForm({
       })),
     [approverCandidates],
   );
+
+  const recommenderChoices = useMemo(
+    () => [
+      { value: NO_RECOMMENDER, label: "None" },
+      ...recommenderOptions(allUsers).map((u) => ({ value: u.userId, label: u.fullName })),
+    ],
+    [allUsers],
+  );
+  const recommendedByLabel =
+    allUsers.find((u) => u.userId === recommendedByUserId)?.fullName ||
+    (recommendedByUserId ? initialData?.recommendedByName || "" : "");
 
   const singleTotalMode = isSingleTotalPricing(pricingMode);
   let discountError = "";
@@ -817,6 +838,7 @@ export function QuotationForm({
       warranty: warrantyTerms,
       preparedBy,
       approvedBy,
+      recommendedByUserId,
       notations: notationsPayload,
       status: finalStatus,
       vat,
@@ -863,6 +885,7 @@ export function QuotationForm({
                   value={formatDisplayDate(validityDate)}
                 />
                 <InfoField label="Prepared by" value={preparedBy} />
+                <InfoField label="Recommended by" value={recommendedByLabel || "—"} />
               </dl>
               <div className="mt-5 border-t pt-5">
                 <InfoField
@@ -1717,6 +1740,20 @@ export function QuotationForm({
                   {approverOptions.length === 0
                     ? "No eligible approvers found."
                     : "Your department or an executive."}
+                </p>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label className="font-semibold">Recommended by</Label>
+                <SearchableSelect
+                  value={recommendedByUserId || undefined}
+                  onValueChange={(value) => setRecommendedByUserId(value === NO_RECOMMENDER ? "" : value)}
+                  options={recommenderChoices}
+                  placeholder="Select technician (optional)..."
+                  searchPlaceholder="Search technicians..."
+                  disabled={isSaving || readOnly}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The technician who recommended this work. They&apos;re emailed when the Sales Order is confirmed.
                 </p>
               </div>
             </div>

@@ -59,6 +59,7 @@ export interface SaveQuotationPayload {
   warranty: string;
   preparedBy: string;
   approvedBy?: string;
+  recommendedByUserId?: string;
   discount: number;
   discountSettings?: DiscountSettings;
   shippingFee?: number;
