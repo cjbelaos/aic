@@ -100,6 +100,7 @@ import type { ServiceReportType } from "@/types/serviceReport";
 import { ServiceInvoicePreviewModal } from "@/components/service-invoice-preview-modal";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
+import { suggestNextInvoiceNo } from "@/lib/nextInvoiceNo";
 import {
   ServiceInvoiceResponse,
   ServiceInvoiceSummary,
@@ -1262,7 +1263,8 @@ export default function ServiceInvoicesClient({
   ];
   /* Create modal handlers */
   const openCreateModal = useCallback(() => {
-    setInvoiceNo("");
+    // Service invoices default to the highest saved number + 1 (still editable).
+    setInvoiceNo(isSales ? "" : suggestNextInvoiceNo(invoices.map((i) => i.invoiceNo)));
     setSelectedCustomer("");
     setInvoiceDate(new Date().toISOString().split("T")[0]);
     setOrderItemsError("");
@@ -1282,7 +1284,7 @@ export default function ServiceInvoicesClient({
     setBillingMode("REGULAR");
     setCreateCategories([]);
     setModalOpen(true);
-  }, []);
+  }, [isSales, invoices]);
 
   /* Deep link from a Sales Order: /dashboard/service-invoices?salesOrderId=… */
   const salesOrderPrefillId = searchParams.get("salesOrderId");
