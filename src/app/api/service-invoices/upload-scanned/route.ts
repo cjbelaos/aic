@@ -8,7 +8,7 @@ import {
   getSheetsClient,
 } from "@/lib/googleSheets";
 
-const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
+const SERVICE_INVOICE_DRIVE_FOLDER_ID = "1bUpm-7ExZzgBvcmqBNd24iw6n3q_R1IM";
 const SERVICE_INVOICES_SHEET = "ServiceInvoices";
 
 /**
