@@ -29,8 +29,27 @@ export function pickInvoiceNumber(ocrText: string): string | null {
   return runs.reduce((best, run) => (run.length > best.length ? run : best));
 }
 
+/** Below this Tesseract confidence a read is flagged. Correct reads on the 2026-11-25 sample scored 75–96. */
+export const MIN_CONFIDENCE = 80;
+
+/** Most common digit count among the numbers read in a batch, or null when none were read. */
+export function typicalDigitLength(numbers: (string | null)[]): number | null {
+  const counts = new Map<number, number>();
+  for (const number of numbers) if (number) counts.set(number.length, (counts.get(number.length) ?? 0) + 1);
+  let best: number | null = null;
+  for (const [length, count] of counts) if (best === null || count > counts.get(best)!) best = length;
+  return best;
+}
+
+/** A read worth a second look: low OCR confidence, or a digit count unlike the rest of the batch. */
+export function isUncertainRead(detectedNo: string | null, confidence: number, typicalLength: number | null): boolean {
+  if (!detectedNo) return false;
+  return confidence < MIN_CONFIDENCE || (typicalLength !== null && detectedNo.length !== typicalLength);
+}
+
 export type BatchRowStatus =
   | "match"
+  | "check_number"
   | "replaces_scan"
   | "inactive"
   | "not_found"
@@ -53,11 +72,13 @@ export function rowStatus(
   skipped: boolean,
   invoice: BatchInvoiceInfo | undefined,
   duplicate: boolean,
+  uncertain = false,
 ): BatchRowStatus {
   if (skipped) return "skipped";
   if (!invoiceNo.trim()) return "unread";
   if (duplicate) return "duplicate";
   if (!invoice) return "not_found";
+  if (uncertain) return "check_number";
   if (INACTIVE_STATUSES.has(invoice.status)) return "inactive";
   if (invoice.hasScan) return "replaces_scan";
   return "match";

@@ -4,7 +4,7 @@
  * `await import("@/lib/scannedInvoiceBatchPdf")` so the heavy libraries
  * (pdfjs, tesseract.js, pdf-lib) only download when someone uses the feature.
  */
-import { NUMBER_CROP, pickInvoiceNumber, redInkMask } from "./scannedInvoiceBatch";
+import { NUMBER_CROP, pickInvoiceNumber, redInkMask, isUncertainRead, typicalDigitLength } from "./scannedInvoiceBatch";
 
 export interface ScannedPage {
   pageIndex: number;
@@ -12,6 +12,8 @@ export interface ScannedPage {
   /** Zoomed crop of the red number area, shown beside the input to check digits. */
   numberCropUrl: string;
   detectedNo: string | null;
+  /** Low OCR confidence or an unusual digit count: shown as "Check number". */
+  uncertain: boolean;
 }
 
 /** Scale 3 (~216 dpi) read the 2026-11-25 sample batch 9/9; scale 2 misread 1599 as 1598. */
@@ -29,8 +31,9 @@ export async function analyzeScannedPdf(
   file: File,
   onProgress?: (done: number, total: number) => void,
 ): Promise<{ pages: ScannedPage[]; dispose: () => void }> {
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+  // Legacy build: polyfills newer JS (Map#getOrInsertComputed, Math.sumPrecise, Uint8Array#toHex) for older Chrome/Edge/Safari.
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
   const { createWorker, PSM } = await import("tesseract.js");
 
   const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
@@ -38,6 +41,7 @@ export async function analyzeScannedPdf(
   const worker = await createWorker("eng");
   const urls: string[] = [];
   const pages: ScannedPage[] = [];
+  const confidences: number[] = [];
   try {
     await worker.setParameters({ tessedit_char_whitelist: "0123456789", tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
     onProgress?.(0, pdf.numPages);
@@ -74,7 +78,8 @@ export async function analyzeScannedPdf(
       const thumbnailUrl = await canvasToBlobUrl(thumb, "image/jpeg", 0.8);
 
       urls.push(thumbnailUrl, numberCropUrl);
-      pages.push({ pageIndex: n - 1, thumbnailUrl, numberCropUrl, detectedNo: pickInvoiceNumber(data.text) });
+      pages.push({ pageIndex: n - 1, thumbnailUrl, numberCropUrl, detectedNo: pickInvoiceNumber(data.text), uncertain: false });
+      confidences.push(data.confidence);
       page.cleanup();
       canvas.width = canvas.height = 0; // release the large page bitmap before the next page
       onProgress?.(n, pdf.numPages);
@@ -86,6 +91,8 @@ export async function analyzeScannedPdf(
     await worker.terminate();
     await loadingTask.destroy();
   }
+  const typicalLength = typicalDigitLength(pages.map((page) => page.detectedNo));
+  pages.forEach((page, i) => (page.uncertain = isUncertainRead(page.detectedNo, confidences[i], typicalLength)));
   return { pages, dispose: () => urls.forEach((url) => URL.revokeObjectURL(url)) };
 }
 

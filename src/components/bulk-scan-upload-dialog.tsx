@@ -33,6 +33,8 @@ interface BatchRow {
   thumbnailUrl: string;
   numberCropUrl: string;
   invoiceNo: string;
+  /** OCR was unsure; cleared once someone edits the number. */
+  uncertain: boolean;
   skipped: boolean;
   saveState: SaveState;
   error?: string;
@@ -40,6 +42,7 @@ interface BatchRow {
 
 const STATUS_LABELS: Record<BatchRowStatus, string> = {
   match: "Match",
+  check_number: "Check number",
   replaces_scan: "Replaces scan",
   inactive: "Cancelled/Void",
   not_found: "Not found",
@@ -50,6 +53,7 @@ const STATUS_LABELS: Record<BatchRowStatus, string> = {
 
 const STATUS_CLASSES: Record<BatchRowStatus, string> = {
   match: "border-green-600 text-green-700 dark:text-green-400",
+  check_number: "border-amber-500 text-amber-700 dark:text-amber-400",
   replaces_scan: "border-amber-500 text-amber-700 dark:text-amber-400",
   inactive: "border-amber-500 text-amber-700 dark:text-amber-400",
   not_found: "border-red-600 text-red-700 dark:text-red-400",
@@ -108,7 +112,7 @@ export function BulkScanUploadDialog({
 
   const statuses = rows.map((row) => {
     const number = row.invoiceNo.trim();
-    return rowStatus(number, row.skipped, invoiceInfo.get(number), duplicates.has(number));
+    return rowStatus(number, row.skipped, invoiceInfo.get(number), duplicates.has(number), row.uncertain);
   });
   const pendingIndexes = rows
     .map((row, index) => index)
@@ -151,6 +155,7 @@ export function BulkScanUploadDialog({
           thumbnailUrl: page.thumbnailUrl,
           numberCropUrl: page.numberCropUrl,
           invoiceNo: page.detectedNo ?? "",
+          uncertain: page.uncertain,
           skipped: false,
           saveState: "idle",
         })),
@@ -264,7 +269,7 @@ export function BulkScanUploadDialog({
                           <img src={row.numberCropUrl} alt="Invoice number on the scan" className="h-10 w-auto rounded border bg-white" />
                           <Input
                             value={row.invoiceNo}
-                            onChange={(event) => updateRow(index, { invoiceNo: event.target.value.replace(/\D/g, "") })}
+                            onChange={(event) => updateRow(index, { invoiceNo: event.target.value.replace(/\D/g, ""), uncertain: false })}
                             disabled={locked}
                             inputMode="numeric"
                             aria-label={`Invoice number for page ${row.pageIndex + 1}`}

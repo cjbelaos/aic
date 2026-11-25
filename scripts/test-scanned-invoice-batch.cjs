@@ -42,6 +42,25 @@ for (const status of ['not_found', 'unread', 'duplicate']) assert.equal(rules.bl
 assert.deepEqual([...rules.duplicateNumbers(['1816', '1815', '1816', ''])], ['1816']);
 assert.deepEqual([...rules.duplicateNumbers(['', ''])], []);
 
+// Unsure reads (low OCR confidence, or a digit count unlike the batch) get an amber "check_number", which never blocks saving.
+assert.equal(rules.typicalDigitLength(['1599', '1816', null, '599', '1750']), 4);
+assert.equal(rules.typicalDigitLength([null, null]), null);
+assert.equal(rules.isUncertainRead('1816', 91, 4), false);
+assert.equal(rules.isUncertainRead('1816', 79, 4), true);
+assert.equal(rules.isUncertainRead('599', 96, 4), true);
+assert.equal(rules.isUncertainRead('1816', 91, null), false);
+assert.equal(rules.isUncertainRead(null, 0, 4), false);
+assert.equal(rules.rowStatus('1817', false, info(), false, true), 'check_number');
+assert.equal(rules.rowStatus('1817', false, info({ hasScan: true }), false, true), 'check_number');
+assert.equal(rules.rowStatus('9999', false, undefined, false, true), 'not_found');
+assert.equal(rules.rowStatus('1817', false, info(), true, true), 'duplicate');
+assert.equal(rules.blocksSave('check_number'), false);
+
+// The browser uses pdfjs's legacy build (polyfills Map#getOrInsertComputed, Math.sumPrecise, Uint8Array#toHex for older browsers).
+const pdfModule = fs.readFileSync('src/lib/scannedInvoiceBatchPdf.ts', 'utf8');
+assert.match(pdfModule, /import\("pdfjs-dist\/legacy\/build\/pdf\.mjs"\)/);
+assert.match(pdfModule, /"pdfjs-dist\/legacy\/build\/pdf\.worker\.min\.mjs"/);
+
 // Service Invoice scans move to the new folder; Sales Invoice scans stay put.
 assert.match(fs.readFileSync('src/app/api/service-invoices/upload-scanned/route.ts', 'utf8'), /1bUpm-7ExZzgBvcmqBNd24iw6n3q_R1IM/);
 assert.match(fs.readFileSync('src/app/api/sales-invoices/upload-scanned/route.ts', 'utf8'), /166LGOl4qTL4Ukabnrk335OT0ccLQnCq_/);
