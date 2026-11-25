@@ -73,7 +73,8 @@ export async function addProduct(
   if (!units.some((unit) => unit.unitId === payload.unitId && unit.status === "active")) {
     throw new Error(`Product unit "${payload.unitId}" was not found or is inactive.`);
   }
-  const requestedCode = payload.productCode.trim();
+  // Product names and codes are stored in capitals, whatever path saved them (form, import).
+  const requestedCode = payload.productCode.trim().toUpperCase();
   const finalCode = requestedCode || generateProductCode(payload.productCategoryId, payload.productName, existing.length + 1);
   if (existing.some((p) => p.productCode.toLowerCase() === finalCode.toLowerCase())) {
     throw new Error(`Product code "${finalCode}" already exists in Products.`);
@@ -82,7 +83,7 @@ export async function addProduct(
   const product: ProductRecord = {
     ...payload,
     productCode: finalCode,
-    productName: payload.productName.trim(),
+    productName: payload.productName.trim().toUpperCase(),
     productId: nextStableId("PROD", existing.map((p) => p.productId)),
     createdAt: now,
     createdBy: actor,
@@ -108,8 +109,8 @@ export async function updateProduct(
   const updated: ProductRecord = {
     ...current,
     ...payload,
-    productCode: (payload.productCode ?? current.productCode).trim(),
-    productName: (payload.productName ?? current.productName).trim(),
+    productCode: (payload.productCode ?? current.productCode).trim().toUpperCase(),
+    productName: (payload.productName ?? current.productName).trim().toUpperCase(),
     updatedAt: new Date().toISOString(),
     updatedBy: actor,
   };
