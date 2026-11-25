@@ -61,6 +61,13 @@ assert.equal(parseCreateOrderInput({ ...base, sourceQuotationNo: "QT-9" }).sourc
 assert.equal(parseCreateOrderInput({ ...base, sourceQuotationNo: "QT-9" }).quotationSource, "");
 
 // Update: expectedVersion is required and integer non-negative.
+// Recommending technician: trimmed on create, blank when omitted; update may clear it.
+assert.equal(parseCreateOrderInput({ ...base, recommendedByUserId: " u1 " }).recommendedByUserId, "u1");
+assert.equal(parseCreateOrderInput(base).recommendedByUserId, "");
+assert.equal(parseUpdateOrderInput({ commandId: uuid, expectedVersion: 1, recommendedByUserId: " u2 " }).recommendedByUserId, "u2");
+assert.equal(parseUpdateOrderInput({ commandId: uuid, expectedVersion: 1, recommendedByUserId: "" }).recommendedByUserId, "");
+assert.equal(parseUpdateOrderInput({ commandId: uuid, expectedVersion: 1 }).recommendedByUserId, undefined);
+
 const update = parseUpdateOrderInput({ commandId: uuid, expectedVersion: 1, requiredDate: "2026-10-01", lines: base.lines });
 assert.equal(update.expectedVersion, 1);
 assert.equal(update.requiredDate, "2026-10-01");

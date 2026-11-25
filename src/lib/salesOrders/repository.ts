@@ -32,6 +32,7 @@ export const ORDERS_HEADERS: readonly string[] = [
   "Currency", "OrderStatus", "FulfillmentStatus", "SubtotalExTax", "DiscountTotal", "TaxTotal",
   "GrandTotal", "Remarks", "Version", "ConfirmedAt", "ClosedAt", "CancelReason", "ImportQuality",
   "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "DiscountSettings", "BillingType",
+  "RecommendedByUserId", "RecommendedByName",
 ];
 
 export const ITEMS_HEADERS: readonly string[] = [
@@ -118,6 +119,7 @@ export function orderFromRow(row: unknown[]): SalesOrder {
     importQuality: (text(r[30]) || "") as SalesOrder["importQuality"], createdAt: text(r[31]), createdBy: text(r[32]),
     updatedAt: text(r[33]), updatedBy: text(r[34]),
     billingType: isBillingType(text(r[36])) ? text(r[36]) as SalesOrderBillingType : "",
+    recommendedByUserId: text(r[37]), recommendedByName: text(r[38]),
   };
 }
 
@@ -203,6 +205,7 @@ export function orderToRow(order: SalesOrder): Array<string | number | null> {
     order.taxTotal, order.grandTotal, order.remarks, order.version, order.confirmedAt, order.closedAt,
     order.cancelReason, order.importQuality, order.createdAt, order.createdBy, order.updatedAt, order.updatedBy, order.discountSettings ? JSON.stringify(order.discountSettings) : "",
     order.billingType ?? "",
+    order.recommendedByUserId ?? "", order.recommendedByName ?? "",
   ];
 }
 

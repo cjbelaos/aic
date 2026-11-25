@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveOrderRecommender } from "@/lib/salesOrders/recommender";
 import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/salesOrders/http-helpers";
 import { attachDocument, createOrder, listOrders } from "@/lib/salesOrders/service";
 import { syncSalesOrderToTracker } from "@/lib/salesOrders/trackerWriter";
@@ -52,7 +53,9 @@ export async function POST(request: Request) {
       quotationFileId = quotationUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? "";
       if (!quotationFileId) throw new Error(`Quotation ${input.sourceQuotationNo} has no saved PDF. Save its PDF before creating a Sales Order.`);
     }
+    const recommender = await resolveOrderRecommender(input.recommendedByUserId);
     const detail = await createOrder(toActor(session), {
+      ...recommender,
       commandId: input.commandId,
       billingType: input.billingType,
       initialStatus: input.initialStatus,

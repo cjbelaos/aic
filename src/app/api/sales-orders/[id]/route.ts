@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveOrderRecommender } from "@/lib/salesOrders/recommender";
 import { requireSalesPermission, salesErrorResponse, toActor } from "@/lib/salesOrders/http-helpers";
 import { deleteDraftOrder, getOrderDetail, updateOrder } from "@/lib/salesOrders/service";
 import { parseUpdateOrderInput } from "@/lib/salesOrders/validation";
@@ -60,7 +61,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const lines = input.lines && catalog
       ? bindNewCatalogLines(input.lines, { products: catalog[0], categories: catalog[1], units: catalog[2] }, changedIdentity)
       : input.lines;
+    const recommender = await resolveOrderRecommender(input.recommendedByUserId);
     const detail = await updateOrder(toActor(auth.session), id, {
+      ...recommender,
       commandId: input.commandId,
       billingType: input.billingType,
       expectedVersion: input.expectedVersion,
