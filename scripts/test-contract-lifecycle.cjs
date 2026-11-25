@@ -30,6 +30,7 @@ async function main() {
   assert.equal(paperworkPending(cont, "2026-11-25"), false);
   assert.equal(paperworkPending({ ...cont, agreementType: "Contract", endDate: "2099-01-01" }, "2026-11-25"), true);
   assert.match(contractRowClass(cont), /green/);
+  assert.equal(effectiveContractStatus({ ...cont, endDate: "2000-01-01" }, "2026-11-25"), "Active", "A leftover end date never expires a Continuous contract");
 
   const { quarterlyBillingPeriod: period } = load("src/lib/contractBillingPeriod.ts");
   assert.deepEqual(period("2026-02-15", "2026-02-15"), { start: "2026-02", end: "2026-04" });

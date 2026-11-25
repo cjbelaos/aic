@@ -193,3 +193,9 @@ assert.deepEqual(generatePeriods("Monthly", "2026-09-21", "bad", "2026-11-25"), 
   assert.deepEqual(m.periods.map(p => p.periodStart), ["2026-09-01", "2026-10-01"], "August began before the first DR");
   assert.equal(m.owedNow, 2);
 }
+
+// A Continuous contract with a leftover end date (e.g. a hand-edited sheet) still runs to today.
+{
+  const c = { ...contract("2026-09-01", "2026-09-30"), agreementType: "Continuous" } as Contract;
+  assert.equal(computeItemLedger(item("Monthly", 1), c, [], none, "2026-11-25").periods.length, 3);
+}

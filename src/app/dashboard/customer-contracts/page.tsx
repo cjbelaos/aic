@@ -251,7 +251,7 @@ function ContractClientName({ contract, today }: { contract: GroupedCustomerCont
 
 function ContractTerm({ contract, today }: { contract: GroupedCustomerContract; today: string }) {
   const status = effectiveContractStatus(contract, today);
-  const daysLeft = ISO_DAY.test(contract.endDate) ? Math.round((isoDayToUtc(contract.endDate) - isoDayToUtc(today)) / DAY_MS) : null;
+  const daysLeft = !isContinuous(contract) && ISO_DAY.test(contract.endDate) ? Math.round((isoDayToUtc(contract.endDate) - isoDayToUtc(today)) / DAY_MS) : null;
   return (
     <div className="space-y-0.5 text-sm">
       <span className="block whitespace-nowrap">{formatDay(contract.startDate)} – {isContinuous(contract) ? "Ongoing" : formatDay(contract.endDate)}</span>

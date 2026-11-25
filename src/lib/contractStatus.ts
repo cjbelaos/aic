@@ -4,8 +4,9 @@ export function manilaToday(now = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
 
-export function effectiveContractStatus(contract: Pick<Contract, "status" | "endDate">, today = manilaToday()): ContractStatus {
-  return contract.status === "Active" && /^\d{4}-\d{2}-\d{2}$/.test(contract.endDate) && contract.endDate < today
+/** Continuous agreements ignore any leftover end date (e.g. a hand-edited sheet). */
+export function effectiveContractStatus(contract: Pick<Contract, "status" | "endDate"> & Partial<Pick<Contract, "agreementType">>, today = manilaToday()): ContractStatus {
+  return contract.status === "Active" && contract.agreementType !== "Continuous" && /^\d{4}-\d{2}-\d{2}$/.test(contract.endDate) && contract.endDate < today
     ? "Expired" : contract.status;
 }
 

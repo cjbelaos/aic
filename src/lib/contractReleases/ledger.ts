@@ -5,7 +5,7 @@ import type {
   AgreementLedger, BacklogCustomer, ContractRelease, CustomerLedger, ItemLedger, LedgerPeriod, LinkedDr,
 } from "../../types/contract-release.ts";
 import type { DeliveryReceiptSummary } from "../../types/deliveryReceipt.ts";
-import { effectiveContractStatus } from "../contractStatus.ts";
+import { effectiveContractStatus, isContinuous } from "../contractStatus.ts";
 import { isPmsCycleStart } from "../contractBillingPeriod.ts";
 import { isCountedDrStatus, toIsoDate } from "../inventory/domain.ts";
 
@@ -84,7 +84,7 @@ export function computeItemLedger(
   // nothing before it (e.g. before AIC recorded releases) is owed.
   const cycleStart = isPmsCycleStart(contract.pmsCycleStart) ? `${contract.pmsCycleStart}-01` : contract.startDate;
   // Periods that began before release tracking have no records to prove them either way.
-  const gen = generatePeriods(item.frequency, cycleStart, contract.endDate, today, cycleStart !== contract.startDate)
+  const gen = generatePeriods(item.frequency, cycleStart, isContinuous(contract) ? "" : contract.endDate, today, cycleStart !== contract.startDate)
     .filter((p) => p.periodStart >= RELEASE_TRACKING_START);
   const allocated = gen.map(() => 0);
   const relIds = gen.map(() => new Set<string>());
