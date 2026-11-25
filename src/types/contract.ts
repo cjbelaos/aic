@@ -1,5 +1,6 @@
 /* ── Agreement / Contract Header Types ─────────────────────── */
-export type AgreementType = "Contract" | "PO";
+/** Continuous: runs until cancelled, no end date and no paperwork. */
+export type AgreementType = "Contract" | "PO" | "Continuous";
 export type ServiceFeeFrequency = "Monthly" | "Quarterly";
 export type PaperworkStatus = "Pending" | "Complete";
 export type NotarizedHardcopyStatus = "Unknown" | "Yes" | "No";
@@ -26,10 +27,10 @@ export interface Contract {
   forCompanyId?: string;
   companyName?: string; // Optional: Hydrated in UI by joining with Companies sheet
   description?: string; // Sheet: Description (Optional contract description)
-  agreementType: AgreementType; // Sheet: AgreementType ("Contract" | "PO")
+  agreementType: AgreementType; // Sheet: AgreementType ("Contract" | "PO" | "Continuous")
   poNumber?: string; // Sheet: PONumber (Optional, relevant for PO base)
   startDate: string; // Sheet: StartDate (ISO Date string: "YYYY-MM-DD")
-  endDate: string; // Sheet: EndDate (ISO Date string: "YYYY-MM-DD")
+  endDate: string; // Sheet: EndDate (ISO Date string: "YYYY-MM-DD"); "" for Continuous
   status: ContractStatus; // Sheet: Status
   paperworkStatus?: PaperworkStatus; // Sheet: N; legacy rows default to Pending
   notarizedHardcopyStatus?: NotarizedHardcopyStatus; // Sheet: O; legacy rows default to Unknown

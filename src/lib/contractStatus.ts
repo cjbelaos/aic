@@ -9,15 +9,26 @@ export function effectiveContractStatus(contract: Pick<Contract, "status" | "end
     ? "Expired" : contract.status;
 }
 
-export function contractReady(contract: Pick<Contract, "status" | "endDate" | "paperworkStatus">, today = manilaToday()): boolean {
-  return effectiveContractStatus(contract, today) === "Active" && contract.paperworkStatus === "Complete";
+export function isContinuous(contract: Pick<Contract, "agreementType">): boolean {
+  return contract.agreementType === "Continuous";
+}
+
+type ReadinessFields = Pick<Contract, "status" | "endDate" | "paperworkStatus"> & Partial<Pick<Contract, "agreementType">>;
+
+/** Continuous agreements have no paperwork to chase. */
+export function paperworkPending(contract: ReadinessFields, today = manilaToday()): boolean {
+  return effectiveContractStatus(contract, today) === "Active" && !isContinuous(contract) && (contract.paperworkStatus ?? "Pending") !== "Complete";
+}
+
+export function contractReady(contract: ReadinessFields, today = manilaToday()): boolean {
+  return effectiveContractStatus(contract, today) === "Active" && (isContinuous(contract) || contract.paperworkStatus === "Complete");
 }
 
 export function contractRowClass(contract: Contract): string {
   const status = effectiveContractStatus(contract);
   if (status === "Expired") return "bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-950/60";
   if (status !== "Active") return "";
-  return contract.paperworkStatus === "Complete"
+  return contractReady(contract)
     ? "bg-green-50 hover:bg-green-100 dark:bg-green-950/40 dark:hover:bg-green-950/60"
     : "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60";
 }

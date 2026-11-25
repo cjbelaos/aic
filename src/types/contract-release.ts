@@ -72,7 +72,7 @@ export interface AgreementLedger {
   contractId: string;
   /** The agreement's FOR client (Contracts column Q); "" when none. A release DR must carry it. */
   forCompanyId: string;
-  agreementType: "Contract" | "PO";
+  agreementType: "Contract" | "PO" | "Continuous";
   poNumber: string;
   description: string;
   startDate: string;

@@ -90,6 +90,7 @@ async function main() {
     }
   }
   assert.equal(contractReady({ status: "Active", paperworkStatus: "Complete", endDate: "2026-01-01" }, "2026-10-29"), false);
+  assert.equal(contractReady({ status: "Active", paperworkStatus: "Pending", endDate: "", agreementType: "Continuous" }, "2026-10-29"), true);
   const helpers = load("src/lib/contractNotes.ts");
   const sample = [{ id: "old", text: "Legacy" }, { id: "new", text: "New", createdAt: "2026-10-29T12:00:00.000Z" }];
   assert.equal(helpers.sortContractNotes(sample)[0].id, "new");

@@ -22,6 +22,14 @@ async function main() {
   assert.match(contractRowClass({ ...contract, endDate: "9999-12-31", paperworkStatus: "Complete" }), /green/);
   assert.match(contractRowClass({ ...contract, endDate: "2000-01-01" }), /red/);
   for (const status of ["Closed", "Inactive"]) assert.equal(contractRowClass({ ...contract, status }), "");
+  const { isContinuous, paperworkPending } = load("src/lib/contractStatus.ts");
+  const cont = { status: "Active", endDate: "", paperworkStatus: "Pending", agreementType: "Continuous" };
+  assert.equal(isContinuous(cont), true);
+  assert.equal(effectiveContractStatus(cont, "2099-01-01"), "Active");
+  assert.equal(effectiveContractStatus({ ...cont, status: "Expired" }, "2026-11-25"), "Expired", "A stored Expired Continuous contract is not revived");
+  assert.equal(paperworkPending(cont, "2026-11-25"), false);
+  assert.equal(paperworkPending({ ...cont, agreementType: "Contract", endDate: "2099-01-01" }, "2026-11-25"), true);
+  assert.match(contractRowClass(cont), /green/);
 
   const { quarterlyBillingPeriod: period } = load("src/lib/contractBillingPeriod.ts");
   assert.deepEqual(period("2026-02-15", "2026-02-15"), { start: "2026-02", end: "2026-04" });
