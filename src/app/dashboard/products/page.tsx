@@ -692,9 +692,15 @@ export default function ProductsPage() {
                 id="p-name"
                 value={form.name}
                 disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, name: e.target.value }))
-                }
+                autoCapitalize="characters"
+                onChange={(e) => {
+                  // Typed and pasted letters become capitals at once; keep the cursor where it was.
+                  const input = e.target;
+                  const { selectionStart, selectionEnd } = input;
+                  input.value = input.value.toUpperCase();
+                  input.setSelectionRange(selectionStart, selectionEnd);
+                  setForm((f) => ({ ...f, name: input.value }));
+                }}
               />
             </div>
 
