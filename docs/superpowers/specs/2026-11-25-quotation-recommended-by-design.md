@@ -41,7 +41,9 @@ They are the ones who must raise the Purchase Request, so they need to be told.
    quotation details and list. It is not printed on the PDF.
 3. **Sales Order:** the same optional field. When converting from a quotation it is pre-filled
    from the quotation and can be edited. On a direct Sales Order, Admin can pick one or leave it blank.
-4. **Email on confirm:** sent only on the transition DRAFT → CONFIRMED (not ON_HOLD → CONFIRMED).
+4. **Email on confirm:** sent the first time the order becomes CONFIRMED. That happens either when it is created
+   as Confirmed (the default for both direct and from-quotation creation) or when it moves from DRAFT to CONFIRMED.
+   ON_HOLD → CONFIRMED never sends.
    - To: the recommending technician (their email from the Users sheet).
    - CC: every active After Sales user whose position title contains "manager" (case-insensitive),
      plus `aerichinnovationcorp@gmail.com`.
