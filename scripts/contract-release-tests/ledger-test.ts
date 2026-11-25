@@ -76,6 +76,10 @@ for (const [s, e] of [["", "2027-01-01"], ["2026/01/01", "2027-01-01"], ["2026-0
 }
 // Semi-annual
 assert.deepEqual(generatePeriods("Semi-Annual", "2026-03-01", "2027-02-28", "2026-08-01").map(p => p.periodStart), ["2026-01-01", "2026-07-01"]);
+// Continuous agreements (blank end date) run periods up to today; One-Time stays a single period.
+assert.deepEqual(generatePeriods("Monthly", "2026-09-21", "", "2026-11-25").map(p => p.periodStart), ["2026-09-01", "2026-10-01", "2026-11-01"]);
+assert.equal(generatePeriods("One-Time", "2026-09-21", "", "2026-11-25").length, 1);
+assert.deepEqual(generatePeriods("Monthly", "2026-09-21", "bad", "2026-11-25"), []);
 // One-Time
 {
   const p = generatePeriods("One-Time", "2026-03-10", "2027-03-09", "2026-12-01");
@@ -188,4 +192,10 @@ assert.deepEqual(generatePeriods("Semi-Annual", "2026-03-01", "2027-02-28", "202
   const m = computeItemLedger(item("Monthly", 1), contract("2026-04-27", "2027-04-26"), [], none, "2026-10-10");
   assert.deepEqual(m.periods.map(p => p.periodStart), ["2026-09-01", "2026-10-01"], "August began before the first DR");
   assert.equal(m.owedNow, 2);
+}
+
+// A Continuous contract with a leftover end date (e.g. a hand-edited sheet) still runs to today.
+{
+  const c = { ...contract("2026-09-01", "2026-09-30"), agreementType: "Continuous" } as Contract;
+  assert.equal(computeItemLedger(item("Monthly", 1), c, [], none, "2026-11-25").periods.length, 3);
 }

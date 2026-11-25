@@ -42,7 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { effectiveContractStatus, manilaToday } from "@/lib/contractStatus";
+import { effectiveContractStatus, isContinuous, manilaToday, paperworkPending } from "@/lib/contractStatus";
 import { cn } from "@/lib/utils";
 import { exportContractNotes, formatNoteDate } from "@/lib/contractNotes";
 
@@ -75,7 +75,7 @@ const FREQUENCY_OPTIONS: FrequencyType[] = [
   "One-Time",
 ];
 
-const AGREEMENT_TYPE_OPTIONS: AgreementType[] = ["Contract", "PO"];
+const AGREEMENT_TYPE_OPTIONS: AgreementType[] = ["Contract", "PO", "Continuous"];
 const CONTRACT_STATUS_OPTIONS: ContractStatus[] = [
   "Active",
   "Expired",
@@ -126,9 +126,9 @@ function exportToExcel(
       agreementType: contract.agreementType,
       poNumber: contract.poNumber || "",
       startDate: contract.startDate,
-      endDate: contract.endDate,
+      endDate: isContinuous(contract) ? "Ongoing" : contract.endDate,
       status: effectiveContractStatus(contract),
-      paperworkStatus: contract.paperworkStatus ?? "Pending",
+      paperworkStatus: isContinuous(contract) ? "Not required" : contract.paperworkStatus ?? "Pending",
       notarizedHardcopyStatus: contract.notarizedHardcopyStatus ?? "Unknown",
       monthlyServiceFee: contract.monthlyServiceFee ?? "",
       serviceFeeFrequency: contract.serviceFeeFrequency ?? "Monthly",
@@ -235,11 +235,11 @@ const STATUS_DOT: Record<ContractStatus, string> = {
 };
 
 function ContractClientName({ contract, today }: { contract: GroupedCustomerContract; today: string }) {
-  const paperworkPending = effectiveContractStatus(contract, today) === "Active" && (contract.paperworkStatus ?? "Pending") !== "Complete";
+  const pending = paperworkPending(contract, today);
   return (
     <div className="max-w-64 space-y-1 whitespace-normal">
       <span className="block break-words text-sm font-semibold leading-snug">{contract.companyName}</span>
-      {paperworkPending && (
+      {pending && (
         <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
           <FileClock className="size-3.5" aria-hidden />
           Paperwork pending
@@ -251,16 +251,16 @@ function ContractClientName({ contract, today }: { contract: GroupedCustomerCont
 
 function ContractTerm({ contract, today }: { contract: GroupedCustomerContract; today: string }) {
   const status = effectiveContractStatus(contract, today);
-  const daysLeft = ISO_DAY.test(contract.endDate) ? Math.round((isoDayToUtc(contract.endDate) - isoDayToUtc(today)) / DAY_MS) : null;
+  const daysLeft = !isContinuous(contract) && ISO_DAY.test(contract.endDate) ? Math.round((isoDayToUtc(contract.endDate) - isoDayToUtc(today)) / DAY_MS) : null;
   return (
     <div className="space-y-0.5 text-sm">
-      <span className="block whitespace-nowrap">{formatDay(contract.startDate)} – {formatDay(contract.endDate)}</span>
+      <span className="block whitespace-nowrap">{formatDay(contract.startDate)} – {isContinuous(contract) ? "Ongoing" : formatDay(contract.endDate)}</span>
       {daysLeft !== null && status === "Active" && daysLeft <= RENEWAL_WINDOW_DAYS && (
         <span className="block text-xs font-medium text-amber-700 dark:text-amber-400">
           {daysLeft === 0 ? "Ends today" : `Ends in ${plural(daysLeft, "day")}`}
         </span>
       )}
-      {daysLeft !== null && status === "Expired" && (
+      {daysLeft !== null && daysLeft < 0 && status === "Expired" && (
         <span className="block text-xs text-muted-foreground">Ended {plural(-daysLeft, "day")} ago</span>
       )}
     </div>
@@ -288,6 +288,7 @@ export default function CustomerContractsPage() {
     null,
   );
   const [form, setForm] = useState<CustomerContractFormState>(EMPTY_FORM);
+  const continuous = form.agreementType === "Continuous";
   const [deleteTarget, setDeleteTarget] =
     useState<GroupedCustomerContract | null>(null);
   const [viewTarget, setViewTarget] =
@@ -332,7 +333,7 @@ export default function CustomerContractsPage() {
   /* ── Columns Definition ───────────────────────────────── */
   const filteredContracts = useMemo(() => groupedContracts.filter(contract =>
     (statusFilter === "All" || effectiveContractStatus(contract, today) === statusFilter) &&
-    (paperworkFilter === "All" || (contract.paperworkStatus ?? "Pending") === paperworkFilter)
+    (paperworkFilter === "All" || (!isContinuous(contract) && (contract.paperworkStatus ?? "Pending") === paperworkFilter))
   ), [groupedContracts, statusFilter, paperworkFilter, today]);
 
   const columns = useMemo<ColumnDef<GroupedCustomerContract>[]>(
@@ -394,6 +395,7 @@ export default function CustomerContractsPage() {
         accessorKey: "paperworkStatus",
         header: "Paperwork",
         cell: ({ row }) => {
+          if (isContinuous(row.original)) return <span className="block text-sm text-muted-foreground">Not required</span>;
           const paperwork = row.original.paperworkStatus ?? "Pending";
           return (
             <div className="space-y-0.5">
@@ -622,7 +624,7 @@ export default function CustomerContractsPage() {
       setError("Start Date is required.");
       return;
     }
-    if (!form.endDate) {
+    if (!continuous && !form.endDate) {
       setError("End Date is required.");
       return;
     }
@@ -657,7 +659,7 @@ export default function CustomerContractsPage() {
       let contractId: string;
 
       const startDateStr = formatDateForAPI(form.startDate);
-      const endDateStr = formatDateForAPI(form.endDate);
+      const endDateStr = continuous ? "" : formatDateForAPI(form.endDate);
 
       if (editTarget) {
         contractId = editTarget.id;
@@ -935,11 +937,11 @@ export default function CustomerContractsPage() {
                 <div><p className="text-xs text-muted-foreground">Agreement</p><p className="mt-1 font-medium">{viewTarget.agreementType}</p></div>
                 <div><p className="text-xs text-muted-foreground">PO Number</p><p className="mt-1 font-medium">{viewTarget.poNumber || "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Start Date</p><p className="mt-1 font-medium">{viewTarget.startDate || "—"}</p></div>
-                <div><p className="text-xs text-muted-foreground">End Date</p><p className="mt-1 font-medium">{viewTarget.endDate || "—"}</p></div>
+                <div><p className="text-xs text-muted-foreground">End Date</p><p className="mt-1 font-medium">{isContinuous(viewTarget) ? "Ongoing" : viewTarget.endDate || "—"}</p></div>
                 {viewTarget.forCompanyId && <div><p className="text-xs text-muted-foreground">FOR (client)</p><p className="mt-1 font-medium">{companyMap.get(viewTarget.forCompanyId) || viewTarget.forCompanyId}</p></div>}
                 {viewTarget.pmsCycleStart && <div><p className="text-xs text-muted-foreground">PMS Cycle Start</p><p className="mt-1 font-medium">{viewTarget.pmsCycleStart}</p></div>}
                 <div><p className="text-xs text-muted-foreground">Status</p><div className="mt-1"><Badge variant={effectiveContractStatus(viewTarget, today) === "Active" ? "default" : "destructive"}>{effectiveContractStatus(viewTarget, today)}</Badge></div></div>
-                <div><p className="text-xs text-muted-foreground">Paperwork</p><p>{viewTarget.paperworkStatus ?? "Pending"}</p></div>
+                <div><p className="text-xs text-muted-foreground">Paperwork</p><p>{isContinuous(viewTarget) ? "Not required" : viewTarget.paperworkStatus ?? "Pending"}</p></div>
                 <div><p className="text-xs text-muted-foreground">Notarized Hardcopy on File</p><p>{viewTarget.notarizedHardcopyStatus ?? "Unknown"}</p></div>
                 <div><p className="text-xs text-muted-foreground">{viewTarget.serviceFeeFrequency ?? "Monthly"} Service Fee</p><p className="mt-1 font-medium">{formatCurrency(viewTarget.monthlyServiceFee)}</p></div>
                 {(viewTarget.monthlyServiceFee ?? 0) > 0 && <div><p className="text-xs text-muted-foreground">Contract Billing Frequency</p><p className="mt-1 font-medium">{viewTarget.serviceFeeFrequency ?? "Monthly"}</p></div>}
@@ -1179,8 +1181,13 @@ export default function CustomerContractsPage() {
                   }
                 />
               </div>
-              {/* End Date - Updated to use DatePicker */}
-              <div className="space-y-1.5">
+              {/* End Date - Continuous agreements run until cancelled */}
+              {continuous ? (
+                <div className="space-y-1.5">
+                  <Label>End Date</Label>
+                  <p className="flex h-9 items-center text-sm text-muted-foreground">Ongoing until cancelled</p>
+                </div>
+              ) : <div className="space-y-1.5">
                 <Label htmlFor="cc-end-date">End Date *</Label>
                 <DatePicker
                   id="cc-end-date"
@@ -1190,7 +1197,7 @@ export default function CustomerContractsPage() {
                   startMonth={todayStart}
                   endMonth={endDateMax}
                 />
-              </div>
+              </div>}
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="cc-pms-cycle-start">PMS cycle start (optional)</Label>
                 <Input
@@ -1249,10 +1256,10 @@ export default function CustomerContractsPage() {
 
             <section className="space-y-4 rounded-xl border bg-muted/10 p-4 sm:p-5">
               <h3 className="text-sm font-semibold">Paperwork &amp; internal notes</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
+            {continuous ? <p className="text-sm text-muted-foreground">Paperwork not required for Continuous agreements.</p> : <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5"><Label htmlFor="cc-paperwork">Paperwork Status</Label><Select value={form.paperworkStatus} onValueChange={(value: PaperworkStatus) => setForm(f => ({ ...f, paperworkStatus: value }))} disabled={saving}><SelectTrigger id="cc-paperwork" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{["Pending", "Complete"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-1.5"><Label htmlFor="cc-hardcopy">Notarized Hardcopy on File</Label><Select value={form.notarizedHardcopyStatus} onValueChange={(value: NotarizedHardcopyStatus) => setForm(f => ({ ...f, notarizedHardcopyStatus: value }))} disabled={saving}><SelectTrigger id="cc-hardcopy" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{["Unknown", "Yes", "No"].map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>
-            </div>
+            </div>}
               {editTarget ? <div className="space-y-3">
                 <Label>Note history</Label>
                 <ContractNoteHistory notes={data.find(contract => contract.id === editTarget.id)?.noteHistory ?? []} />

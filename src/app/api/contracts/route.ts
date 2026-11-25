@@ -65,7 +65,12 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    if (!body.endDate?.trim()) {
+    if (body.agreementType !== undefined && !["Contract", "PO", "Continuous"].includes(body.agreementType)) {
+      return NextResponse.json({ error: "Agreement type must be Contract, PO, or Continuous." }, { status: 400 });
+    }
+    // Continuous agreements run until cancelled: no end date.
+    if (body.agreementType === "Continuous") body.endDate = "";
+    else if (!body.endDate?.trim()) {
       return NextResponse.json(
         { error: "End date is required." },
         { status: 400 },

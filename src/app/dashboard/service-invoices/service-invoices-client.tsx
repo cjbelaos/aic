@@ -79,6 +79,7 @@ import { BulkScanUploadDialog } from "@/components/bulk-scan-upload-dialog";
 import companyService from "@/lib/services/company.service";
 import { pmsContractForDelivery, pmsInvoiceItem, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
 import { pmsCycleAnchor } from "@/lib/contractBillingPeriod";
+import { effectiveContractStatus } from "@/lib/contractStatus";
 import type { ContractRelease } from "@/types/contract-release";
 import type { Contract } from "@/types/contract";
 import contractService from "@/lib/services/contract.service";
@@ -129,7 +130,7 @@ function InvoiceBillingFields({ invoiceKind = "service", mode, contractId, custo
   onContractChange: (id: string) => void;
   onCategoriesChange: (categories: string[]) => void;
 }) {
-  const options = contracts.filter(c => c.companyId === customerId && ((c.status === "Active" && (c.monthlyServiceFee ?? 0) > 0) || c.id === contractId));
+  const options = contracts.filter(c => c.companyId === customerId && ((effectiveContractStatus(c) === "Active" && (c.monthlyServiceFee ?? 0) > 0) || c.id === contractId));
   return <div className="grid grid-cols-1 items-start gap-4 rounded-md border p-4 md:grid-cols-2">
     <div className="min-w-0 space-y-1.5">
     <Label>Billing type</Label>

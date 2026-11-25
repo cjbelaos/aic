@@ -56,6 +56,13 @@ export async function PUT(
     const body: Partial<UpdateContractPayload> = await request.json();
     if (body.notes !== undefined) return NextResponse.json({ error: "Use individual note actions to add, edit, or delete notes." }, { status: 400 });
 
+    if (body.agreementType !== undefined && !["Contract", "PO", "Continuous"].includes(body.agreementType)) {
+      return NextResponse.json({ error: "Agreement type must be Contract, PO, or Continuous." }, { status: 400 });
+    }
+    if (body.agreementType === "Continuous") body.endDate = "";
+    else if (body.agreementType !== undefined && body.endDate !== undefined && !body.endDate.trim()) {
+      return NextResponse.json({ error: "End date is required." }, { status: 400 });
+    }
     if (body.paperworkStatus !== undefined && !["Pending", "Complete"].includes(body.paperworkStatus)) {
       return NextResponse.json({ error: "Paperwork status must be Pending or Complete." }, { status: 400 });
     }

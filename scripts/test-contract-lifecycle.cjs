@@ -22,6 +22,15 @@ async function main() {
   assert.match(contractRowClass({ ...contract, endDate: "9999-12-31", paperworkStatus: "Complete" }), /green/);
   assert.match(contractRowClass({ ...contract, endDate: "2000-01-01" }), /red/);
   for (const status of ["Closed", "Inactive"]) assert.equal(contractRowClass({ ...contract, status }), "");
+  const { isContinuous, paperworkPending } = load("src/lib/contractStatus.ts");
+  const cont = { status: "Active", endDate: "", paperworkStatus: "Pending", agreementType: "Continuous" };
+  assert.equal(isContinuous(cont), true);
+  assert.equal(effectiveContractStatus(cont, "2099-01-01"), "Active");
+  assert.equal(effectiveContractStatus({ ...cont, status: "Expired" }, "2026-11-25"), "Expired", "A stored Expired Continuous contract is not revived");
+  assert.equal(paperworkPending(cont, "2026-11-25"), false);
+  assert.equal(paperworkPending({ ...cont, agreementType: "Contract", endDate: "2099-01-01" }, "2026-11-25"), true);
+  assert.match(contractRowClass(cont), /green/);
+  assert.equal(effectiveContractStatus({ ...cont, endDate: "2000-01-01" }, "2026-11-25"), "Active", "A leftover end date never expires a Continuous contract");
 
   const { quarterlyBillingPeriod: period } = load("src/lib/contractBillingPeriod.ts");
   assert.deepEqual(period("2026-02-15", "2026-02-15"), { start: "2026-02", end: "2026-04" });
@@ -48,11 +57,12 @@ async function main() {
   assert.equal(billing.validateInvoiceBilling({ ...input, items: [{ ...item, description: "PMS FOR THE QUARTER OF Q2 2026" }] }, quarterly, true).contractId, "CTR-1", "Historical invoice descriptions remain editable");
 
   let writes = 0;
+  let saved, added;
   const mocks = {
     "@/lib/contractNoteSheets": require("./proforma-runtime.cjs").createLoader({ "@/lib/googleSheets": {} })("src/lib/contractNoteSheets.ts"),
     "next/server": { NextResponse: { json: (body, init) => Response.json(body, init) } },
     "@/lib/auth/session": { requireAuthenticatedSession: async () => ({}) },
-    "@/lib/contractSheets": { addContract: async body => { writes++; return body; }, updateContractInSheets: async body => { writes++; return body; } },
+    "@/lib/contractSheets": { addContract: async body => { writes++; added = body; return body; }, updateContractInSheets: async body => { writes++; saved = body; return body; } },
     "@/lib/companySheets": { getCustomers: async () => [{ companyId: "COMP-1" }] },
     "@/lib/contractBillingPeriod": load("src/lib/contractBillingPeriod.ts"),
   };
@@ -67,6 +77,16 @@ async function main() {
   assert.equal(writes, 0, "Invalid metadata never reaches storage");
   assert.equal((await create(request({ ...base, paperworkStatus: "Pending", notarizedHardcopyStatus: "Unknown" }))).status, 201);
   assert.equal((await update(request({ paperworkStatus: "Complete", notarizedHardcopyStatus: "Yes" }), { params: Promise.resolve({ id: "CTR-1" }) })).status, 200);
+  const put = body => update(request(body), { params: Promise.resolve({ id: "CTR-1" }) });
+  assert.equal((await create(request({ ...base, endDate: "" }))).status, 400, "Contract still needs an end date");
+  assert.equal((await create(request({ ...base, agreementType: "Lease" }))).status, 400);
+  assert.equal((await put({ agreementType: "Lease" })).status, 400);
+  assert.equal((await put({ agreementType: "Contract", endDate: "" })).status, 400, "Leaving Continuous needs an end date");
+  assert.equal((await create(request({ ...base, agreementType: "Continuous", endDate: "" }))).status, 201);
+  assert.equal((await create(request({ ...base, agreementType: "Continuous", endDate: "2027-01-01" }))).status, 201);
+  assert.equal(added.endDate, "", "Continuous creates with a blank end date");
+  assert.equal((await put({ agreementType: "Continuous", endDate: "2027-01-01" })).status, 200);
+  assert.equal(saved.endDate, "", "Continuous saves a blank end date");
   console.log("PASS contract expiry, colors, quarterly boundaries, pending billing, historical invoices, and API metadata validation");
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,3 +1,4 @@
+import { effectiveContractStatus } from "./contractStatus";
 import type { Contract, ServiceFeeFrequency } from "../types/contract";
 import type { ContractRelease } from "../types/contract-release";
 import type { ServiceInvoiceItem } from "../types/serviceInvoice";
@@ -23,7 +24,7 @@ export function pmsContractForDelivery(
   // A receipt spanning multiple contracts needs an explicit billing choice.
   if (ids.size !== 1) return undefined;
   return contracts.find(contract => ids.has(contract.id) &&
-    contract.companyId === customerId && contract.status === "Active" &&
+    contract.companyId === customerId && effectiveContractStatus(contract) === "Active" &&
     (contract.monthlyServiceFee ?? 0) > 0);
 }
 

@@ -5,7 +5,7 @@ import type {
   AgreementLedger, BacklogCustomer, ContractRelease, CustomerLedger, ItemLedger, LedgerPeriod, LinkedDr,
 } from "../../types/contract-release.ts";
 import type { DeliveryReceiptSummary } from "../../types/deliveryReceipt.ts";
-import { effectiveContractStatus } from "../contractStatus.ts";
+import { effectiveContractStatus, isContinuous } from "../contractStatus.ts";
 import { isPmsCycleStart } from "../contractBillingPeriod.ts";
 import { isCountedDrStatus, toIsoDate } from "../inventory/domain.ts";
 
@@ -37,8 +37,12 @@ function monthsPerPeriod(frequency: string): number {
 }
 
 /** `anchored`: periods step from the start month itself (a PMS cycle start), not calendar quarters/halves/years. */
-export function generatePeriods(frequency: string, startDate: string, endDate: string, today: string, anchored = false) {
+/** Stand-in end for Continuous agreements (blank end date): periods run up to today. */
+const OPEN_END = "9999-12-31";
+
+export function generatePeriods(frequency: string, startDate: string, contractEnd: string, today: string, anchored = false) {
   const out: { periodStart: string; periodEnd: string; year: number; month: number; quarter: number }[] = [];
+  const endDate = contractEnd === "" ? OPEN_END : contractEnd;
   if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate) || startDate > endDate) return out;
   const step = monthsPerPeriod(frequency);
   const limit = today < endDate ? today : endDate;
@@ -80,7 +84,7 @@ export function computeItemLedger(
   // nothing before it (e.g. before AIC recorded releases) is owed.
   const cycleStart = isPmsCycleStart(contract.pmsCycleStart) ? `${contract.pmsCycleStart}-01` : contract.startDate;
   // Periods that began before release tracking have no records to prove them either way.
-  const gen = generatePeriods(item.frequency, cycleStart, contract.endDate, today, cycleStart !== contract.startDate)
+  const gen = generatePeriods(item.frequency, cycleStart, isContinuous(contract) ? "" : contract.endDate, today, cycleStart !== contract.startDate)
     .filter((p) => p.periodStart >= RELEASE_TRACKING_START);
   const allocated = gen.map(() => 0);
   const relIds = gen.map(() => new Set<string>());
