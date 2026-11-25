@@ -10,38 +10,37 @@
     "test:fti": "node scripts/test-fti-recalculation.cjs && node scripts/test-fti-lock.cjs && node scripts/test-fti-pdf-jobs.cjs && node scripts/test-fti-stale-approval.cjs && node scripts/test-fti-fuel-route.cjs && node scripts/test-fti-pdf-invalidation.cjs && node scripts/test-fti-read-only.cjs && node scripts/test-fti-submission.cjs && node scripts/test-fti-service-errors.cjs",
     "test:contracts": "node scripts/test-contract-lifecycle.cjs && node scripts/test-contract-service-frequency.cjs && node scripts/test-service-invoice-billing.cjs && node scripts/test-contract-notes.cjs",
     "test:contract-notes": "node scripts/test-contract-notes.cjs",
-"audit:contracts": "node --env-file=.env.local scripts/audit-contract-integrity.mjs"
-    ,"audit:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs"
-    ,"migrate:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs --apply"
-    ,"audit:delivery-drive-links": "node --env-file=.env.local scripts/repair-delivery-drive-links.mjs"
-    ,"repair:delivery-drive-links": "node --env-file=.env.local scripts/repair-delivery-drive-links.mjs --apply"
-    ,"audit:document-tracker-backfill": "node --env-file=.env.local scripts/backfill-document-tracker-from-deliveries.mjs"
-    ,"backfill:document-tracker": "node --env-file=.env.local scripts/backfill-document-tracker-from-deliveries.mjs --apply"
-    ,"test:contract-integrity": "node scripts/audit-contract-integrity.mjs --self-test"
-    ,"test:purchase-order-numbering": "node scripts/test-purchase-order-numbering.mjs"
-    ,"audit:child-row-gaps": "node --env-file=.env.local scripts/audit-child-row-gaps.mjs"
-    ,"test:sales-orders": "npx tsc -p scripts/sales-order-tests/tsconfig.json && node tmp/sales-order-tests/out/scripts/sales-order-tests/run.js && node scripts/migrate-sales-orders.mjs --self-test && node scripts/test-sales-order-conversion.cjs"
-    ,"test:quotations": "npx tsc -p scripts/quotation-tests/tsconfig.json && node tmp/quotation-tests/out/scripts/quotation-tests/run.js && node scripts/test-quotation-persistence.cjs && node scripts/test-quotation-print.cjs && node scripts/test-quotation-client.cjs && node scripts/test-quotation-send.cjs && node scripts/test-quotation-history.cjs && node scripts/test-quotation-api.cjs && node scripts/test-quotation-recipients.cjs"
-
-    ,"test:service-reports": "npx tsc -p scripts/service-reports-tests/tsconfig.json && node tmp/service-reports-tests/out/scripts/service-reports-tests/run.js"
-    ,"test:warehouses": "npx tsc -p scripts/warehouse-tests/tsconfig.json && node tmp/warehouse-tests/out/scripts/warehouse-tests/rules-test.js"
-    ,"setup:inventory": "node --env-file=.env.local scripts/setup-inventory-sheets.mjs"
-    ,"test:inventory": "npx tsc -p scripts/inventory-tests/tsconfig.json && node tmp/inventory-tests/out/scripts/inventory-tests/run.js && node scripts/test-inventory-lock.cjs"
-    ,"test:purchase-requests": "npx tsc -p scripts/purchase-request-tests/tsconfig.json && node tmp/purchase-request-tests/out/scripts/purchase-request-tests/run.js"
-    ,"test:contract-releases": "npx tsc -p scripts/contract-release-tests/tsconfig.json && node tmp/contract-release-tests/out/scripts/contract-release-tests/run.js"
-    ,"setup:purchase-requests": "node --env-file=.env.local scripts/setup-purchase-request-sheets.mjs"
-    ,"test:delivery-releases": "npx tsc -p scripts/delivery-release-tests/tsconfig.json && node tmp/delivery-release-tests/out/scripts/delivery-release-tests/run.js && node scripts/test-delivery-deletion.cjs && node scripts/test-delivery-service-errors.cjs"
-    ,"test:proforma-invoices": "node scripts/test-proforma-invoices.cjs"
-    ,"audit:proforma-migration": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs"
-    ,"migrate:proforma-invoices": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs --apply"
-    ,"test:sales-invoices": "node scripts/test-sales-invoices.cjs"
-    ,"test:scanned-invoice-batch": "node scripts/test-scanned-invoice-batch.cjs"
-    ,"test:service-invoice-billing": "node scripts/test-service-invoice-billing.cjs"
-    ,"test:service-invoice-tracker": "node scripts/test-service-invoice-tracker.cjs"
-    ,"verify:service-report-schema": "node --env-file=.env.local scripts/verify-service-report-schema.mjs"
-    ,"backfill:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs"
-    ,"apply:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs --apply"
-    ,"inspect:sales-orders-destination": "node scripts/inspect-sales-order-destination.mjs"
+    "audit:contracts": "node --env-file=.env.local scripts/audit-contract-integrity.mjs",
+    "audit:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs",
+    "migrate:delivery-tracking": "node --env-file=.env.local scripts/migrate-delivery-tracking.mjs --apply",
+    "audit:delivery-drive-links": "node --env-file=.env.local scripts/repair-delivery-drive-links.mjs",
+    "repair:delivery-drive-links": "node --env-file=.env.local scripts/repair-delivery-drive-links.mjs --apply",
+    "audit:document-tracker-backfill": "node --env-file=.env.local scripts/backfill-document-tracker-from-deliveries.mjs",
+    "backfill:document-tracker": "node --env-file=.env.local scripts/backfill-document-tracker-from-deliveries.mjs --apply",
+    "test:contract-integrity": "node scripts/audit-contract-integrity.mjs --self-test",
+    "test:purchase-order-numbering": "node scripts/test-purchase-order-numbering.mjs",
+    "audit:child-row-gaps": "node --env-file=.env.local scripts/audit-child-row-gaps.mjs",
+    "test:sales-orders": "npx tsc -p scripts/sales-order-tests/tsconfig.json && node tmp/sales-order-tests/out/scripts/sales-order-tests/run.js && node scripts/migrate-sales-orders.mjs --self-test && node scripts/test-sales-order-conversion.cjs",
+    "test:quotations": "npx tsc -p scripts/quotation-tests/tsconfig.json && node tmp/quotation-tests/out/scripts/quotation-tests/run.js && node scripts/test-quotation-persistence.cjs && node scripts/test-quotation-print.cjs && node scripts/test-quotation-client.cjs && node scripts/test-quotation-send.cjs && node scripts/test-quotation-history.cjs && node scripts/test-quotation-api.cjs && node scripts/test-quotation-recipients.cjs",
+    "test:service-reports": "npx tsc -p scripts/service-reports-tests/tsconfig.json && node tmp/service-reports-tests/out/scripts/service-reports-tests/run.js",
+    "test:warehouses": "npx tsc -p scripts/warehouse-tests/tsconfig.json && node tmp/warehouse-tests/out/scripts/warehouse-tests/rules-test.js",
+    "setup:inventory": "node --env-file=.env.local scripts/setup-inventory-sheets.mjs",
+    "test:inventory": "npx tsc -p scripts/inventory-tests/tsconfig.json && node tmp/inventory-tests/out/scripts/inventory-tests/run.js && node scripts/test-inventory-lock.cjs",
+    "test:purchase-requests": "npx tsc -p scripts/purchase-request-tests/tsconfig.json && node tmp/purchase-request-tests/out/scripts/purchase-request-tests/run.js",
+    "test:contract-releases": "npx tsc -p scripts/contract-release-tests/tsconfig.json && node tmp/contract-release-tests/out/scripts/contract-release-tests/run.js",
+    "setup:purchase-requests": "node --env-file=.env.local scripts/setup-purchase-request-sheets.mjs",
+    "test:delivery-releases": "npx tsc -p scripts/delivery-release-tests/tsconfig.json && node tmp/delivery-release-tests/out/scripts/delivery-release-tests/run.js && node scripts/test-delivery-deletion.cjs && node scripts/test-delivery-service-errors.cjs",
+    "test:proforma-invoices": "node scripts/test-proforma-invoices.cjs",
+    "audit:proforma-migration": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs",
+    "migrate:proforma-invoices": "node --env-file=.env.local scripts/migrate-proforma-invoices.cjs --apply",
+    "test:sales-invoices": "node scripts/test-sales-invoices.cjs",
+    "test:scanned-invoice-batch": "node scripts/test-scanned-invoice-batch.cjs",
+    "test:service-invoice-billing": "node scripts/test-service-invoice-billing.cjs",
+    "test:service-invoice-tracker": "node scripts/test-service-invoice-tracker.cjs",
+    "verify:service-report-schema": "node --env-file=.env.local scripts/verify-service-report-schema.mjs",
+    "backfill:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs",
+    "apply:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs --apply",
+    "inspect:sales-orders-destination": "node scripts/inspect-sales-order-destination.mjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.11",
@@ -67,6 +66,8 @@
     "next": "^16.2.10",
     "next-themes": "^0.4.6",
     "nodemailer": "^9.0.3",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.5.438",
     "radix-ui": "^1.6.1",
     "react": "^19.2.7",
     "react-day-picker": "^10.0.1",
@@ -76,6 +77,7 @@
     "shadcn": "^4.12.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
+    "tesseract.js": "^7.0.0",
     "tw-animate-css": "^1.4.0",
     "vaul": "^1.1.2"
   },
