@@ -25,6 +25,9 @@
     "../../src/lib/salesOrders/quotationReference.ts",
     "../../src/lib/salesOrders/crypto-hash.ts",
     "../../src/lib/salesOrders/permissions.ts",
-    "../../src/types/salesOrder.ts"
+    "../../src/types/salesOrder.ts",
+    "../../src/types/user.ts",
+    "../../src/types/position.ts",
+    "../../src/lib/recommendedBy.ts"
   ]
 }
