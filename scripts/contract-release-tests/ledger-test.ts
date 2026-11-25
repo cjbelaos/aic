@@ -76,6 +76,10 @@ for (const [s, e] of [["", "2027-01-01"], ["2026/01/01", "2027-01-01"], ["2026-0
 }
 // Semi-annual
 assert.deepEqual(generatePeriods("Semi-Annual", "2026-03-01", "2027-02-28", "2026-08-01").map(p => p.periodStart), ["2026-01-01", "2026-07-01"]);
+// Continuous agreements (blank end date) run periods up to today; One-Time stays a single period.
+assert.deepEqual(generatePeriods("Monthly", "2026-09-21", "", "2026-11-25").map(p => p.periodStart), ["2026-09-01", "2026-10-01", "2026-11-01"]);
+assert.equal(generatePeriods("One-Time", "2026-09-21", "", "2026-11-25").length, 1);
+assert.deepEqual(generatePeriods("Monthly", "2026-09-21", "bad", "2026-11-25"), []);
 // One-Time
 {
   const p = generatePeriods("One-Time", "2026-03-10", "2027-03-09", "2026-12-01");

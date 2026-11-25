@@ -9,7 +9,7 @@ export function effectiveContractStatus(contract: Pick<Contract, "status" | "end
     ? "Expired" : contract.status;
 }
 
-export function isContinuous(contract: Pick<Contract, "agreementType">): boolean {
+export function isContinuous(contract: Partial<Pick<Contract, "agreementType">>): boolean {
   return contract.agreementType === "Continuous";
 }
 

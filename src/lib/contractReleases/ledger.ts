@@ -37,8 +37,12 @@ function monthsPerPeriod(frequency: string): number {
 }
 
 /** `anchored`: periods step from the start month itself (a PMS cycle start), not calendar quarters/halves/years. */
-export function generatePeriods(frequency: string, startDate: string, endDate: string, today: string, anchored = false) {
+/** Stand-in end for Continuous agreements (blank end date): periods run up to today. */
+const OPEN_END = "9999-12-31";
+
+export function generatePeriods(frequency: string, startDate: string, contractEnd: string, today: string, anchored = false) {
   const out: { periodStart: string; periodEnd: string; year: number; month: number; quarter: number }[] = [];
+  const endDate = contractEnd === "" ? OPEN_END : contractEnd;
   if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate) || startDate > endDate) return out;
   const step = monthsPerPeriod(frequency);
   const limit = today < endDate ? today : endDate;
