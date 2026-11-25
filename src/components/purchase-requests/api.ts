@@ -15,9 +15,12 @@ export function prReferenceLabel(pr: { requestType: string; salesOrderNoSnapshot
   return pr.salesOrderNoSnapshot ? `SO ${pr.salesOrderNoSnapshot}` : "—";
 }
 
-/** "CODE — Name" for catalog lines, the name alone for typed items. */
+/** "CODE — Name" for catalog lines; the name alone for typed items or when the code is the name. */
 export function lineName(line: { productCodeSnapshot: string; productNameSnapshot: string }): string {
-  return line.productCodeSnapshot ? `${line.productCodeSnapshot} — ${line.productNameSnapshot}` : line.productNameSnapshot;
+  const code = line.productCodeSnapshot?.trim() ?? "";
+  const name = line.productNameSnapshot?.trim() ?? "";
+  if (!code || code.toUpperCase() === name.toUpperCase()) return line.productNameSnapshot;
+  return `${line.productCodeSnapshot} — ${line.productNameSnapshot}`;
 }
 
 const SO_STATUS_LABELS: Record<string, string> = { ON_HOLD: "On hold", CANCELLED: "Cancelled", CLOSED: "Closed", DRAFT: "Draft" };
