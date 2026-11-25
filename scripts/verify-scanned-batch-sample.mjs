@@ -5,6 +5,7 @@
  * Usage: node scripts/verify-scanned-batch-sample.mjs <scan.pdf> [expected,numbers,...]
  */
 import fs from "node:fs";
+import os from "node:os";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { createCanvas, ImageData } from "@napi-rs/canvas";
@@ -24,7 +25,7 @@ const expected = expectedArg ? expectedArg.split(",") : [];
 
 pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).href;
 const pdf = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(file)) }).promise;
-const worker = await createWorker("eng");
+const worker = await createWorker("eng", 1, { cachePath: os.tmpdir() });
 await worker.setParameters({ tessedit_char_whitelist: "0123456789", tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
 
 let correct = 0;

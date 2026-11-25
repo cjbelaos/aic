@@ -71,8 +71,10 @@ import {
   Recycle,
   X,
   Check,
+  FileStack,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BulkScanUploadDialog } from "@/components/bulk-scan-upload-dialog";
 
 import companyService from "@/lib/services/company.service";
 import { pmsContractForDelivery, pmsInvoiceItem, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
@@ -330,6 +332,7 @@ export default function ServiceInvoicesClient({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
+  const [bulkScanOpen, setBulkScanOpen] = useState(false);
 
   const fetchList = useCallback(async () => {
     try {
@@ -757,15 +760,29 @@ export default function ServiceInvoicesClient({
         header: "Scanned copy",
         cell: ({ row }) => (
           <div>
-            <Badge
-              variant={
-                row.original.scannedStatus === "scanned" ? "default" : "outline"
-              }
-            >
-              {row.original.scannedStatus === "scanned"
-                ? "Scanned"
-                : "Not scanned"}
-            </Badge>
+            {row.original.scannedStatus === "scanned" && row.original.scannedFileLink ? (
+              <Badge asChild variant="default">
+                <a
+                  href={row.original.scannedFileLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open scanned copy"
+                >
+                  Scanned
+                  <ExternalLink className="ml-1 h-3 w-3" />
+                </a>
+              </Badge>
+            ) : (
+              <Badge
+                variant={
+                  row.original.scannedStatus === "scanned" ? "default" : "outline"
+                }
+              >
+                {row.original.scannedStatus === "scanned"
+                  ? "Scanned"
+                  : "Not scanned"}
+              </Badge>
+            )}
             {row.original.trackerSyncStatus === "failed" && (
               <Badge variant="destructive" className="ml-1" title="Could not copy to the accounting tracker. Use Sync to tracker.">
                 Not on tracker
@@ -2009,10 +2026,18 @@ export default function ServiceInvoicesClient({
           description="Review invoices, scanned copies, and payment labels."
           loading={loading}
           actions={
-            <Button onClick={openCreateModal}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create New
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {!isSales && (
+                <Button variant="outline" onClick={() => setBulkScanOpen(true)}>
+                  <FileStack className="mr-2 h-4 w-4" />
+                  Bulk upload scans
+                </Button>
+              )}
+              <Button onClick={openCreateModal}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create New
+              </Button>
+            </div>
           }
           cards={["all", "created", "draft", "cancelled", "void"].map(
             (status) => ({
@@ -3260,6 +3285,16 @@ export default function ServiceInvoicesClient({
         className="hidden"
         onChange={handleFileSelect}
       />
+
+      {!isSales && (
+        <BulkScanUploadDialog
+          open={bulkScanOpen}
+          onOpenChange={setBulkScanOpen}
+          invoices={invoices}
+          upload={serviceInvoiceService.uploadScanned}
+          onSaved={fetchList}
+        />
+      )}
     </>
   );
 }
