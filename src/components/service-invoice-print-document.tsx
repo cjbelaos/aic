@@ -94,9 +94,9 @@ const VERTICAL_SHIFT = SELF_HEIGHT; // 1 character/line height down
 const PREPARED_BY_SHIFT_UP = SELF_HEIGHT * 1.25;
 // A4 browser-print calibration: raise the date and both summary groups one text line.
 const DATE_SUMMARY_SHIFT_UP = SELF_HEIGHT; // 16px, approximately 4.2mm
-// Printed-form calibration (11/26/2026 scan): both summary groups printed one
-// row too high, so they start 2 rows (not 3) above SUMMARY_ROW_TOP.
-const SUMMARY_TOP = SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 2 + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP;
+// Printed-form calibration (11/26/2026 test prints): both summary groups were
+// moved down two rows in total, so they start 1 row (not 3) above SUMMARY_ROW_TOP.
+const SUMMARY_TOP = SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 1 + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP;
 
 const FONT_SIZE = 13; // larger for print readability (was 11)
 
