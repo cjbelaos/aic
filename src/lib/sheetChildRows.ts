@@ -19,7 +19,10 @@ export async function replaceChildRowsInPlace({ sheets, spreadsheetId, sheetName
 }): Promise<void> {
   const overlap = Math.min(existingRows.length, values.length);
   if (overlap) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption, data: existingRows.slice(0, overlap).map((row, index) => ({ range: `${sheetName}!A${row.rowNumber}:${String.fromCharCode(64 + columnCount)}${row.rowNumber}`, values: [values[index]] })) } });
-  if (values.length > overlap) await sheets.spreadsheets.values.append({ spreadsheetId, range: `${sheetName}!A2:${String.fromCharCode(64 + columnCount)}`, valueInputOption, requestBody: { values: values.slice(overlap) } });
+  // Anchor on column A: Google appends from the first column of the table it detects
+  // in the range, and with A2:<last> blank rows/columns made it pick column L alone,
+  // writing DR items into L:W (DRs 4100, 4104-4109). Full-width rows still land in A:<last>.
+  if (values.length > overlap) await sheets.spreadsheets.values.append({ spreadsheetId, range: `${sheetName}!A2:A`, valueInputOption, requestBody: { values: values.slice(overlap) } });
   const surplus = existingRows.slice(overlap).map((row) => row.rowNumber).sort((a, b) => b - a);
   if (surplus.length) {
     const id = await sheetId(sheets, spreadsheetId, sheetName);
