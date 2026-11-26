@@ -9,7 +9,7 @@ Sales Invoices are available at `/dashboard/sales-invoices`. The register, editi
 - Sales Order selection loads active priced lines with their remaining non-cancelled quantities. Users may change prices/quantities/descriptions, remove lines or add manual lines. Only explicitly linked lines inherit order discounts; manual additions receive no inherited discount.
 - Sales Invoice has a required invoice-delivery PIC, selected from the existing application user choices. It is never printed. Service Invoice keeps its existing technician/DR assignment and has no separate PIC requirement.
 - Sales Order no longer exposes or requires PIC assignment. Existing stored assignee values are preserved for compatibility. Manual service completion permission follows the invoice technician or an administrator.
-- VAT remains 12% inclusive after commercial discount. Withholding equals rounded net-of-VAT times 2% for Service Invoice and 1% for Sales Invoice. Per approved business rules it does not reduce total due, recorded payments or balances.
+- VAT remains 12% inclusive after commercial discount. Withholding equals rounded net-of-VAT times 2% for Service Invoice and 1% for Sales Invoice. The printed "Total Amount Due" is Total Sales (VAT inclusive) minus withholding (changed 2026-11-26). Withholding still does not reduce the invoice total used for receivables, recorded payments or balances.
 - Zero-rated and VAT-exempt print positions are empty. The special statutory discount row remains a dash. The physical print template adds neither invoice title nor PIC.
 - Existing invoice previews/prints use current withholding calculations, including paid invoices. Uploaded physical scans remain original evidence.
 

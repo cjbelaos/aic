@@ -14,13 +14,15 @@ export function invoiceTotals(invoice: { items: readonly ServiceInvoiceItem[]; d
   const grandTotal = roundCurrency(subtotal - discount);
   const vat = roundCurrency(grandTotal * 12 / 112);
   const amountNetOfVat = roundCurrency(grandTotal - vat);
+  const lessWithholdingTax = roundCurrency(amountNetOfVat * (invoice.invoiceKind === "sales" ? 0.01 : 0.02));
   return { subtotal, discount, grandTotal, vat, vatableAmount: amountNetOfVat,
     vatableSales: amountNetOfVat, zeroRatedSales: "", vatExemptSales: "",
     totalSalesVatInclusive: grandTotal, lessVat: vat, amountNetOfVat,
     lessDiscount: "-", addVat: vat,
-    lessWithholdingTax: roundCurrency(amountNetOfVat * (invoice.invoiceKind === "sales" ? 0.01 : 0.02)),
-    // Business rule: withholding is disclosed without changing receivables.
-    totalAmountDue: grandTotal,
+    lessWithholdingTax,
+    // Printed "Total Amount Due" = Total Sales - Withholding. Receivables,
+    // payments and balances keep using grandTotal (withholding not deducted).
+    totalAmountDue: roundCurrency(grandTotal - lessWithholdingTax),
   };
 }
 

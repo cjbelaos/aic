@@ -94,8 +94,11 @@ const VERTICAL_SHIFT = SELF_HEIGHT; // 1 character/line height down
 const PREPARED_BY_SHIFT_UP = SELF_HEIGHT * 1.25;
 // A4 browser-print calibration: raise the date and both summary groups one text line.
 const DATE_SUMMARY_SHIFT_UP = SELF_HEIGHT; // 16px, approximately 4.2mm
+// Printed-form calibration (11/26/2026 scan): both summary groups printed one
+// row too high, so they start 2 rows (not 3) above SUMMARY_ROW_TOP.
+const SUMMARY_TOP = SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 2 + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP;
 
-const FONT_SIZE = 11;
+const FONT_SIZE = 13; // larger for print readability (was 11)
 
 /* -----------------------------------------------------------------------------
  * COLUMN WIDTHS
@@ -126,11 +129,11 @@ const COL_AMOUNT = Math.round(COL_AMOUNT_PX * SCALE_FACTOR);
 /* -----------------------------------------------------------------------------
  * HORIZONTAL ADJUSTMENTS
  *
- * Courier New 11px:
- * approximately 6.6px per character.
+ * Courier New 13px:
+ * approximately 7.8px per character.
  * ---------------------------------------------------------------------------*/
 
-const CHAR_WIDTH = 6.6;
+const CHAR_WIDTH = 7.8; // Courier New ~0.6em at 13px
 
 const QTY_SHIFT = CHAR_WIDTH * 2; // 2 characters left
 const UNIT_SHIFT = CHAR_WIDTH; // 1 character left
@@ -191,7 +194,8 @@ function formatNumber(n: number): string {
  *          same decimal position
  * ---------------------------------------------------------------------------*/
 
-function DecimalAlignedNumber({ value }: { value: number }) {
+// Widths are in "ch" (Courier New is monospace) so they scale with FONT_SIZE.
+function DecimalAlignedNumber({ value, intChars = 11 }: { value: number; intChars?: number }) {
   const formatted = formatNumber(value);
   const [integerPart, decimalPart = "00"] = formatted.split(".");
 
@@ -199,7 +203,7 @@ function DecimalAlignedNumber({ value }: { value: number }) {
     <span
       style={{
         display: "inline-grid",
-        gridTemplateColumns: "72px 8px 18px",
+        gridTemplateColumns: `${intChars}ch 1ch 2.5ch`,
         justifyContent: "end",
         fontFamily: FONT_FAMILY,
         fontSize: FONT_SIZE,
@@ -328,7 +332,7 @@ export default function ServiceInvoicePrintDocument({
   const additionalCellStyle: CSSProperties = {
     fontSize: FONT_SIZE,
     lineHeight: `${SUMMARY_ROW_HEIGHT}px`,
-    padding: "0 4px",
+    padding: 0,
     verticalAlign: "middle",
     height: `${SUMMARY_ROW_HEIGHT}px`,
     textAlign: "right",
@@ -355,10 +359,10 @@ export default function ServiceInvoicePrintDocument({
       }}
       className="relative bg-white text-black mx-auto"
     >
-      {totals.discount > 0 && <div style={{ position: "absolute", left: MARGIN_LEFT, top: 882, width: 240, fontSize: 10, fontWeight: 700, lineHeight: "12px" }}>
+      {totals.discount > 0 && <div style={{ position: "absolute", left: MARGIN_LEFT, top: 882, width: 240, fontSize: 12, fontWeight: 700, lineHeight: "14px" }}>
         <div>Subtotal: PHP {formatNumber(subtotalAmount)}</div>
         <div>Less Discount: PHP {formatNumber(totals.discount)}</div>
-        <div>Final Amount Payable: PHP {formatNumber(totalAmountDue)}</div>
+        <div>Final Amount Payable: PHP {formatNumber(totals.grandTotal)}</div>
       </div>}
       {/* ---------------------------------------------------------------------
        * DATE
@@ -401,7 +405,7 @@ export default function ServiceInvoicePrintDocument({
           top: CUSTOMER_TOP + VERTICAL_SHIFT,
           left: CUSTOMER_LEFT,
           right: RIGHT_MARGIN,
-          fontSize: 13,
+          fontSize: 15,
           fontWeight: 700,
           textTransform: "uppercase",
           lineHeight: 1.3,
@@ -549,7 +553,7 @@ export default function ServiceInvoicePrintDocument({
       <div
         style={{
           position: "absolute",
-          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3 + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP,
+          top: SUMMARY_TOP,
 
           /*
            * Same 3-character shift as the Amount column.
@@ -716,7 +720,7 @@ export default function ServiceInvoicePrintDocument({
       <div
         style={{
           position: "absolute",
-          top: SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * 3 + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP,
+          top: SUMMARY_TOP,
           right: ADDITIONAL_TABLE_RIGHT,
           width: ADDITIONAL_TABLE_WIDTH,
         }}
@@ -740,7 +744,7 @@ export default function ServiceInvoicePrintDocument({
                   ...additionalCellStyle,
                 }}
               >
-                <DecimalAlignedNumber value={vatableSales} />
+                <DecimalAlignedNumber value={vatableSales} intChars={9} />
               </td>
             </tr>
 
@@ -755,7 +759,7 @@ export default function ServiceInvoicePrintDocument({
                   ...additionalCellStyle,
                 }}
               >
-                <DecimalAlignedNumber value={vat} />
+                <DecimalAlignedNumber value={vat} intChars={9} />
               </td>
             </tr>
           </tbody>

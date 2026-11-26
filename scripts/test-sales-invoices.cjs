@@ -32,7 +32,8 @@ async function main() {
     assert.equal(result.vatableSales, 12500); assert.equal(result.vat, 1500);
     assert.equal(result.lessVat, result.addVat);
     assert.equal(result.lessWithholdingTax, kind === "service" ? 250 : 125);
-    assert.equal(result.totalAmountDue, 14000);
+    assert.equal(result.totalAmountDue, kind === "service" ? 13750 : 13875, "Printed total due = Total Sales - Withholding");
+    assert.equal(result.grandTotal, 14000, "Receivable total is not reduced by withholding");
     assert.equal(result.zeroRatedSales, ""); assert.equal(result.vatExemptSales, "");
     assert.equal(result.lessDiscount, "-");
     const discounted = invoiceTotals({ ...fixture, invoiceKind: kind, discountAmount: 2800 });
@@ -125,7 +126,7 @@ async function main() {
     assert.equal(serviceList.length, 1);
     assert.equal(invoiceTotals(serviceList[0]).lessWithholdingTax, 250);
     assert.equal(invoiceTotals(list.find(invoice => invoice.invoiceNo === "1001")).lessWithholdingTax, 125);
-    assert.equal(invoiceTotals(list.find(invoice => invoice.invoiceNo === "1001")).totalAmountDue, 14000);
+    assert.equal(invoiceTotals(list.find(invoice => invoice.invoiceNo === "1001")).totalAmountDue, 13875);
   } finally { console.error = originalError; }
   console.log("PASS VAT/withholding, empty print fields, categories, manual-line discounts, PIC validation, independent numbering/payment/scan storage, DR/PIC separation, linked category edits, and legacy recalculation.");
 }
