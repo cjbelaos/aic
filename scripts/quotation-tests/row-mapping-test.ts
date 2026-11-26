@@ -20,9 +20,9 @@ import {
 import { singleTotalPriceFromRecord } from "../../src/lib/quotationPricing.ts";
 
 // ── the complete 21-column mapping ──────────────────────────────────────────
-assert.equal(QUOTATION_ROW_COLUMN_COUNT, 27);
-assert.equal(QUOTATION_ROW_HEADERS.length, 27);
-assert.equal(quotationSheetRange(), "Quotations!A2:AA");
+assert.equal(QUOTATION_ROW_COLUMN_COUNT, 29);
+assert.equal(QUOTATION_ROW_HEADERS.length, 29);
+assert.equal(quotationSheetRange(), "Quotations!A2:AC");
 assert.equal(columnLetter(0), "A");
 assert.equal(columnLetter(7), "H");
 assert.equal(columnLetter(8), "I");
@@ -58,13 +58,15 @@ const expectedLayout: Array<[string, keyof typeof QUOTATION_ROW, number, string]
   ["Revision", "revision", 24, "Y"],
   ["RevisionPending", "revisionPending", 25, "Z"],
   ["LastSentAt", "lastSentAt", 26, "AA"],
+  ["RecommendedByUserId", "recommendedByUserId", 27, "AB"],
+  ["RecommendedByName", "recommendedByName", 28, "AC"],
 ];
 for (const [header, key, index, letter] of expectedLayout) {
   assert.equal(QUOTATION_ROW[key], index, `${header} must be index ${index}`);
   assert.equal(QUOTATION_ROW_HEADERS[index], header, `${letter} must be ${header}`);
   assert.equal(columnLetter(index), letter, `index ${index} must be column ${letter}`);
 }
-assert.equal(Object.keys(QUOTATION_ROW).length, 27);
+assert.equal(Object.keys(QUOTATION_ROW).length, 29);
 
 // A full row round-trips through every column in sheet order.
 const savedRow = quotationRowValues({
@@ -94,10 +96,16 @@ const savedRow = quotationRowValues({
   createdAt: "2026-09-25T00:00:00.000Z",
   updatedBy: "chris",
   updatedAt: "2026-09-25T01:00:00.000Z",
+  recommendedByUserId: "u1",
+  recommendedByName: "Juan Tech",
 });
-assert.equal(savedRow.length, 27);
+assert.equal(savedRow.length, 29);
+assert.equal(savedRow[27], "u1");
+assert.equal(savedRow[28], "Juan Tech");
 const parsedSaved = parseQuotationRowValues(savedRow);
 assert.equal(parsedSaved.quotationNo, "Q-20260925-001");
+assert.equal(parsedSaved.recommendedByUserId, "u1");
+assert.equal(parsedSaved.recommendedByName, "Juan Tech");
 assert.equal(parsedSaved.customerId, "COMP-1");
 assert.equal(parsedSaved.customer, "ACME Corp");
 assert.equal(parsedSaved.description, "PORTABLE RO PARTS");
@@ -145,6 +153,9 @@ assert.equal(historical.warranty, "");
 assert.equal(historical.revision, 0);
 assert.equal(historical.revisionPending, false);
 assert.equal(historical.lastSentAt, "");
+// Rows written before the recommender columns read back blank.
+assert.equal(historical.recommendedByUserId, "");
+assert.equal(historical.recommendedByName, "");
 assert.equal(singleTotalPriceFromRecord({
   pricingMode: historical.pricingMode,
   singleTotalPrice: historical.singleTotalPrice,

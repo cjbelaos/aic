@@ -84,6 +84,10 @@ export interface SalesOrder {
   updatedAt: string;
   updatedBy: string;
   billingType?: SalesOrderBillingType | "";
+  /** After Sales user who recommended the work (blank when none). */
+  recommendedByUserId?: string;
+  /** Their name when it was set, resolved by the server. */
+  recommendedByName?: string;
 }
 
 /** SalesOrderItems — one stable-ID row per line. */

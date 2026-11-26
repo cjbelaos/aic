@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { showRecommenderNotice } from "@/components/sales-orders/recommender-toast";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -102,7 +103,7 @@ function DetailInner({ orderId }: { orderId: string }) {
       {notice ? <p role="status" className="text-sm text-emerald-600">{notice}</p> : null}
       {error ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive">{error}</p> : null}
       <div className="flex flex-wrap gap-2">
-        {order.orderStatus === "DRAFT" ? <ActionButton label="Confirm Order" icon={<CheckCircle2 />} busy={busy} onRun={() => run("Confirm", () => salesOrderService.confirm(orderId, version))} /> : null}
+        {order.orderStatus === "DRAFT" ? <ActionButton label="Confirm Order" icon={<CheckCircle2 />} busy={busy} onRun={() => run("Confirm", async () => showRecommenderNotice((await salesOrderService.confirm(orderId, version)).notice))} /> : null}
         {/* Nothing is left to hold or cancel once every line is delivered. */}
         {order.orderStatus === "CONFIRMED" && !fulfilled ? <ActionButton label="Place on Hold" icon={<CirclePause />} variant="outline" busy={busy} onRun={() => run("Hold", () => salesOrderService.hold(orderId, version))} /> : null}
         {order.orderStatus === "ON_HOLD" ? <ActionButton label="Resume Order" icon={<CirclePlay />} variant="outline" busy={busy} onRun={() => run("Resume", () => salesOrderService.resume(orderId, version))} /> : null}
@@ -117,6 +118,7 @@ function DetailInner({ orderId }: { orderId: string }) {
           <div><span className="text-muted-foreground">Received: </span>{formatDate(order.receivedDate)}</div>
           <div><span className="text-muted-foreground">Required: </span>{formatDate(order.requiredDate)}</div>
           <div><span className="text-muted-foreground">Customer PO: </span>{order.customerPONo || "—"}</div>
+          <div><span className="text-muted-foreground">Recommended by: </span>{order.recommendedByName || "—"}</div>
           <div><span className="text-muted-foreground">Quotation No.: </span>{salesOrderQuotationDisplay(order) || "—"}</div>
           <div><span className="text-muted-foreground">Terms: </span>{order.paymentTermsSnapshot || "—"}</div>
           <div><span className="text-muted-foreground">Category: </span>{detail.category || "—"}</div>

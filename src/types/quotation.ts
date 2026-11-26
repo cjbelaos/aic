@@ -61,6 +61,10 @@ export interface Quotation extends QuotationAudit {
    * discount and shipping fee. Ignored in PER_LINE mode.
    */
   singleTotalPrice?: number;
+  /** After Sales user who recommended the quoted work (blank when none). */
+  recommendedByUserId?: string;
+  /** Their name when the quotation was saved, resolved by the server. */
+  recommendedByName?: string;
 }
 
 export interface QuotationDetail extends QuotationAudit {

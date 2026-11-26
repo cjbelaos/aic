@@ -1,4 +1,5 @@
 import type { DiscountSettings } from "../discounts";
+import type { RecommenderNotice } from "@/lib/salesOrders/recommenderNotice";
 import api from "@/lib/apiClient";
 import type {
   SalesOrder,
@@ -98,6 +99,9 @@ export interface OrderInput {
   receivedDate: string;
   requiredDate?: string;
   assignedToUserId?: string;
+  recommendedByUserId?: string;
+  /** Display only: the stored name, so a former technician stays visible. */
+  recommendedByName?: string;
   currency?: string;
   remarks?: string;
   lines: OrderLineInput[];
@@ -106,12 +110,14 @@ export interface OrderInput {
 export interface OptionsResponse {
   customers: Array<{ customerId: string; companyName: string; tin: string; address: string }>;
   users: Array<{ userId: string; fullName: string; username: string }>;
+  /** After Sales users who can be picked as the recommending technician. */
+  recommenders: Array<{ userId: string; fullName: string }>;
   terms: Array<{ paymentTermId: string; name: string }>;
   categories: Array<{ productCategoryId: string; categoryName: string }>;
   units: Array<{ unitId: string; unitCode: string; unitName: string }>;
   serviceCategoryName: string | null;
   serviceUnitId: string | null;
-  quotations: Array<{ quotationNo: string; customer: string; customerId?: string; date: string; status: string; amount: number }>;
+  quotations: Array<{ quotationNo: string; customer: string; customerId?: string; date: string; status: string; amount: number; recommendedByUserId?: string; recommendedByName?: string }>;
   products: Array<{ productId: string; productCode: string; productName: string; productCategoryId: string; unitId: string; defaultSellingPrice: number | null }>;
   orderCategories: string[];
   assignmentMandatory: boolean;
@@ -144,13 +150,13 @@ const salesOrderService = {
 
   billing: (id: string): Promise<SalesOrderBilling> => api.get(`${BASE}/${id}/billing`),
 
-  create: (payload: OrderInput): Promise<{ success: boolean; order: SalesOrderDetail }> =>
+  create: (payload: OrderInput): Promise<{ success: boolean; order: SalesOrderDetail; notice?: RecommenderNotice }> =>
     mutate("post", `${BASE}`, { ...payload, commandId: payload.commandId }),
 
   updateDraft: (id: string, payload: OrderInput & { expectedVersion: number }): Promise<{ success: boolean; order: SalesOrderDetail }> =>
     mutate("patch", `${BASE}/${id}`, { ...payload, commandId: payload.commandId }),
 
-  confirm: (id: string, expectedVersion: number): Promise<{ success: boolean; order: SalesOrderDetail }> =>
+  confirm: (id: string, expectedVersion: number): Promise<{ success: boolean; order: SalesOrderDetail; notice?: RecommenderNotice }> =>
     mutate("post", `${BASE}/${id}/confirm`, { expectedVersion }),
 
   hold: (id: string, expectedVersion: number): Promise<{ success: boolean; order: SalesOrderDetail }> =>
@@ -205,7 +211,7 @@ const salesOrderService = {
     storage?: string;
   }> => mutate("post", `${BASE}/${id}/pdf`, {}),
 
-  fromQuotation: (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED" = "CONFIRMED"): Promise<{ success: boolean; order: SalesOrderDetail & { reusedExisting?: boolean } }> =>
+  fromQuotation: (quotationNo: string, initialStatus: "DRAFT" | "CONFIRMED" = "CONFIRMED"): Promise<{ success: boolean; order: SalesOrderDetail & { reusedExisting?: boolean }; notice?: RecommenderNotice }> =>
     mutate("post", `${BASE}/from-quotation`, { quotationNo, initialStatus }),
 
   history: (id: string): Promise<{ success: boolean; history: SalesOrderHistory[] }> =>

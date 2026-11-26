@@ -109,12 +109,6 @@ export function AppSidebar() {
   const [canManageFuelPrice, setCanManageFuelPrice] = useState(false);
   const canSeeTravel = departmentId === 1 || superAdmin;
   const isAdmin = roleId === 1 || superAdmin;
-  /**
-   * Service Reports is listed under Sales & Collections for admins, while
-   * After Sales staff (technician, tech admin, supervisor, manager) get it
-   * inside the Technician group instead.
-   */
-  const showServiceReportsInTechnicianGroup = canSeeTravel && !isAdmin;
 
   useEffect(() => {
     let mounted = true;
@@ -559,20 +553,6 @@ export function AppSidebar() {
                   <Link href="/dashboard/proforma-invoices"><FileText /><span>Proforma Invoices</span></Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              {!showServiceReportsInTechnicianGroup && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isItemActive("/dashboard/service-reports")}
-                    tooltip="Service Reports"
-                  >
-                    <Link href="/dashboard/service-reports">
-                      <FileText />
-                      <span>Service Reports</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
@@ -738,20 +718,6 @@ export function AppSidebar() {
               <SidebarGroupLabel>Technician</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {showServiceReportsInTechnicianGroup && (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isItemActive("/dashboard/service-reports")}
-                        tooltip="Service Reports"
-                      >
-                        <Link href="/dashboard/service-reports">
-                          <FileText />
-                          <span>Service Reports</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )}
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild

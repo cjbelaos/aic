@@ -3,6 +3,7 @@ import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { saveQuotationData, uploadPdfToDrive } from "@/lib/quotationSheets";
 import { isExecutivePositionTitle } from "@/lib/positionUtils";
 import { assertQuotationTerms, QuotationError } from "@/lib/quotationTerms";
+import { resolveQuotationRecommender } from "@/lib/quotationRecommender";
 
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
@@ -123,8 +124,11 @@ export async function POST(request: Request) {
       }
     }
 
+    const recommender = await resolveQuotationRecommender(payload.recommendedByUserId);
+
     // Save to sheets
     const result = await saveQuotationData({
+      ...recommender,
       clientName,
       customerId: payload.customer?.companyId || undefined,
       paymentTermId: payload.paymentTermId,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recommenderOptions } from "@/lib/recommendedBy";
 import { requireSalesPermission, salesErrorResponse } from "@/lib/salesOrders/http-helpers";
 import { getCompanies } from "@/lib/companySheets";
 import { getUsers } from "@/lib/userSheets";
@@ -23,7 +24,9 @@ export async function GET() {
         tin: company.tin,
         address: company.address,
       }));
-    const users = (await getUsers()).map((user) => ({
+    const userRecords = await getUsers();
+    const recommenders = recommenderOptions(userRecords);
+    const users = userRecords.map((user) => ({
       userId: user.userId,
       fullName: user.fullName,
       username: user.username,
@@ -54,11 +57,14 @@ export async function GET() {
         date: quotation.date,
         status: quotation.status,
         amount: quotation.amount,
+        recommendedByUserId: quotation.recommendedByUserId ?? "",
+        recommendedByName: quotation.recommendedByName ?? "",
       }));
     return NextResponse.json(
       {
         customers,
         users,
+        recommenders,
         terms,
         categories,
         units,

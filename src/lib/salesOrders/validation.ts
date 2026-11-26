@@ -156,6 +156,7 @@ export interface ValidatedCreateOrder {
   receivedDate: string;
   requiredDate: string;
   assignedToUserId: string;
+  recommendedByUserId: string;
   currency: string;
   remarks: string;
   lines: ValidatedLineInput[];
@@ -215,6 +216,7 @@ export function parseCreateOrderInput(body: unknown): ValidatedCreateOrder {
     receivedDate: requiredStringField("receivedDate"),
     requiredDate: optionalStringField("requiredDate"),
     assignedToUserId: optionalStringField("assignedToUserId"),
+    recommendedByUserId: optionalStringField("recommendedByUserId"),
     currency: typeof value.currency === "string" && value.currency.trim() ? value.currency.trim().toUpperCase() : "PHP",
     remarks: optionalStringField("remarks"),
     lines,
@@ -231,6 +233,7 @@ export interface ValidatedUpdateOrder {
   receivedDate?: string;
   requiredDate?: string;
   assignedToUserId?: string;
+  recommendedByUserId?: string;
   customerPONo?: string;
   paymentTermId?: string;
   paymentTermsSnapshot?: string;
@@ -268,6 +271,7 @@ export function parseUpdateOrderInput(body: unknown): ValidatedUpdateOrder {
     receivedDate: typeof value.receivedDate === "string" ? value.receivedDate : undefined,
     requiredDate: optional("requiredDate"),
     assignedToUserId: optional("assignedToUserId"),
+    recommendedByUserId: optional("recommendedByUserId")?.trim(),
     customerPONo: typeof value.customerPONo === "string" ? value.customerPONo : undefined,
     paymentTermId: optional("paymentTermId"),
     paymentTermsSnapshot: optional("paymentTermsSnapshot"),

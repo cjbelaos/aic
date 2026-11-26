@@ -54,6 +54,7 @@ function exportToExcel(rows: Quotation[]) {
     { header: "Date", key: "date", width: 15 },
     { header: "Prepared By", key: "preparedBy", width: 35 },
     { header: "Approved By", key: "approvedBy", width: 35 },
+    { header: "Recommended By", key: "recommendedByName", width: 35 },
     { header: "Sent By", key: "sentBy", width: 35 },
     { header: "Status", key: "status", width: 20 },
   ];
@@ -70,6 +71,7 @@ function exportToExcel(rows: Quotation[]) {
       date: r.date,
       preparedBy: r.preparedBy,
       approvedBy: r.approvedBy,
+      recommendedByName: r.recommendedByName || "",
       sentBy: r.sentBy,
       status: r.status || "DRAFT",
     });
@@ -232,6 +234,8 @@ export default function QuotationsPage() {
       warranty: quot.warranty || "",
       preparedBy: quot.preparedBy || "",
       approvedBy: quot.approvedBy || "",
+      recommendedByUserId: quot.recommendedByUserId || "",
+      recommendedByName: quot.recommendedByName || "",
       status: quot.status || "DRAFT",
       vat: storedTotals.vat,
       vatableAmount: storedTotals.vatableAmount,
@@ -385,6 +389,7 @@ export default function QuotationsPage() {
           discount: formPayload.discount, discountSettings: formPayload.discountSettings, shippingFee: formPayload.shippingFee || 0,
           paymentTermId: formPayload.paymentTermId,
           date, preparedBy: formPayload.preparedBy, approvedBy: formPayload.approvedBy,
+          recommendedByUserId: formPayload.recommendedByUserId || "",
           items: formPayload.items, notation: formPayload.notations || [],
           terms: formPayload.terms, delivery: formPayload.delivery, warranty: formPayload.warranty, status,
           pricingMode: formPayload.pricingMode,
@@ -397,6 +402,7 @@ export default function QuotationsPage() {
           terms: formPayload.terms, delivery: formPayload.delivery, warranty: formPayload.warranty,
           paymentTermId: formPayload.paymentTermId,
           preparedBy: formPayload.preparedBy, approvedBy: formPayload.approvedBy,
+          recommendedByUserId: formPayload.recommendedByUserId || "",
           discount: formPayload.discount, discountSettings: formPayload.discountSettings, shippingFee: formPayload.shippingFee || 0,
           dateIssued: date, validUntil: String(formPayload.validity), notations: formPayload.notations,
           subTotal: formPayload.subTotal, vatableAmount: formPayload.vatableAmount,
@@ -785,6 +791,11 @@ export default function QuotationsPage() {
           Prepared By <ArrowUpDown className="ml-1 h-3.5 w-3.5" />
         </Button>
       ),
+    },
+    {
+      accessorKey: "recommendedByName",
+      header: "Recommended By",
+      cell: ({ row }) => row.original.recommendedByName || "—",
     },
   ];
 

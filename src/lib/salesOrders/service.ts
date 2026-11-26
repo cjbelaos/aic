@@ -171,6 +171,7 @@ function baseOrder(input: {
   contactId: string; contactNameSnapshot: string; contactPhoneSnapshot: string;
   deliveryAddressSnapshot: string; customerPONo: string; quotationNo: string; paymentTermId: string;
   paymentTermsSnapshot: string; requiredDate: string; remarks: string; initialStatus: "DRAFT" | "CONFIRMED";
+  recommendedByUserId?: string; recommendedByName?: string;
 }, actor: Actor): SalesOrder {
   const now = nowIso();
   return {
@@ -186,6 +187,7 @@ function baseOrder(input: {
     fulfillmentStatus: "UNFULFILLED", subtotalExTax: 0, discountTotal: 0, taxTotal: 0, grandTotal: 0,
     remarks: input.remarks, version: 1, confirmedAt: input.initialStatus === "CONFIRMED" ? now : "", closedAt: "", cancelReason: "",
     importQuality: "", createdAt: now, createdBy: actor.userId, updatedAt: now, updatedBy: actor.userId,
+    recommendedByUserId: input.recommendedByUserId ?? "", recommendedByName: input.recommendedByName ?? "",
   };
 }
 
@@ -258,6 +260,7 @@ async function createOrderImpl(actor: Actor, input: {
   deliveryAddressSnapshot: string; customerPONo: string; paymentTermId: string; paymentTermsSnapshot: string;
   receivedDate: string; requiredDate: string; assignedToUserId: string; currency: string; remarks: string;
   initialStatus?: "DRAFT" | "CONFIRMED";
+  recommendedByUserId?: string; recommendedByName?: string;
   lines: Array<{ discountSettings?: DiscountSettings; lineType: "PRODUCT" | "SERVICE"; productId: string; description: string; unitId: string;
     unitSnapshot: string; customerProductName: string; productCodeSnapshot: string; productNameSnapshot: string;
     quantity: number | null; unitPrice: number | null; priceSource: string; priceOverrideReason: string;
@@ -304,6 +307,7 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
   billingType?: SalesOrderBillingType;
   discountSettings?: DiscountSettings; discountChangeReason?: string;
   expectedVersion: number; receivedDate?: string; requiredDate?: string; assignedToUserId?: string;
+  recommendedByUserId?: string; recommendedByName?: string;
   customerPONo?: string; paymentTermId?: string; paymentTermsSnapshot?: string; remarks?: string;
   customerId?: string; customerNameSnapshot?: string; customerTINSnapshot?: string; billingAddressSnapshot?: string;
   contactId?: string; contactNameSnapshot?: string; contactPhoneSnapshot?: string; deliveryAddressSnapshot?: string;
@@ -328,6 +332,8 @@ async function updateOrderImpl(actor: Actor, id: string, input: { commandId: str
   applyString("receivedDate", input.receivedDate, (o) => o.receivedDate, (o, v) => { o.receivedDate = v; });
   applyString("requiredDate", input.requiredDate, (o) => o.requiredDate, (o, v) => { o.requiredDate = v; });
   applyString("assignedToUserId", input.assignedToUserId, (o) => o.assignedToUserId, (o, v) => { o.assignedToUserId = v; });
+  applyString("recommendedByUserId", input.recommendedByUserId, (o) => o.recommendedByUserId ?? "", (o, v) => { o.recommendedByUserId = v; });
+  applyString("recommendedByName", input.recommendedByName, (o) => o.recommendedByName ?? "", (o, v) => { o.recommendedByName = v; });
   applyString("customerPONo", input.customerPONo, (o) => o.customerPONo, (o, v) => { o.customerPONo = v; });
   applyString("paymentTermId", input.paymentTermId, (o) => o.paymentTermId, (o, v) => { o.paymentTermId = v; });
   applyString("paymentTermsSnapshot", input.paymentTermsSnapshot, (o) => o.paymentTermsSnapshot, (o, v) => { o.paymentTermsSnapshot = v; });
@@ -726,6 +732,8 @@ async function createOrderFromQuotationImpl(actor: Actor, input: { commandId: st
     receivedDate: new Date().toISOString().slice(0, 10),
     requiredDate: "",
     assignedToUserId: "",
+    recommendedByUserId: quotation.recommendedByUserId ?? "",
+    recommendedByName: quotation.recommendedByName ?? "",
     currency: "PHP",
     initialStatus: input.initialStatus ?? "CONFIRMED",
     remarks: `Converted from quotation ${quotation.quotationNo}; original total ${quotation.amount}.${pricingNote}`,
