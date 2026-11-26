@@ -12,7 +12,11 @@ function load(file, mocks = {}) {
 
 async function main() {
   const { invoiceTotals, resolveInvoiceDiscount } = load("src/lib/serviceInvoiceDiscounts.ts");
-  const PrintDocument = load("src/components/service-invoice-print-document.tsx", { "@/lib/serviceInvoiceDiscounts": { invoiceTotals }, "@/lib/serviceInvoicePresentation": load("src/lib/serviceInvoicePresentation.ts") }).default;
+  const printModule = load("src/components/service-invoice-print-document.tsx", { "@/lib/serviceInvoiceDiscounts": { invoiceTotals }, "@/lib/serviceInvoicePresentation": load("src/lib/serviceInvoicePresentation.ts") });
+  const PrintDocument = printModule.default;
+  const rowHeight = 22.68;
+  assert.ok(Math.abs(printModule.summaryTop("sales") - printModule.summaryTop("service") - 2 * rowHeight) < 1e-6, "Sales summary prints two rows below Service");
+  assert.ok(Math.abs(printModule.summaryTop("service") - (910.86 - 3 * rowHeight)) < 1e-6, "Service summary keeps its original position");
   const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
   for (const kind of ["service", "sales"]) {
     const si = { success: true, invoiceKind: kind, invoiceNo: "TEST", date: "2026-10-15", companyName: "TEST CUSTOMER", address: "TEST ADDRESS", tin: "", preparedBy: "PREPARER", assignedPicName: "HIDDEN DELIVERY PIC", status: "created", items: [{ description: "TEST ITEM", quantity: 1, unitPrice: 14000 }] };
