@@ -6,5 +6,6 @@ import "./serials-test.ts";
 import "./sales-order-lines-test.ts";
 import "./sources-test.ts";
 import "./print-form-test.ts";
+import "./child-rows-test.ts";
 
 console.log("All delivery-release focused tests passed.");

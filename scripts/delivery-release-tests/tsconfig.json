@@ -20,6 +20,7 @@
     "../../src/lib/deliverySerials.ts",
     "../../src/lib/deliverySources.ts",
     "../../src/lib/deliverySalesOrderLines.ts",
-    "../../src/lib/deliveryPrintForm.ts"
+    "../../src/lib/deliveryPrintForm.ts",
+    "../../src/lib/sheetChildRows.ts"
   ]
 }

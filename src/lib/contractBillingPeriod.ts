@@ -34,14 +34,17 @@ function parseInvoiceDate(value: string): Date {
 const monthIndex = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1;
 const toMonth = (index: number) => `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
 
-/** Three-month quarter (as "YYYY-MM" months) containing the invoice date, counted from the cycle anchor month. */
-export function quarterlyBillingPeriod(anchorMonth: string, invoiceDate: string): { start: string; end: string } {
+/**
+ * Three-month quarter (as "YYYY-MM" months) containing the invoice date, counted from
+ * the cycle anchor month. `quartersAhead` = 1 gives the next quarter (advance PMS).
+ */
+export function quarterlyBillingPeriod(anchorMonth: string, invoiceDate: string, quartersAhead = 0): { start: string; end: string } {
   const anchor = (anchorMonth ?? "").slice(0, 7);
   if (!MONTH_RE.test(anchor)) throw new Error("A valid PMS cycle start and invoice date are required for quarterly billing.");
   parseInvoiceDate(invoiceDate);
   const offset = monthIndex(invoiceDate.slice(0, 7)) - monthIndex(anchor);
   if (offset < 0) throw new Error("The invoice date cannot precede the PMS cycle start.");
-  const start = monthIndex(anchor) + Math.floor(offset / 3) * 3;
+  const start = monthIndex(anchor) + (Math.floor(offset / 3) + quartersAhead) * 3;
   return { start: toMonth(start), end: toMonth(start + 2) };
 }
 
