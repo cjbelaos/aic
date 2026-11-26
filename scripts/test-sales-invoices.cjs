@@ -15,7 +15,7 @@ async function main() {
   const printModule = load("src/components/service-invoice-print-document.tsx", { "@/lib/serviceInvoiceDiscounts": { invoiceTotals }, "@/lib/serviceInvoicePresentation": load("src/lib/serviceInvoicePresentation.ts") });
   const PrintDocument = printModule.default;
   const rowHeight = 22.68;
-  assert.ok(Math.abs(printModule.summaryTop("sales") - printModule.summaryTop("service") - 2 * rowHeight) < 1e-6, "Sales summary prints two rows below Service");
+  assert.ok(Math.abs(printModule.summaryTop("sales") - printModule.summaryTop("service") - rowHeight) < 1e-6, "Sales summary prints one row below Service");
   assert.ok(Math.abs(printModule.summaryTop("service") - (910.86 - 3 * rowHeight)) < 1e-6, "Service summary keeps its original position");
   const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
   for (const kind of ["service", "sales"]) {

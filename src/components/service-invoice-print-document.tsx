@@ -95,10 +95,10 @@ const PREPARED_BY_SHIFT_UP = SELF_HEIGHT * 1.25;
 // A4 browser-print calibration: raise the date and both summary groups one text line.
 const DATE_SUMMARY_SHIFT_UP = SELF_HEIGHT; // 16px, approximately 4.2mm
 // Printed-form calibration (11/26/2026 test prints): on Sales Invoices both
-// summary groups sit two rows lower (1 row above SUMMARY_ROW_TOP); Service
+// summary groups sit one row lower (2 rows above SUMMARY_ROW_TOP); Service
 // Invoices keep the original position (3 rows above).
 export function summaryTop(invoiceKind?: "service" | "sales"): number {
-  const rowsAbove = invoiceKind === "sales" ? 1 : 3;
+  const rowsAbove = invoiceKind === "sales" ? 2 : 3;
   return SUMMARY_ROW_TOP - SUMMARY_ROW_HEIGHT * rowsAbove + VERTICAL_SHIFT - DATE_SUMMARY_SHIFT_UP;
 }
 
