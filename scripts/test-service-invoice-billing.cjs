@@ -42,6 +42,20 @@ async function main() {
   const tanayItem = { description: "PMS FOR THE QUARTER OF NOVEMBER 2026 TO JANUARY 2027", quantity: 1, unitPrice: 15000 };
   assert.equal(billing.validateInvoiceBilling({ ...pms, date: "2026-11-22", items: [tanayItem] }, tanay).contractId, contract.id, "PMS cycle start overrides the MOA date");
   assert.throws(() => billing.validateInvoiceBilling({ ...pms, date: "2026-11-22", items: [tanayItem] }, { ...tanay, pmsCycleStart: undefined }), /billing period/, "MOA-anchored quarter is OCTOBER TO DECEMBER");
+  // Advance PMS: an emergency visit late in a quarter bills the next quarter on today's invoice date.
+  const santaCruz = { ...contract, serviceFeeFrequency: "Quarterly", startDate: "2026-09-01", pmsCycleStart: "2026-09" };
+  const advanceItem = billing.pmsInvoiceItem("2026-11-27", 18000, "Quarterly", "2026-09", true);
+  assert.equal(advanceItem.description, "PMS FOR THE QUARTER OF DECEMBER 2026 TO FEBRUARY 2027", "Advance bills the quarter after the invoice date's quarter");
+  assert.equal(billing.pmsInvoiceItem("2026-11-27", 18000, "Quarterly", "2026-09").description, "PMS FOR THE QUARTER OF SEPTEMBER 2026 TO NOVEMBER 2026");
+  assert.equal(billing.validateInvoiceBilling({ ...pms, date: "2026-11-27", items: [advanceItem] }, santaCruz).contractId, contract.id, "Next-quarter (advance) description is accepted");
+  const twoAhead = { ...advanceItem, description: "PMS FOR THE QUARTER OF MARCH 2027 TO MAY 2027" };
+  assert.throws(() => billing.validateInvoiceBilling({ ...pms, date: "2026-11-27", items: [twoAhead] }, santaCruz), /billing period/, "Only one quarter ahead");
+  const previous = { ...advanceItem, description: "PMS FOR THE QUARTER OF JUNE 2026 TO AUGUST 2026" };
+  assert.throws(() => billing.validateInvoiceBilling({ ...pms, date: "2026-11-27", items: [previous] }, santaCruz), /billing period/, "Past quarters are not accepted");
+  assert.equal(billing.isAdvancePmsItem(advanceItem, "2026-11-27", santaCruz), true);
+  assert.equal(billing.isAdvancePmsItem({ ...advanceItem, description: "PMS FOR THE QUARTER OF SEPTEMBER 2026 TO NOVEMBER 2026" }, "2026-11-27", santaCruz), false);
+  assert.equal(billing.isAdvancePmsItem(advanceItem, "2026-11-27", { ...santaCruz, serviceFeeFrequency: "Monthly" }), false, "Monthly contracts have no advance quarter");
+  assert.equal(billing.pmsInvoiceItem("2026-11-27", 18000, "Monthly", undefined, true).description, "PMS FOR THE MONTH OF NOVEMBER 2026", "Advance applies to quarterly billing only");
   assert.equal(quarterlyItem.unitPrice, 17000, "Quarterly fee is charged as entered");
   assert.equal(billing.validateInvoiceBilling({ ...pms, date: "2026-10-08", items: [quarterlyItem] }, { ...quarterlyContract, startDate: "2026-02-15" }).contractId, contract.id);
   assert.throws(() => billing.validateInvoiceBilling(pms, quarterlyContract), /matching the contract frequency/);

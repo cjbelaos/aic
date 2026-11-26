@@ -77,7 +77,7 @@ import { toast } from "sonner";
 import { BulkScanUploadDialog } from "@/components/bulk-scan-upload-dialog";
 
 import companyService from "@/lib/services/company.service";
-import { pmsContractForDelivery, pmsInvoiceItem, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
+import { isAdvancePmsItem, pmsContractForDelivery, pmsInvoiceItem, type InvoiceBillingMode } from "@/lib/serviceInvoiceBilling";
 import { pmsCycleAnchor } from "@/lib/contractBillingPeriod";
 import { effectiveContractStatus } from "@/lib/contractStatus";
 import type { ContractRelease } from "@/types/contract-release";
@@ -122,15 +122,30 @@ const EMPTY_LINE_ITEM: LineItem = {
   unitPrice: 0,
 };
 
-function InvoiceBillingFields({ invoiceKind = "service", mode, contractId, customerId, contracts, categories, automatic, onModeChange, onContractChange, onCategoriesChange }: {
+/** Quarter labels for a quarterly PMS invoice: the invoice date's quarter and the next (advance). */
+function pmsQuarterLabels(date: string, contract: Contract | undefined): { current: string; advance: string } | undefined {
+  if (!contract || contract.serviceFeeFrequency !== "Quarterly") return undefined;
+  try {
+    const label = (advance: boolean) => pmsInvoiceItem(date, 0, "Quarterly", pmsCycleAnchor(contract), advance).description.replace(/^PMS FOR THE QUARTER OF /, "");
+    return { current: label(false), advance: label(true) };
+  } catch { return undefined; }
+}
+
+function InvoiceBillingFields({ invoiceKind = "service", mode, contractId, customerId, contracts, categories, automatic, onModeChange, onContractChange, onCategoriesChange, date, pmsItem, onAdvanceChange }: {
   invoiceKind?: "service" | "sales";
   mode: InvoiceBillingMode; contractId: string; customerId: string; contracts: Contract[];
   categories: string[]; automatic: boolean;
   onModeChange: (mode: InvoiceBillingMode) => void;
   onContractChange: (id: string) => void;
   onCategoriesChange: (categories: string[]) => void;
+  /** Invoice date and current PMS line, for the quarterly billing-period choice. */
+  date: string; pmsItem?: { description: string };
+  onAdvanceChange: (advance: boolean) => void;
 }) {
   const options = contracts.filter(c => c.companyId === customerId && ((effectiveContractStatus(c) === "Active" && (c.monthlyServiceFee ?? 0) > 0) || c.id === contractId));
+  const selectedContract = contracts.find(c => c.id === contractId);
+  const quarters = mode === "PMS_CONTRACT" ? pmsQuarterLabels(date, selectedContract) : undefined;
+  const advance = !!selectedContract && isAdvancePmsItem(pmsItem, date, selectedContract);
   return <div className="grid grid-cols-1 items-start gap-4 rounded-md border p-4 md:grid-cols-2">
     <div className="min-w-0 space-y-1.5">
     <Label>Billing type</Label>
@@ -148,6 +163,16 @@ function InvoiceBillingFields({ invoiceKind = "service", mode, contractId, custo
       <SearchableSelect value={contractId} onValueChange={onContractChange} disabled={!customerId} options={options.map(c => ({ value: c.id, label: `${c.id}${c.description ? ` — ${c.description}` : ""} — ₱${Number(c.monthlyServiceFee).toLocaleString("en-PH")} / ${c.serviceFeeFrequency === "Quarterly" ? "quarter" : "month"}` }))} placeholder="Select PMS contract" />
       {contractId && <Button type="button" variant="ghost" size="sm" className="h-6 px-0 text-xs" onClick={() => onContractChange("")}>Clear contract</Button>}
       {!options.length && <p className="text-xs text-muted-foreground">No active contract with a service fee is available for this customer.</p>}
+      {quarters && <div className="space-y-1.5 pt-1">
+        <Label>Billing period</Label>
+        <Select value={advance ? "advance" : "current"} onValueChange={value => onAdvanceChange(value === "advance")}>
+          <SelectTrigger className="w-full" aria-label="Billing period"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="current">This quarter: {quarters.current}</SelectItem>
+            <SelectItem value="advance">Advance PMS, next quarter: {quarters.advance}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>}
       <p className="text-xs text-muted-foreground">Contract charge only. Bill additional services and parts separately.</p>
     </> : automatic && invoiceKind === "service" ? <><Label>Invoice category</Label><p className="text-xs text-muted-foreground">Category follows the linked Sales Order.</p></> : <>
       <InvoiceCategoryPicker categories={invoiceKind === "sales" ? SALES_INVOICE_CATEGORIES : MANUAL_INVOICE_CATEGORIES} values={categories} onChange={values => onCategoriesChange(values.includes("PMS") && values.length > 1 ? (values.at(-1) === "PMS" ? ["PMS"] : values.filter(value => value !== "PMS")) : values)} />
@@ -2258,7 +2283,8 @@ export default function ServiceInvoicesClient({
                   onChange={(selectedDate) => {
                     const contract = contracts.find(c => c.id === selectedContractId);
                     try {
-                      if (billingMode === "PMS_CONTRACT" && contract) setLineItems([pmsInvoiceItem(selectedDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract))]);
+                      // Keep the chosen billing period (this quarter or advance) across date changes.
+                      if (billingMode === "PMS_CONTRACT" && contract) setLineItems([pmsInvoiceItem(selectedDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract), isAdvancePmsItem(lineItems[0], invoiceDate, contract))]);
                       setInvoiceDate(selectedDate);
                     } catch (error) { toast.error(error instanceof Error ? error.message : "Invalid billing date."); }
                   }}
@@ -2271,6 +2297,13 @@ export default function ServiceInvoicesClient({
               mode={billingMode} contractId={selectedContractId} customerId={serviceBranch?.companyId || selectedCustomer}
               contracts={contracts} categories={createCategories} onCategoriesChange={setCreateCategories}
               automatic={!!linkedSalesOrderId || !!drSalesOrders[linkedDrNumber]}
+              date={invoiceDate} pmsItem={lineItems[0]}
+              onAdvanceChange={(advance) => {
+                const contract = contracts.find(c => c.id === selectedContractId);
+                if (!contract) return;
+                try { setLineItems([pmsInvoiceItem(invoiceDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract), advance)]); }
+                catch (error) { toast.error(error instanceof Error ? error.message : "Invalid billing date."); }
+              }}
               onModeChange={(mode) => {
                 try {
                   const contract = contracts.find(c => c.id === selectedContractId && c.companyId === (serviceBranch?.companyId || selectedCustomer));
@@ -2639,6 +2672,13 @@ export default function ServiceInvoicesClient({
               mode={editBillingMode} contractId={editContractId} customerId={editServiceBranch?.companyId || editTarget?.customerId || ""}
               contracts={contracts} categories={editManualCategories} onCategoriesChange={setEditManualCategories}
               automatic={!!editSalesOrderId || !!drSalesOrders[editDrNumber]}
+              date={editDate} pmsItem={editLineItems[0]}
+              onAdvanceChange={(advance) => {
+                const contract = contracts.find(c => c.id === editContractId);
+                if (!contract) return;
+                try { setEditLineItems([pmsInvoiceItem(editDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract), advance)]); }
+                catch (error) { toast.error(error instanceof Error ? error.message : "Invalid billing date."); }
+              }}
               onModeChange={(mode) => {
                 try {
                   const contract = contracts.find(c => c.id === editContractId && c.companyId === (editServiceBranch?.companyId || editTarget?.customerId));
@@ -2677,7 +2717,7 @@ export default function ServiceInvoicesClient({
                   onChange={(selectedDate) => {
                     const contract = contracts.find(c => c.id === editContractId);
                     try {
-                      if (editBillingMode === "PMS_CONTRACT" && contract) setEditLineItems([pmsInvoiceItem(selectedDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract))]);
+                      if (editBillingMode === "PMS_CONTRACT" && contract) setEditLineItems([pmsInvoiceItem(selectedDate, contract.monthlyServiceFee!, contract.serviceFeeFrequency, pmsCycleAnchor(contract), isAdvancePmsItem(editLineItems[0], editDate, contract))]);
                       setEditDate(selectedDate);
                     } catch (error) { toast.error(error instanceof Error ? error.message : "Invalid billing date."); }
                   }}
