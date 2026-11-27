@@ -66,8 +66,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Login failed unexpectedly.";
+    // Infrastructure details (database, Google) stay in the server log, not on the sign-in page.
+    console.error("Sign-in failed:", error);
+    const message = "Sign-in is temporarily unavailable. Please try again shortly.";
     return NextResponse.json(
       { isSuccess: false, errorMessages: [message] },
       { status: 500 },
