@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { runSave } from "@/lib/db/routeTransaction";
+import type { SessionUser } from "@/types/user";
 import {
   processDeliveryReceipt,
   getDeliveryReceipts,
@@ -49,9 +52,19 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
-
+  let body: CreateDeliveryPayload & { pdfFormat?: "html"; requestId?: string };
   try {
-    const body: CreateDeliveryPayload & { pdfFormat?: "html" } = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+  // PostgreSQL: one transaction for the DR and everything it creates; a retry with the same requestId replays.
+  return runSave(session.userId, "dr.create", body as unknown as Record<string, unknown>, () => createDeliveryRelease(session, body));
+}
+
+async function createDeliveryRelease(session: SessionUser, body: CreateDeliveryPayload & { pdfFormat?: "html"; requestId?: string }): Promise<Response> {
+  try {
+    delete body.requestId;
 
     if (!body.companyId?.trim()) {
       return NextResponse.json(
@@ -248,7 +261,9 @@ export async function POST(request: Request) {
 
     // ── Auto-save PDF to Google Drive and store link (skip for drafts) ──
     let driveFileLink: string | undefined;
-    if (!isHeld && body.pdfFormat !== "html") {
+    // PostgreSQL: processDeliveryReceipt queued the PDF (outbox); it is exported after commit.
+    const pdfStatus = isPostgresBackend() && !isHeld ? "pending" : undefined;
+    if (!isHeld && body.pdfFormat !== "html" && !isPostgresBackend()) {
       try {
       const { year, monthName, monthYear } = (() => {
         if (body.date) {
@@ -323,7 +338,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { ...result, driveFileLink, fulfillment, check: decision.check, contractReleaseError },
+      { ...result, driveFileLink, fulfillment, check: decision.check, contractReleaseError, pdfStatus },
       { status: 201 },
     );
   } catch (error) {

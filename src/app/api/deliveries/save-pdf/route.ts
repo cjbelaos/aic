@@ -3,6 +3,8 @@ import { Readable } from "stream";
 import { getDatabaseSpreadsheetId, getDriveUploadClient, getSheetsClient, resolveDriveFolderPath, MONTH_NAMES, escapeDriveQueryValue } from "@/lib/googleSheets";
 import { populateAndExportDeliveryReceiptFormPdf } from "@/lib/deliverySheets";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { inTransaction, isPostgresBackend } from "@/lib/db/postgres";
+import { enqueueSideEffect } from "@/lib/db/outbox";
 
 const DR_PARENT_FOLDER_ID = "1AuGCBFxa-wp-SdfYXf_YTgY7wgtYHILo";
 
@@ -23,6 +25,13 @@ export async function POST(req: NextRequest) {
         { error: "drNumber and companyName are required." },
         { status: 400 },
       );
+    }
+
+    // PostgreSQL: PDFs are exported by the outbox runner after commit; queue (or refresh) this DR's job.
+    if (isPostgresBackend()) {
+      // The browser-rendered PDF travels with the job, so the runner only has to upload it.
+      await inTransaction(session.userId, () => enqueueSideEffect("dr.pdf", String(Number(body.drNumber)), { companyName: body.companyName, deliveryDate: body.deliveryDate, pdfBase64: body.pdfBase64 ?? null }));
+      return NextResponse.json({ pdfStatus: "pending" }, { status: 202 });
     }
 
     // Resolve the stored file link before uploading, so renamed documents keep their file ID.

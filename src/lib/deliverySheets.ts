@@ -10,7 +10,7 @@ import { bool, col, sheetRows, sheetRowsForRange } from "@/lib/db/sheetRows";
 import { nextDrNumber } from "@/lib/db/sequences";
 import { enqueueSideEffect } from "@/lib/db/outbox";
 import {
-  DELIVERY_RECEIPT_COLUMNS, appendDrStatusHistoryPg, drNumberExistsPg, readDrRowPg, setDrStatusPg, updateDrExtrasPg, writeDrHeaderPg,
+  DELIVERY_RECEIPT_COLUMNS, appendDrStatusHistoryPg, drNumberExistsPg, readDrRowPg, recordDrScanPg, setDrStatusPg, updateDrExtrasPg, writeDrHeaderPg,
 } from "@/lib/deliveries/postgresDeliveryWrites";
 
 type SheetsClient = Awaited<ReturnType<typeof getSheetsClient>>;
@@ -1277,6 +1277,11 @@ export async function getDeliveryReceiptStatus(drNumber: number): Promise<string
 
 /** The DR's row number, delivery date, company and status, or null when it doesn't exist. */
 export async function findDeliveryReceiptForScan(drNumber: number): Promise<{ rowNumber: number; date: string; companyId: string; status: string } | null> {
+  if (isPostgresBackend()) {
+    // On PostgreSQL the "row number" handle passed to the scan writers is the DR number itself.
+    const row = await readDrRowPg(drNumber);
+    return row ? { rowNumber: drNumber, date: String(row[1] ?? "").trim(), companyId: String(row[2] ?? "").trim(), status: String(row[10] ?? "created").trim() || "created" } : null;
+  }
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!A2:K` });
@@ -1297,7 +1302,7 @@ let drScanColumnsReady = false;
  * problem can't leave an orphaned Drive file. Idempotent.
  */
 export async function ensureDeliveryReceiptScanColumns(): Promise<void> {
-  if (drScanColumnsReady) return;
+  if (drScanColumnsReady || isPostgresBackend()) return; // PostgreSQL: the columns are part of the schema
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId, ranges: [DELIVERY_RECEIPTS_SHEET], fields: "sheets.properties(sheetId,title,gridProperties.columnCount)" });
@@ -1317,6 +1322,10 @@ export async function ensureDeliveryReceiptScanColumns(): Promise<void> {
 
 /** Stores the scanned copy link and who scanned it (columns AB:AD). */
 export async function recordDeliveryReceiptScan(rowNumber: number, fileLink: string, userId: string): Promise<void> {
+  if (isPostgresBackend()) {
+    await inTransaction(currentActor() ?? userId, () => recordDrScanPg(rowNumber, fileLink, userId));
+    return;
+  }
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   await sheets.spreadsheets.values.update({
@@ -1333,6 +1342,14 @@ export async function recordDeliveryReceiptScan(rowNumber: number, fileLink: str
  */
 export async function completeDeliveryReceiptFromScan(drNumber: number, rowNumber: number, oldStatus: string, userId: string): Promise<boolean> {
   if (!drCompletesOnScan(oldStatus)) return false;
+  if (isPostgresBackend()) {
+    // Status, stamp and history in one transaction (Sheets tolerated a failed history append).
+    await inTransaction(currentActor() ?? userId, async () => {
+      await setDrStatusPg(drNumber, "completed");
+      await appendDrStatusHistoryPg(drNumber, oldStatus, "completed", userId, new Date().toISOString());
+    });
+    return true;
+  }
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const updatedAt = new Date().toISOString();

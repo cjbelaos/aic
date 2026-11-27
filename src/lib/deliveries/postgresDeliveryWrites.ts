@@ -76,6 +76,12 @@ export async function updateDrExtrasPg(drNumber: number, extras: Partial<Record<
   );
 }
 
+/** Scanned copy link and who scanned it (columns AB:AD). */
+export async function recordDrScanPg(drNumber: number, fileLink: string, scannedBy: string): Promise<void> {
+  const changed = await txQuery("update aic.delivery_receipts set scanned_file_link = $2, scanned_at = now(), scanned_by = $3 where dr_number = $1 returning 1", [drNumber, fileLink, scannedBy]);
+  if (!changed.length) throw new Error(`DR #${drNumber} not found.`);
+}
+
 export async function setDrStatusPg(drNumber: number, status: string): Promise<void> {
   await txQuery("update aic.delivery_receipts set status = $2 where dr_number = $1", [drNumber, status]);
 }

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { runSave } from "@/lib/db/routeTransaction";
+import type { SessionUser } from "@/types/user";
 import { SalesOrderError } from "@/lib/salesOrders/errors";
 import { getOrderDetail } from "@/lib/salesOrders/service";
 import { can } from "@/lib/salesOrders/permissions";
@@ -165,14 +168,24 @@ export async function PUT(
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
 
+  const { id } = await params;
+  const drNumber = parseInt(id, 10);
+  if (isNaN(drNumber)) {
+    return NextResponse.json({ error: "Invalid DR number." }, { status: 400 });
+  }
+  let body: UpdateDeliveryPayload & { requestId?: string };
   try {
-    const { id } = await params;
-    const drNumber = parseInt(id, 10);
-    if (isNaN(drNumber)) {
-      return NextResponse.json({ error: "Invalid DR number." }, { status: 400 });
-    }
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+  // PostgreSQL: one transaction for the edit and everything it changes; a retry with the same requestId replays.
+  return runSave(session.userId, `dr.update:${drNumber}`, body as unknown as Record<string, unknown>, () => updateDeliveryRelease(session, drNumber, body));
+}
 
-    const body: UpdateDeliveryPayload = await request.json();
+async function updateDeliveryRelease(session: SessionUser, drNumber: number, body: UpdateDeliveryPayload & { requestId?: string }): Promise<Response> {
+  try {
+    delete body.requestId;
     // Approval fields and the held status are server-owned; drop anything the browser sent.
     delete body.approvedBy;
     delete body.approvedAt;
@@ -266,7 +279,8 @@ export async function PUT(
       result = await updateDeliveryReceipt(drNumber, body, session.userId);
     }
     try {
-      await regenerateStoredServiceInvoicePdfsForDr(result.drNumber);
+      // PostgreSQL: linked invoice PDFs are refreshed by the invoices outbox (follow-on plan), not inside the save.
+      if (!isPostgresBackend()) await regenerateStoredServiceInvoicePdfsForDr(result.drNumber);
     } catch (error) {
       console.error("Delivery Receipt saved but linked Service Invoice PDF refresh failed:", error);
     }
@@ -311,6 +325,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Invalid DR number." }, { status: 400 });
     }
 
+    // On PostgreSQL deleteDeliveryReceipt runs as one transaction itself.
     await deleteDeliveryReceipt(drNumber, { userId: session.userId, displayName: session.fullName }, session.userRoleId);
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {

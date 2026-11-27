@@ -10,7 +10,11 @@ const ts = require('typescript');
 const refuseGoogle = (what) => new Proxy({}, {
   get: (_target, name) => {
     if (name === '__esModule' || name === 'then') return undefined;
-    return () => { throw new Error(`Test tried to use Google (${what}.${String(name)}); tests must stay off live Sheets/Drive.`); };
+    return () => {
+      const error = new Error(`Test tried to use Google (${what}.${String(name)}); tests must stay off live Sheets/Drive.`);
+      if (process.env.HARNESS_TRACE_GOOGLE) console.error(error.stack); // shows which module called Google
+      throw error;
+    };
   },
 });
 const GOOGLE_REFUSED = { '@/lib/googleSheets': refuseGoogle('googleSheets'), googleapis: { google: refuseGoogle('googleapis') } };

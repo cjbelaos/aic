@@ -1,4 +1,6 @@
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import { nextWarehouseId, validateWarehouse } from "@/lib/warehouseRules";
 import type { Warehouse, WarehouseInput } from "@/types/warehouse";
 
@@ -45,8 +47,8 @@ async function readRows() {
 }
 
 export async function getWarehouses(): Promise<Warehouse[]> {
-  const current = await readRows();
-  return current.values
+  const values = isPostgresBackend() ? await sheetRowsForRange(RANGE) : (await readRows()).values;
+  return values
     .map(mapRow)
     .filter((row) => row.name)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
