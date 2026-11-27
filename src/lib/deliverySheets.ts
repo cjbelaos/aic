@@ -928,6 +928,12 @@ export async function updateDeliveryReceipt(
     // Replace items if provided (the canonical helper clears the DR's rows first)
     if (payload.items) {
       await replaceDeliveryItems(effectiveDrNumber, payload.items);
+      // A promoted draft's earlier items are still keyed to the placeholder
+      // number. Remove them only after the real DR's items are written, so an
+      // interruption can leave a stale copy but never lose the saved lines.
+      if (effectiveDrNumber !== drNumber) {
+        await replaceDeliveryItems(drNumber, []);
+      }
     }
 
     return {
