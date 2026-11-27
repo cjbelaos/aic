@@ -6,7 +6,7 @@ import {
   AgreementType,
   ContractStatus,
 } from "@/types/contract";
-import { ContractConflictError, duplicateContractIds, nextContractId } from "@/lib/contractIntegrity";
+import { ContractConflictError, contractDeleteBlocker, duplicateContractIds, nextContractId } from "@/lib/contractIntegrity";
 import type { sheets_v4 } from "googleapis";
 import { serviceFrequencyForItems } from "./contractServiceFrequency";
 import { toPmsCycleStart } from "./contractBillingPeriod";
@@ -342,6 +342,15 @@ export async function deleteContractFromSheets(id: string): Promise<void> {
       );
     }
     const contractIdx = contractMatches[0].index;
+
+    // Refuse to remove a contract that invoices or live releases still reference.
+    const invoiceRanges = ["ServiceInvoices", "SalesInvoices"].filter((title) => resolveSheetId(title) !== undefined).map((title) => `${title}!A2:K`);
+    const invoiceRes = invoiceRanges.length
+      ? await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges: invoiceRanges })
+      : null;
+    const invoiceRows = (invoiceRes?.data.valueRanges ?? []).flatMap((range) => range.values ?? []);
+    const blocker = contractDeleteBlocker(id, { invoiceRows, releaseRows });
+    if (blocker) throw new ContractConflictError(blocker);
 
     const requests: sheets_v4.Schema$Request[] = [];
 
