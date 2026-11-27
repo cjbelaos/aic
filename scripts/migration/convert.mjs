@@ -18,6 +18,8 @@ const WALL_CLOCK = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}(?::\d{2})?)$/;
 export function convert(type, f, r) {
   const s = String(f ?? "").trim();
   if (s === "" && (r === undefined || r === null || r === "")) return null;
+  // Older FTI code wrote the literal text "NULL" into blank numeric cells (141 FTIDetails cells).
+  if (type !== "t" && s === "NULL") return null;
   switch (type) {
     case "t":
       return String(f ?? "");
@@ -72,7 +74,7 @@ const key = (v) => (v === null || v === undefined ? null : String(v));
  * numbers only, never cell contents.
  */
 export function buildImport(snapshot) {
-  const report = { tables: {}, conversionFailures: {}, rejected: {}, excluded: {}, orphans: {}, blankRowsSkipped: {}, unmappedColumns: {} };
+  const report = { tables: {}, conversionFailures: {}, rejected: {}, excluded: {}, rekeyed: {}, orphans: {}, blankRowsSkipped: {}, unmappedColumns: {} };
   const tables = new Map();
 
   for (const t of TABLES) {
@@ -130,6 +132,14 @@ export function buildImport(snapshot) {
         if (cs.length === 1 && cs[0] === t.pk && vals[0] === null) { rejected.push({ source_row: row.source_row, reason: `missing ${t.pk}` }); return false; }
         if (vals.some((v) => v === null)) continue; // SQL unique allows nulls
         const k = `${cs.join(",")}=${vals.join("\u0000")}`;
+        if (seen.has(k) && t.rekeyDuplicates && cs.length === 1 && cs[0] === t.pk) {
+          const fresh = `${row[t.pk]}~r${row.source_row}`;
+          (report.rekeyed[t.table] ||= []).push({ source_row: row.source_row, reason: `duplicate ${t.pk} (first at row ${seen.get(k)}) kept as ${fresh}` });
+          (row.import_raw ||= {})[t.pk] = String(row[t.pk]);
+          row[t.pk] = fresh;
+          seen.set(`${t.pk}=${fresh}`, row.source_row);
+          continue;
+        }
         if (seen.has(k)) { rejected.push({ source_row: row.source_row, reason: `duplicate ${cs.join(",")} (first at row ${seen.get(k)})` }); return false; }
         seen.set(k, row.source_row);
       }

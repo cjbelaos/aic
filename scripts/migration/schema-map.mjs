@@ -28,7 +28,9 @@ export const TABLES = [
   // ── master data ────────────────────────────────────────────
   { tab: "Companies", table: "companies", pk: "company_id",
     cols: "CompanyId:t CompanyType:t CompanyName:t TIN:t Address:t Latitude:n Longitude:n Status:t BillingCompanyId:t" },
-  { tab: "CompanyContacts", table: "company_contacts", pk: "contact_id",
+  // Contact IDs were cont_<rowCount+1>, so a delete let the next contact reuse a live ID. Nothing
+  // references contacts by ID, so a later duplicate is kept under "<id>~r<sourceRow>" instead of rejected.
+  { tab: "CompanyContacts", table: "company_contacts", pk: "contact_id", rekeyDuplicates: true,
     cols: "ContactId:t CompanyId:t FullName:t Email:t Phone:t Is_Primary=is_primary:b" },
   { tab: "LocationAddresses", table: "location_addresses", pk: "location_id",
     cols: "LocationId:t LocationName:t Address:t Latitude:n Longitude:n CompanyId:t CreatedBy:cb CreatedAt:ca UpdatedBy:ub UpdatedAt:ua" },

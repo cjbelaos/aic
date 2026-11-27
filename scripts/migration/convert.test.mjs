@@ -18,6 +18,8 @@ test("integers and exact numerics", () => {
   assert.equal(convert("n", "0.1", 0.1), "0.1");
   assert.equal(convert("n", "1,234.50", "1,234.50"), "1234.50");
   assert.equal(convert("n", "N/A", "N/A"), FAIL);
+  assert.equal(convert("n", "NULL", "NULL"), null);
+  assert.equal(convert("t", "NULL", "NULL"), "NULL");
 });
 
 test("booleans and json", () => {
@@ -80,4 +82,16 @@ test("buildImport excludes stale draft-placeholder DR items but keeps live draft
   assert.deepEqual(report.excluded.delivery_receipt_items.map((x) => x.source_row), [3]);
   assert.equal(report.orphans["delivery_receipt_items.dr_number"], undefined);
   assert.equal(report.tables.delivery_receipt_items.loaded, 2);
+});
+
+test("buildImport keeps a reused contact ID under a traceable new key", async () => {
+  const { TABLES } = await import("./schema-map.mjs");
+  const tabs = Object.fromEntries(TABLES.map((t) => [t.tab, { formatted: [[]], raw: [[]] }]));
+  const contacts = [["ContactId", "FullName"], ["cont_25", "A"], ["cont_25", "B"]];
+  tabs.CompanyContacts = { formatted: contacts, raw: contacts };
+  const { tables, report } = buildImport({ tabs });
+  assert.deepEqual(tables.get("company_contacts").rows.map((r) => r.contact_id), ["cont_25", "cont_25~r3"]);
+  assert.deepEqual(tables.get("company_contacts").rows[1].import_raw, { contact_id: "cont_25" });
+  assert.equal(report.rejected.company_contacts, undefined);
+  assert.equal(report.rekeyed.company_contacts[0].source_row, 3);
 });
