@@ -38,6 +38,17 @@ assert.ok(Math.abs(copied[0].unitPrice - 112) < 0.001);
 assert.equal(copied[0].salesOrderItemId, "SO-L1");
 assert.equal(presentation.invoiceItemsFromDelivery([{ description: "Unknown", quantity: 3 }], [source])[0].unitPrice, 0);
 assert.equal(presentation.invoiceItemsFromDelivery([{ description: "Valve", quantity: 3, productId: "P1" }], [source, source])[0].unitPrice, 0, "Ambiguous matches require manual pricing");
+// Corrected copies: detect when the copied lines no longer match the updated SO / DR.
+const copiedLines = [{ description: "FULLY AUTOMATED REPROCESSING AIR PUMP", quantity: 1, unitPrice: 25000 }, { description: "DELIVERY CHARGE", quantity: 1, unitPrice: 1500 }];
+assert.equal(presentation.invoiceItemsDiffer(copiedLines, [copiedLines[0]]), true, "A removed SO line is a change");
+assert.equal(presentation.invoiceItemsDiffer(copiedLines, [copiedLines[1], { ...copiedLines[0], description: " fully automated reprocessing air pump " }]), false, "Order, case and spacing are not changes");
+assert.equal(presentation.invoiceItemsDiffer([copiedLines[0]], [{ ...copiedLines[0], unitPrice: 24000 }]), true, "A price change is a change");
+assert.equal(presentation.invoiceItemsDiffer([copiedLines[0]], [{ ...copiedLines[0], quantity: 2 }]), true, "A quantity change is a change");
+assert.equal(presentation.invoiceItemsDiffer([{ ...copiedLines[0], unitPrice: 112.000001 }], [{ ...copiedLines[0], unitPrice: 112 }]), false, "VAT rounding below a centavo is not a change");
+const soLines = presentation.salesOrderInvoiceItems([source, { ...source, salesOrderItemId: "SO-L2", lineStatus: "CANCELLED" }, { ...source, salesOrderItemId: "SO-L3", quotationLineReference: "Q1:SHIPPING" }, { ...source, salesOrderItemId: "SO-L4", quantity: 5, cancelledQty: 5 }].map(line => ({ cancelledQty: 0, quotationLineReference: "Q1:1", ...line })));
+assert.deepEqual(soLines.map(line => line.salesOrderItemId), ["SO-L1"], "SO refresh keeps active, priced, uncancelled, non-shipping lines");
+assert.ok(Math.abs(soLines[0].unitPrice - 112) < 0.001);
+console.log("PASS corrected-copy change detection and SO line mapping");
 fs.mkdirSync("tmp/invoice-print-check", { recursive: true });
 fs.writeFileSync("tmp/invoice-print-check/si-1773.html", `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:white">${html}</body></html>`);
 console.log("PASS package persistence, totals, printed numeric blanks, branch notation, legacy isolation, DR quantity and SO price mapping");
