@@ -67,3 +67,17 @@ test("buildImport rejects duplicate keys and nulls orphans without leaking secre
   assert.deepEqual(u2.import_raw, { UserRoleId: "9" });
   assert.ok(!JSON.stringify(report).includes("h1"));
 });
+
+test("buildImport excludes stale draft-placeholder DR items but keeps live drafts' items", async () => {
+  const { TABLES } = await import("./schema-map.mjs");
+  const tabs = Object.fromEntries(TABLES.map((t) => [t.tab, { formatted: [[]], raw: [[]] }]));
+  const drs = [["DRNumber", "Status"], ["4090", "printed"], ["-1795000000", "draft"]];
+  tabs.DeliveryReceipts = { formatted: drs, raw: drs };
+  const items = [["DeliveryReceiptId", "ItemNo"], ["4090", "1"], ["-1795356477", "1"], ["-1795000000", "1"]];
+  tabs.DeliveryReceiptItems = { formatted: items, raw: items };
+  const { tables, report } = buildImport({ tabs });
+  assert.deepEqual(tables.get("delivery_receipt_items").rows.map((r) => r.dr_number), [4090, -1795000000]);
+  assert.deepEqual(report.excluded.delivery_receipt_items.map((x) => x.source_row), [3]);
+  assert.equal(report.orphans["delivery_receipt_items.dr_number"], undefined);
+  assert.equal(report.tables.delivery_receipt_items.loaded, 2);
+});

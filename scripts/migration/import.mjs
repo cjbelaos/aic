@@ -31,7 +31,7 @@ const order = loadOrder();
 const counts = Object.fromEntries(order.map((t) => [t, tables.get(t).rows.length]));
 const total = Object.values(counts).reduce((a, b) => a + b, 0);
 const n = (o) => Object.values(o).reduce((a, v) => a + (Array.isArray(v) ? v.length : v), 0);
-const summary = `${order.length} tables, ${total} rows; rejected ${n(report.rejected)}, orphaned refs ${n(report.orphans)}, unconverted cells ${n(report.conversionFailures)}, unmapped cells ${n(report.unmappedColumns)}`;
+const summary = `${order.length} tables, ${total} rows; rejected ${n(report.rejected)}, excluded ${n(report.excluded)}, orphaned refs ${n(report.orphans)}, unconverted cells ${n(report.conversionFailures)}, unmapped cells ${n(report.unmappedColumns)}`;
 const batchId = `import-${manifest.capturedAt.replace(/[:.]/g, "-")}-${Date.now()}`;
 const reportPath = `${dir}/import-report.json`;
 writeFileSync(reportPath, JSON.stringify({ batchId, sha256, capturedAt: manifest.capturedAt, dryRun: !!flag("dry-run"), counts, ...report }, null, 2));

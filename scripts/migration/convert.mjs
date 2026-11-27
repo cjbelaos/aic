@@ -72,7 +72,7 @@ const key = (v) => (v === null || v === undefined ? null : String(v));
  * numbers only, never cell contents.
  */
 export function buildImport(snapshot) {
-  const report = { tables: {}, conversionFailures: {}, rejected: {}, orphans: {}, blankRowsSkipped: {}, unmappedColumns: {} };
+  const report = { tables: {}, conversionFailures: {}, rejected: {}, excluded: {}, orphans: {}, blankRowsSkipped: {}, unmappedColumns: {} };
   const tables = new Map();
 
   for (const t of TABLES) {
@@ -139,6 +139,22 @@ export function buildImport(snapshot) {
     const columns = [...(t.pk ? [] : ["line_no"]), ...cols.map((c) => c.column), "source_row", "import_raw"];
     tables.set(t.table, { spec: t, columns, rows: kept, header, cols });
     report.tables[t.table] = { source: formatted.length - 1 - blank, loaded: kept.length };
+  }
+
+  // Stale draft copies: promoting a draft DR with edited items used to rewrite them under the real
+  // number and leave the old rows keyed to the negative placeholder (fixed in deliverySheets.ts).
+  // Items under a placeholder that no DR row carries are those copies, so they are not imported.
+  const drNumbers = new Set(tables.get("delivery_receipts").rows.map((r) => r.dr_number));
+  const drItems = tables.get("delivery_receipt_items");
+  const stale = [];
+  drItems.rows = drItems.rows.filter((row) => {
+    if (!(row.dr_number < 0) || drNumbers.has(row.dr_number)) return true;
+    stale.push({ source_row: row.source_row, reason: `stale copy under draft placeholder ${row.dr_number}` });
+    return false;
+  });
+  if (stale.length) {
+    report.excluded.delivery_receipt_items = stale;
+    report.tables.delivery_receipt_items.loaded = drItems.rows.length;
   }
 
   // Orphaned references: null the typed column, keep the original under its source header.

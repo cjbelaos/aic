@@ -99,7 +99,11 @@ Note: Supabase `postgres` is not a member of `aic_app`. The verifier grants memb
 
 **Next:**
 1. Reconciliation: keys, invoice and liquidation totals by document, and next document numbers (sales-order and service-report sequences, max DR, invoice and quotation numbers).
-2. Explain the dry-run discrepancies, starting with the 107 `delivery_receipt_items.dr_number` orphans (deleted DRs? draft placeholders renumbered?). Then the 26 product orphans and the duplicate contact.
+2. Explain the remaining discrepancies: 24 `delivery_receipt_items.product_id` orphans, 11 `supplier_products.product_id`, the duplicate `company_contacts.contact_id`, and the smaller FK orphans in `import-report.json`.
+
+**Resolved: the 107 DR-item orphans.** These were stale copies. Promoting a draft DR *with* an items payload rewrote the items under the real number and left the old rows keyed to the negative placeholder. 12 of 13 drafts match an issued DR (3708, 3741, 3772, 3773, 3916, 3917, 3930, 3931, 3933, 3967, 4019, 4090) by `created_at` within seconds and `draft→…` history. 3 of those were edited at issue (16→17, 20→17, 31→32 lines). One draft (−1795437044, 23 Nov, `DeliveryReceiptItems` row 1450) has no issued DR, and Chris is checking it in the sheet. The importer now excludes items under a negative DR number with no DR row (`report.excluded`). Staging was reloaded: 14,430 rows, verifier passes. The app bug is fixed on branch `fix/draft-promotion-items` (`1a0e80e`, regression test `scripts/test-delivery-draft-promotion.cjs`), which is awaiting Chris's go-ahead to merge to `main`.
+
+DR 3708's status-history row has a Drive URL in `old_status`, from an older column-shift write. It is a cosmetic data quirk.
 3. Provision the Vercel staging project (plan §2) and create the app login role.
 
 **Security finding:** `AUTH_SESSION_SECRET` falls back to a hard-coded dev secret, and it is not set locally. Check production.
