@@ -1213,6 +1213,35 @@ export async function findDeliveryReceiptForScan(drNumber: number): Promise<{ ro
   return { rowNumber: index + 2, date: String(row[1] ?? "").trim(), companyId: String(row[2] ?? "").trim(), status: String(row[10] ?? "created").trim() || "created" };
 }
 
+const DR_SCAN_HEADERS = ["ScannedFileLink", "ScannedAt", "ScannedBy"];
+const DR_SCAN_COLUMN_COUNT = 30; // through AD
+/** Set once the columns are confirmed, so a batch checks the sheet only once per server instance. */
+let drScanColumnsReady = false;
+
+/**
+ * Makes sure DeliveryReceipts is wide enough for the scanned copy columns AB:AD
+ * and that they carry their headers. Runs before a scan is uploaded so a sheet
+ * problem can't leave an orphaned Drive file. Idempotent.
+ */
+export async function ensureDeliveryReceiptScanColumns(): Promise<void> {
+  if (drScanColumnsReady) return;
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId, ranges: [DELIVERY_RECEIPTS_SHEET], fields: "sheets.properties(sheetId,title,gridProperties.columnCount)" });
+  const tab = metadata.data.sheets?.find((entry) => entry.properties?.title === DELIVERY_RECEIPTS_SHEET)?.properties;
+  if (tab?.sheetId == null) throw new Error("DeliveryReceipts tab was not found.");
+  if ((tab.gridProperties?.columnCount ?? 0) < DR_SCAN_COLUMN_COUNT) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ updateSheetProperties: { properties: { sheetId: tab.sheetId, gridProperties: { columnCount: DR_SCAN_COLUMN_COUNT } }, fields: "gridProperties.columnCount" } }] } });
+  }
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!AB1:AD1` });
+  const headers = (response.data.values?.[0] || []).map((value) => String(value ?? "").trim());
+  if (!DR_SCAN_HEADERS.every((header, i) => headers[i] === header)) {
+    if (headers.some(Boolean)) throw new Error("DeliveryReceipts columns AB:AD are already in use; scanned copies cannot be saved.");
+    await sheets.spreadsheets.values.update({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!AB1:AD1`, valueInputOption: "RAW", requestBody: { values: [DR_SCAN_HEADERS] } });
+  }
+  drScanColumnsReady = true;
+}
+
 /** Stores the scanned copy link and who scanned it (columns AB:AD). */
 export async function recordDeliveryReceiptScan(rowNumber: number, fileLink: string, userId: string): Promise<void> {
   const sheets = await getSheetsClient();
