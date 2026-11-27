@@ -7,6 +7,8 @@ const SHEETS_MODE_STUBS = {
   '@/lib/db/sheetRows': { col: sql, iso: sql, bool: sql, ref: sql, sheetRows: refuse, sheetRowsByHeaders: refuse, sheetRowsForRange: refuse },
   '@/lib/db/sequences': { nextDrNumber: refuse },
   '@/lib/db/outbox': { enqueueSideEffect: refuse, runPendingSideEffects: refuse },
+  // inventory/lock.ts reads the session only on the PostgreSQL path.
+  '@/lib/auth/session': { getSession: async () => null },
   '@/lib/db/idempotency': { withIdempotency: (_id, _scope, _payload, work) => work(), IdempotencyConflictError: class extends Error {} },
 };
 module.exports = { SHEETS_MODE_STUBS };

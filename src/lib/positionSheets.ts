@@ -1,4 +1,6 @@
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import type {
   Position,
   CreatePositionInput,
@@ -22,13 +24,10 @@ function rowToPosition(row: string[]): Position | null {
 }
 
 export async function getPositions(): Promise<Position[]> {
-  const spreadsheetId = await getSpreadsheetId();
-  const sheets = await getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: RANGE,
-  });
-  return (res.data.values || [])
+  const rows = isPostgresBackend()
+    ? await sheetRowsForRange(RANGE)
+    : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getSpreadsheetId(), range: RANGE })).data.values;
+  return (rows || [])
     .map(rowToPosition)
     .filter((p): p is Position => p !== null && p.positionId > 0);
 }

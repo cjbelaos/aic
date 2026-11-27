@@ -5,7 +5,7 @@ const ts = require('typescript');
 function load(file, mocks = {}) {
   const mod = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  new Function('require', 'module', 'exports', code)(id => id in mocks ? mocks[id] : require(id), mod, mod.exports);
+  new Function('require', 'module', 'exports', code)(id => id in mocks ? mocks[id] : (require('./lib/sheets-mode-stubs.cjs').SHEETS_MODE_STUBS[id] ?? require(id)), mod, mod.exports);
   return mod.exports;
 }
 module.exports = { load };

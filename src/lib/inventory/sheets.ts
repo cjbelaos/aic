@@ -1,4 +1,6 @@
 import { lineSources } from "@/lib/deliverySources";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { isMissingSheetError, nextStableId, parseSheetNumber } from "@/lib/sheets.utils";
 import { replaceChildRowsInPlace } from "@/lib/sheetChildRows";
@@ -56,6 +58,7 @@ async function client() {
 }
 
 async function readRows(range: string): Promise<unknown[][]> {
+  if (isPostgresBackend()) return sheetRowsForRange(range);
   const { sheets, spreadsheetId } = await client();
   try {
     const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });

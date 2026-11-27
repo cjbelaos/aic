@@ -1,4 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { currentActor, inTransaction, isPostgresBackend, txQuery } from "@/lib/db/postgres";
+import { getSession } from "@/lib/auth/session";
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 
 // Cross-instance write lock for every stock-reducing write (DR saves, transfers,
@@ -86,6 +88,15 @@ async function takeOverIfStale(sheets: Sheets, spreadsheetId: string): Promise<b
 }
 
 export async function withInventoryLock<T>(work: () => Promise<T>): Promise<T> {
+  if (isPostgresBackend()) {
+    // A transaction-scoped lock: held until the save commits or rolls back, so the next
+    // stock-affecting save waits and then reads the committed result.
+    const actor = currentActor() ?? (await getSession())?.userId ?? "system:inventory";
+    return inTransaction(actor, async () => {
+      await txQuery("select pg_advisory_xact_lock(hashtext('aic:inventory'))");
+      return work();
+    });
+  }
   const current = owner.getStore();
   if (current) {
     try { return await work(); }
