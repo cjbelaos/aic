@@ -43,7 +43,8 @@
     "inspect:sales-orders-destination": "node scripts/inspect-sales-order-destination.mjs",
     "test:company-contacts": "node scripts/test-company-contact-ids.cjs",
     "test:restricted-access": "node scripts/test-restricted-access.cjs",
-    "test:users-postgres": "node --env-file=.env.local scripts/test-users-postgres.cjs"
+    "test:users-postgres": "node --env-file=.env.local scripts/test-users-postgres.cjs",
+    "test:lookup-parity": "node --env-file=.env.local scripts/test-lookup-parity.cjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.11",

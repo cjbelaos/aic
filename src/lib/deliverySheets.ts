@@ -5,6 +5,8 @@ import {
   getDriveUploadClient,
 } from "@/lib/googleSheets";
 import { Readable } from "stream";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { bool, col, sheetRows } from "@/lib/db/sheetRows";
 import { getCompanies } from "@/lib/companySheets";
 import { validateForCompany } from "@/lib/deliveryPrintForm";
 import {
@@ -177,17 +179,17 @@ async function fetchExportPdfBase64(printUrl: string): Promise<string> {
 /** Combines application users with active external delivery options. */
 export async function getDriversFromSheets(): Promise<DeliveryPersonOption[]> {
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: DELIVERED_BY_NAMES_RANGE,
-    });
+    const optionRows = isPostgresBackend()
+      ? await sheetRows("aic.delivered_by_names", [col("delivery_option_id"), col("display_name"), col("type"), bool("active"), col("notes")])
+      : (await (await getSheetsClient()).spreadsheets.values.get({
+          spreadsheetId: await getDatabaseSpreadsheetId(),
+          range: DELIVERED_BY_NAMES_RANGE,
+        })).data.values;
     const users = await getUsers();
     const internal: DeliveryPersonOption[] = users
       .filter((user) => user.userId && user.fullName)
       .map((user) => ({ value: `user:${user.userId}`, label: user.fullName, type: "internal", userId: user.userId }));
-    const sheetOptions: DeliveryPersonOption[] = (response.data.values ?? []).flatMap((row, index) => {
+    const sheetOptions: DeliveryPersonOption[] = (optionRows ?? []).flatMap((row, index) => {
       // Backward compatibility: a one-column row is treated as an active external option.
       const legacy = !String(row[1] ?? "").trim();
       const deliveryOptionId = legacy ? `EXT-${String(index + 1).padStart(4, "0")}` : String(row[0] ?? "").trim();

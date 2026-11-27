@@ -1,4 +1,6 @@
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { bool, col, sheetRows } from "@/lib/db/sheetRows";
 import { isMissingSheetError, nextStableId, rowNumberFromStableId } from "@/lib/sheets.utils";
 import type { ProductCategoryRecord, ProductUnitRecord } from "@/types/product-reference";
 
@@ -6,11 +8,11 @@ export const PRODUCT_CATEGORIES_SHEET = "ProductCategories";
 export const PRODUCT_UNITS_SHEET = "ProductUnits";
 
 export async function getProductCategories(): Promise<ProductCategoryRecord[]> {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${PRODUCT_CATEGORIES_SHEET}!A2:F` });
-    return (response.data.values ?? []).flatMap((row): ProductCategoryRecord[] => {
+    const rows = isPostgresBackend()
+      ? await sheetRows("aic.product_categories", [col("product_category_id"), col("category_code"), col("category_name"), col("status"), bool("requires_serial"), bool("track_inventory")])
+      : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: `${PRODUCT_CATEGORIES_SHEET}!A2:F` })).data.values;
+    return (rows ?? []).flatMap((row): ProductCategoryRecord[] => {
       const productCategoryId = String(row[0] ?? "").trim();
       if (!productCategoryId) return [];
       return [{ productCategoryId, categoryCode: String(row[1] ?? "").trim(), categoryName: String(row[2] ?? "").trim(), status: String(row[3] ?? "active").toLowerCase() === "inactive" ? "inactive" : "active", requiresSerial: String(row[4] ?? "").trim().toUpperCase() === "TRUE", trackInventory: String(row[5] ?? "").trim().toUpperCase() === "TRUE" }];
@@ -19,11 +21,11 @@ export async function getProductCategories(): Promise<ProductCategoryRecord[]> {
 }
 
 export async function getProductUnits(): Promise<ProductUnitRecord[]> {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${PRODUCT_UNITS_SHEET}!A2:D` });
-    return (response.data.values ?? []).flatMap((row): ProductUnitRecord[] => {
+    const rows = isPostgresBackend()
+      ? await sheetRows("aic.product_units", [col("unit_id"), col("unit_code"), col("unit_name"), col("status")])
+      : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: `${PRODUCT_UNITS_SHEET}!A2:D` })).data.values;
+    return (rows ?? []).flatMap((row): ProductUnitRecord[] => {
       const unitId = String(row[0] ?? "").trim();
       if (!unitId) return [];
       return [{ unitId, unitCode: String(row[1] ?? "").trim(), unitName: String(row[2] ?? "").trim(), status: String(row[3] ?? "active").toLowerCase() === "inactive" ? "inactive" : "active" }];

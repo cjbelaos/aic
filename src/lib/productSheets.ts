@@ -1,6 +1,8 @@
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { generateProductCode } from "@/lib/productCodeGenerator";
 import { getProductCategories, getProductUnits } from "@/lib/productReferenceSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { col, iso, ref, sheetRows } from "@/lib/db/sheetRows";
 import { isMissingSheetError, nextStableId, parseSheetNumber, rowNumberFromStableId } from "@/lib/sheets.utils";
 import type { CreateProductRecordPayload, ProductRecord, UpdateProductRecordPayload } from "@/types/product-record";
 
@@ -44,6 +46,10 @@ function productToRow(product: ProductRecord): Array<string | number> {
  * Canonical product read (rows in the `Products` tab).
  */
 export async function getProductsOnly(): Promise<ProductRecord[]> {
+  if (isPostgresBackend()) {
+    const rows = await sheetRows("aic.products", [col("product_id"), col("product_code"), col("product_name"), ref("product_category_id", "ProductCategoryId"), ref("unit_id", "UnitId"), col("default_selling_price"), col("status"), iso("created_at"), col("created_by"), iso("updated_at"), col("updated_by")]);
+    return rows.map(rowToProduct).filter((product) => product.productId && product.productCode);
+  }
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   try {

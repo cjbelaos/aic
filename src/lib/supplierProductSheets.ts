@@ -1,6 +1,8 @@
 import { getCompanies } from "@/lib/companySheets";
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
 import { getProductsOnly } from "@/lib/productSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { bool, col, iso, ref, sheetRows } from "@/lib/db/sheetRows";
 import {
   isMissingSheetError,
   nextStableId,
@@ -36,11 +38,11 @@ function toRow(p: SupplierProduct): Array<string | number | boolean> {
 }
 
 export async function getSupplierProducts(filters?: { productId?: string; supplierId?: string; status?: string }): Promise<SupplierProduct[]> {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE });
-    return (response.data.values ?? []).map(fromRow).filter((p) => p.supplierProductId)
+    const rows = isPostgresBackend()
+      ? await sheetRows("aic.supplier_products", [col("supplier_product_id"), ref("product_id", "ProductId"), ref("supplier_id", "SupplierId"), col("supplier_product_code"), col("supplier_product_name"), col("supplier_description"), col("cost_per_unit"), bool("is_preferred_supplier"), col("status"), iso("created_at"), col("created_by"), iso("updated_at"), col("updated_by")])
+      : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: RANGE })).data.values;
+    return (rows ?? []).map(fromRow).filter((p) => p.supplierProductId)
       .filter((p) => !filters?.productId || p.productId === filters.productId)
       .filter((p) => !filters?.supplierId || p.supplierId === filters.supplierId)
       .filter((p) => !filters?.status || p.status === filters.status);

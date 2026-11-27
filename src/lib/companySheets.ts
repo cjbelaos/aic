@@ -1,4 +1,6 @@
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { col, ref, sheetRows } from "@/lib/db/sheetRows";
 import {
   Company,
   CompanyType,
@@ -48,17 +50,17 @@ function generateCompanyId(rows: unknown[][]): string {
   return `COMP-${max + 1}`;
 }
 
+// Companies!A:I in PostgreSQL (aic.companies), for DATA_BACKEND=postgres.
+const COMPANY_COLUMNS = [...["company_id", "company_type", "company_name", "tin", "address", "latitude", "longitude", "status"].map(col), ref("billing_company_id", "BillingCompanyId")];
+
 export async function getCompanies(): Promise<Company[]> {
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: COMPANIES_RANGE,
-    });
-
-    const rows = response.data.values;
+    const rows = isPostgresBackend()
+      ? await sheetRows("aic.companies", COMPANY_COLUMNS)
+      : (await (await getSheetsClient()).spreadsheets.values.get({
+          spreadsheetId: await getDatabaseSpreadsheetId(),
+          range: COMPANIES_RANGE,
+        })).data.values;
 
     if (!rows || rows.length === 0) {
       return [];
