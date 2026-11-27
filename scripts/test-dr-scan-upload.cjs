@@ -12,7 +12,7 @@ function load(file, mocks = {}) {
 
 const session = { userId: 'chris', fullName: 'Chris John Belaos' };
 
-function route(receipt, calls, { completeFails = false } = {}) {
+function route(receipt, calls, { completeFails = false, columnsFail = false } = {}) {
   return load('src/app/api/deliveries/upload-scanned/route.ts', {
     '@/lib/auth/session': { requireAuthenticatedSession: async () => session },
     '@/lib/googleSheets': {
@@ -28,6 +28,10 @@ function route(receipt, calls, { completeFails = false } = {}) {
     },
     '@/lib/deliverySheets': {
       findDeliveryReceiptForScan: async (no) => (no === receipt?.drNumber ? receipt : null),
+      ensureDeliveryReceiptScanColumns: async () => {
+        if (columnsFail) throw new Error('DeliveryReceipts columns AB:AD are already in use');
+        calls.columnsCheckedBeforeUpload = calls.uploadParents === undefined;
+      },
       recordDeliveryReceiptScan: async (row, link, actor) => { calls.recorded = { row, link, actor }; },
       completeDeliveryReceiptFromScan: async (no, row, status, actor) => {
         if (completeFails) throw new Error('Sheets offline');
@@ -56,6 +60,7 @@ async function main() {
   assert.equal(body.fileLink, 'https://drive.google.com/file/d/scan1/view');
   assert.deepEqual(calls.folder, { name: '2026', parent: '1sya8h4vz1kuvCtuhcvO7PCoB0jZ0vxlB' });
   assert.deepEqual(calls.uploadParents, ['year-2026']);
+  assert.equal(calls.columnsCheckedBeforeUpload, true);
   assert.deepEqual(calls.recorded, { row: 12, link: body.fileLink, actor: 'chris' });
   assert.deepEqual(calls.completed, { no: 4030, row: 12, status: 'printed', actor: 'chris' });
   assert.equal(calls.tracker.documentType, 'delivery_receipt');
@@ -70,6 +75,11 @@ async function main() {
   assert.match(warned.statusWarning, /not marked completed: Sheets offline/);
   assert.ok(failing.recorded);
 
+  // A sheet that can't hold the link fails before anything reaches Drive.
+  const blocked = {};
+  assert.equal((await route(receipt, blocked, { columnsFail: true }).POST(request('4030'))).status, 500);
+  assert.equal(blocked.uploadParents, undefined);
+
   // Unknown DRs and bad numbers are rejected before anything is uploaded.
   const none = {};
   assert.equal((await route(receipt, none).POST(request('9999'))).status, 404);
@@ -77,6 +87,7 @@ async function main() {
   assert.equal(none.uploadParents, undefined);
 
   await trackerTests();
+  await scanColumnTests();
   console.log('dr scan upload: ok');
 }
 
@@ -135,6 +146,42 @@ async function trackerTests() {
   assert.equal(await limited.returnDocumentFromScan(input), 'not_permitted');
   assert.match(await limited.trackerWarningAfterScan(input), /not updated/);
   assert.deepEqual(writes, {});
+}
+
+/** The live tab stopped at AA (27 columns): writing AB:AD failed with "exceeds grid limits". */
+async function scanColumnTests() {
+  function sheetsWith(columnCount, headers) {
+    const log = [];
+    const sheets = { spreadsheets: {
+      get: async () => ({ data: { sheets: [{ properties: { sheetId: 7, title: 'DeliveryReceipts', gridProperties: { columnCount } } }] } }),
+      batchUpdate: async (req) => { log.push(['grow', req.requestBody.requests[0].updateSheetProperties.properties.gridProperties.columnCount]); },
+      values: {
+        get: async () => ({ data: { values: headers ? [headers] : [] } }),
+        update: async (req) => { log.push(['headers', req.range, req.requestBody.values[0]]); },
+      },
+    } };
+    const mod = load('src/lib/deliverySheets.ts', {
+      '@/lib/googleSheets': { getSheetsClient: async () => sheets, getDatabaseSpreadsheetId: async () => 'fixture' },
+      '@/lib/documentScanReturn': load('src/lib/documentScanReturn.ts'),
+    });
+    return { mod, log };
+  }
+
+  // 27 columns, no headers: grown to 30 and headed, once per instance.
+  const narrow = sheetsWith(27, null);
+  await narrow.mod.ensureDeliveryReceiptScanColumns();
+  await narrow.mod.ensureDeliveryReceiptScanColumns();
+  assert.deepEqual(narrow.log, [['grow', 30], ['headers', 'DeliveryReceipts!AB1:AD1', ['ScannedFileLink', 'ScannedAt', 'ScannedBy']]]);
+
+  // Already provisioned: nothing written.
+  const ready = sheetsWith(30, ['ScannedFileLink', 'ScannedAt', 'ScannedBy']);
+  await ready.mod.ensureDeliveryReceiptScanColumns();
+  assert.deepEqual(ready.log, []);
+
+  // Columns taken by something else: refuse instead of overwriting.
+  const taken = sheetsWith(30, ['Other']);
+  await assert.rejects(() => taken.mod.ensureDeliveryReceiptScanColumns(), /already in use/);
+  assert.deepEqual(taken.log, []);
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

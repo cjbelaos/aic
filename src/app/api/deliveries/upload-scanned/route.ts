@@ -6,6 +6,7 @@ import { getCompanies } from "@/lib/companySheets";
 import { trackerWarningAfterScan } from "@/lib/documentHandoverSheets";
 import {
   completeDeliveryReceiptFromScan,
+  ensureDeliveryReceiptScanColumns,
   findDeliveryReceiptForScan,
   recordDeliveryReceiptScan,
 } from "@/lib/deliverySheets";
@@ -54,6 +55,9 @@ export async function POST(req: NextRequest) {
     if (!receipt) {
       return NextResponse.json({ error: `DR ${drNumber} not found.` }, { status: 404 });
     }
+
+    // Before anything is uploaded: a sheet that can't hold the link must not leave a Drive file behind.
+    await ensureDeliveryReceiptScanColumns();
 
     const year = /^\d{4}/.exec(receipt.date)?.[0] ?? String(new Date().getFullYear());
     const drive = await getDriveUploadClient();
