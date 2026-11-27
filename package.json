@@ -40,7 +40,8 @@
     "verify:service-report-schema": "node --env-file=.env.local scripts/verify-service-report-schema.mjs",
     "backfill:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs",
     "apply:service-report-types": "node --env-file=.env.local scripts/backfill-service-report-types.mjs --apply",
-    "inspect:sales-orders-destination": "node scripts/inspect-sales-order-destination.mjs"
+    "inspect:sales-orders-destination": "node scripts/inspect-sales-order-destination.mjs",
+    "test:company-contacts": "node scripts/test-company-contact-ids.cjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.11",
