@@ -182,7 +182,7 @@ export const TABLES = [
   { tab: "Attendance", table: "attendance", pk: "attendance_id",
     cols: "attendanceId=attendance_id:t userId=user_id:t timestamp=recorded_at:tm type=attendance_type:t location:t" },
   { tab: "FieldWorkLogs", table: "field_work_logs", pk: "work_log_id",
-    cols: "workLogId=work_log_id:t userId=user_id:t date=work_date:d customer:t workDescription=work_description:t timeStart=time_start:n timeEnd=time_end:n customerRep=customer_rep:t customerSignature=customer_signature:t location:t createdAt:ca_tm" },
+    cols: "workLogId=work_log_id:t userId=user_id:t date=work_date:d customer:t workDescription=work_description:t timeStart=time_start:t timeEnd=time_end:t customerRep=customer_rep:t customerSignature=customer_signature:t location:t createdAt:ca_tm" },
   { tab: "MOA", table: "moa_legacy", pk: null,
     cols: "Customer Name=customer_name:t Date of Agreement=date_of_agreement:d Binding Date=binding_date:d Expiring Date=expiring_date:d Status:t Frequency:t Basis:t Notes:t" },
 ];

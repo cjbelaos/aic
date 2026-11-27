@@ -94,7 +94,7 @@ export function buildImport(snapshot) {
 
     if (t.special === "grid") {
       formatted.forEach((cells, i) => rows.push({ row_no: i + 1, cells: cells.map((c) => String(c ?? "")), source_row: i + 1, import_raw: null }));
-      tables.set(t.table, { spec: t, columns: ["row_no", "cells"], rows });
+      tables.set(t.table, { spec: t, columns: ["row_no", "cells", "source_row", "import_raw"], rows });
       report.tables[t.table] = { source: formatted.length, loaded: rows.length };
       continue;
     }

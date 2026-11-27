@@ -12,7 +12,11 @@ const got = await q(Object.keys(expected).map((t) => `select '${t}' t, count(*):
 const bad = got.filter((g) => g.n !== expected[g.t]);
 console.log(`counts: ${got.length} tables, ${got.reduce((a, g) => a + g.n, 0)} rows, mismatches: ${bad.length ? JSON.stringify(bad) : "none"}`);
 console.log("batches:", (await q("select count(*)::int n, count(promoted_at)::int promoted from aic.import_batches"))[0]);
+console.log("import stamp absent (no row says system:import):", (await q("select (select count(*) from aic.products where created_by = 'system:import')::int + (select count(*) from aic.users where created_by = 'system:import')::int n"))[0].n === 0);
 console.log("audit kept (products created_at non-null / null created_by on users):", (await q("select (select count(created_at) from aic.products)::int p_ca, (select count(*) filter (where created_by is null) from aic.users)::int u_cb_null"))[0]);
+const lineage = await q(Object.keys(expected).map((t) => `select '${t}' t, count(*)::int n, count(source_row)::int with_row from aic.${t}`).join(" union all "));
+const lost = lineage.filter((r) => r.with_row !== r.n);
+console.log(`source rows kept: ${lost.length ? "LOST in " + lost.map((r) => `${r.t} ${r.with_row}/${r.n}`).join(", ") : "every imported row"}`);
 console.log("surrogate ids restart at 1:", (await q("select min(id)::int mn, max(id)::int mx, count(*)::int n from aic.delivery_receipt_items"))[0]);
 for (const [label, sql] of [
   ["write without actor", "begin; update aic.departments set department_name = department_name where department_id = (select min(department_id) from aic.departments); rollback;"],

@@ -45,7 +45,11 @@ function load(file) {
 
 // Sheets kept seconds-only ISO stamps on some rows; PostgreSQL always prints milliseconds.
 // Coordinates: the Sheets API returned display-rounded values; PostgreSQL keeps the full stored value.
+// JSON stored as text: PostgreSQL jsonb reorders keys and adds spaces; compare the parsed content.
+const canonical = (v) => (Array.isArray(v) ? v.map(canonical) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])])) : v);
+const jsonText = (s) => { if (!/^[[{]/.test(s)) return undefined; try { return JSON.stringify(canonical(JSON.parse(s))); } catch { return undefined; } };
 const normalize = (value) => JSON.parse(JSON.stringify(value, (k, v) => {
+  if (typeof v === 'string' && jsonText(v) !== undefined) return jsonText(v);
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(v)) return v.replace('Z', '.000Z');
   if ((k === 'latitude' || k === 'longitude') && typeof v === 'number') return Math.round(v * 1e6) / 1e6;
   return v;
@@ -81,6 +85,13 @@ async function main() {
     await compare('users', () => load('src/lib/userSheets.ts').getUsers(), { key: 'userId' });
     await compare('delivered-by options', () => load('src/lib/deliverySheets.ts').getDriversFromSheets(), {});
     await compare('delivery receipts (with items)', () => load('src/lib/deliverySheets.ts').getDeliveryReceipts(), { key: 'drNumber' });
+    const so = () => load('src/lib/salesOrders/repository.ts');
+    await compare('sales order list snapshot (orders)', async () => (await so().readSalesOrderListSnapshot()).orders, { key: 'salesOrderId' });
+    await compare('sales order list snapshot (items)', async () => (await so().readSalesOrderListSnapshot()).items, { key: 'salesOrderItemId' });
+    await compare('sales orders', () => so().readSalesOrders(), { key: 'salesOrderId' });
+    const [{ salesOrderId: sampleOrder }] = await so().readSalesOrders();
+    await compare('sales order detail (history)', async () => (await so().readSalesOrderDetailSnapshot(sampleOrder)).history, { key: 'eventId' });
+    await compare('sales order detail (documents)', async () => (await so().readSalesOrderDetailSnapshot(sampleOrder)).documents, { key: 'documentId' });
     console.log('Lookup parity tests passed.');
   } finally {
     if (globalThis.__aicPgPool) await globalThis.__aicPgPool.end();

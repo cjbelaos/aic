@@ -1,4 +1,6 @@
 import { parseDiscountJson } from "../discounts";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsByHeaders } from "@/lib/db/sheetRows";
 import { isBillingType } from "./billing.ts";
 // Sales Orders — Google Sheets repository and column contract.
 // The Next.js server writes the authoritative tabs directly through the same
@@ -268,6 +270,7 @@ export function importMapToRow(map: SalesOrderImportMap): Array<unknown> {
   ];
 }
 async function readTabValues(tab: string): Promise<unknown[][]> {
+  if (isPostgresBackend()) return sheetRowsByHeaders(tab, TAB_HEADERS[tab]);
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const end = headerEndColumn(TAB_HEADERS[tab].length);
@@ -299,6 +302,10 @@ async function withSheetsReadRetry<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 async function readTabsValues(tabs: readonly string[]): Promise<Map<string, unknown[][]>> {
+  if (isPostgresBackend()) {
+    const rows = await Promise.all(tabs.map((tab) => sheetRowsByHeaders(tab, TAB_HEADERS[tab])));
+    return new Map(tabs.map((tab, index) => [tab, rows[index]]));
+  }
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
   const ranges = tabs.map((tab) => `${tab}!A2:${headerEndColumn(TAB_HEADERS[tab].length)}`);

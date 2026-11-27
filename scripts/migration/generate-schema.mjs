@@ -1,4 +1,5 @@
-// Generates the versioned schema migration from schema-map.mjs.
+// Generates the versioned schema migration from schema-map.mjs. Produced the first migration
+// (20261127090000); later changes ship as follow-up migrations, so its output now differs from that file.
 //   node scripts/migration/generate-schema.mjs > supabase/migrations/<ts>_aic_schema.sql
 import { SCHEMA, TABLES, FOREIGN_KEYS, INDEXES, parseCols, SQL_TYPES } from "./schema-map.mjs";
 
