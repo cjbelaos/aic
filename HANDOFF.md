@@ -107,3 +107,10 @@ DR 3708's status-history row has a Drive URL in `old_status`, from an older colu
 3. Vercel project `aic-staging` exists (production branch `migration/supabase`, no cron; env: STAGING_DATABASE_URL, AUTH_SESSION_SECRET, JWT_SECRET). The staging lock is in code: `src/proxy.ts` (`SITE_BASIC_AUTH=user:pass` gates every request) plus `ACCESS_ALLOWED_USER_IDS` (only those users can sign in or hold a session), with test `npm run test:restricted-access`. **Chris** must set both env vars on aic-staging and redeploy. Still to do: the app DB login role (`aic_web`).
 
 **Security finding:** `AUTH_SESSION_SECRET` falls back to a hard-coded dev secret, and it is not set locally. Check production.
+
+## Plan §4 progress (2026-11-28)
+
+- **Switch:** `DATA_BACKEND=postgres` plus `DATABASE_URL` (the `aic_web` login role, transaction pooler :6543). Implemented in `src/lib/db/postgres.ts` (`isPostgresBackend`, `dbQuery`, `withTransaction(actor, …)`, which sets `aic.actor`). Production stays on Sheets.
+- **`aic_web` role:** `scripts/migration/create-app-role.mjs` creates or rotates it and writes `STAGING_APP_DATABASE_URL` to `.env.local`, never printing the password. Migration `20261128090000` makes the import bypass refuse every member of aic_app (it refused only aic_app by name). Verified as aic_web: reads ok, bypass refused, actor writes stamped, import_batches read-only, no `public` DDL.
+- **Step 1, login and users: done.** `userSheets.ts` keeps its validation and hashing and swaps storage to `src/lib/users/postgresUsers.ts`. A delete with FK references gets a friendly refusal. Mobile login also honours `ACCESS_ALLOWED_USER_IDS`. Integration test: `npm run test:users-postgres` (real staging DB as aic_web, throwaway user, cleans up).
+- **Next:** shared lookups (companies, products, units, payment terms, delivered-by, departments, positions), then the DR, Service Invoice and Quotation registers.

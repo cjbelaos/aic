@@ -48,6 +48,8 @@ function main() {
 
   const login = fs.readFileSync('src/app/api/auth/login/route.ts', 'utf8');
   assert.ok(login.indexOf('isAccessAllowed(user.userId)') < login.indexOf('setSessionCookie({'), 'login refuses before issuing a cookie');
+  const mobile = fs.readFileSync('src/app/api/mobile/login/route.ts', 'utf8');
+  assert.ok(mobile.indexOf('isAccessAllowed(user.userId)') > 0 && mobile.indexOf('isAccessAllowed(user.userId)') < mobile.indexOf('signMobileToken({'), 'mobile login refuses before issuing a token');
   console.log('Restricted access regression tests passed.');
 }
 main();

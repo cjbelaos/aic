@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserByUsername, updateLastLogin, toPublicUser } from "@/lib/userSheets";
 import { hashPassword } from "@/lib/password";
 import { signMobileToken } from "@/lib/jwt";
+import { isAccessAllowed } from "@/lib/auth/session";
 
 /**
  * POST /api/mobile/login
@@ -41,6 +42,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Invalid username or password." },
         { status: 401 },
+      );
+    }
+
+    // Restricted environments (staging) admit only allow-listed users.
+    if (!isAccessAllowed(user.userId)) {
+      return NextResponse.json(
+        { error: "This environment is restricted. Your account doesn't have access." },
+        { status: 403 },
       );
     }
 

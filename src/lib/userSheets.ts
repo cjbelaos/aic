@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { generateSalt, hashPassword } from "@/lib/password";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import * as postgresUsers from "@/lib/users/postgresUsers";
 import type {
   CreateUserInput,
   PublicUser,
@@ -156,6 +158,7 @@ async function getRowByUuid(uuid: string): Promise<number> {
 }
 
 async function fetchUserRows(): Promise<{ users: User[]; rows: string[][] }> {
+  if (isPostgresBackend()) return { users: await postgresUsers.listUsers(), rows: [] };
   const cached = getCachedUsers();
   if (cached) return cached;
 
@@ -196,8 +199,6 @@ export async function getUserById(id: string): Promise<User | null> {
 }
 
 export async function addUser(input: CreateUserInput): Promise<PublicUser> {
-  const spreadsheetId = await getUsersSpreadsheetId();
-
   const username = input.username.trim();
   const fullName = input.fullName?.trim() || username;
   const email = input.email.trim();
@@ -232,6 +233,12 @@ export async function addUser(input: CreateUserInput): Promise<PublicUser> {
     requiresApproval: input.requiresApproval ?? true,
   };
 
+  if (isPostgresBackend()) {
+    await postgresUsers.insertUser(user);
+    return toPublicUser(user);
+  }
+
+  const spreadsheetId = await getUsersSpreadsheetId();
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -248,9 +255,6 @@ export async function updateUser(
   id: string,
   updatedData: UpdateUserInput,
 ): Promise<PublicUser> {
-  const spreadsheetId = await getUsersSpreadsheetId();
-
-  const rowNumber = await getRowByUuid(id);
   const current = await getUserById(id);
   if (!current) {
     throw new Error("User not found.");
@@ -313,6 +317,13 @@ export async function updateUser(
         : current.requiresApproval,
   };
 
+  if (isPostgresBackend()) {
+    await postgresUsers.saveUser(updated);
+    return toPublicUser(updated);
+  }
+
+  const spreadsheetId = await getUsersSpreadsheetId();
+  const rowNumber = await getRowByUuid(id);
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId,
@@ -326,6 +337,7 @@ export async function updateUser(
 }
 
 export async function deleteUser(id: string): Promise<void> {
+  if (isPostgresBackend()) return postgresUsers.removeUser(id);
   const spreadsheetId = await getUsersSpreadsheetId();
   const rowNumber = await getRowByUuid(id);
 
@@ -365,6 +377,7 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 export async function updateLastLogin(id: string): Promise<void> {
+  if (isPostgresBackend()) return postgresUsers.touchLastLogin(id);
   const spreadsheetId = await getUsersSpreadsheetId();
   const rowNumber = await getRowByUuid(id);
   const sheets = await getSheetsClient();
