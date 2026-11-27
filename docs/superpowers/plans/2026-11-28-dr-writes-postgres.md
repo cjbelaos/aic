@@ -202,7 +202,7 @@
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** the tests, `npm run test:zero-sheets`, `npm run test:delivery-releases` and lint plus type-check. Expected: all PASS.
 - [ ] **Step 5: Commit** `feat(deliveries): transactional DR saves on PostgreSQL with outbox PDFs`.
-- [ ] **Step 6: Staging check (Chris).** On aic-staging, create a draft DR, promote it with an edited line, edit it, scan-complete it and delete a test DR. Each save succeeds with "PDF pending". Then run `npm run reconcile` against staging and confirm the next DR number advanced by exactly the DRs created. **Before this step, re-import staging from a fresh snapshot** so that test DRs never mix with production inputs (the plan's "keep staging test entries out of production inputs").
+- [ ] **Step 6: Staging check (Chris).** On aic-staging, create a draft DR, promote it with an edited line, edit it, scan-complete it and delete a test DR. Each save succeeds with "PDF pending". Then run `node --env-file=.env.local scripts/migration/reconcile.mjs <snapshotDir>` and confirm that the only "next DR" difference is exactly the number of DRs created. **Before this step, re-import staging from a fresh snapshot** so that test DRs never mix with production inputs (the plan's "keep staging test entries out of production inputs").
 
 ## Follow-on plans (same foundation)
 
