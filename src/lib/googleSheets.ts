@@ -221,6 +221,32 @@ export function escapeDriveQueryValue(value: string): string {
   return value.replace(/'/g, "\\'");
 }
 
+/** Returns the ID of the folder named `name` under `parent`, creating it when missing. */
+export async function findOrCreateDriveFolder(
+  drive: drive_v3.Drive,
+  name: string,
+  parent: string,
+): Promise<string> {
+  const list = await drive.files.list({
+    q: `'${parent}' in parents and name = '${escapeDriveQueryValue(name)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: "files(id, name)",
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+  if (list.data.files && list.data.files.length > 0) {
+    return list.data.files[0].id!;
+  }
+  const created = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parent],
+    },
+    supportsAllDrives: true,
+  });
+  return created.data.id!;
+}
+
 /**
  * Walks a two-level year/month folder hierarchy under `parentId`. Creates
  * missing folders along the way and returns the leaf (month) folder ID.
@@ -237,33 +263,8 @@ export async function resolveDriveFolderPath(
   year: string,
   monthName: string,
 ): Promise<string> {
-  async function findOrCreateFolder(
-    name: string,
-    parent: string,
-  ): Promise<string> {
-    // Search for existing folder by name under the given parent.
-    const list = await drive.files.list({
-      q: `'${parent}' in parents and name = '${escapeDriveQueryValue(name)}' and trashed = false`,
-      fields: "files(id, name)",
-      supportsAllDrives: true,
-    });
-    if (list.data.files && list.data.files.length > 0) {
-      return list.data.files[0].id!;
-    }
-    // Not found — create it.
-    const created = await drive.files.create({
-      requestBody: {
-        name,
-        mimeType: "application/vnd.google-apps.folder",
-        parents: [parent],
-      },
-      supportsAllDrives: true,
-    });
-    return created.data.id!;
-  }
-
-  const yearFolderId = await findOrCreateFolder(year, parentId);
-  return findOrCreateFolder(monthName, yearFolderId);
+  const yearFolderId = await findOrCreateDriveFolder(drive, year, parentId);
+  return findOrCreateDriveFolder(drive, monthName, yearFolderId);
 }
 
 export async function getDatabaseSpreadsheetId(): Promise<string> {

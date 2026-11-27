@@ -151,6 +151,23 @@ const deliveryService = {
       throw error;
     }
   },
+
+  /**
+   * Uploads a signed, scanned DR. The server files it in Drive, completes an
+   * issued DR and returns its Document Tracker entry.
+   */
+  uploadScanned: async (
+    drNumber: string,
+    file: File,
+  ): Promise<{ fileLink: string; fileName: string; trackerWarning?: string; statusWarning?: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("drNumber", drNumber);
+    const response = await axios.post(`${API_BASE_URL}/upload-scanned`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+  },
 };
 
 export default deliveryService;

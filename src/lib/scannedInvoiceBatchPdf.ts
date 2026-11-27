@@ -4,7 +4,7 @@
  * `await import("@/lib/scannedInvoiceBatchPdf")` so the heavy libraries
  * (pdfjs, tesseract.js, pdf-lib) only download when someone uses the feature.
  */
-import { NUMBER_CROP, pickInvoiceNumber, redInkMask, isUncertainRead, typicalDigitLength } from "./scannedInvoiceBatch";
+import { inkMask, pickInvoiceNumber, isUncertainRead, typicalDigitLength, type ScanProfile } from "./scannedInvoiceBatch";
 import { createPageExtractor, type PageExtractor } from "./scannedInvoicePageExtractor";
 
 export interface ScannedPage {
@@ -49,11 +49,13 @@ function scaledCopy(source: HTMLCanvasElement, width: number): HTMLCanvasElement
 /** Renders and reads pages one at a time; onProgress(done, total). */
 export async function analyzeScannedPdf(
   file: File,
+  profile: ScanProfile,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ScannedBatch> {
   const bytes = await file.arrayBuffer();
   // Opened with pdf-lib first: a PDF it can't split fails now, not after every row is checked.
-  const extractPage = await createPageExtractor(bytes.slice(0));
+  const extractPage = await createPageExtractor(bytes.slice(0), profile.filePrefix);
+  const area = profile.crop;
 
   // Legacy build: polyfills newer JS (Map#getOrInsertComputed, Math.sumPrecise, Uint8Array#toHex) for older Chrome/Edge/Safari.
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -80,10 +82,10 @@ export async function analyzeScannedPdf(
       if (!context) throw new Error("Canvas is not available in this browser.");
       await page.render({ canvas, canvasContext: context, viewport }).promise;
 
-      const x = Math.round(canvas.width * NUMBER_CROP.x0);
-      const y = Math.round(canvas.height * NUMBER_CROP.y0);
-      const w = Math.round(canvas.width * (NUMBER_CROP.x1 - NUMBER_CROP.x0));
-      const h = Math.round(canvas.height * (NUMBER_CROP.y1 - NUMBER_CROP.y0));
+      const x = Math.round(canvas.width * area.x0);
+      const y = Math.round(canvas.height * area.y0);
+      const w = Math.round(canvas.width * (area.x1 - area.x0));
+      const h = Math.round(canvas.height * (area.y1 - area.y0));
       const crop = document.createElement("canvas");
       crop.width = w;
       crop.height = h;
@@ -94,7 +96,7 @@ export async function analyzeScannedPdf(
       const masked = document.createElement("canvas");
       masked.width = w;
       masked.height = h;
-      masked.getContext("2d")!.putImageData(new ImageData(redInkMask(context.getImageData(x, y, w, h).data) as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
+      masked.getContext("2d")!.putImageData(new ImageData(inkMask(profile, context.getImageData(x, y, w, h).data) as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
       const { data } = await worker.recognize(masked);
 
       const thumbnailUrl = await canvasToBlobUrl(scaledCopy(canvas, THUMBNAIL_WIDTH), "image/jpeg", 0.8);

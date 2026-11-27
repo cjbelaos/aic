@@ -128,7 +128,7 @@ const serviceInvoiceService = {
   uploadScanned: async (
     invoiceNo: string,
     file: File,
-  ): Promise<{ fileLink: string; fileName: string }> => {
+  ): Promise<{ fileLink: string; fileName: string; trackerWarning?: string; statusWarning?: string }> => {
     try {
       const formData = new FormData();
       formData.append("file", file);

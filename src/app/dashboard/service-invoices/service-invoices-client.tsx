@@ -4,6 +4,7 @@ import { InvoiceDiscountEditor } from "@/components/invoice-discount-editor";
 import { defaultDiscount } from "@/lib/discounts";
 import { invoiceItemsDiffer, invoiceItemsFromDelivery, salesOrderInvoiceItems } from "@/lib/serviceInvoicePresentation";
 import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
+import { SERVICE_INVOICE_PROFILE, type BatchInvoiceInfo } from "@/lib/scannedInvoiceBatch";
 
 import { InvoiceReferenceTypeSelector } from "@/components/delivery-release-reference-field";
 import { isNoChargeDelivery, type InvoiceReferenceMode } from "@/lib/deliveryReference";
@@ -362,6 +363,20 @@ export default function ServiceInvoicesClient({
   const [uploading, setUploading] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
   const [bulkScanOpen, setBulkScanOpen] = useState(false);
+  const bulkScanRecords = useMemo(() => {
+    const map = new Map<string, BatchInvoiceInfo>();
+    for (const invoice of invoices) {
+      const total = invoiceTotals(invoice).grandTotal.toLocaleString("en-PH", { style: "currency", currency: "PHP" });
+      map.set(invoice.invoiceNo, {
+        invoiceNo: invoice.invoiceNo,
+        companyName: invoice.companyName,
+        detail: `${total} · ${invoice.status}`,
+        status: invoice.status,
+        hasScan: invoice.scannedStatus === "scanned",
+      });
+    }
+    return map;
+  }, [invoices]);
 
   const fetchList = useCallback(async () => {
     try {
@@ -392,6 +407,7 @@ export default function ServiceInvoicesClient({
         file,
       );
       toast.success(`Scanned ${invoiceLabel} uploaded for ${uploadTarget}.`);
+      if (result.trackerWarning) toast.warning(result.trackerWarning);
       setInvoices((prev) =>
         prev.map((inv) =>
           inv.invoiceNo === uploadTarget
@@ -3365,7 +3381,11 @@ export default function ServiceInvoicesClient({
         <BulkScanUploadDialog
           open={bulkScanOpen}
           onOpenChange={setBulkScanOpen}
-          invoices={invoices}
+          profile={SERVICE_INVOICE_PROFILE}
+          title="Bulk upload scans"
+          documentLabel="Service Invoices"
+          numberLabel="Invoice No."
+          records={bulkScanRecords}
           upload={serviceInvoiceService.uploadScanned}
           onSaved={fetchList}
         />

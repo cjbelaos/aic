@@ -31,6 +31,8 @@ import {
   ExternalLink,
   Search,
   FileText,
+  FileStack,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -80,6 +82,8 @@ import { LineSources } from "@/components/inventory/line-sources";
 import { sourcesComplete, storedSources, syncSingleSource, type WarehouseSource } from "@/lib/deliverySources";
 import { DeliveryItemSerialTags, DeliveryItemSummary } from "@/components/delivery-item-summary";
 import { EditDrSerialsDialog } from "@/components/edit-dr-serials-dialog";
+import { BulkScanUploadDialog } from "@/components/bulk-scan-upload-dialog";
+import { DELIVERY_RECEIPT_PROFILE, type BatchInvoiceInfo } from "@/lib/scannedInvoiceBatch";
 
 interface LineItem {
   deliveryReceiptItemId?: string;
@@ -258,6 +262,47 @@ export default function DeliveryReleasePage() {
   useEffect(() => {
     fetchList();
   }, [fetchList]);
+
+  /* Signed, scanned DRs: one at a time from a row, or in bulk. */
+  const [bulkScanOpen, setBulkScanOpen] = useState(false);
+  const [scanUploadTarget, setScanUploadTarget] = useState<number | null>(null);
+  /** Set only once a file is chosen; closing the picker leaves the buttons usable. */
+  const [scanUploading, setScanUploading] = useState<number | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const bulkScanRecords = useMemo(() => {
+    const map = new Map<string, BatchInvoiceInfo>();
+    for (const receipt of receipts) {
+      if (receipt.drNumber <= 0) continue;
+      map.set(String(receipt.drNumber), {
+        invoiceNo: String(receipt.drNumber),
+        companyName: receipt.companyName,
+        detail: `${receipt.date} · ${receipt.status}`,
+        status: receipt.status,
+        hasScan: Boolean(receipt.scannedFileLink),
+      });
+    }
+    return map;
+  }, [receipts]);
+
+  const handleScanFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    const drNumber = scanUploadTarget;
+    if (!file || drNumber === null) return;
+    setScanUploading(drNumber);
+    try {
+      const result = await deliveryService.uploadScanned(String(drNumber), file);
+      toast.success(`Scanned DR ${drNumber} uploaded.`);
+      if (result.statusWarning) toast.warning(result.statusWarning);
+      if (result.trackerWarning) toast.warning(result.trackerWarning);
+      fetchList();
+    } catch (error) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string };
+      toast.error(err?.response?.data?.error || err?.message || "Failed to upload scanned DR.");
+    } finally {
+      setScanUploading(null);
+    }
+  };
 
   /* Pre-fill from Contract Releases page */
   const searchParams = useSearchParams();
@@ -842,6 +887,21 @@ export default function DeliveryReleasePage() {
         },
       },
       {
+        id: "scannedCopy",
+        header: "Scanned copy",
+        cell: ({ row }) =>
+          row.original.scannedFileLink ? (
+            <Badge asChild variant="default">
+              <a href={row.original.scannedFileLink} target="_blank" rel="noopener noreferrer" title="Open scanned copy">
+                Scanned
+                <ExternalLink className="ml-1 h-3 w-3" />
+              </a>
+            </Badge>
+          ) : (
+            <Badge variant="outline">Not scanned</Badge>
+          ),
+      },
+      {
         id: "lastUpdated",
         header: ({ column }) => (
           <Button
@@ -936,6 +996,22 @@ export default function DeliveryReleasePage() {
                   <ExternalLink className="h-4 w-4" />
                 </Button>
               )}
+              {row.original.drNumber > 0 && row.original.status !== "draft" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setScanUploadTarget(row.original.drNumber);
+                    scanInputRef.current?.click();
+                  }}
+                  disabled={scanUploading !== null}
+                  title="Upload signed scanned DR"
+                  aria-label={`Upload signed scanned DR ${row.original.drNumber}`}
+                >
+                  {scanUploading === row.original.drNumber ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -986,7 +1062,7 @@ export default function DeliveryReleasePage() {
         },
       },
     ],
-    [previewingDr, siLookup, lineRequiresSerial, productNameByCode],
+    [previewingDr, siLookup, lineRequiresSerial, productNameByCode, scanUploading],
   );
 
   const handleCreateSR = (drNumber: number, companyName: string) => {
@@ -1500,10 +1576,22 @@ export default function DeliveryReleasePage() {
 
   return (
     <>
+      <input ref={scanInputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={handleScanFileSelect} />
+      <BulkScanUploadDialog
+        open={bulkScanOpen}
+        onOpenChange={setBulkScanOpen}
+        profile={DELIVERY_RECEIPT_PROFILE}
+        title="Bulk upload scanned DRs"
+        documentLabel="Delivery Receipts"
+        numberLabel="DR No."
+        records={bulkScanRecords}
+        upload={deliveryService.uploadScanned}
+        onSaved={fetchList}
+      />
       <div className="space-y-6 min-w-0">
-        <DocumentRegisterHeader eyebrow="Delivery management" title="Delivery receipts" description="Review deliveries and manage documents." loading={loading} actions={<Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />New delivery receipt</Button>} cards={["all", "created", "draft", "pending"].map(status => ({ label: status === "all" ? "Total" : status === "draft" ? "Draft" : status === "pending" ? "Pending approval" : "Created", count: filteredReceipts.filter(receipt => status === "all" || registerBucket(receipt.status) === status).length, selected: registerStatus === status, onClick: () => setRegisterStatus(status) }))} />
+        <DocumentRegisterHeader eyebrow="Delivery management" title="Delivery receipts" description="Review deliveries and manage documents." loading={loading} actions={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setBulkScanOpen(true)}><FileStack className="mr-2 h-4 w-4" />Bulk upload scans</Button><Button onClick={openCreateModal}><Plus className="mr-2 h-4 w-4" />New delivery receipt</Button></div>} cards={["all", "created", "draft", "pending"].map(status => ({ label: status === "all" ? "Total" : status === "draft" ? "Draft" : status === "pending" ? "Pending approval" : "Created", count: filteredReceipts.filter(receipt => status === "all" || registerBucket(receipt.status) === status).length, selected: registerStatus === status, onClick: () => setRegisterStatus(status) }))} />
         <EntityTable
-          mobileLayout={{ primary: ["drNumber", "companyName", "reference", "status", "date", "itemCount"], labels: { drNumber: "DR number", companyName: "Customer", reference: "Sales Order / TR No.", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
+          mobileLayout={{ primary: ["drNumber", "companyName", "reference", "status", "date", "itemCount"], labels: { scannedCopy: "Scanned copy", drNumber: "DR number", companyName: "Customer", reference: "Sales Order / TR No.", status: "Status", date: "Delivery date", itemCount: "Items", linkedSRs: "Linked SRs", deliveredBy: "Delivered by", lastUpdated: "Last updated", actions: "Actions" } }}
           title="Delivery Receipts"
           columns={columns}
           data={filteredReceipts.filter(receipt => registerStatus === "all" || registerBucket(receipt.status) === registerStatus)}

@@ -27,6 +27,7 @@ import {
 } from "@/lib/deliveryReference";
 import { getOrderDetail, type Actor } from "@/lib/salesOrders/service";
 import { can } from "@/lib/salesOrders/permissions";
+import { drCompletesOnScan } from "@/lib/documentScanReturn";
 import { forbidden } from "@/lib/salesOrders/errors";
 
 const DELIVERED_BY_NAMES_SHEET = "DeliveredByNames";
@@ -34,11 +35,13 @@ const DELIVERED_BY_NAMES_RANGE = `${DELIVERED_BY_NAMES_SHEET}!A2:E`;
 
 const DELIVERY_RECEIPTS_SHEET = "DeliveryReceipts";
 const DELIVERY_RECEIPTS_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:AA`;
+/** Read range including the scanned copy columns AB:AD (ScannedFileLink, ScannedAt, ScannedBy). */
+const DELIVERY_RECEIPTS_READ_RANGE = `${DELIVERY_RECEIPTS_SHEET}!A2:AD`;
 // A:DRNumber B:DeliveryDate C:CompanyId D:PONumber E:SalesOrderNo (legacy TRNumber)
 // F:SRNumber G:Comments H:PreparedBy I:DeliveredBy J:CreatedAt K:Status L:DriveFileLink
 // M:CreatedBy N:UpdatedBy O:UpdatedDate P:DeliveredById Q:DeliveredByType
 // R:DeliveredByOptionId S:SalesOrderId T:WarehouseId U:ApprovedBy V:ApprovedAt W:ApprovalNote X:RequestedStatus
-// Y:ForCompanyId Z:NoChargeReason AA:NoChargeNote
+// Y:ForCompanyId Z:NoChargeReason AA:NoChargeNote AB:ScannedFileLink AC:ScannedAt AD:ScannedBy
 // Writers of A:S leave T:W untouched; writeInventoryColumns() owns T:W.
 
 /** Statuses that keep a DR unnumbered, unprinted and out of stock and fulfillment. */
@@ -225,7 +228,7 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
 
     const drResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: DELIVERY_RECEIPTS_RANGE,
+      range: DELIVERY_RECEIPTS_READ_RANGE,
     });
 
     const drRows = drResponse.data.values;
@@ -273,6 +276,9 @@ export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
           approvalNote: String(row[22] ?? "").trim() || undefined,
           requestedStatus: String(row[23] ?? "").trim() || undefined,
           forCompanyId: String(row[24] ?? "").trim() || undefined,
+          scannedFileLink: String(row[27] ?? "").trim() || undefined,
+          scannedAt: String(row[28] ?? "").trim() || undefined,
+          scannedBy: String(row[29] ?? "").trim() || undefined,
           items: itemsByDr.get(drNumber) || [],
         };
       })
@@ -1194,4 +1200,59 @@ export async function getDeliveryReceiptStatus(drNumber: number): Promise<string
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: DELIVERY_RECEIPTS_RANGE });
   const row = (response.data.values ?? []).find((r) => parseInt(String(r[0] ?? "").trim(), 10) === drNumber);
   return row ? String(row[10] ?? "created").trim() || "created" : null;
+}
+
+/** The DR's row number, delivery date, company and status, or null when it doesn't exist. */
+export async function findDeliveryReceiptForScan(drNumber: number): Promise<{ rowNumber: number; date: string; companyId: string; status: string } | null> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!A2:K` });
+  const index = (response.data.values ?? []).findIndex((r) => parseInt(String(r[0] ?? "").trim(), 10) === drNumber);
+  if (index < 0) return null;
+  const row = response.data.values![index];
+  return { rowNumber: index + 2, date: String(row[1] ?? "").trim(), companyId: String(row[2] ?? "").trim(), status: String(row[10] ?? "created").trim() || "created" };
+}
+
+/** Stores the scanned copy link and who scanned it (columns AB:AD). */
+export async function recordDeliveryReceiptScan(rowNumber: number, fileLink: string, userId: string): Promise<void> {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${DELIVERY_RECEIPTS_SHEET}!AB${rowNumber}:AD${rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[fileLink, new Date().toISOString(), userId]] },
+  });
+}
+
+/**
+ * A signed scan completes an issued DR: created/printed → completed, logged in the
+ * status history. Stock is unaffected (all three are counted statuses).
+ */
+export async function completeDeliveryReceiptFromScan(drNumber: number, rowNumber: number, oldStatus: string, userId: string): Promise<boolean> {
+  if (!drCompletesOnScan(oldStatus)) return false;
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const updatedAt = new Date().toISOString();
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: [
+        { range: `${DELIVERY_RECEIPTS_SHEET}!K${rowNumber}`, values: [["completed"]] },
+        { range: `${DELIVERY_RECEIPTS_SHEET}!N${rowNumber}:O${rowNumber}`, values: [[userId, updatedAt]] },
+      ],
+    },
+  });
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: DR_STATUS_HISTORY_RANGE,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[String(drNumber), oldStatus, "completed", userId, updatedAt]] },
+    });
+  } catch (e) {
+    console.warn("Failed to log DR status change:", e);
+  }
+  return true;
 }
