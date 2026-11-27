@@ -6,8 +6,20 @@ import type { SessionUser } from "@/types/user";
 const SESSION_COOKIE = "aic_session";
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 
+const DEV_SESSION_SECRET = "aic-dev-session-secret";
+
+/**
+ * Session cookies carry the user's identity and role, so the signing secret must
+ * be private. Production refuses to sign or verify without a real secret rather
+ * than fall back to the well-known development value.
+ */
 function getSessionSecret(): string {
-  return process.env.AUTH_SESSION_SECRET || "aic-dev-session-secret";
+  const secret = process.env.AUTH_SESSION_SECRET;
+  if (process.env.NODE_ENV !== "production") return secret || DEV_SESSION_SECRET;
+  if (!secret || secret === DEV_SESSION_SECRET || secret.length < 32) {
+    throw new Error("AUTH_SESSION_SECRET must be set to a random value of at least 32 characters in production.");
+  }
+  return secret;
 }
 
 function signPayload(payload: string): string {
