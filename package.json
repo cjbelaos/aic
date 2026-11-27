@@ -45,7 +45,8 @@
     "test:restricted-access": "node scripts/test-restricted-access.cjs",
     "test:users-postgres": "node --env-file=.env.local scripts/test-users-postgres.cjs",
     "test:lookup-parity": "node --env-file=.env.local scripts/test-lookup-parity.cjs",
-    "test:zero-sheets": "node --env-file=.env.local scripts/test-pages-zero-sheets.cjs"
+    "test:zero-sheets": "node --env-file=.env.local scripts/test-pages-zero-sheets.cjs",
+    "test:db-transaction": "node --env-file=.env.local scripts/test-db-transaction.cjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.11",
