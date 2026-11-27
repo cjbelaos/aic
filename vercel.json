@@ -1,5 +1,3 @@
 {
-  "crons": [
-    { "path": "/api/fti/pdf-jobs", "schedule": "0 0 * * *" }
-  ]
+  "crons": []
 }
