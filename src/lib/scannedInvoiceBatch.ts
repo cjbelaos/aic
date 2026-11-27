@@ -88,6 +88,11 @@ export function blocksSave(status: BatchRowStatus): boolean {
   return status === "not_found" || status === "unread" || status === "duplicate";
 }
 
+/** A page for an invoice that already has a scan is left out of saving until Replace is ticked. */
+export function isHeldBack(invoice: BatchInvoiceInfo | undefined, replace: boolean): boolean {
+  return Boolean(invoice?.hasScan) && !replace;
+}
+
 /** Invoice numbers that appear on more than one page (blanks ignored). */
 export function duplicateNumbers(numbers: string[]): Set<string> {
   const seen = new Set<string>();
