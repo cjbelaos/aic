@@ -14,7 +14,8 @@ process.env.DATA_BACKEND = 'postgres';
 delete process.env.ACCESS_ALLOWED_USER_IDS;
 
 const cookieJar = new Map();
-const mocks = { 'next/headers': { cookies: async () => ({ get: (name) => (cookieJar.has(name) ? { value: cookieJar.get(name) } : undefined) }) } };
+const refuse = () => { throw new Error('Test tried to use Google; tests must stay off live Sheets/Drive.'); };
+const mocks = { '@/lib/googleSheets': new Proxy({}, { get: (_t, n) => (n === '__esModule' ? undefined : refuse) }), 'next/headers': { cookies: async () => ({ get: (name) => (cookieJar.has(name) ? { value: cookieJar.get(name) } : undefined) }) } };
 const cache = new Map();
 function load(file) {
   const full = path.resolve(file);

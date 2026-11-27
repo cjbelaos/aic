@@ -1,4 +1,6 @@
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
+import { currentActor, inTransaction, isPostgresBackend, txQuery } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import {
   DocumentHandover,
   CreateDocumentHandoverInput,
@@ -36,15 +38,9 @@ const RANGE = `${SHEET_NAME}!A2:X`;
 
 export async function getDocumentHandovers(): Promise<DocumentHandover[]> {
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: RANGE,
-    });
-
-    const rows = response.data.values || [];
+    const rows = isPostgresBackend()
+      ? await sheetRowsForRange(RANGE)
+      : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: RANGE })).data.values || [];
     return rows
       .map((row): DocumentHandover => ({
         id: String(row[0] ?? "").trim(),
@@ -311,6 +307,7 @@ export async function returnDocumentFromScan(input: {
 }): Promise<ScanReturnOutcome> {
   const { actor } = input;
   if (!canAutoReturnDocuments(actor)) return "not_permitted";
+  if (isPostgresBackend()) return returnDocumentFromScanPg(input);
   const number = input.documentNumber.trim().toLowerCase();
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
@@ -354,6 +351,43 @@ export async function returnDocumentFromScan(input: {
     },
   });
   return "returned";
+}
+
+/** PostgreSQL path of returnDocumentFromScan: same plan, one locked row, in the scan's transaction. */
+async function returnDocumentFromScanPg(input: Parameters<typeof returnDocumentFromScan>[0]): Promise<ScanReturnOutcome> {
+  const { actor } = input;
+  return inTransaction(currentActor() ?? actor.userId, async () => {
+    const matches = (await txQuery<{ id: string; status: string | null; source_row: number | null }>(
+      `select id, status, source_row from aic.document_handovers
+       where lower(document_type) = $1 and lower(btrim(document_number)) = $2 order by source_row nulls last for update`,
+      [input.documentType, input.documentNumber.trim().toLowerCase()],
+    )).map((row, index) => ({ row: [row.id], rowNumber: index + 2, status: String(row.status ?? "").trim(), id: row.id }));
+    const entry = pickScanReturnEntry(matches);
+    const plan = scanReturnPlan(entry?.status);
+    const now = new Date().toISOString();
+    if (plan === "create") {
+      const customerName = (await input.resolveCustomerName?.().catch(() => undefined)) || "";
+      await txQuery(
+        `insert into aic.document_handovers (id, document_type, document_number, customer_name, technician_id, technician_name,
+           handed_over_by, handed_over_by_name, handed_over_at, status, notes, assignee_type,
+           received_by_after_sales, received_by_after_sales_name, received_by_after_sales_at, verified_by, verified_by_name, verified_at)
+         values ($1, $2, $3, $4, $5, $6, $5, $6, $7, 'returned', $8, 'internal', $5, $6, $7, $5, $6, $7)`,
+        [crypto.randomUUID(), input.documentType, input.documentNumber.trim(), customerName, actor.userId, actor.fullName, now, SCAN_RETURN_NOTE],
+      );
+      return "created";
+    }
+    if (plan === "skip" || !entry) return entry?.status.toLowerCase() === "unassigned" ? "unassigned" : "already_returned";
+    await txQuery(
+      `update aic.document_handovers set status = 'returned',
+         received_by_after_sales = case when $2 then $3 else received_by_after_sales end,
+         received_by_after_sales_name = case when $2 then $4 else received_by_after_sales_name end,
+         received_by_after_sales_at = case when $2 then $5::timestamptz else received_by_after_sales_at end,
+         verified_by = $3, verified_by_name = $4, verified_at = $5::timestamptz
+       where id = $1`,
+      [(entry as { id: string }).id, plan === "return_both", actor.userId, actor.fullName, now],
+    );
+    return "returned";
+  });
 }
 
 /** Runs the tracker step after a scan is saved; never throws. Returns a warning for the uploader, if any. */

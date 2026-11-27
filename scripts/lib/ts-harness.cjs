@@ -5,7 +5,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-function createHarness(mocks = {}) {
+// Tests must never reach live Google Sheets or Drive (.env.local holds real credentials). Every harness
+// refuses Google by default; a test that needs a fake passes its own '@/lib/googleSheets' / 'googleapis'.
+const refuseGoogle = (what) => new Proxy({}, {
+  get: (_target, name) => {
+    if (name === '__esModule' || name === 'then') return undefined;
+    return () => { throw new Error(`Test tried to use Google (${what}.${String(name)}); tests must stay off live Sheets/Drive.`); };
+  },
+});
+const GOOGLE_REFUSED = { '@/lib/googleSheets': refuseGoogle('googleSheets'), googleapis: { google: refuseGoogle('googleapis') } };
+
+function createHarness(overrides = {}) {
+  const mocks = { ...GOOGLE_REFUSED, ...overrides };
   const cache = new Map();
   const resolveTs = (base) => [base, `${base}.ts`, `${base}.tsx`, path.join(base, 'index.ts')].find((f) => fs.existsSync(f) && fs.statSync(f).isFile());
   function load(file) {

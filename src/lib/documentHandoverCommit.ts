@@ -1,6 +1,7 @@
 import type { sheets_v4 } from "googleapis";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
 import { getUserById, getUsers } from "@/lib/userSheets";
+import { currentActor, inTransaction, isPostgresBackend, txQuery } from "@/lib/db/postgres";
 import type { CreateDocumentHandoverInput } from "@/types/documentHandover";
 
 type Assignment = CreateDocumentHandoverInput & { assignedBy: string; assignedByName: string; assignedAt?: string };
@@ -14,20 +15,8 @@ const cells = (row: (string | number)[]): sheets_v4.Schema$RowData => ({
  * No automatic retry of appendCells: an ambiguous timeout may have committed the batch.
  * A subsequent save/recovery checks the document key before appending a handover.
  */
-export async function commitDocumentWithHandover(source: Source | undefined, input: Assignment) {
-  if (!input.documentNumber.trim() || input.documentNumber.startsWith("DRAFT-") || Number(input.documentNumber) <= 0) {
-    throw new Error("A finalized document number is required for automatic handover.");
-  }
-  const sheets = await getSheetsClient();
-  const spreadsheetId = await getDatabaseSpreadsheetId();
-  const existingResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: "DocumentHandover!A2:X" });
-  const matches = (existingResponse.data.values ?? []).map((row, index) => ({ row, index }))
-    .filter(({ row }) => String(row[1]).trim() === input.documentType && String(row[2]).trim() === input.documentNumber.trim());
-  if (matches.length > 1) throw new Error(`Duplicate Document Tracker records for ${input.documentType} ${input.documentNumber}; review them before saving.`);
-  const existing = matches[0];
-  // Recovery only adds missing records. It never changes a manual custody decision.
-  if (!source && existing) return "unchanged" as const;
-  const preserve = existing && existing.row[9] !== "handed_over";
+/** The holder to record: a valid internal user (resolved by id, or by unique full name) or a named external party. */
+async function resolveHolder(input: Assignment, preserve: boolean) {
   let assignedToId = input.assignedToId?.trim() || "";
   let assignedToName = input.assignedToName.trim();
   const assigneeType = input.assigneeType || "internal";
@@ -45,6 +34,64 @@ export async function commitDocumentWithHandover(source: Source | undefined, inp
       throw new Error("An external document holder name is required.");
     }
   }
+  return { assignedToId, assignedToName, assigneeType };
+}
+
+type HandoverRow = { id: string; status: string | null; technician_id: string | null; technician_name: string | null; assignee_type: string | null };
+
+/**
+ * PostgreSQL path: the caller has already written the document row in the same
+ * transaction, so `source` only marks this as a save (not a recovery). The
+ * custody record is locked, created or updated with the same rules as Sheets.
+ */
+async function commitHandoverPg(source: Source | undefined, input: Assignment) {
+  return inTransaction(currentActor() ?? input.assignedBy, async () => {
+    const [existing] = await txQuery<HandoverRow>(
+      `select id, status, technician_id, technician_name, assignee_type from aic.document_handovers
+       where document_type = $1 and document_number = $2 for update`,
+      [input.documentType, input.documentNumber.trim()],
+    );
+    if (!source && existing) return "unchanged" as const;
+    const preserve = existing && existing.status !== "handed_over";
+    const { assignedToId, assignedToName, assigneeType } = await resolveHolder(input, !!preserve);
+    if (!existing) {
+      await txQuery(
+        `insert into aic.document_handovers (id, document_type, document_number, customer_name, technician_id, technician_name,
+           handed_over_by, handed_over_by_name, handed_over_at, status, notes, assignee_type)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'handed_over', $10, $11)`,
+        [crypto.randomUUID(), input.documentType, input.documentNumber.trim(), input.customerName || "", assignedToId || null, assignedToName,
+          input.assignedBy, input.assignedByName, input.assignedAt || new Date().toISOString(),
+          input.notes || "Automatically handed over when document was created", assigneeType],
+      );
+      return "created" as const;
+    }
+    if (!preserve && ((existing.technician_id ?? "") !== assignedToId || (existing.technician_name ?? "") !== assignedToName || (existing.assignee_type || "internal") !== assigneeType)) {
+      await txQuery(
+        `update aic.document_handovers set technician_id = $2, technician_name = $3, handed_over_by = $4, handed_over_by_name = $5, assignee_type = $6 where id = $1`,
+        [existing.id, assignedToId || null, assignedToName, input.assignedBy, input.assignedByName, assigneeType],
+      );
+      return "updated" as const;
+    }
+    return existing.status === "returned" ? "already_returned" as const : "unchanged" as const;
+  });
+}
+
+export async function commitDocumentWithHandover(source: Source | undefined, input: Assignment) {
+  if (!input.documentNumber.trim() || input.documentNumber.startsWith("DRAFT-") || Number(input.documentNumber) <= 0) {
+    throw new Error("A finalized document number is required for automatic handover.");
+  }
+  if (isPostgresBackend()) return commitHandoverPg(source, input);
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const existingResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: "DocumentHandover!A2:X" });
+  const matches = (existingResponse.data.values ?? []).map((row, index) => ({ row, index }))
+    .filter(({ row }) => String(row[1]).trim() === input.documentType && String(row[2]).trim() === input.documentNumber.trim());
+  if (matches.length > 1) throw new Error(`Duplicate Document Tracker records for ${input.documentType} ${input.documentNumber}; review them before saving.`);
+  const existing = matches[0];
+  // Recovery only adds missing records. It never changes a manual custody decision.
+  if (!source && existing) return "unchanged" as const;
+  const preserve = existing && existing.row[9] !== "handed_over";
+  const { assignedToId, assignedToName, assigneeType } = await resolveHolder(input, !!preserve);
   const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties(sheetId,title)" });
   const sheetId = (title: string) => {
     const id = metadata.data.sheets?.find(sheet => sheet.properties?.title === title)?.properties?.sheetId;

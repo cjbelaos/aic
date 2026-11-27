@@ -26,7 +26,7 @@ const mocks = {
   "@/lib/userSheets": { getUserById: async id => id === "tech" ? { userId: id, fullName: "Technician" } : undefined, getUsers: async () => [{ userId: "tech", fullName: "Technician" }] },
 };
 const js = ts.transpileModule(fs.readFileSync("src/lib/documentHandoverCommit.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-new Function("require", "module", "exports", js)(id => mocks[id] || require(id), mod, mod.exports);
+new Function("require", "module", "exports", js)(id => mocks[id] || require("./lib/sheets-mode-stubs.cjs").SHEETS_MODE_STUBS[id] || require(id), mod, mod.exports);
 const commit = mod.exports.commitDocumentWithHandover;
 const input = { documentType: "service_invoice", documentNumber: "1662", assignedToId: "tech", assignedToName: "Technician", assignedBy: "admin", assignedByName: "Admin" };
 const reset = () => { db = [[[]], [[]], [[]]]; rejectBatch = false; calls = 0; };
@@ -82,7 +82,7 @@ async function main() {
   function load(file, dependencies) {
     const loaded = { exports: {} };
     const code = ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-    new Function("require", "module", "exports", code)(id => dependencies[id] ?? (id.startsWith("@/") ? {} : require(id)), loaded, loaded.exports);
+    new Function("require", "module", "exports", code)(id => dependencies[id] ?? (id.startsWith("@/") ? (require('./lib/sheets-mode-stubs.cjs').SHEETS_MODE_STUBS[id] ?? {}) : require(id)), loaded, loaded.exports);
     return loaded.exports;
   }
   const dr = load("src/lib/deliverySheets.ts", {
