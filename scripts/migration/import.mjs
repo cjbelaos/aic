@@ -58,6 +58,10 @@ try {
   if (existing[0].n > 0) {
     if (!flag("replace")) throw new Error(`aic already holds ${existing[0].n} rows; pass --replace to reload staging`);
     await client.query(`truncate ${all} restart identity`);
+    // App-side records that refer to documents (retry log, pending Google jobs) belong to the replaced data.
+    const appTables = (await client.query("select to_regclass('aic.request_log') is not null as r, to_regclass('aic.outbox') is not null as o")).rows[0];
+    if (appTables.r) await client.query("truncate aic.request_log");
+    if (appTables.o) await client.query("truncate aic.outbox restart identity");
   }
   for (const t of order) {
     const { columns, rows } = tables.get(t);

@@ -47,7 +47,8 @@
     "test:lookup-parity": "node --env-file=.env.local scripts/test-lookup-parity.cjs",
     "test:zero-sheets": "node --env-file=.env.local scripts/test-pages-zero-sheets.cjs",
     "test:db-transaction": "node --env-file=.env.local scripts/test-db-transaction.cjs",
-    "test:db-idempotency": "node --env-file=.env.local scripts/test-db-idempotency.cjs"
+    "test:db-idempotency": "node --env-file=.env.local scripts/test-db-idempotency.cjs",
+    "test:db-outbox-sequences": "node --env-file=.env.local scripts/test-db-outbox-sequences.cjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.11",
