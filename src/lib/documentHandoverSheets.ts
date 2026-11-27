@@ -7,7 +7,10 @@ import {
   DocumentType,
 } from "@/types/documentHandover";
 import { getUserById } from "@/lib/userSheets";
-import { canReceiveAndVerifyDocuments } from "@/lib/documentHandoverWorkflow";
+import { canReceiveAndVerifyDocuments, isAfterSalesDocumentReceiver } from "@/lib/documentHandoverWorkflow";
+import { isAdminUser } from "@/lib/auth/session";
+import { pickScanReturnEntry, scanReturnPlan, SCAN_RETURN_NOTE, type ScanReturnOutcome } from "@/lib/documentScanReturn";
+import type { SessionUser } from "@/types/user";
 
 const SHEET_NAME = "DocumentHandover";
 const RANGE = `${SHEET_NAME}!A2:X`;
@@ -285,4 +288,83 @@ export function verifyDocumentHandovers(input: WorkflowDocumentHandoverInput): P
 
 export function unassignDocumentHandovers(input: WorkflowDocumentHandoverInput): Promise<void> {
   return updateWorkflowDocumentHandovers(input, "handed_over", "unassigned", "V");
+}
+
+/** A scan upload may return a tracker entry only for someone who could receive and verify it by hand. */
+export function canAutoReturnDocuments(user: SessionUser): boolean {
+  const canReceive = isAfterSalesDocumentReceiver(user) || canReceiveAndVerifyDocuments(user);
+  const canVerify = isAdminUser(user) || canReceiveAndVerifyDocuments(user);
+  return canReceive && canVerify;
+}
+
+/**
+ * Marks a document received and verified after its signed scan is saved:
+ * handed over → returned (receipt and verification stamped), received → returned,
+ * no entry → a new returned entry, returned/unassigned → unchanged.
+ */
+export async function returnDocumentFromScan(input: {
+  documentType: DocumentType;
+  documentNumber: string;
+  /** Only called when a new entry has to be created. */
+  resolveCustomerName?: () => Promise<string | undefined>;
+  actor: SessionUser;
+}): Promise<ScanReturnOutcome> {
+  const { actor } = input;
+  if (!canAutoReturnDocuments(actor)) return "not_permitted";
+  const number = input.documentNumber.trim().toLowerCase();
+  const sheets = await getSheetsClient();
+  const spreadsheetId = await getDatabaseSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE });
+  const matches = (response.data.values || [])
+    .map((row, index) => ({ row, rowNumber: index + 2, status: String(row[9] ?? "").trim() }))
+    .filter(({ row }) =>
+      String(row[0] ?? "").trim() &&
+      String(row[1] ?? "").trim().toLowerCase() === input.documentType &&
+      String(row[2] ?? "").trim().toLowerCase() === number,
+    );
+  const entry = pickScanReturnEntry(matches);
+  const plan = scanReturnPlan(entry?.status);
+  const now = new Date().toISOString();
+  const stamp = [actor.userId, actor.fullName, now];
+
+  if (plan === "create") {
+    const customerName = (await input.resolveCustomerName?.().catch(() => undefined)) || "";
+    const row = [
+      crypto.randomUUID(), input.documentType, input.documentNumber.trim(), customerName,
+      actor.userId, actor.fullName, actor.userId, actor.fullName, now,
+      "returned", "", "", "", SCAN_RETURN_NOTE, "internal",
+      ...stamp, // P:R received
+      ...stamp, // S:U verified
+    ];
+    await sheets.spreadsheets.values.append({ spreadsheetId, range: RANGE, valueInputOption: "USER_ENTERED", requestBody: { values: [row] } });
+    return "created";
+  }
+  if (plan === "skip" || !entry) return entry?.status.toLowerCase() === "unassigned" ? "unassigned" : "already_returned";
+
+  const r = entry.rowNumber;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: [
+        { range: `${SHEET_NAME}!J${r}`, values: [["returned"]] },
+        ...(plan === "return_both" ? [{ range: `${SHEET_NAME}!P${r}:R${r}`, values: [stamp] }] : []),
+        { range: `${SHEET_NAME}!S${r}:U${r}`, values: [stamp] },
+      ],
+    },
+  });
+  return "returned";
+}
+
+/** Runs the tracker step after a scan is saved; never throws. Returns a warning for the uploader, if any. */
+export async function trackerWarningAfterScan(input: Parameters<typeof returnDocumentFromScan>[0]): Promise<string | undefined> {
+  try {
+    const outcome = await returnDocumentFromScan(input);
+    if (outcome === "not_permitted") return "Scan saved. The Document Tracker was not updated because only users who can receive and verify documents update it.";
+    if (outcome === "unassigned") return "Scan saved. Its Document Tracker entry is unassigned, so it was left unchanged.";
+    return undefined;
+  } catch (error) {
+    console.error("Scan saved but the Document Tracker update failed:", error);
+    return `Scan saved, but the Document Tracker was not updated: ${error instanceof Error ? error.message : "unknown error"}`;
+  }
 }

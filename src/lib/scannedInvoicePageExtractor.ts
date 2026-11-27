@@ -5,7 +5,7 @@
  */
 export type PageExtractor = (pageIndex: number, invoiceNo: string) => Promise<File>;
 
-export async function createPageExtractor(bytes: ArrayBuffer): Promise<PageExtractor> {
+export async function createPageExtractor(bytes: ArrayBuffer, filePrefix = "SI"): Promise<PageExtractor> {
   const { PDFDocument } = await import("pdf-lib");
   const source = await PDFDocument.load(bytes);
   return async (pageIndex, invoiceNo) => {
@@ -13,6 +13,6 @@ export async function createPageExtractor(bytes: ArrayBuffer): Promise<PageExtra
     const [page] = await output.copyPages(source, [pageIndex]);
     output.addPage(page);
     const pdfBytes = await output.save();
-    return new File([pdfBytes as Uint8Array<ArrayBuffer>], `SI ${invoiceNo}.pdf`, { type: "application/pdf" });
+    return new File([pdfBytes as Uint8Array<ArrayBuffer>], `${filePrefix} ${invoiceNo}.pdf`, { type: "application/pdf" });
   };
 }

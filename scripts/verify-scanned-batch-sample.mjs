@@ -2,7 +2,7 @@
  * Manual check (not CI): runs the browser's number-reading pipeline in Node on a
  * real scanned batch and prints the invoice number read from each page.
  *
- * Usage: node scripts/verify-scanned-batch-sample.mjs <scan.pdf> [expected,numbers,...]
+ * Usage: node scripts/verify-scanned-batch-sample.mjs <scan.pdf> [expected,numbers,...] [si|dr]
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -17,9 +17,11 @@ const require = createRequire(import.meta.url);
 const source = fs.readFileSync("src/lib/scannedInvoiceBatch.ts", "utf8");
 const rules = { exports: {} };
 new Function("module", "exports", ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(rules, rules.exports);
-const { NUMBER_CROP, redInkMask, pickInvoiceNumber } = rules.exports;
+const { SERVICE_INVOICE_PROFILE, DELIVERY_RECEIPT_PROFILE, inkMask, pickInvoiceNumber } = rules.exports;
 
-const [file, expectedArg] = process.argv.slice(2);
+const [file, expectedArg, kind = "si"] = process.argv.slice(2);
+const profile = kind === "dr" ? DELIVERY_RECEIPT_PROFILE : SERVICE_INVOICE_PROFILE;
+const NUMBER_CROP = profile.crop;
 if (!file) throw new Error("Pass the scanned PDF path.");
 const expected = expectedArg ? expectedArg.split(",") : [];
 
@@ -39,7 +41,7 @@ for (let n = 1; n <= pdf.numPages; n++) {
   const w = Math.round(canvas.width * (NUMBER_CROP.x1 - NUMBER_CROP.x0)), h = Math.round(canvas.height * (NUMBER_CROP.y1 - NUMBER_CROP.y0));
   const crop = canvas.getContext("2d").getImageData(x, y, w, h);
   const masked = createCanvas(w, h);
-  masked.getContext("2d").putImageData(new ImageData(redInkMask(crop.data), w, h), 0, 0);
+  masked.getContext("2d").putImageData(new ImageData(inkMask(profile, crop.data), w, h), 0, 0);
 
   const { data } = await worker.recognize(masked.toBuffer("image/png"));
   const read = pickInvoiceNumber(data.text);

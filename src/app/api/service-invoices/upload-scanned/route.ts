@@ -1,4 +1,6 @@
 import { recordServiceInvoiceScan } from "@/lib/serviceInvoiceSheets";
+import { trackerWarningAfterScan } from "@/lib/documentHandoverSheets";
+import { getCompanies } from "@/lib/companySheets";
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
@@ -117,11 +119,25 @@ export async function POST(req: NextRequest) {
 
     await recordServiceInvoiceScan(invoiceNo, fileLink, session.userId);
 
+    // The signed copy is back: receive and verify it in the Document Tracker.
+    const trackerWarning = await trackerWarningAfterScan({
+      documentType: "service_invoice",
+      documentNumber: invoiceNo,
+      actor: session,
+      resolveCustomerName: async () => {
+        const customer = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!C${siRowIdx + 2}` });
+        const customerId = String(customer.data.values?.[0]?.[0] ?? "").trim();
+        const company = (await getCompanies()).find((c) => c.companyId === customerId || c.id === customerId);
+        return company?.companyName || customerId;
+      },
+    });
+
     return NextResponse.json({
       success: true,
       fileId,
       fileLink,
       fileName,
+      trackerWarning,
     });
   } catch (error) {
     console.error("Scanned Service Invoice upload error:", error);

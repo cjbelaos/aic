@@ -144,6 +144,10 @@ export interface DeliveryReceiptSummary {
   /** No-charge reason/note (columns Z/AA); set only on a no-charge DR. */
   noChargeReason?: string;
   noChargeNote?: string;
+  /** Signed scanned copy (columns AB:AD). */
+  scannedFileLink?: string;
+  scannedAt?: string;
+  scannedBy?: string;
 }
 
 export interface DeliveryPersonOption {

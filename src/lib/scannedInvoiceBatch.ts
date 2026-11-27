@@ -22,6 +22,47 @@ export function redInkMask(data: Uint8ClampedArray): Uint8ClampedArray {
   return out;
 }
 
+/** RGBA in → RGBA out: dark (printed black) pixels black, everything else white. */
+export function darkInkMask(data: Uint8ClampedArray): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    const value = data[i] < DARK_INK_MAX && data[i + 1] < DARK_INK_MAX && data[i + 2] < DARK_INK_MAX ? 0 : 255;
+    out[i] = out[i + 1] = out[i + 2] = value;
+    out[i + 3] = 255;
+  }
+  return out;
+}
+
+const DARK_INK_MAX = 110;
+
+/** How a scanned document type is read: where its number is, what ink it's printed in, and how pages are named. */
+export interface ScanProfile {
+  crop: { x0: number; y0: number; x1: number; y1: number };
+  ink: "red" | "dark";
+  filePrefix: "SI" | "DR";
+  /** Record statuses flagged "Not active" on the check screen. */
+  inactiveStatuses: readonly string[];
+}
+
+export const SERVICE_INVOICE_PROFILE: ScanProfile = {
+  crop: NUMBER_CROP,
+  ink: "red",
+  filePrefix: "SI",
+  inactiveStatuses: ["draft", "cancelled", "void"],
+};
+
+/** The black "DR ####" under "DELIVERY RECEIPT", top right of the generated DR form. */
+export const DELIVERY_RECEIPT_PROFILE: ScanProfile = {
+  crop: { x0: 0.8, y0: 0.065, x1: 0.97, y1: 0.1 },
+  ink: "dark",
+  filePrefix: "DR",
+  inactiveStatuses: ["draft", "pending_approval", "rejected", "cancelled", "deleted"],
+};
+
+export function inkMask(profile: ScanProfile, data: Uint8ClampedArray): Uint8ClampedArray {
+  return profile.ink === "red" ? redInkMask(data) : darkInkMask(data);
+}
+
 /** The longest 3–6 digit run in the OCR text, or null. */
 export function pickInvoiceNumber(ocrText: string): string | null {
   const runs = ocrText.match(/\d{3,6}/g);
@@ -60,12 +101,11 @@ export type BatchRowStatus =
 export interface BatchInvoiceInfo {
   invoiceNo: string;
   companyName: string;
-  total: number;
+  /** Second line of the System column, e.g. "₱18,000.00 · created" or "2026-11-10 · completed". */
+  detail: string;
   status: string;
   hasScan: boolean;
 }
-
-const INACTIVE_STATUSES = new Set(["draft", "cancelled", "void"]);
 
 export function rowStatus(
   invoiceNo: string,
@@ -73,13 +113,14 @@ export function rowStatus(
   invoice: BatchInvoiceInfo | undefined,
   duplicate: boolean,
   uncertain = false,
+  inactiveStatuses: readonly string[] = SERVICE_INVOICE_PROFILE.inactiveStatuses,
 ): BatchRowStatus {
   if (skipped) return "skipped";
   if (!invoiceNo.trim()) return "unread";
   if (duplicate) return "duplicate";
   if (!invoice) return "not_found";
   if (uncertain) return "check_number";
-  if (INACTIVE_STATUSES.has(invoice.status)) return "inactive";
+  if (inactiveStatuses.includes(invoice.status.trim().toLowerCase())) return "inactive";
   if (invoice.hasScan) return "replaces_scan";
   return "match";
 }

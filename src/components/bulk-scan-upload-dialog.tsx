@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileStack, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,7 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 import {
   blocksSave,
   duplicateNumbers,
@@ -24,9 +23,9 @@ import {
   rowStatus,
   type BatchInvoiceInfo,
   type BatchRowStatus,
+  type ScanProfile,
 } from "@/lib/scannedInvoiceBatch";
 import type { PageExtractor } from "@/lib/scannedInvoicePageExtractor";
-import type { ServiceInvoiceSummary } from "@/types/serviceInvoice";
 
 type SaveState = "idle" | "saving" | "saved" | "failed";
 
@@ -50,6 +49,8 @@ interface BatchRow {
   replace: boolean;
   saveState: SaveState;
   error?: string;
+  /** Saved, but a follow-up step (Document Tracker, DR status) did not run. */
+  warning?: string;
 }
 
 const STATUS_LABELS: Record<BatchRowStatus, string> = {
@@ -74,10 +75,6 @@ const STATUS_CLASSES: Record<BatchRowStatus, string> = {
   skipped: "text-muted-foreground",
 };
 
-function peso(value: number) {
-  return value.toLocaleString("en-PH", { style: "currency", currency: "PHP" });
-}
-
 function errorMessage(error: unknown) {
   const err = error as { response?: { data?: { error?: string } }; message?: string };
   return err?.response?.data?.error || err?.message || "Upload failed.";
@@ -86,14 +83,25 @@ function errorMessage(error: unknown) {
 export function BulkScanUploadDialog({
   open,
   onOpenChange,
-  invoices,
+  profile,
+  title,
+  documentLabel,
+  numberLabel,
+  records: invoiceInfo,
   upload,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  invoices: ServiceInvoiceSummary[];
-  upload: (invoiceNo: string, file: File) => Promise<{ fileLink: string }>;
+  /** How this document type's number is read and its pages named. */
+  profile: ScanProfile;
+  title: string;
+  /** Plural noun for the description, e.g. "Service Invoices" or "Delivery Receipts". */
+  documentLabel: string;
+  numberLabel: string;
+  /** Records the pages are matched against, keyed by document number. */
+  records: Map<string, BatchInvoiceInfo>;
+  upload: (number: string, file: File) => Promise<{ fileLink: string; trackerWarning?: string; statusWarning?: string }>;
   onSaved: () => void;
 }) {
   const [rows, setRows] = useState<BatchRow[]>([]);
@@ -103,20 +111,6 @@ export function BulkScanUploadDialog({
   const nextFileIdRef = useRef(1);
   const mountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const invoiceInfo = useMemo(() => {
-    const map = new Map<string, BatchInvoiceInfo>();
-    for (const invoice of invoices) {
-      map.set(invoice.invoiceNo, {
-        invoiceNo: invoice.invoiceNo,
-        companyName: invoice.companyName,
-        total: invoiceTotals(invoice).grandTotal,
-        status: invoice.status,
-        hasScan: invoice.scannedStatus === "scanned",
-      });
-    }
-    return map;
-  }, [invoices]);
 
   // Saved rows stay counted for duplicates: the page is still part of this batch.
   const heldBack = rows.map(
@@ -128,7 +122,7 @@ export function BulkScanUploadDialog({
 
   const statuses = rows.map((row) => {
     const number = row.invoiceNo.trim();
-    return rowStatus(number, row.skipped, invoiceInfo.get(number), duplicates.has(number), row.uncertain);
+    return rowStatus(number, row.skipped, invoiceInfo.get(number), duplicates.has(number), row.uncertain, profile.inactiveStatuses);
   });
   const pendingIndexes = rows
     .map((row, index) => index)
@@ -200,7 +194,7 @@ export function BulkScanUploadDialog({
       setProgress({ file: i + 1, files: pdfs.length, done: 0, total: 0 });
       let result: Awaited<ReturnType<typeof analyze>>;
       try {
-        result = await analyze(file, (done, total) => {
+        result = await analyze(file, profile, (done, total) => {
           if (mountedRef.current) setProgress({ file: i + 1, files: pdfs.length, done, total });
         });
       } catch (error) {
@@ -242,8 +236,9 @@ export function BulkScanUploadDialog({
     const invoiceNo = row.invoiceNo.trim();
     updateRow(index, { saveState: "saving", error: undefined });
     try {
-      await upload(invoiceNo, await extractPage(row.pageIndex, invoiceNo));
-      updateRow(index, { saveState: "saved" });
+      const result = await upload(invoiceNo, await extractPage(row.pageIndex, invoiceNo));
+      const warning = [result.statusWarning, result.trackerWarning].filter(Boolean).join(" ");
+      updateRow(index, { saveState: "saved", warning: warning || undefined });
       return true;
     } catch (error) {
       updateRow(index, { saveState: "failed", error: errorMessage(error) });
@@ -266,9 +261,9 @@ export function BulkScanUploadDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-5xl max-h-[90vh] flex flex-col" showCloseButton={!saving && !reading}>
         <DialogHeader>
-          <DialogTitle>Bulk upload scans</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Choose one or more PDFs of scanned Service Invoices. Each page is matched to its invoice number. Check every row, then save.
+            Choose one or more PDFs of scanned {documentLabel}. Each page is matched by the number printed on it. Check every row, then save.
           </DialogDescription>
         </DialogHeader>
 
@@ -295,7 +290,7 @@ export function BulkScanUploadDialog({
                 <tr className="border-b text-left">
                   <th className="p-2">File · Page</th>
                   <th className="p-2">Scan</th>
-                  <th className="p-2">Invoice No.</th>
+                  <th className="p-2">{numberLabel}</th>
                   <th className="p-2">System</th>
                   <th className="p-2">Status</th>
                   <th className="p-2">Replace?</th>
@@ -328,7 +323,7 @@ export function BulkScanUploadDialog({
                             onChange={(event) => updateRow(index, { invoiceNo: event.target.value.replace(/\D/g, ""), uncertain: false })}
                             disabled={locked}
                             inputMode="numeric"
-                            aria-label={`Invoice number for page ${row.pageIndex + 1} of ${row.fileName}`}
+                            aria-label={`${numberLabel} for page ${row.pageIndex + 1} of ${row.fileName}`}
                             className="h-8 w-24 tabular-nums"
                           />
                         </div>
@@ -338,7 +333,7 @@ export function BulkScanUploadDialog({
                           <div>
                             <div className="font-medium">{info.companyName}</div>
                             <div className="text-xs text-muted-foreground tabular-nums">
-                              {peso(info.total)} · {info.status}
+                              {info.detail}
                             </div>
                           </div>
                         ) : (
@@ -347,7 +342,10 @@ export function BulkScanUploadDialog({
                       </td>
                       <td className="p-2">
                         {row.saveState === "saved" ? (
-                          <Badge variant="outline" className="border-green-600 text-green-700 dark:text-green-400">Saved</Badge>
+                          <div className="flex flex-col items-start gap-1">
+                            <Badge variant="outline" className="border-green-600 text-green-700 dark:text-green-400">Saved</Badge>
+                            {row.warning && <div className="max-w-56 text-xs text-amber-700 dark:text-amber-400">{row.warning}</div>}
+                          </div>
                         ) : row.saveState === "saving" ? (
                           <Badge variant="outline"><Loader2 className="mr-1 h-3 w-3 animate-spin" />Saving</Badge>
                         ) : row.saveState === "failed" ? (

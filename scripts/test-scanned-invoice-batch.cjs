@@ -25,7 +25,7 @@ assert.equal(rules.pickInvoiceNumber(''), null);
 assert.equal(rules.pickInvoiceNumber('12'), null);
 
 // Row status precedence: skipped → unread → duplicate → not_found → inactive → replaces_scan → match.
-const info = (over = {}) => ({ invoiceNo: '1817', companyName: 'X', total: 1, status: 'created', hasScan: false, ...over });
+const info = (over = {}) => ({ invoiceNo: '1817', companyName: 'X', detail: '', status: 'created', hasScan: false, ...over });
 assert.equal(rules.rowStatus('', false, undefined, false), 'unread');
 assert.equal(rules.rowStatus('9999', false, undefined, false), 'not_found');
 assert.equal(rules.rowStatus('11599', false, undefined, false), 'not_found');
@@ -75,6 +75,34 @@ assert.equal(rules.isHeldBack(info({ hasScan: true }), true), false);
 assert.equal(rules.isHeldBack(info(), false), false);
 assert.equal(rules.isHeldBack(undefined, false), false);
 
+// DR numbers are printed in black: dark pixels kept, light and red dropped.
+assert.deepEqual([...rules.darkInkMask(Uint8ClampedArray.from([30, 30, 30, 255, 240, 240, 240, 255, 200, 50, 50, 255]))], [0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255]);
+assert.deepEqual([...rules.inkMask(rules.SERVICE_INVOICE_PROFILE, Uint8ClampedArray.from([200, 50, 50, 255]))], [0, 0, 0, 255]);
+assert.deepEqual([...rules.inkMask(rules.DELIVERY_RECEIPT_PROFILE, Uint8ClampedArray.from([200, 50, 50, 255]))], [255, 255, 255, 255]);
+assert.equal(rules.DELIVERY_RECEIPT_PROFILE.filePrefix, 'DR');
+
+// Each profile has its own "Not active" statuses.
+const drInactive = rules.DELIVERY_RECEIPT_PROFILE.inactiveStatuses;
+assert.equal(rules.rowStatus('4030', false, info({ status: 'cancelled' }), false, false, drInactive), 'inactive');
+assert.equal(rules.rowStatus('4030', false, info({ status: 'pending_approval' }), false, false, drInactive), 'inactive');
+assert.equal(rules.rowStatus('4030', false, info({ status: 'printed' }), false, false, drInactive), 'match');
+assert.equal(rules.rowStatus('4030', false, info({ status: 'void' }), false, false, drInactive), 'match');
+
+// A saved scan returns its Document Tracker entry.
+const scanReturn = load('src/lib/documentScanReturn.ts');
+assert.equal(scanReturn.scanReturnPlan(undefined), 'create');
+assert.equal(scanReturn.scanReturnPlan('handed_over'), 'return_both');
+assert.equal(scanReturn.scanReturnPlan('received_by_after_sales'), 'verify_only');
+assert.equal(scanReturn.scanReturnPlan('returned'), 'skip');
+assert.equal(scanReturn.scanReturnPlan('unassigned'), 'skip');
+assert.equal(scanReturn.pickScanReturnEntry([{ id: 'a', status: 'unassigned' }, { id: 'b', status: 'handed_over' }]).id, 'b');
+assert.equal(scanReturn.pickScanReturnEntry([{ id: 'a', status: 'returned' }]).id, 'a');
+assert.equal(scanReturn.pickScanReturnEntry([]), undefined);
+
+// A signed DR scan completes only an issued DR.
+for (const status of ['created', 'printed', ' Printed ']) assert.equal(scanReturn.drCompletesOnScan(status), true, status);
+for (const status of ['draft', 'pending_approval', 'rejected', 'cancelled', 'deleted', 'completed', '', undefined]) assert.equal(scanReturn.drCompletesOnScan(status), false, String(status));
+
 async function pageExtractorTests() {
   const { PDFDocument } = require('pdf-lib');
   const extractor = load('src/lib/scannedInvoicePageExtractor.ts');
@@ -93,6 +121,9 @@ async function pageExtractorTests() {
   assert.deepEqual(single.getPage(0).getSize(), { width: 300, height: 400 });
 
   // A PDF pdf-lib cannot read fails when the batch is opened, not after the user has checked every row.
+  const dr = await extractor.createPageExtractor(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), 'DR');
+  assert.equal((await dr(0, '4030')).name, 'DR 4030.pdf');
+
   await assert.rejects(() => extractor.createPageExtractor(new TextEncoder().encode('not a pdf').buffer));
 }
 

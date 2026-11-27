@@ -88,15 +88,19 @@ async function main() {
   const disabledPdf=load('src/app/api/service-invoices/save-pdf/route.ts',{'@/lib/auth/session':{requireAuthenticatedSession:async()=>session}});
   assert.equal((await disabledPdf.POST()).status,410);
   // Upload persistence uses the signed actor; the service must send the invoice number.
-  let scanSaved;
+  let scanSaved, trackerStep;
   const upload=load('src/app/api/service-invoices/upload-scanned/route.ts',{
     '@/lib/auth/session':{requireAuthenticatedSession:async()=>session},
     '@/lib/googleSheets':{getSheetsClient:async()=>sheets,getDatabaseSpreadsheetId:async()=>'fixture',getDriveUploadClient:async()=>({files:{create:async()=>({data:{id:'newscan'}})},permissions:{create:async()=>{}}})},
     '@/lib/serviceInvoiceSheets':{recordServiceInvoiceScan:async(no,link,actor)=>{scanSaved={no,link,actor};}},
+    '@/lib/documentHandoverSheets':{trackerWarningAfterScan:async(input)=>{trackerStep=input;return undefined;}},
+    '@/lib/companySheets':{getCompanies:async()=>[]},
   });
   const form=new FormData();form.append('invoiceNo','1002');form.append('file',new File(['PDF fixture'],'scan.pdf',{type:'application/pdf'}));
   assert.equal((await upload.POST(new Request('http://test',{method:'POST',body:form}))).status,200);
   assert.deepEqual(scanSaved,{no:'1002',link:'https://drive.google.com/file/d/newscan/view',actor:'admin'});
+  // The saved scan then returns its Document Tracker entry as the uploader.
+  assert.equal(trackerStep.documentType,'service_invoice');assert.equal(trackerStep.documentNumber,'1002');assert.equal(trackerStep.actor,session);
   let posted;
   const service=load('src/lib/services/service-invoice.service.ts',{axios:{post:async(_url,data)=>{posted=data;return {data:{fileLink:'scan'}};}}}).default;
   await service.uploadScanned('1002',new File(['PDF fixture'],'scan.pdf',{type:'application/pdf'}));
