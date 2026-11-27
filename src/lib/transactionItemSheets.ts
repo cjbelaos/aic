@@ -1,4 +1,6 @@
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { col, ref, sheetRows } from "@/lib/db/sheetRows";
 import { isMissingSheetError, parseSheetNumber } from "@/lib/sheets.utils";
 import type { PurchaseOrderItem } from "@/types/purchaseOrder";
 import type { DeliveryItem } from "@/types/deliveryReceipt";
@@ -45,10 +47,12 @@ export async function renamePurchaseOrderItemReferences(fromPONumber: string, to
 }
 
 export async function getDeliveryItems(): Promise<Map<number, DeliveryItem[]>> {
-  const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:L` }); const result = new Map<number, DeliveryItem[]>();
-    for (const row of response.data.values ?? []) { const { drNumber: dr, status, item } = parseDeliveryItemRow(row); if (!dr || status === "deleted") continue;
+    const rows = isPostgresBackend()
+      ? await sheetRows("aic.delivery_receipt_items", [col("dr_number"), col("item_no"), ref("product_id", "ProductId"), col("product_code_snapshot"), col("description_snapshot"), col("quantity"), col("unit_snapshot"), col("status"), col("delivery_receipt_item_id"), ref("sales_order_item_id", "SalesOrderItemId"), col("serial_numbers"), col("warehouse_sources")])
+      : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: `${DR_SHEET}!A2:L` })).data.values;
+    const result = new Map<number, DeliveryItem[]>();
+    for (const row of rows ?? []) { const { drNumber: dr, status, item } = parseDeliveryItemRow(row); if (!dr || status === "deleted") continue;
       result.set(dr, [...(result.get(dr) ?? []), item]); }
     return result;
   } catch (error) { if (isMissingSheetError(error)) return new Map(); throw error; }

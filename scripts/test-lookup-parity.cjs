@@ -80,6 +80,7 @@ async function main() {
     await compare('product units', () => load('src/lib/productReferenceSheets.ts').getProductUnits(), { key: 'unitId' });
     await compare('users', () => load('src/lib/userSheets.ts').getUsers(), { key: 'userId' });
     await compare('delivered-by options', () => load('src/lib/deliverySheets.ts').getDriversFromSheets(), {});
+    await compare('delivery receipts (with items)', () => load('src/lib/deliverySheets.ts').getDeliveryReceipts(), { key: 'drNumber' });
     console.log('Lookup parity tests passed.');
   } finally {
     if (globalThis.__aicPgPool) await globalThis.__aicPgPool.end();

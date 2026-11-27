@@ -6,7 +6,7 @@ import {
 } from "@/lib/googleSheets";
 import { Readable } from "stream";
 import { isPostgresBackend } from "@/lib/db/postgres";
-import { bool, col, sheetRows } from "@/lib/db/sheetRows";
+import { bool, col, iso, ref, sheetRows } from "@/lib/db/sheetRows";
 import { getCompanies } from "@/lib/companySheets";
 import { validateForCompany } from "@/lib/deliveryPrintForm";
 import {
@@ -223,17 +223,25 @@ export async function getDeliverySalesOrderLinks(): Promise<Map<number, string>>
   return links;
 }
 
+// DeliveryReceipts!A:AD in PostgreSQL (aic.delivery_receipts), for DATA_BACKEND=postgres.
+const DELIVERY_RECEIPT_COLUMNS = [
+  col("dr_number"), col("delivery_date"), ref("company_id", "CompanyId"), col("po_number"), col("sales_order_no"),
+  col("sr_number"), col("comments"), col("prepared_by"), col("delivered_by"), iso("created_at"), col("status"),
+  col("drive_file_link"), col("created_by"), col("updated_by"), iso("updated_at"), col("delivered_by_id"),
+  col("delivered_by_type"), col("delivered_by_option_id"), ref("sales_order_id", "SalesOrderId"),
+  ref("warehouse_id", "WarehouseId"), col("approved_by"), iso("approved_at"), col("approval_note"),
+  col("requested_status"), col("for_company_id"), col("no_charge_reason"), col("no_charge_note"),
+  col("scanned_file_link"), iso("scanned_at"), col("scanned_by"),
+];
+
 export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    const drResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: DELIVERY_RECEIPTS_READ_RANGE,
-    });
-
-    const drRows = drResponse.data.values;
+    const drRows = isPostgresBackend()
+      ? await sheetRows("aic.delivery_receipts", DELIVERY_RECEIPT_COLUMNS)
+      : (await (await getSheetsClient()).spreadsheets.values.get({
+          spreadsheetId: await getDatabaseSpreadsheetId(),
+          range: DELIVERY_RECEIPTS_READ_RANGE,
+        })).data.values;
     if (!drRows || drRows.length === 0) return [];
 
     // Items live in the canonical DeliveryReceiptItems tab, grouped by DR number.
