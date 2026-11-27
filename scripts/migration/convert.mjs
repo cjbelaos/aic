@@ -14,6 +14,16 @@ const serialToMs = (serial) => SERIAL_EPOCH_MS + Math.round(serial * DAY_MS);
 const validIsoDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && isoDate(Date.parse(`${s}T00:00:00Z`)) === s;
 const WALL_CLOCK = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}(?::\d{2})?)$/;
 
+/**
+ * Decimal text for a Sheet number without binary float noise. App-side float sums left values such as
+ * 25996.5599999999 (displayed 25996.56). Rounding to 12 significant digits is used only when it yields a
+ * short decimal (noise removed); genuinely long values such as coordinates keep all 15 reliable digits.
+ */
+export function exactNumeric(r) {
+  const short = Number(r.toPrecision(12));
+  return String((String(short).split(".")[1] || "").length <= 6 ? short : Number(r.toPrecision(15)));
+}
+
 /** Converts one cell to the JSON value Postgres receives for `type`. Returns null for blank, FAIL when unparseable. */
 export function convert(type, f, r) {
   const s = String(f ?? "").trim();
@@ -29,8 +39,7 @@ export function convert(type, f, r) {
       return /^-?\d+$/.test(t) && Math.abs(Number(t)) <= 2147483647 ? Number(t) : FAIL;
     }
     case "n": {
-      // Number#toString is the shortest round-trip form of the stored double, so it keeps the exact Sheet value.
-      if (typeof r === "number") return Number.isFinite(r) ? String(r) : FAIL;
+      if (typeof r === "number") return Number.isFinite(r) ? exactNumeric(r) : FAIL;
       const t = s.replace(/,/g, "");
       return /^-?\d+(\.\d+)?$/.test(t) ? t : FAIL;
     }

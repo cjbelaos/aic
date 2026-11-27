@@ -16,6 +16,13 @@ test("integers and exact numerics", () => {
   assert.equal(convert("i", "-1764230400", -1764230400), -1764230400); // DR draft placeholder
   assert.equal(convert("n", "₱1,234.50", 1234.5), "1234.5");
   assert.equal(convert("n", "0.1", 0.1), "0.1");
+  assert.equal(convert("n", "25,996.56", 25996.559999999998), "25996.56");
+  assert.equal(convert("n", "0.3", 0.1 + 0.2), "0.3");
+  assert.equal(convert("n", "14.5995", 14.599512345678901), "14.5995123456789");
+  assert.equal(convert("n", "25,996.56", 25996.5599999999), "25996.56");
+  assert.equal(convert("n", "7,941.41", 7941.40999999999), "7941.41");
+  assert.equal(convert("n", "121.0590502", 121.05905020232), "121.05905020232");
+  assert.equal(convert("n", "0.125", 0.125), "0.125");
   assert.equal(convert("n", "1,234.50", "1,234.50"), "1234.50");
   assert.equal(convert("n", "N/A", "N/A"), FAIL);
   assert.equal(convert("n", "NULL", "NULL"), null);
