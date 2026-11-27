@@ -2,7 +2,7 @@
 import { DatePickerInput, MonthPickerInput } from "@/components/ui/date-picker";
 import { InvoiceDiscountEditor } from "@/components/invoice-discount-editor";
 import { defaultDiscount } from "@/lib/discounts";
-import { invoiceItemsFromDelivery } from "@/lib/serviceInvoicePresentation";
+import { invoiceItemsDiffer, invoiceItemsFromDelivery, salesOrderInvoiceItems } from "@/lib/serviceInvoicePresentation";
 import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
 
 import { InvoiceReferenceTypeSelector } from "@/components/delivery-release-reference-field";
@@ -333,6 +333,8 @@ export default function ServiceInvoicesClient({
     null,
   );
   const [editLineItems, setEditLineItems] = useState<LineItem[]>([]);
+  // Current SO / DR lines for a draft corrected copy, to flag items copied from a since-changed order.
+  const [correctedCopySource, setCorrectedCopySource] = useState<{ label: string; items: LineItem[] } | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editDrNumber, setEditDrNumber] = useState("");
   const [editSalesOrderId, setEditSalesOrderId] = useState("");
@@ -561,11 +563,7 @@ export default function ServiceInvoicesClient({
     salesOrderService.get(linkedSalesOrderId).then(detail => {
       if (!active) return;
       setOrderItemsError("");
-      setLineItems(detail.items.filter(item => item.lineStatus === "ACTIVE" && item.priceSource !== "NOT_PRICED" && !item.quotationLineReference.endsWith(":SHIPPING")).map(item => ({
-        salesOrderItemId: item.salesOrderItemId, productId: item.productId,
-        description: item.description, quantity: Math.max(0, (item.quantity ?? 0) - item.cancelledQty),
-        unitPrice: (item.unitPrice ?? 0) * (item.taxMode === "VAT_EXCLUSIVE" ? 1 + item.taxRate : 1),
-      })).filter(item => item.quantity > 0));
+      setLineItems(salesOrderInvoiceItems(detail.items));
       setCreateCategories(detail.category.split(" / ").filter(category => SALES_INVOICE_CATEGORIES.some(allowed => allowed === category)));
     }).catch(() => { if (active) { setOrderItemsError("Failed to load Sales Order items. Reselect the order to retry."); toast.error("Failed to load Sales Order items. Reselect the order to retry."); } }).finally(() => { if (active) setLoadedOrderItemsId(linkedSalesOrderId); });
     return () => { active = false; };
@@ -577,11 +575,26 @@ export default function ServiceInvoicesClient({
     salesOrderService.get(editSalesOrderId).then(detail => {
       if (!active) return;
       setOrderItemsError("");
-      setEditLineItems(detail.items.filter(item => item.lineStatus === "ACTIVE" && item.priceSource !== "NOT_PRICED" && !item.quotationLineReference.endsWith(":SHIPPING")).map(item => ({ salesOrderItemId: item.salesOrderItemId, productId: item.productId, description: item.description, quantity: Math.max(0, (item.quantity ?? 0) - item.cancelledQty), unitPrice: (item.unitPrice ?? 0) * (item.taxMode === "VAT_EXCLUSIVE" ? 1 + item.taxRate : 1) })).filter(item => item.quantity > 0));
+      setEditLineItems(salesOrderInvoiceItems(detail.items));
       setEditManualCategories(detail.category.split(" / ").filter(category => SALES_INVOICE_CATEGORIES.some(allowed => allowed === category)));
     }).catch(() => { if (active) { setOrderItemsError("Failed to load Sales Order items. Reselect the order to retry."); toast.error("Failed to load Sales Order items."); } }).finally(() => { if (active) setLoadedEditOrderItemsId(editSalesOrderId); });
     return () => { active = false; };
   }, [isSales, editTarget, editSalesOrderId]);
+
+  useEffect(() => {
+    setCorrectedCopySource(null);
+    if (!editTarget?.replacesInvoiceNo || editTarget.status !== "draft" || editTarget.billingMode === "PMS_CONTRACT" || editTarget.contractId) return;
+    let active = true;
+    (async () => {
+      const dr = editTarget.drNumber ? (await deliveryService.getAll()).find(row => row.drNumber === editTarget.drNumber) : undefined;
+      const orderId = dr ? dr.salesOrderId : editTarget.salesOrderId;
+      const order = orderId ? await salesOrderService.get(orderId) : undefined;
+      if (!active) return;
+      if (dr && !isSales) setCorrectedCopySource({ label: `DR #${dr.drNumber}${order ? ` / ${order.order.salesOrderNo}` : ""}`, items: invoiceItemsFromDelivery(dr.items, order?.items) });
+      else if (order) setCorrectedCopySource({ label: order.order.salesOrderNo, items: salesOrderInvoiceItems(order.items) });
+    })().catch(() => { /* The notice is advisory; the save still validates against the SO. */ });
+    return () => { active = false; };
+  }, [editTarget, isSales]);
 
   const loadingOrderItems = isSales && modalOpen && !!linkedSalesOrderId && loadedOrderItemsId !== linkedSalesOrderId;
   const loadingEditOrderItems = isSales && !!editTarget && !!editSalesOrderId && editSalesOrderId !== editTarget.salesOrderId && loadedEditOrderItemsId !== editSalesOrderId;
@@ -2948,6 +2961,25 @@ export default function ServiceInvoicesClient({
 
             {/* Items Section */}
             <div className="space-y-2">
+              {correctedCopySource && editStatus === "draft" && invoiceItemsDiffer(editLineItems, correctedCopySource.items) && (
+                <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">
+                  <p>
+                    {correctedCopySource.label} has changed since invoice #{editTarget?.replacesInvoiceNo} was issued. These items may be out of date.
+                    {" "}Current total: ₱{invoiceTotals({ items: correctedCopySource.items, invoiceKind }).grandTotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (!window.confirm(`Replace the current items with the items from ${correctedCopySource.label}?`)) return;
+                      setEditLineItems(correctedCopySource.items.map(item => ({ ...item })));
+                    }}
+                  >
+                    Refresh items
+                  </Button>
+                </div>
+              )}
               <div className="flex justify-between items-center">
                 <Label className="text-base font-semibold">Items</Label>
                 <Button size="sm" variant="outline" onClick={addEditLineItem} disabled={editBillingMode === "PMS_CONTRACT"}>

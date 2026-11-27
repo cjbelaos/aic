@@ -21,6 +21,23 @@ export function invoicePrintItems(items: ServiceInvoiceItem[], context?: Service
     : items;
 }
 
+/** Billable SO lines as invoice items: active, priced, not shipping, uncancelled quantity, VAT-inclusive price. */
+export function salesOrderInvoiceItems(orderItems: readonly SalesOrderItem[]): ServiceInvoiceItem[] {
+  return orderItems
+    .filter(item => item.lineStatus === "ACTIVE" && item.priceSource !== "NOT_PRICED" && !item.quotationLineReference.endsWith(":SHIPPING"))
+    .map(item => ({ salesOrderItemId: item.salesOrderItemId, productId: item.productId, description: item.description,
+      quantity: Math.max(0, (item.quantity ?? 0) - item.cancelledQty),
+      unitPrice: (item.unitPrice ?? 0) * (item.taxMode === "VAT_EXCLUSIVE" ? 1 + item.taxRate : 1) }))
+    .filter(item => item.quantity > 0);
+}
+
+/** True when two item lists differ in description, quantity or price (to the centavo), ignoring line order. */
+export function invoiceItemsDiffer(current: readonly ServiceInvoiceItem[], source: readonly ServiceInvoiceItem[]): boolean {
+  const key = (item: ServiceInvoiceItem) => `${item.description.trim().replace(/\s+/g, " ").toUpperCase()}|${Number(item.quantity) || 0}|${Math.round((Number(item.unitPrice) || 0) * 100)}`;
+  const a = current.map(key).sort(), b = source.map(key).sort();
+  return a.length !== b.length || a.some((value, index) => value !== b[index]);
+}
+
 /** Only an unambiguous, active SO line supplies a price. DR quantities always win. */
 export function invoiceItemsFromDelivery(items: DeliveryItem[], orderItems: readonly SalesOrderItem[] = []): ServiceInvoiceItem[] {
   return items.map(item => {
