@@ -45,10 +45,10 @@ function columnSql(tab: string, header: string | undefined, index: number): stri
 }
 
 /** Rows of a tab with the given headers, in that order (for modules that know their header list). */
-export async function sheetRowsByHeaders(tab: string, headers: readonly string[]): Promise<string[][]> {
+export async function sheetRowsByHeaders(tab: string, headers: readonly string[], where = "true", params: unknown[] = []): Promise<string[][]> {
   const spec = SHEET_COLUMNS[tab];
   if (!spec) throw new Error(`Tab "${tab}" is not mapped to PostgreSQL.`);
-  return sheetRows(spec.table, headers.map((header) => columnSql(tab, header, spec.headers.indexOf(header))));
+  return sheetRows(spec.table, headers.map((header) => columnSql(tab, header, spec.headers.indexOf(header))), where, params);
 }
 
 /** Rows of a tab for an A1 data range such as "Tab!A2:AD" (data rows only, starting at row 2). */

@@ -1,5 +1,6 @@
 import { parseDiscountJson } from "../discounts";
-import { isPostgresBackend } from "@/lib/db/postgres";
+import { currentActor, inTransaction, isPostgresBackend, txQuery } from "@/lib/db/postgres";
+import { upsertSheetRows } from "@/lib/db/sheetWrites";
 import { sheetRowsByHeaders } from "@/lib/db/sheetRows";
 import { isBillingType } from "./billing.ts";
 // Sales Orders — Google Sheets repository and column contract.
@@ -524,9 +525,43 @@ function commandResult(commandType: string, payload: DirectWritePayload, order: 
 export async function writeSalesOrderCommand<T = Record<string, unknown>>(
   command: DirectWriteCommand,
 ): Promise<DirectWriteResult<T>> {
-  return withDirectWriteLock(async () => {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
+  if (isPostgresBackend()) return writeSalesOrderCommandPg<T>(command);
+  return withDirectWriteLock(async () => runSalesOrderCommand<T>(await getSheetsClient(), await getDatabaseSpreadsheetId(), command));
+}
+
+type SheetsClient = Awaited<ReturnType<typeof getSheetsClient>>;
+
+/**
+ * PostgreSQL: runs the same command logic (replay check, version check, number assignment, row
+ * building) against a stand-in client that reads this order, its command record and the sequences
+ * from the database; the rows it would write are upserted by key in the caller's transaction.
+ */
+async function writeSalesOrderCommandPg<T>(command: DirectWriteCommand): Promise<DirectWriteResult<T>> {
+  return inTransaction(currentActor() ?? command.actorUserId, async () => {
+    await txQuery("select pg_advisory_xact_lock(hashtext('aic:sales-orders'))");
+    const orderId = command.payload.order?.salesOrderId ?? command.payload.salesOrderId ?? command.salesOrderId ?? "";
+    const rowsFor = (tab: string): Promise<unknown[][]> => {
+      if (tab === TAB_ORDERS) return sheetRowsByHeaders(tab, TAB_HEADERS[tab], "sales_order_id = $1", [orderId]);
+      if (tab === TAB_COMMANDS) return sheetRowsByHeaders(tab, TAB_HEADERS[tab], "command_id = $1", [command.commandId]);
+      if (tab === TAB_SEQUENCES) return sheetRowsByHeaders(tab, TAB_HEADERS[tab]);
+      return Promise.resolve([]); // other tabs are only read for row positions, which do not apply here
+    };
+    let writes: Array<{ range: string; values: unknown[][] }> = [];
+    const standIn = { spreadsheets: { values: {
+      batchGet: async ({ ranges }: { ranges: string[] }) => ({ data: { valueRanges: await Promise.all(ranges.map(async (range) => ({ range, values: await rowsFor(range.split("!")[0]) }))) } }),
+      batchUpdate: async ({ requestBody }: { requestBody: { data: Array<{ range: string; values: unknown[][] }> } }) => { writes = requestBody.data; return {}; },
+    } } } as unknown as SheetsClient;
+    const result = await runSalesOrderCommand<T>(standIn, "", command);
+    for (const { range, values } of writes) {
+      const tab = range.split("!")[0];
+      await upsertSheetRows(tab, TAB_HEADERS[tab], values);
+    }
+    return result;
+  });
+}
+
+async function runSalesOrderCommand<T>(sheets: SheetsClient, spreadsheetId: string, command: DirectWriteCommand): Promise<DirectWriteResult<T>> {
+  {
     const tabs = [TAB_ORDERS, TAB_ITEMS, TAB_HISTORY, TAB_DOCUMENTS, TAB_FULFILLMENTS, TAB_DOCUMENT_LINKS, TAB_SEQUENCES, TAB_COMMANDS] as const;
     const ranges = tabs.map((tab) => `${tab}!A2:${headerEndColumn(TAB_HEADERS[tab].length)}`);
     const read = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
@@ -616,11 +651,23 @@ export async function writeSalesOrderCommand<T = Record<string, unknown>>(
       requestBody: { valueInputOption: "RAW", data: updates },
     });
     return { ok: true, replayed: false, result: result as T };
-  });
+  }
 }
 
 /** Removes a never-confirmed draft and its dependent rows from the canonical store. */
 export async function deleteDraftSalesOrderRows(salesOrderId: string): Promise<void> {
+  if (isPostgresBackend()) {
+    await inTransaction(currentActor() ?? "system:sales-orders", async () => {
+      await txQuery("select pg_advisory_xact_lock(hashtext('aic:sales-orders'))");
+      const [order] = await txQuery<{ order_status: string | null }>("select order_status from aic.sales_orders where sales_order_id = $1 for update", [salesOrderId]);
+      if (!order) throw new Error(`Sales Order ${salesOrderId} was not found.`);
+      if (order.order_status !== "DRAFT") throw new Error("Only draft Sales Orders can be deleted.");
+      for (const table of ["sales_order_document_links", "sales_order_fulfillments", "sales_order_documents", "sales_order_history", "sales_order_items", "sales_orders"]) {
+        await txQuery(`delete from aic.${table} where sales_order_id = $1`, [salesOrderId]);
+      }
+    });
+    return;
+  }
   await withDirectWriteLock(async () => {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();
