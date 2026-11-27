@@ -9,7 +9,7 @@ Snapshot `snapshot-staging-1`, captured 2026-11-27 08:40 UTC (sha256 `81c7a0cf�
 | Finding | Rows | Cause | Disposition |
 | --- | --- | --- | --- |
 | DR items under a negative draft number with no DR row | 107 (13 drafts) | **App bug, fixed** (`1a0e80e` on `main`). Promoting a draft with edited items wrote them under the real DR number and left the placeholder copies. 12 drafts match issued DRs 3708, 3741, 3772, 3773, 3916, 3917, 3930, 3931, 3933, 3967, 4019 and 4090. | Excluded (`report.excluded`). The live sheet still holds the copies, which is harmless. |
-| Draft −1795437044 (23 Nov), `DeliveryReceiptItems` row 1450 | 1 | No issued DR matches. | Excluded. **Owner:** check the row and delete it if it is junk. |
+| Draft −1795437044 (23 Nov), `DeliveryReceiptItems` row 1450 | 1 | No issued DR matches. A deleted draft, confirmed by Chris on 2026-11-27. | Excluded. Resolved. |
 | Two different contacts share `cont_25` (rows 25 and 26) | 1 | **App bug, open.** New contact IDs are `cont_<rowCount+1>` (`companyContactSheets.ts:87`), and deletes remove rows, so the next contact reuses a live ID. | Second contact kept as `cont_25~r26` (`report.rekeyed`). Nothing references contacts by ID. |
 | FTIDetails `Kilometer` / `FuelPrice` / `TollFee` = literal `"NULL"` | 141 cells, 33 FTIs | Older FTI code wrote the text `NULL` for blank amounts. All are on `SAVED` (unsubmitted) FTIs, Oct 2025–Jul 2026. | Imported as SQL null. |
 
