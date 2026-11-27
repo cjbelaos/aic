@@ -50,7 +50,8 @@
     "test:db-idempotency": "node --env-file=.env.local scripts/test-db-idempotency.cjs",
     "test:db-outbox-sequences": "node --env-file=.env.local scripts/test-db-outbox-sequences.cjs",
     "test:handover-postgres": "node --env-file=.env.local scripts/test-handover-postgres.cjs",
-    "test:releases-inventory-postgres": "node --env-file=.env.local scripts/test-releases-inventory-postgres.cjs"
+    "test:releases-inventory-postgres": "node --env-file=.env.local scripts/test-releases-inventory-postgres.cjs",
+    "test:dr-writes-postgres": "node --env-file=.env.local scripts/test-dr-writes-postgres.cjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.11",

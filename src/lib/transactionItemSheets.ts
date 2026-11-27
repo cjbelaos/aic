@@ -1,5 +1,5 @@
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
-import { isPostgresBackend } from "@/lib/db/postgres";
+import { isPostgresBackend, txQuery } from "@/lib/db/postgres";
 import { col, ref, sheetRows } from "@/lib/db/sheetRows";
 import { isMissingSheetError, parseSheetNumber } from "@/lib/sheets.utils";
 import type { PurchaseOrderItem } from "@/types/purchaseOrder";
@@ -58,7 +58,25 @@ export async function getDeliveryItems(): Promise<Map<number, DeliveryItem[]>> {
   } catch (error) { if (isMissingSheetError(error)) return new Map(); throw error; }
 }
 
+/** DeliveryReceiptItems!A:L columns, in order (deliveryItemRowValues builds the row). */
+const DR_ITEM_COLUMNS = ["dr_number", "item_no", "product_id", "product_code_snapshot", "description_snapshot", "quantity", "unit_snapshot", "status", "delivery_receipt_item_id", "sales_order_item_id", "serial_numbers", "warehouse_sources"];
+
+/** PostgreSQL: the DR's item rows are replaced in the save's transaction, in item order. */
+async function replaceDeliveryItemsPg(drNumber: number, items: DeliveryItem[]): Promise<void> {
+  await txQuery("delete from aic.delivery_receipt_items where dr_number = $1", [drNumber]);
+  if (!items.length) return;
+  const [{ next }] = await txQuery<{ next: number }>("select coalesce(max(line_no), 0) + 1 as next from aic.delivery_receipt_items");
+  for (const [index, item] of items.entries()) {
+    const row = deliveryItemRowValues(drNumber, index, item).map((v) => (String(v ?? "").trim() === "" ? null : v));
+    await txQuery(
+      `insert into aic.delivery_receipt_items (line_no, ${DR_ITEM_COLUMNS.join(", ")}) values ($1, ${DR_ITEM_COLUMNS.map((_, i) => `$${i + 2}`).join(", ")})`,
+      [next + index, ...DR_ITEM_COLUMNS.map((_, i) => row[i] ?? null)],
+    );
+  }
+}
+
 export async function replaceDeliveryItems(drNumber: number, items: DeliveryItem[]): Promise<void> {
+  if (isPostgresBackend()) return replaceDeliveryItemsPg(drNumber, items);
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:L` }).catch(() => ({ data: { values: [] } })); const rows = existing.data.values ?? [];
   const matches = rows.map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) => Number(row[0]) === drNumber);
@@ -67,6 +85,8 @@ export async function replaceDeliveryItems(drNumber: number, items: DeliveryItem
 
 /** Repoints existing item rows when a draft DR is finalized to a real DR number. */
 export async function renameDeliveryItemReferences(fromDrNumber: number, toDrNumber: number): Promise<void> {
+  // PostgreSQL: renumbering the DR already moved its items (ON UPDATE CASCADE); this catches any left over.
+  if (isPostgresBackend()) { await txQuery("update aic.delivery_receipt_items set dr_number = $2 where dr_number = $1", [fromDrNumber, toDrNumber]); return; }
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:A` }).catch(() => ({ data: { values: [] } }));
   const rows = (existing.data.values ?? []).map((row, index) => ({ value: Number(row[0]), rowNumber: index + 2 })).filter((row) => row.value === fromDrNumber);
@@ -77,6 +97,16 @@ export async function renameDeliveryItemReferences(fromDrNumber: number, toDrNum
 /** Writes only column K (serials) for the given active item rows of one DR. */
 export async function updateDeliveryItemSerials(drNumber: number, updates: SerialUpdate[]): Promise<void> {
   if (!updates.length) return;
+  if (isPostgresBackend()) {
+    for (const update of updates) {
+      const changed = await txQuery(
+        "update aic.delivery_receipt_items set serial_numbers = $3 where dr_number = $1 and delivery_receipt_item_id = $2 and coalesce(status, 'active') <> 'deleted' returning 1",
+        [drNumber, update.deliveryReceiptItemId, serialCellValue(update.serialNumbers) || null],
+      );
+      if (!changed.length) throw new Error(`Delivery line ${update.deliveryReceiptItemId} was not found on DR #${drNumber}.`);
+    }
+    return;
+  }
   const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
   const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DR_SHEET}!A2:L` });
   const rowById = new Map<string, number>();

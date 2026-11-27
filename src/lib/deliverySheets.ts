@@ -5,8 +5,15 @@ import {
   getDriveUploadClient,
 } from "@/lib/googleSheets";
 import { Readable } from "stream";
-import { isPostgresBackend } from "@/lib/db/postgres";
-import { bool, col, iso, ref, sheetRows, sheetRowsForRange } from "@/lib/db/sheetRows";
+import { currentActor, inTransaction, isPostgresBackend } from "@/lib/db/postgres";
+import { bool, col, sheetRows, sheetRowsForRange } from "@/lib/db/sheetRows";
+import { nextDrNumber } from "@/lib/db/sequences";
+import { enqueueSideEffect } from "@/lib/db/outbox";
+import {
+  DELIVERY_RECEIPT_COLUMNS, appendDrStatusHistoryPg, drNumberExistsPg, readDrRowPg, setDrStatusPg, updateDrExtrasPg, writeDrHeaderPg,
+} from "@/lib/deliveries/postgresDeliveryWrites";
+
+type SheetsClient = Awaited<ReturnType<typeof getSheetsClient>>;
 import { getCompanies } from "@/lib/companySheets";
 import { validateForCompany } from "@/lib/deliveryPrintForm";
 import {
@@ -223,16 +230,6 @@ export async function getDeliverySalesOrderLinks(): Promise<Map<number, string>>
   return links;
 }
 
-// DeliveryReceipts!A:AD in PostgreSQL (aic.delivery_receipts), for DATA_BACKEND=postgres.
-const DELIVERY_RECEIPT_COLUMNS = [
-  col("dr_number"), col("delivery_date"), ref("company_id", "CompanyId"), col("po_number"), col("sales_order_no"),
-  col("sr_number"), col("comments"), col("prepared_by"), col("delivered_by"), iso("created_at"), col("status"),
-  col("drive_file_link"), col("created_by"), col("updated_by"), iso("updated_at"), col("delivered_by_id"),
-  col("delivered_by_type"), col("delivered_by_option_id"), ref("sales_order_id", "SalesOrderId"),
-  ref("warehouse_id", "WarehouseId"), col("approved_by"), iso("approved_at"), col("approval_note"),
-  col("requested_status"), col("for_company_id"), col("no_charge_reason"), col("no_charge_note"),
-  col("scanned_file_link"), iso("scanned_at"), col("scanned_by"),
-];
 
 export async function getDeliveryReceipts(): Promise<DeliveryReceiptSummary[]> {
   try {
@@ -472,9 +469,12 @@ export async function processDeliveryReceipt(
   payload: CreateDeliveryPayload,
   userId = "",
 ): Promise<DeliveryReceiptResponse> {
+  // PostgreSQL: the whole save (DR, items, handover, PDF job) is one transaction.
+  if (isPostgresBackend() && !currentActor()) return inTransaction(userId || "system:delivery", () => processDeliveryReceipt(payload, userId));
+  const pg = isPostgresBackend();
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const sheets = pg ? (undefined as unknown as SheetsClient) : await getSheetsClient();
+    const spreadsheetId = pg ? "" : await getDatabaseSpreadsheetId();
 
     // 1. DR Number — either manual override, auto-generate, or negative placeholder for drafts
     let drNumber: number;
@@ -507,14 +507,13 @@ export async function processDeliveryReceipt(
         );
       }
       // Check for duplicates (only positive numbers are checked)
-      const allRows = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${DELIVERY_RECEIPTS_SHEET}!A2:A`,
-      });
-      const existingNums = (allRows.data.values || [])
-        .map((row) => parseInt(String(row[0] ?? "").trim(), 10))
-        .filter((n) => !isNaN(n) && n > 0);
-      if (existingNums.includes(payload.drNumber)) {
+      const taken = pg
+        ? await drNumberExistsPg(payload.drNumber)
+        : ((await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!A2:A` })).data.values || [])
+            .map((row) => parseInt(String(row[0] ?? "").trim(), 10))
+            .filter((n) => !isNaN(n) && n > 0)
+            .includes(payload.drNumber);
+      if (taken) {
         throw new Error(
           `DR #${payload.drNumber} already exists. Please choose a different number.`,
         );
@@ -525,7 +524,7 @@ export async function processDeliveryReceipt(
       // so multiple drafts can coexist without consuming real sequence numbers
       drNumber = -Math.floor(Date.now() / 1000);
     } else {
-      drNumber = await generateNextDrNumber(sheets, spreadsheetId);
+      drNumber = pg ? await nextDrNumber() : await generateNextDrNumber(sheets, spreadsheetId);
     }
 
     // 2. Company details
@@ -581,6 +580,8 @@ export async function processDeliveryReceipt(
       referenceRow.salesOrderId, // S: immutable SalesOrderId
     ];
 
+    // PostgreSQL: the header row is written first; the handover commit then joins the same transaction.
+    if (pg) await writeDrHeaderPg(headerRow);
     if (!isHeld) {
       await commitDocumentWithHandover(
         { sheet: "DeliveryReceipts", row: headerRow },
@@ -588,7 +589,7 @@ export async function processDeliveryReceipt(
           assignedToId: payload.deliveredById, assignedToName: payload.deliveredBy,
           assigneeType: payload.deliveredByType || "internal", assignedBy: userId, assignedByName: payload.preparedBy || userId },
       );
-    } else {
+    } else if (!pg) {
       await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: DELIVERY_RECEIPTS_RANGE,
@@ -601,17 +602,24 @@ export async function processDeliveryReceipt(
     await replaceDeliveryItems(drNumber, payload.items);
 
     // 3c. Warehouse and approval stamp (columns T:W)
-    await writeInventoryColumns(sheets, spreadsheetId, await findDrRow(sheets, spreadsheetId, drNumber), {
+    if (pg) {
+      await updateDrExtrasPg(drNumber, {
+        warehouseId: payload.warehouseId || "", approvedBy: payload.approvedBy || "", approvedAt: payload.approvedAt || "",
+        approvalNote: payload.approvalNote || "", requestedStatus: payload.requestedStatus || "",
+        forCompanyId: payload.forCompanyId || undefined,
+        noChargeReason: referenceRow.noChargeReason || undefined, noChargeNote: referenceRow.noChargeReason ? referenceRow.noChargeNote ?? "" : undefined,
+      });
+    } else await writeInventoryColumns(sheets, spreadsheetId, await findDrRow(sheets, spreadsheetId, drNumber), {
       warehouseId: payload.warehouseId || "",
       approvedBy: payload.approvedBy || "",
       approvedAt: payload.approvedAt || "",
       approvalNote: payload.approvalNote || "",
       requestedStatus: payload.requestedStatus || "",
     });
-    if (payload.forCompanyId) {
+    if (!pg && payload.forCompanyId) {
       await writeForCompanyColumn(sheets, spreadsheetId, await findDrRow(sheets, spreadsheetId, drNumber), payload.forCompanyId);
     }
-    if (referenceRow.noChargeReason) {
+    if (!pg && referenceRow.noChargeReason) {
       await writeNoChargeColumns(sheets, spreadsheetId, await findDrRow(sheets, spreadsheetId, drNumber),
         referenceRow.noChargeReason, referenceRow.noChargeNote ?? "");
     }
@@ -621,7 +629,10 @@ export async function processDeliveryReceipt(
     let pdfBase64: string | undefined;
     let printUrl: string | undefined;
 
-    if (!isHeld) {
+    if (!isHeld && pg) {
+      // The PDF is exported after commit by the outbox runner, never inside the save.
+      await enqueueSideEffect("dr.pdf", String(drNumber), {});
+    } else if (!isHeld) {
       await sheets.spreadsheets.values.clear({
         spreadsheetId,
         range: `${PRINT_TEMPLATE_SHEET}!A13:C35`,
@@ -750,18 +761,28 @@ export async function updateDeliveryReceipt(
   payload: UpdateDeliveryPayload,
   userId = "",
 ): Promise<DeliveryReceiptSummary> {
+  // PostgreSQL: the whole edit (header, items, history, handover) is one transaction.
+  if (isPostgresBackend() && !currentActor()) return inTransaction(userId || "system:delivery", () => updateDeliveryReceipt(drNumber, payload, userId));
+  const pg = isPostgresBackend();
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const sheets = pg ? (undefined as unknown as SheetsClient) : await getSheetsClient();
+    const spreadsheetId = pg ? "" : await getDatabaseSpreadsheetId();
 
-    const drRowNumber = await findDrRow(sheets, spreadsheetId, drNumber);
-    if (drRowNumber <= 1) throw new Error(`DR #${drNumber} not found.`);
-
-    const currentResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:AA${drRowNumber}`,
-    });
-    const currentRow = currentResponse.data.values?.[0] || [];
+    let drRowNumber = 0;
+    let currentRow: unknown[];
+    if (pg) {
+      const row = await readDrRowPg(drNumber);
+      if (!row) throw new Error(`DR #${drNumber} not found.`);
+      currentRow = row;
+    } else {
+      drRowNumber = await findDrRow(sheets, spreadsheetId, drNumber);
+      if (drRowNumber <= 1) throw new Error(`DR #${drNumber} not found.`);
+      const currentResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:AA${drRowNumber}`,
+      });
+      currentRow = currentResponse.data.values?.[0] || [];
+    }
     // FOR client (column Y): changing the company clears it unless a new one is sent.
     // Only a changed value is validated, so a client later re-pointed elsewhere
     // doesn't block unrelated edits.
@@ -805,7 +826,7 @@ export async function updateDeliveryReceipt(
     // a real sequential DR number now so the finalized receipt has one.
     let effectiveDrNumber = drNumber;
     if (drNumber <= 0 && !isHeldDrStatus(newStatus)) {
-      effectiveDrNumber = await generateNextDrNumber(sheets, spreadsheetId);
+      effectiveDrNumber = pg ? await nextDrNumber() : await generateNextDrNumber(sheets, spreadsheetId);
     }
 
     // Reference: an explicit mode decides columns E and S, so switching modes
@@ -878,6 +899,8 @@ export async function updateDeliveryReceipt(
 
     const companies = await getCompanies().catch(() => []);
     const company = companies.find(c => c.companyId === updatedRow[2] || c.id === updatedRow[2]);
+    // PostgreSQL: write the header (renumbering a promoted draft; references follow), then the handover joins the transaction.
+    if (pg) await writeDrHeaderPg(updatedRow, drNumber);
     if (!["draft", "pending_approval", "rejected", "deleted", "cancelled", "void"].includes(newStatus)) {
       await commitDocumentWithHandover(
         { sheet: "DeliveryReceipts", row: updatedRow, rowNumber: drRowNumber },
@@ -886,7 +909,7 @@ export async function updateDeliveryReceipt(
           assigneeType: updatedRow[16] === "external" ? "external" : "internal",
           assignedBy: userId, assignedByName: String(updatedRow[7] || userId) },
       );
-    } else {
+    } else if (!pg) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
         range: `${DELIVERY_RECEIPTS_SHEET}!A${drRowNumber}:S${drRowNumber}`,
@@ -902,18 +925,30 @@ export async function updateDeliveryReceipt(
       approvalNote: payload.approvalNote ?? String(currentRow[22] ?? "").trim(),
       requestedStatus: payload.requestedStatus ?? String(currentRow[23] ?? "").trim(),
     };
-    await writeInventoryColumns(sheets, spreadsheetId, drRowNumber, inventoryColumns);
-    if (nextForCompanyId !== storedForCompanyId) {
-      await writeForCompanyColumn(sheets, spreadsheetId, drRowNumber, nextForCompanyId);
-    }
-    if (referenceRow.noChargeReason !== undefined) {
-      await writeNoChargeColumns(sheets, spreadsheetId, drRowNumber, referenceRow.noChargeReason, referenceRow.noChargeNote ?? "");
+    if (pg) {
+      await updateDrExtrasPg(effectiveDrNumber, {
+        ...inventoryColumns,
+        forCompanyId: nextForCompanyId !== storedForCompanyId ? nextForCompanyId : undefined,
+        noChargeReason: referenceRow.noChargeReason,
+        noChargeNote: referenceRow.noChargeReason !== undefined ? referenceRow.noChargeNote ?? "" : undefined,
+      });
+    } else {
+      await writeInventoryColumns(sheets, spreadsheetId, drRowNumber, inventoryColumns);
+      if (nextForCompanyId !== storedForCompanyId) {
+        await writeForCompanyColumn(sheets, spreadsheetId, drRowNumber, nextForCompanyId);
+      }
+      if (referenceRow.noChargeReason !== undefined) {
+        await writeNoChargeColumns(sheets, spreadsheetId, drRowNumber, referenceRow.noChargeReason, referenceRow.noChargeNote ?? "");
+      }
     }
     const nextNoChargeReason = referenceRow.noChargeReason ?? storedReference.noChargeReason;
     const nextNoChargeNote = referenceRow.noChargeNote ?? storedReference.noChargeNote;
 
     // ── Log status change to DRStatusHistory if status actually changed ──
-    if (newStatus !== oldStatus) {
+    if (newStatus !== oldStatus && pg) {
+      // In the save's transaction: a failure here fails the save instead of leaving a gap in the history.
+      await appendDrStatusHistoryPg(effectiveDrNumber, oldStatus, newStatus, userId || "System", updatedAt);
+    } else if (newStatus !== oldStatus) {
       try {
         await sheets.spreadsheets.values.append({
           spreadsheetId,
@@ -988,7 +1023,29 @@ export async function updateDeliveryReceipt(
  * Also cancels linked ContractRelease rows and recalculates ContractPeriodSummary.
  * DR number is preserved (no gaps) for BIR compliance.
  */
+/** PostgreSQL delete: the same steps as the Sheets path, in one transaction. */
+async function deleteDeliveryReceiptPg(drNumber: number, actor: Actor, roleId: number): Promise<void> {
+  await inTransaction(currentActor() ?? actor.userId, async () => {
+    const row = await readDrRowPg(drNumber);
+    if (!row) throw new Error(`DR #${drNumber} not found.`);
+    const salesOrderId = String(row[18] ?? "").trim();
+    if (salesOrderId) {
+      const permission = can("so.fulfill", { roleId, actorUserId: actor.userId });
+      if (!permission.allowed) throw forbidden(permission.reason || "Sales Order fulfillment permission is required to delete a linked receipt.");
+    }
+    await setDrStatusPg(drNumber, "deleted");
+    if (salesOrderId) {
+      const { reverseDeletedDeliveryReleaseFulfillment } = await import("@/lib/deliverySalesOrderIntegration");
+      await reverseDeletedDeliveryReleaseFulfillment(drNumber, actor);
+    }
+    await replaceDeliveryItems(drNumber, []);
+    const { markDrReleasesDeleted } = await import("@/lib/contractReleaseSheets");
+    await markDrReleasesDeleted(drNumber);
+  });
+}
+
 export async function deleteDeliveryReceipt(drNumber: number, actor: Actor, roleId: number): Promise<void> {
+  if (isPostgresBackend()) return deleteDeliveryReceiptPg(drNumber, actor, roleId);
   try {
     const sheets = await getSheetsClient();
     const spreadsheetId = await getDatabaseSpreadsheetId();

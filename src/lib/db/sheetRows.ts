@@ -1,4 +1,4 @@
-import { dbQuery } from "@/lib/db/postgres";
+import { currentActor, dbQuery, txQuery } from "@/lib/db/postgres";
 import { SHEET_COLUMNS } from "@/lib/db/sheetColumns.generated";
 
 /**
@@ -25,10 +25,13 @@ export const bool = (name: string) => `case when ${name} then 'TRUE' when not ${
 
 const TABLE = /^aic\.[a-z_]+$/;
 
-export async function sheetRows(table: string, columns: string[], where = "true"): Promise<string[][]> {
+export async function sheetRows(table: string, columns: string[], where = "true", params: unknown[] = []): Promise<string[][]> {
   if (!TABLE.test(table)) throw new Error(`Invalid table name: ${table}`);
-  const rows = await dbQuery<{ r: string[] }>(
+  // Inside a save, read through its transaction so the save sees its own writes.
+  const run = currentActor() ? txQuery : dbQuery;
+  const rows = await run<{ r: string[] }>(
     `select array[${columns.join(", ")}] as r from ${table} where ${where} order by source_row nulls last, created_at nulls last`,
+    params,
   );
   return rows.map((row) => row.r);
 }

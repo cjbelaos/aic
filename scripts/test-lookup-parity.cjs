@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Parity harness: Sheets path vs PostgreSQL path. */
 // Runs each migrated read twice: on the Sheets path fed by the captured snapshot (as the Sheets API
 // returned it) and on the PostgreSQL path against the database imported from that same snapshot.
-// The results must match record for record.
+// The results must match record for record. Run right after an import: use of staging (sign-ins, saves) changes the data.
 //   node --env-file=.env.local scripts/test-lookup-parity.cjs [snapshotDir]
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -88,7 +88,7 @@ async function main() {
     await compare('active supplier products', () => load('src/lib/supplierProductSheets.ts').getSupplierProducts({ status: 'active' }), { key: 'supplierProductId' });
     await compare('product categories', () => load('src/lib/productReferenceSheets.ts').getProductCategories(), { key: 'productCategoryId' });
     await compare('product units', () => load('src/lib/productReferenceSheets.ts').getProductUnits(), { key: 'unitId' });
-    await compare('users', () => load('src/lib/userSheets.ts').getUsers(), { key: 'userId' });
+    await compare('users', () => load('src/lib/userSheets.ts').getUsers(), { key: 'userId', ignore: ['lastLogin'] }); // sign-ins on staging update lastLogin
     await compare('delivered-by options', () => load('src/lib/deliverySheets.ts').getDriversFromSheets(), {});
     await compare('delivery receipts (with items)', () => load('src/lib/deliverySheets.ts').getDeliveryReceipts(), { key: 'drNumber' });
     const so = () => load('src/lib/salesOrders/repository.ts');
