@@ -22,6 +22,18 @@ function getSessionSecret(): string {
   return secret;
 }
 
+/**
+ * Optional allow-list for restricted deployments (staging). When
+ * ACCESS_ALLOWED_USER_IDS holds comma-separated user IDs, only those users can
+ * sign in or use a session; every other account copied into the environment
+ * is refused. Unset (production), every valid user is allowed.
+ */
+export function isAccessAllowed(userId: string): boolean {
+  const configured = process.env.ACCESS_ALLOWED_USER_IDS?.trim();
+  if (!configured) return true;
+  return configured.split(",").map((id) => id.trim()).filter(Boolean).includes(userId);
+}
+
 function signPayload(payload: string): string {
   return crypto
     .createHmac("sha256", getSessionSecret())
@@ -56,6 +68,7 @@ export function parseSessionToken(token: string): SessionUser | null {
     ) as SessionUser;
 
     if (!parsed.username) return null;
+    if (!isAccessAllowed(parsed.userId)) return null;
     return parsed;
   } catch {
     return null;
