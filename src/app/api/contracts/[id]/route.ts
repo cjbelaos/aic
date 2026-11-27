@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isPmsCycleStart } from "@/lib/contractBillingPeriod";
-import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { requireAdminSession, requireAuthenticatedSession } from "@/lib/auth/session";
 import {
   getContracts,
   updateContractInSheets,
@@ -93,13 +93,14 @@ export async function PUT(
 
 /**
  * DELETE /api/contracts/[id]
- * Removes/clears a contract header row by ID.
+ * Removes a contract and its items. Admins only; refused (409) while invoices
+ * or live releases reference the contract.
  */
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await requireAuthenticatedSession();
+  const session = await requireAdminSession();
   if (session instanceof Response) return session;
 
   try {

@@ -24,3 +24,33 @@ export function duplicateContractIds(ids: string[]): string[] {
   }
   return [...counts].filter(([, count]) => count > 1).map(([id]) => id);
 }
+
+const INACTIVE_RELEASE_STATUSES = new Set(["deleted", "cancelled"]);
+
+/**
+ * Why a contract can't be deleted, or null when it can. Deleting removes the
+ * contract row for good, so it is refused while invoices were billed against
+ * it (ServiceInvoices/SalesInvoices column K) or live releases still point at
+ * it (ContractReleases column C, status column L).
+ */
+export function contractDeleteBlocker(
+  contractId: string,
+  { invoiceRows, releaseRows }: { invoiceRows: unknown[][]; releaseRows: unknown[][] },
+): string | null {
+  const id = contractId.trim();
+  const invoices = [...new Set(invoiceRows
+    .filter((row) => String(row[10] ?? "").trim() === id)
+    .map((row) => String(row[0] ?? "").trim())
+    .filter(Boolean))];
+  const releases = releaseRows.filter((row) =>
+    String(row[2] ?? "").trim() === id && !INACTIVE_RELEASE_STATUSES.has(String(row[11] ?? "").trim().toLowerCase()));
+  const reasons: string[] = [];
+  if (invoices.length) {
+    const shown = invoices.slice(0, 5).join(", ");
+    reasons.push(`${invoices.length} invoice${invoices.length === 1 ? "" : "s"} (${shown}${invoices.length > 5 ? ", …" : ""})`);
+  }
+  if (releases.length) reasons.push(`${releases.length} release${releases.length === 1 ? "" : "s"}`);
+  return reasons.length
+    ? `${id} can't be deleted because ${reasons.join(" and ")} still reference it. Change its status instead.`
+    : null;
+}

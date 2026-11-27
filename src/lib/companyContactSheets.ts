@@ -17,6 +17,20 @@ function getRowFromId(id: string): number {
   return rowNum + 1; // cont_1 → sheet row 2, cont_2 → sheet row 3, etc.
 }
 
+/**
+ * Next stored ContactId (column A). Uses the highest existing cont_<n> rather
+ * than the row count: deleting a contact removes its row, so a count-based ID
+ * would hand out an ID that another contact still holds.
+ */
+export function nextContactId(rows: unknown[][]): string {
+  let max = 0;
+  for (const row of rows) {
+    const match = /^cont_(\d+)$/i.exec(String(row[0] ?? "").trim());
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `cont_${max + 1}`;
+}
+
 function parseIsPrimary(value: string | undefined): boolean {
   if (value === undefined || value === "") return false;
   const v = value.trim().toLowerCase();
@@ -82,12 +96,13 @@ export async function addCompanyContact(
       spreadsheetId,
       range: CONTACTS_RANGE,
     });
-    const rowCount = (response.data.values || []).length;
+    const existingRows = response.data.values || [];
+    const rowCount = existingRows.length;
     const newRowNumber = rowCount + 2; // actual sheet row (row 1 = header)
-    const seqNumber = rowCount + 1; // sequential number starting at 1
+    const seqNumber = rowCount + 1; // row position of the appended contact (its `id`)
 
     const newRowValues = [
-      payload.contactId || `cont_${seqNumber}`,
+      payload.contactId || nextContactId(existingRows),
       payload.companyId || "",
       payload.fullName || "",
       payload.email || "",
