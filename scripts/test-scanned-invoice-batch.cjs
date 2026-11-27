@@ -69,6 +69,12 @@ assert.match(fs.readFileSync('src/app/api/sales-invoices/upload-scanned/route.ts
 assert.equal(rules.rowStatus('1817', false, info({ status: 'draft' }), false), 'inactive');
 assert.equal(rules.blocksSave('inactive'), false);
 
+// An invoice that already has a scan is held back unless Replace is ticked.
+assert.equal(rules.isHeldBack(info({ hasScan: true }), false), true);
+assert.equal(rules.isHeldBack(info({ hasScan: true }), true), false);
+assert.equal(rules.isHeldBack(info(), false), false);
+assert.equal(rules.isHeldBack(undefined, false), false);
+
 async function pageExtractorTests() {
   const { PDFDocument } = require('pdf-lib');
   const extractor = load('src/lib/scannedInvoicePageExtractor.ts');
