@@ -1,4 +1,6 @@
 import { assertQuotationTerms, QuotationError } from "@/lib/quotationTerms";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import { preserveLegacyQuotation, getQuotationHistory } from "@/lib/quotationHistory";
 import { withQuotationLock } from "@/lib/quotationLock";
 import { parseDiscountJson, validateDiscount, type DiscountSettings } from "./discounts";
@@ -95,6 +97,14 @@ async function quotationReadRange(spreadsheetId: string): Promise<string> {
 }
 
 async function fetchAllSheetData(spreadsheetId: string) {
+  if (isPostgresBackend()) {
+    const [quotRows, detailRows, notationRows] = await Promise.all([
+      sheetRowsForRange(`${QUOTATIONS_SHEET}!A2:${columnLetter(QUOTATION_ROW_COLUMN_COUNT - 1)}`),
+      sheetRowsForRange(RANGE_DETAILS),
+      sheetRowsForRange(RANGE_NOTATIONS),
+    ]);
+    return { quotRows, detailRows, notationRows };
+  }
   const sheets = await getSheetsClient();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties" });
   const width = metadata.data.sheets?.find(s => s.properties?.title === QUOTATIONS_SHEET)?.properties?.gridProperties?.columnCount ?? 27;
@@ -310,7 +320,7 @@ function buildQuotationRow(
 
 export async function getQuotations(): Promise<Quotation[]> {
   try {
-    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const spreadsheetId = isPostgresBackend() ? "" : await getDatabaseSpreadsheetId();
     const { quotRows, detailRows, notationRows } =
       await fetchAllSheetData(spreadsheetId);
     if (quotRows.length === 0) return [];

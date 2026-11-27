@@ -1,4 +1,6 @@
 import { invoicePrintItems, serviceOwnerCompanyId, type ServiceInvoiceContext } from "./serviceInvoicePresentation";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import { commitDocumentWithHandover } from "@/lib/documentHandoverCommit";
 import { allocateInvoiceDiscounts, resolveInvoiceDiscount, hydrateInvoiceDiscount, invoiceDiscountSnapshot, invoiceTotals, type InvoiceDiscountData } from "./serviceInvoiceDiscounts";
 import { assertInvoiceFitsOrder, billingTypeForKind, effectiveBillingType, BILLED_INVOICE_STATUSES, SalesOrderBillingError, type InvoiceKind } from "./salesOrders/billing";
@@ -455,18 +457,18 @@ async function recordServiceInvoiceScan(invoiceNo: string, fileLink: string, use
 /** Fetches and groups service invoice rows into summaries by InvoiceNo. */
 async function getServiceInvoices(): Promise<ServiceInvoiceSummary[]> {
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
+    const [invRows, itemsResponse] = isPostgresBackend()
+      ? await Promise.all([sheetRowsForRange(SERVICE_INVOICES_RANGE), sheetRowsForRange(SERVICE_INVOICE_ITEMS_RANGE)])
+      : await (async () => {
+          const sheets = await getSheetsClient();
+          const spreadsheetId = await getDatabaseSpreadsheetId();
+          const [invResponse, items] = await Promise.all([
+            sheets.spreadsheets.values.get({ spreadsheetId, range: SERVICE_INVOICES_RANGE }),
+            readServiceInvoiceItemValues(sheets, spreadsheetId),
+          ]);
+          return [invResponse.data.values, items] as const;
+        })();
 
-    const [invResponse, itemsResponse] = await Promise.all([
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: SERVICE_INVOICES_RANGE,
-      }),
-      readServiceInvoiceItemValues(sheets, spreadsheetId),
-    ]);
-
-    const invRows = invResponse.data.values;
     if (!invRows || invRows.length === 0) return [];
 
     const itemRows = itemsResponse;

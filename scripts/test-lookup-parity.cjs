@@ -24,7 +24,13 @@ function valuesFor(range) {
   const out = rows.slice(Number(m[3]) - 1).map((r) => r.slice(from, to + 1).map((v) => String(v ?? '')));
   return out.map((r) => { while (r.length && r.at(-1) === '') r.pop(); return r; });
 }
-const fakeSheets = { spreadsheets: { values: { get: async ({ range }) => ({ data: { values: valuesFor(range) } }) } } };
+const fakeSheets = { spreadsheets: {
+  get: async () => ({ data: { sheets: Object.entries(snapshot).map(([title, t]) => ({ properties: { title, gridProperties: { columnCount: Math.max(26, (t.formatted[0] || []).length), rowCount: t.formatted.length } } })) } }),
+  values: {
+    get: async ({ range }) => ({ data: { values: valuesFor(range) } }),
+    batchGet: async ({ ranges }) => ({ data: { valueRanges: ranges.map((range) => ({ range, values: valuesFor(range) })) } }),
+  },
+} };
 const mocks = {
   '@/lib/googleSheets': { getSheetsClient: async () => fakeSheets, getDatabaseSpreadsheetId: async () => 'snapshot' },
   'next/headers': { cookies: async () => ({ get: () => undefined }) },
@@ -62,7 +68,7 @@ async function compare(label, run, { key, ignore = [] } = {}) {
   const db = normalize(await run());
   delete process.env.DATA_BACKEND;
   const strip = (rows) => rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !ignore.includes(k))));
-  const a = strip(sheet); const b = strip(db);
+  const a = canonical(strip(sheet)); const b = canonical(strip(db)); // object key order is not significant
   if (key) { a.sort((x, y) => String(x[key]).localeCompare(String(y[key]))); b.sort((x, y) => String(x[key]).localeCompare(String(y[key]))); }
   const firstDiff = a.findIndex((r, i) => JSON.stringify(r) !== JSON.stringify(b[i]));
   if (a.length !== b.length || firstDiff >= 0) {
@@ -92,6 +98,10 @@ async function main() {
     const [{ salesOrderId: sampleOrder }] = await so().readSalesOrders();
     await compare('sales order detail (history)', async () => (await so().readSalesOrderDetailSnapshot(sampleOrder)).history, { key: 'eventId' });
     await compare('sales order detail (documents)', async () => (await so().readSalesOrderDetailSnapshot(sampleOrder)).documents, { key: 'documentId' });
+    await compare('service invoices (with items)', () => load('src/lib/serviceInvoiceSheets.ts').getServiceInvoices(), { key: 'invoiceNo' });
+    await compare('sales invoices (with items)', () => load('src/lib/salesInvoiceSheets.ts').getServiceInvoices(), { key: 'invoiceNo' });
+    await compare('DR to sales order links', async () => [...(await load('src/lib/deliverySheets.ts').getDeliverySalesOrderLinks())].map(([dr, so]) => ({ dr, so })), { key: 'dr' });
+    await compare('quotations (with details and notations)', () => load('src/lib/quotationSheets.ts').getQuotations(), { key: 'quotationNo' });
     console.log('Lookup parity tests passed.');
   } finally {
     if (globalThis.__aicPgPool) await globalThis.__aicPgPool.end();

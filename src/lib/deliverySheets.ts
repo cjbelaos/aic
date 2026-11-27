@@ -6,7 +6,7 @@ import {
 } from "@/lib/googleSheets";
 import { Readable } from "stream";
 import { isPostgresBackend } from "@/lib/db/postgres";
-import { bool, col, iso, ref, sheetRows } from "@/lib/db/sheetRows";
+import { bool, col, iso, ref, sheetRows, sheetRowsForRange } from "@/lib/db/sheetRows";
 import { getCompanies } from "@/lib/companySheets";
 import { validateForCompany } from "@/lib/deliveryPrintForm";
 import {
@@ -212,11 +212,11 @@ export async function getDriversFromSheets(): Promise<DeliveryPersonOption[]> {
 /** Fetches and groups delivery receipt rows into summary objects by DR number. */
 /** Lightweight batch lookup for invoice reporting; no item or company reads. */
 export async function getDeliverySalesOrderLinks(): Promise<Map<number, string>> {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = await getDatabaseSpreadsheetId();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: DELIVERY_RECEIPTS_RANGE });
+  const rows = isPostgresBackend()
+    ? await sheetRowsForRange(DELIVERY_RECEIPTS_RANGE)
+    : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: DELIVERY_RECEIPTS_RANGE })).data.values;
   const links = new Map<number, string>();
-  for (const row of response.data.values ?? []) {
+  for (const row of rows ?? []) {
     const reference = deliveryReferenceFromRow(row);
     if (reference.salesOrderId) links.set(Number(row[0]), reference.salesOrderId);
   }
