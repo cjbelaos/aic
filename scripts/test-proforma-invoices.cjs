@@ -31,6 +31,10 @@ async function main() {
   assert.equal(migrated.imports[0].salesOrderId, "SO1"); assert.equal(sourceRows[1][2], "PFI-012");
   assert.equal(buildProformaMigration(sourceRows, [], migrated.imports, "now").imports.length, 0);
 
+  const companies = [
+    { id: "comp_2", companyId: "COMP-2", companyName: "Legacy Co", tin: "T2", address: "A2", status: "active" },
+    { id: "comp_3", companyId: "COMP-3", companyName: "Old Co", tin: "T3", address: "A3", status: "inactive" },
+  ];
   let documents = [], locked = false, failTracker = false, syncCalls = 0, failStorage = "", mirrored = null, rollbacks = 0;
   const storage = {
     readProformas: async () => structuredClone(documents),
@@ -49,6 +53,7 @@ async function main() {
     if (id === "./tracker") return { prepareProformaTrackerWrite: async (invoice, previous) => ({ apply: async () => { syncCalls++; if (failTracker) throw new Error("Offline"); mirrored = structuredClone(invoice); return 16; }, rollback: async () => { rollbacks++; mirrored = structuredClone(previous); } }) };
     if (id === "./domain") return domain;
     if (id === "@/lib/salesOrders/repository") return { readSalesOrderById: async id => id === "SO1" ? order : null, readSalesOrderItems: async () => [line], readSalesOrders: async () => [order] };
+    if (id === "@/lib/companySheets") return { getCompanies: async () => companies };
     return services(id.startsWith("@/") ? `src/${id.slice(2)}.ts` : id);
   }, mod, mod.exports);
   const service = mod.exports;
@@ -96,6 +101,38 @@ async function main() {
   await assert.rejects(service.changeProforma(afterCancel.id, "cancel", 0, actor), /changed/);
   assert.equal(documents.find(item => item.id === issued.id).status, "CANCELLED");
   await assert.rejects(service.saveProforma({ ...input, id: "draft-0000004", date: "2026-02-30" }, actor), /valid invoice date/);
+
+  // Legacy SO / TR proformas: admin-only, typed TR, customer from Companies, manual lines, no order cap.
+  assert.equal(domain.isLegacyProforma({ salesOrderId: "", importIssue: "" }), true);
+  assert.equal(domain.isLegacyProforma({ salesOrderId: "", importIssue: "REVIEW: unlinked" }), false);
+  assert.equal(domain.isLegacyProforma({ salesOrderId: "SO1", importIssue: "" }), false);
+  const legacyInput = { id: "legacy-0000001", expectedVersion: 0, salesOrderId: "", date: "2026-11-28", drNo: "", notes: "", remarks: "", legacy: { trNo: " 1318 ", customerId: "COMP-2", poNo: "PO-9" }, items: [{ salesOrderItemId: "", productName: "Legacy item", unit: "LOT", quantity: 1, unitPrice: 5000 }] };
+  await assert.rejects(service.saveProforma({ ...legacyInput, issue: true }, actor), /Only admins/);
+  await assert.rejects(service.saveProforma({ ...legacyInput, legacy: { ...legacyInput.legacy, trNo: " 1334" } }, actor, true), /already belongs to Sales Order AIC-SO-2026-1334/);
+  await assert.rejects(service.saveProforma({ ...legacyInput, legacy: { ...legacyInput.legacy, customerId: "COMP-3" } }, actor, true), /active customer/);
+  await assert.rejects(service.saveProforma({ ...legacyInput, legacy: { ...legacyInput.legacy, trNo: "  " } }, actor, true), /TR No/);
+  await assert.rejects(service.saveProforma({ ...legacyInput, items: [{ ...legacyInput.items[0], salesOrderItemId: "L1" }] }, actor, true), /no longer available/);
+  const legacyIssued = await service.saveProforma({ ...legacyInput, issue: true }, actor, true);
+  assert.equal(legacyIssued.status, "ISSUED"); assert.equal(legacyIssued.invoiceNo, "AIC-PFI-000-023");
+  assert.equal(legacyIssued.trNo, "1318"); assert.equal(legacyIssued.salesOrderId, ""); assert.equal(legacyIssued.salesOrderNo, "");
+  assert.equal(legacyIssued.customerId, "COMP-2"); assert.equal(legacyIssued.companyName, "Legacy Co"); assert.equal(legacyIssued.tin, "T2"); assert.equal(legacyIssued.address, "A2");
+  assert.equal(legacyIssued.poNo, "PO-9"); assert.equal(legacyIssued.totalAmount, 5000); assert.equal(mirrored.trNo, "1318");
+  await assert.rejects(service.saveProforma({ ...input, id: legacyIssued.id, expectedVersion: legacyIssued.version }, actor, true), /keep its original/);
+  await assert.rejects(service.saveProforma({ ...legacyInput, id: afterCancel.id, expectedVersion: afterCancel.version }, actor, true), /keep its original/);
+  const legacyEdited = await service.saveProforma({ ...legacyInput, expectedVersion: legacyIssued.version, remarks: "Legacy remark" }, actor, true);
+  assert.equal(legacyEdited.invoiceNo, legacyIssued.invoiceNo); assert.equal(legacyEdited.remarks, "Legacy remark");
+  await assert.rejects(service.saveProforma({ ...legacyInput, expectedVersion: legacyEdited.version }, actor), /Only admins/);
+  const legacyDraft = await service.saveProforma({ ...legacyInput, id: "legacy-0000002" }, actor, true);
+  assert.equal(legacyDraft.status, "DRAFT");
+  await assert.rejects(service.changeProforma(legacyDraft.id, "issue", legacyDraft.version, actor), /Only admins/);
+  const legacyDraftIssued = await service.changeProforma(legacyDraft.id, "issue", legacyDraft.version, actor, undefined, true);
+  assert.equal(legacyDraftIssued.invoiceNo, "AIC-PFI-000-024"); assert.equal(legacyDraftIssued.trNo, "1318"); assert.equal(legacyDraftIssued.companyName, "Legacy Co");
+  await assert.rejects(service.changeProforma(legacyDraftIssued.id, "cancel", legacyDraftIssued.version, actor), /Only admins/);
+  const legacyCancelled = await service.changeProforma(legacyDraftIssued.id, "cancel", legacyDraftIssued.version, actor, undefined, true);
+  assert.equal(legacyCancelled.status, "CANCELLED");
+  const options = await service.proformaOptions(undefined, true);
+  assert.deepEqual(options.companies, [{ id: "COMP-2", name: "Legacy Co" }]);
+  assert.equal((await service.proformaOptions(undefined, false)).companies, undefined);
 
   const trackerRows = Array.from({ length: 17 }, () => []);
   trackerRows[0] = ["TR No.", "Date", "Invoice No.", "Customer Name", "TIN", "Address", "Description", "Total Amount"];

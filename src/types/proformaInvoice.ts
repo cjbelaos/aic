@@ -48,4 +48,11 @@ export interface ProformaInput {
   notes: string;
   remarks: string;
   items: Array<Pick<ProformaItem, "salesOrderItemId" | "productName" | "unit" | "quantity" | "unitPrice">>;
+  /** Admin-only legacy SO / TR reference; used when `salesOrderId` is empty. */
+  legacy?: ProformaLegacyReference;
+}
+export interface ProformaLegacyReference {
+  trNo: string;
+  customerId: string;
+  poNo: string;
 }

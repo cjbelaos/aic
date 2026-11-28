@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { isAdminUser, requireAuthenticatedSession } from "@/lib/auth/session";
 import { readProformas } from "@/lib/proforma/repository";
 import { saveProforma } from "@/lib/proforma/service";
 import { proformaError } from "@/lib/proforma/http";
@@ -15,5 +15,5 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
   if (session instanceof Response) return session;
-  try { return NextResponse.json(await saveProforma(await request.json(), session)); } catch (error) { return proformaError(error); }
+  try { return NextResponse.json(await saveProforma(await request.json(), session, isAdminUser(session))); } catch (error) { return proformaError(error); }
 }

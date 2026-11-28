@@ -15,6 +15,11 @@ export function sequenceOf(value: string): number {
   const match = /^AIC-PFI-(\d{3})-(\d{3})$/.exec(value);
   return match ? Number(match[1] + match[2]) : 0;
 }
+/** A proforma created for a legacy SO / TR typed by an admin. Migrated records
+ * also lack a Sales Order but carry an import note, and keep their own rules. */
+export function isLegacyProforma(invoice: Pick<ProformaInvoice, "salesOrderId" | "importIssue">): boolean {
+  return !invoice.salesOrderId && !invoice.importIssue;
+}
 export function availableOrderItems(items: readonly SalesOrderItem[]): SalesOrderItem[] {
   return items.filter(item => item.lineStatus === "ACTIVE" && (item.quantity ?? 0) > item.cancelledQty && !item.quotationLineReference.endsWith(":SHIPPING"));
 }
