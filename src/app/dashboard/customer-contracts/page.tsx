@@ -2,6 +2,8 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUrlParam } from "@/hooks/use-url-param";
 import { ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown, ExternalLink, FileClock, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -329,6 +331,21 @@ export default function CustomerContractsPage() {
       items: contract.items.filter((item) => item.contractId === contract.id),
     }));
   }, [data, companyMap]);
+
+  // `?contract=CTR-0010` (e.g. from the inactive product bell) opens that contract's details.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  useUrlParam("contract", (id) => {
+    if (loading) return false;
+    const match = groupedContracts.find((contract) => contract.id === id);
+    if (match) setViewTarget(match);
+    return true;
+  });
+  const closeView = () => {
+    setViewTarget(null);
+    if (searchParams.get("contract")) router.replace(pathname, { scroll: false });
+  };
 
   /* ── Columns Definition ───────────────────────────────── */
   const filteredContracts = useMemo(() => groupedContracts.filter(contract =>
@@ -920,7 +937,7 @@ export default function CustomerContractsPage() {
         }}
       />}
 
-      <Dialog open={!!viewTarget} onOpenChange={(open) => !open && setViewTarget(null)}>
+      <Dialog open={!!viewTarget} onOpenChange={(open) => !open && closeView()}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Customer Contract</DialogTitle>
@@ -1017,14 +1034,14 @@ export default function CustomerContractsPage() {
                   toast.error("Customer details could not be found.");
                   return;
                 }
-                setViewTarget(null);
+                closeView();
                 setContactCompany(company);
               }}
               disabled={!viewTarget || !companies.some((item) => item.companyId === viewTarget.companyId)}
             >
               View Customer Contacts
             </Button>
-            <Button variant="outline" onClick={() => setViewTarget(null)}>Close</Button>
+            <Button variant="outline" onClick={closeView}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

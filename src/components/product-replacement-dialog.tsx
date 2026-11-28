@@ -59,7 +59,7 @@ function UsageGroups({ usages, showReason }: { usages: ProductUsage[]; showReaso
           <ul className="ml-4 list-disc text-muted-foreground">
             {list.map((usage, index) => (
               <li key={`${usage.documentId}-${usage.lineLabel}-${index}`}>
-                {usage.documentNo}{usage.lineLabel && type !== "customerPrice" ? ` · ${usage.lineLabel}` : ""}
+                {usage.documentNo}{usage.partyName ? ` · ${usage.partyName}` : ""}{usage.lineLabel && type !== "customerPrice" ? ` · ${usage.lineLabel}` : ""}
                 {showReason && usage.reason ? <span className="text-amber-700 dark:text-amber-400"> — {usage.reason}</span> : null}
               </li>
             ))}

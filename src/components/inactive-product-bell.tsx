@@ -77,6 +77,7 @@ export function InactiveProductBell() {
                     {group.usages.map((usage, index) => (
                       <li key={`${usage.documentType}-${usage.documentId}-${usage.lineLabel}-${index}`} className="flex flex-wrap gap-x-1">
                         <Link href={usage.href} className="underline-offset-2 hover:underline" onClick={() => setOpen(false)}>{usage.documentNo}</Link>
+                        {usage.partyName ? <span className="text-muted-foreground">· {usage.partyName}</span> : null}
                         {usage.lineLabel && usage.documentType !== "customerPrice" ? <span className="text-muted-foreground">· {usage.lineLabel}</span> : null}
                         {usage.reason ? <span className="text-amber-700 dark:text-amber-400">— {usage.reason}</span> : null}
                       </li>

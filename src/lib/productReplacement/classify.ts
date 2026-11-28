@@ -19,14 +19,16 @@ const EDITABLE_QUOTATION_STATUSES = new Set(["DRAFT", "SAVED"]);
 /** Any PO that is neither a draft nor finished has gone to the supplier (created, approved, printed, ...). */
 const FINISHED_PO_STATUSES = new Set(["completed", "cancelled", "deleted"]);
 
-const HREF: Record<UsageDocumentType, (id: string) => string> = {
-  contract: () => "/dashboard/customer-contracts",
-  salesOrder: (id) => `/dashboard/sales-orders/${encodeURIComponent(id)}`,
-  purchaseRequest: () => "/dashboard/purchase-requests",
-  quotation: () => "/dashboard/quotations",
-  purchaseOrder: () => "/dashboard/purchase-orders",
+const q = encodeURIComponent;
+/** Where each usage opens: the record itself, or its list filtered down to it. */
+const HREF: Record<UsageDocumentType, (id: string, no: string, productId: string) => string> = {
+  contract: (id) => `/dashboard/customer-contracts?contract=${q(id)}`,
+  salesOrder: (id) => `/dashboard/sales-orders/${q(id)}`,
+  purchaseRequest: (_id, no) => (no.startsWith("AIC-PR-") ? `/dashboard/purchase-requests?q=${q(no)}` : "/dashboard/purchase-requests"),
+  quotation: (_id, no) => `/dashboard/quotations?q=${q(no)}`,
+  purchaseOrder: (_id, no) => `/dashboard/purchase-orders?q=${q(no)}`,
   customerPrice: () => "/dashboard/customer-prices",
-  supplierProduct: () => "/dashboard/supplier-products",
+  supplierProduct: (_id, _no, productId) => `/dashboard/supplier-products?productId=${q(productId)}`,
 };
 
 /** A usage before a replacement target is known; `apply` builds its edits once one is. */
@@ -47,9 +49,12 @@ interface PlanContext {
 }
 
 const usage = (
-  documentType: UsageDocumentType, productId: string, documentId: string, documentNo: string, lineLabel: string,
+  documentType: UsageDocumentType, productId: string, documentId: string, documentNo: string, partyName: string, lineLabel: string,
   disposition: ProductUsage["disposition"] = "replaceable", reason = "",
-): Candidate["usage"] => ({ documentType, productId, documentId, documentNo, lineLabel, disposition, reason, href: HREF[documentType](documentId) });
+): Candidate["usage"] => ({
+  documentType, productId, documentId, documentNo, partyName, lineLabel, disposition, reason,
+  href: HREF[documentType](documentId, documentNo, productId),
+});
 
 function edit(ctx: PlanContext, sheet: string, rowNumber: number, column: string, oldValue: unknown, newValue: unknown) {
   ctx.edits.push({ sheet, rowNumber, column, oldValue: String(oldValue ?? ""), newValue: String(newValue ?? "") });
@@ -65,7 +70,7 @@ function collectCandidates(snapshot: ReplacementSnapshot, productIds: ReadonlySe
     if (!hits(item.productId) || item.status !== "Active" || !contract) continue;
     if (effectiveContractStatus({ status: contract.status as never, endDate: contract.endDate, agreementType: contract.agreementType as never }, today) !== "Active") continue;
     out.push({
-      usage: usage("contract", item.productId, contract.id, contract.id, item.id),
+      usage: usage("contract", item.productId, contract.id, contract.id, contract.companyName, ""),
       apply: (to, ctx) => {
         edit(ctx, "ContractItems", item.rowNumber, "C", item.productId, to.productId);
         edit(ctx, "ContractItems", item.rowNumber, "D", item.productCode, to.productCode);
@@ -83,11 +88,11 @@ function collectCandidates(snapshot: ReplacementSnapshot, productIds: ReadonlySe
     const label = `Line ${item.lineNo}`;
     const docNo = order.salesOrderNo || "Draft order";
     if (item.fulfilledQty > 0) {
-      out.push({ usage: usage("salesOrder", item.productId, order.salesOrderId, docNo, label, "needs_manual", "partially delivered") });
+      out.push({ usage: usage("salesOrder", item.productId, order.salesOrderId, docNo, order.customerName, label, "needs_manual", "partially delivered") });
       continue;
     }
     out.push({
-      usage: usage("salesOrder", item.productId, order.salesOrderId, docNo, label),
+      usage: usage("salesOrder", item.productId, order.salesOrderId, docNo, order.customerName, label),
       apply: (_to, ctx) => {
         const existing = ctx.salesOrderEdits.get(order.salesOrderId);
         if (existing) existing.itemIds.push(item.salesOrderItemId);
@@ -109,11 +114,11 @@ function collectCandidates(snapshot: ReplacementSnapshot, productIds: ReadonlySe
     const docNo = pr.prNo || "Draft request";
     const label = `Line ${item.lineNo}`;
     if (linked > 0 || item.fromStockQty > 0) {
-      out.push({ usage: usage("purchaseRequest", item.productId, pr.prId, docNo, label, "needs_manual", "already on a PO or taken from stock") });
+      out.push({ usage: usage("purchaseRequest", item.productId, pr.prId, docNo, pr.customerName, label, "needs_manual", "already on a PO or taken from stock") });
       continue;
     }
     out.push({
-      usage: usage("purchaseRequest", item.productId, pr.prId, docNo, label),
+      usage: usage("purchaseRequest", item.productId, pr.prId, docNo, pr.customerName, label),
       apply: (to, ctx) => {
         edit(ctx, "PurchaseRequestItems", item.rowNumber, "D", item.productId, to.productId);
         edit(ctx, "PurchaseRequestItems", item.rowNumber, "E", item.productCode, to.productCode);
@@ -136,12 +141,12 @@ function collectCandidates(snapshot: ReplacementSnapshot, productIds: ReadonlySe
     const quotation = quotations.get(detail.quotationNo);
     if (!hits(detail.productId) || !quotation) continue;
     if (quotation.status === "SENT") {
-      out.push({ usage: usage("quotation", detail.productId, quotation.quotationNo, quotation.quotationNo, "", "needs_manual", "already sent to customer") });
+      out.push({ usage: usage("quotation", detail.productId, quotation.quotationNo, quotation.quotationNo, quotation.customerName, "", "needs_manual", "already sent to customer") });
       continue;
     }
     if (!EDITABLE_QUOTATION_STATUSES.has(quotation.status)) continue;
     out.push({
-      usage: usage("quotation", detail.productId, quotation.quotationNo, quotation.quotationNo, ""),
+      usage: usage("quotation", detail.productId, quotation.quotationNo, quotation.quotationNo, quotation.customerName, ""),
       apply: (to, ctx) => {
         edit(ctx, "QuotationDetails", detail.rowNumber, "B", detail.productId, to.productId);
         edit(ctx, "QuotationDetails", detail.rowNumber, "C", detail.productCode, to.productCode);
@@ -158,11 +163,11 @@ function collectCandidates(snapshot: ReplacementSnapshot, productIds: ReadonlySe
     const label = `Item ${item.itemNo}`;
     if (FINISHED_PO_STATUSES.has(status)) continue;
     if (status !== "draft") {
-      out.push({ usage: usage("purchaseOrder", item.productId, po.poNumber, po.poNumber, label, "needs_manual", "already sent to supplier") });
+      out.push({ usage: usage("purchaseOrder", item.productId, po.poNumber, po.poNumber, po.supplierName, label, "needs_manual", "already sent to supplier") });
       continue;
     }
     out.push({
-      usage: usage("purchaseOrder", item.productId, po.poNumber, po.poNumber, label),
+      usage: usage("purchaseOrder", item.productId, po.poNumber, po.poNumber, po.supplierName, label),
       apply: (to, ctx) => {
         if (item.supplierProductId) {
           const offering = ctx.suppliersWithTargetOffering.get(po.supplierId);
@@ -178,7 +183,7 @@ function collectCandidates(snapshot: ReplacementSnapshot, productIds: ReadonlySe
   for (const price of snapshot.customerPrices) {
     if (!hits(price.productId) || price.status !== "active") continue;
     out.push({
-      usage: usage("customerPrice", price.productId, price.id, price.customerName || price.customerId, String(price.pricePerUnit)),
+      usage: usage("customerPrice", price.productId, price.id, price.customerName || price.customerId, "", String(price.pricePerUnit)),
       apply: (to, ctx) => {
         if (ctx.customersWithTargetPrice.has(price.customerId)) {
           edit(ctx, "CustomerPrices", price.rowNumber, "H", price.status, "inactive");
@@ -196,7 +201,7 @@ function collectCandidates(snapshot: ReplacementSnapshot, productIds: ReadonlySe
   for (const offering of snapshot.supplierProducts) {
     if (!hits(offering.productId) || offering.status !== "active") continue;
     out.push({
-      usage: usage("supplierProduct", offering.productId, offering.id, offering.supplierName || offering.supplierId, ""),
+      usage: usage("supplierProduct", offering.productId, offering.id, offering.supplierName || offering.supplierId, "", ""),
       apply: (to, ctx) => {
         if (ctx.suppliersWithTargetOffering.has(offering.supplierId)) {
           edit(ctx, "SupplierProducts", offering.rowNumber, "I", offering.status, "inactive");

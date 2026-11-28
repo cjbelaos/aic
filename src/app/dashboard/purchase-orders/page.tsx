@@ -17,6 +17,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { EntityTable, ArrowUpDown } from "@/components/ui/entity-table";
+import { useUrlParam } from "@/hooks/use-url-param";
 import { DocumentRegisterHeader } from "@/components/document-register-header";
 import { matchesDocumentSearch } from "@/lib/document-register";
 import { exportPurchaseOrders } from "@/lib/purchaseOrderExport";
@@ -101,6 +102,7 @@ export default function PurchaseOrderPage() {
   const [orders, setOrders] = useState<PurchaseOrderSummary[]>([]);
   const [registerSearch, setRegisterSearch] = useState("");
   const [registerStatus, setRegisterStatus] = useState("all");
+  useUrlParam("q", (value) => { setRegisterSearch(value); setRegisterStatus("all"); return true; });
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const filteredOrders = orders.filter(order => matchesDocumentSearch(registerSearch, [order.poNumber, order.date, order.supplierName, order.totalAmount, order.preparedBy, order.status]) && (registerStatus === "all" || (order.status || "created") === registerStatus));

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EntityTable } from "@/components/ui/entity-table";
+import { useUrlParam } from "@/hooks/use-url-param";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { DocumentRegisterHeader } from "@/components/document-register-header";
@@ -33,6 +34,7 @@ export default function PurchaseRequestsPage() {
   const [forFilter, setForFilter] = useState(ALL);
   const [requesterFilter, setRequesterFilter] = useState(ALL);
   const [range, setRange] = useState<{ from?: Date; to?: Date } | undefined>();
+  useUrlParam("q", (value) => { setSearch(value); setStatus("all"); setRange(undefined); return true; });
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<PrView | null>(null);
   const [viewing, setViewing] = useState<PrView | null>(null);

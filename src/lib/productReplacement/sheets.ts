@@ -71,19 +71,19 @@ export async function readReplacementSnapshot(): Promise<LoadedSnapshot> {
 
   const snapshot: ReplacementSnapshot = {
     products: products.map((p) => ({ productId: p.productId, productCode: p.productCode, productName: p.productName, status: p.status })),
-    contracts: contracts.map((c) => ({ id: c.id, status: c.status, endDate: c.endDate, agreementType: c.agreementType })),
+    contracts: contracts.map((c) => ({ id: c.id, status: c.status, endDate: c.endDate, agreementType: c.agreementType, companyName: companyName.get(c.companyId) ?? "" })),
     contractItems: withRow(raw.contractItems, (row, rowNumber) => text(row[0]) ? {
       id: text(row[0]), contractId: text(row[1]), productId: text(row[2]), productCode: text(row[3]),
       status: text(row[6]) === "Inactive" ? "Inactive" : "Active", rowNumber,
     } : null),
-    salesOrders: so.orders.map((o) => ({ salesOrderId: o.salesOrderId, salesOrderNo: o.salesOrderNo, orderStatus: o.orderStatus, version: o.version })),
+    salesOrders: so.orders.map((o) => ({ salesOrderId: o.salesOrderId, salesOrderNo: o.salesOrderNo, orderStatus: o.orderStatus, version: o.version, customerName: o.customerNameSnapshot })),
     salesOrderItems: so.items.map((i) => ({
       salesOrderItemId: i.salesOrderItemId, salesOrderId: i.salesOrderId, lineNo: i.lineNo, productId: i.productId,
       lineStatus: i.lineStatus, quantity: i.quantity, fulfilledQty: i.fulfilledQty, cancelledQty: i.cancelledQty,
     })),
     purchaseRequests: withRow(raw.prs, (row, rowNumber) => {
       const pr = rowToPr(row);
-      return pr.prId ? { prId: pr.prId, prNo: pr.prNo, status: pr.status, version: pr.version, rowNumber } : null;
+      return pr.prId ? { prId: pr.prId, prNo: pr.prNo, status: pr.status, version: pr.version, rowNumber, customerName: pr.customerNameSnapshot } : null;
     }),
     prItems: withRow(raw.prItems, (row, rowNumber) => {
       const item = rowToItem(row);
@@ -98,11 +98,11 @@ export async function readReplacementSnapshot(): Promise<LoadedSnapshot> {
       return link.linkId ? { prItemId: link.prItemId, quantity: link.quantity } : null;
     }),
     quotations: withRow(raw.quotations, (row) => text(row[QUOTATION_ROW.quotationNo])
-      ? { quotationNo: text(row[QUOTATION_ROW.quotationNo]), status: (text(row[QUOTATION_ROW.status]) || "DRAFT").toUpperCase() } : null),
+      ? { quotationNo: text(row[QUOTATION_ROW.quotationNo]), status: (text(row[QUOTATION_ROW.status]) || "DRAFT").toUpperCase(), customerName: text(row[QUOTATION_ROW.customer]) } : null),
     quotationDetails: withRow(raw.quotationDetails, (row, rowNumber) => text(row[0])
       ? { quotationNo: text(row[0]), productId: text(row[1]), productCode: text(row[2]), rowNumber } : null),
     purchaseOrders: withRow(raw.purchaseOrders, (row) => text(row[0])
-      ? { poNumber: text(row[0]), supplierId: text(row[2]), status: (text(row[11]) || "created").toLowerCase() } : null),
+      ? { poNumber: text(row[0]), supplierId: text(row[2]), supplierName: companyName.get(text(row[2])) ?? "", status: (text(row[11]) || "created").toLowerCase() } : null),
     poItems: withRow(raw.poItems, (row, rowNumber) => text(row[0])
       ? { poNumber: text(row[0]), itemNo: Number(row[1]) || 0, supplierProductId: text(row[2]), productId: text(row[3]), rowNumber } : null),
     customerPrices: withRow(raw.customerPrices, (row, rowNumber) => text(row[0]) ? {

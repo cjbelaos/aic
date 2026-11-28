@@ -10,6 +10,7 @@ import { isAxiosError } from "axios";
 import ExcelJS from "exceljs";
 import { Button } from "@/components/ui/button";
 import { EntityTable } from "@/components/ui/entity-table";
+import { useUrlParam } from "@/hooks/use-url-param";
 import { DocumentRegisterHeader } from "@/components/document-register-header";
 import { matchesDocumentSearch } from "@/lib/document-register";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
@@ -129,6 +130,7 @@ export default function QuotationsPage() {
   const [customerEmail, setCustomerEmail] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  useUrlParam("q", (value) => { setSearch(value); setStatusFilter("all"); return true; });
   const [preparedByFilter, setPreparedByFilter] = useState("all");
   const [fileFilter, setFileFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);

@@ -12,8 +12,8 @@ const snapshot = (): ReplacementSnapshot => ({
     { productId: "P-DEAD", productCode: "DEAD-1", productName: "DEAD", status: "inactive" },
   ],
   contracts: [
-    { id: "CTR-1", status: "Active", endDate: "2027-12-31" },
-    { id: "CTR-2", status: "Active", endDate: "2026-01-31" },
+    { id: "CTR-1", status: "Active", endDate: "2027-12-31", companyName: "DIVINE GRACE" },
+    { id: "CTR-2", status: "Active", endDate: "2026-01-31", companyName: "OLD CLIENT" },
   ],
   contractItems: [
     { id: "CTI-1", contractId: "CTR-1", productId: "P-OLD", productCode: "OLD-1", status: "Active", rowNumber: 2 },
@@ -21,9 +21,9 @@ const snapshot = (): ReplacementSnapshot => ({
     { id: "CTI-3", contractId: "CTR-1", productId: "", productCode: "", status: "Active", rowNumber: 4 },
   ],
   salesOrders: [
-    { salesOrderId: "SO-A", salesOrderNo: "", orderStatus: "DRAFT", version: 3 },
-    { salesOrderId: "SO-B", salesOrderNo: "AIC-SO-2026-0002", orderStatus: "CONFIRMED", version: 5 },
-    { salesOrderId: "SO-C", salesOrderNo: "AIC-SO-2026-0003", orderStatus: "CANCELLED", version: 2 },
+    { salesOrderId: "SO-A", salesOrderNo: "", orderStatus: "DRAFT", version: 3, customerName: "ABC CORP" },
+    { salesOrderId: "SO-B", salesOrderNo: "AIC-SO-2026-0002", orderStatus: "CONFIRMED", version: 5, customerName: "ABC CORP" },
+    { salesOrderId: "SO-C", salesOrderNo: "AIC-SO-2026-0003", orderStatus: "CANCELLED", version: 2, customerName: "ABC CORP" },
   ],
   salesOrderItems: [
     { salesOrderItemId: "SOI-1", salesOrderId: "SO-A", lineNo: 1, productId: "P-OLD", lineStatus: "ACTIVE", quantity: 2, fulfilledQty: 0, cancelledQty: 0 },
@@ -33,8 +33,8 @@ const snapshot = (): ReplacementSnapshot => ({
     { salesOrderItemId: "SOI-5", salesOrderId: "SO-A", lineNo: 2, productId: "", lineStatus: "ACTIVE", quantity: 1, fulfilledQty: 0, cancelledQty: 0 },
   ],
   purchaseRequests: [
-    { prId: "PR-1", prNo: "AIC-PR-2026-0001", status: "SUBMITTED", version: 1, rowNumber: 2 },
-    { prId: "PR-2", prNo: "AIC-PR-2026-0002", status: "SUBMITTED", version: 4, rowNumber: 3 },
+    { prId: "PR-1", prNo: "AIC-PR-2026-0001", status: "SUBMITTED", version: 1, rowNumber: 2, customerName: "XYZ INC" },
+    { prId: "PR-2", prNo: "AIC-PR-2026-0002", status: "SUBMITTED", version: 4, rowNumber: 3, customerName: "" },
   ],
   prItems: [
     { prItemId: "PRI-1", prId: "PR-1", lineNo: 1, productId: "P-OLD", productCode: "OLD-1", productName: "COPPER PIPE 1/2", quantity: 5, fromStockQty: 0, cancelledQty: 0, rowNumber: 2 },
@@ -42,16 +42,16 @@ const snapshot = (): ReplacementSnapshot => ({
   ],
   prLinks: [{ prItemId: "PRI-2", quantity: 2 }],
   quotations: [
-    { quotationNo: "Q-1", status: "SAVED" },
-    { quotationNo: "Q-2", status: "SENT" },
+    { quotationNo: "Q-1", status: "SAVED", customerName: "ABC CORP" },
+    { quotationNo: "Q-2", status: "SENT", customerName: "XYZ INC" },
   ],
   quotationDetails: [
     { quotationNo: "Q-1", productId: "P-OLD", productCode: "OLD-1", rowNumber: 2 },
     { quotationNo: "Q-2", productId: "P-OLD", productCode: "OLD-1", rowNumber: 3 },
   ],
   purchaseOrders: [
-    { poNumber: "PO-D", status: "draft", supplierId: "S1" },
-    { poNumber: "PO-C", status: "created", supplierId: "S1" },
+    { poNumber: "PO-D", status: "draft", supplierId: "S1", supplierName: "SUP ONE" },
+    { poNumber: "PO-C", status: "created", supplierId: "S1", supplierName: "SUP ONE" },
   ],
   poItems: [
     { poNumber: "PO-D", itemNo: 1, productId: "P-OLD", supplierProductId: "", rowNumber: 2 },
@@ -145,7 +145,7 @@ assert.equal(edit("ContractItems", 2, "C")?.oldValue, "P-OLD");
 // A printed (or any other non-draft, unfinished) PO counts as sent; completed ones are finished.
 {
   const s = snapshot();
-  s.purchaseOrders.push({ poNumber: "PO-P", status: "printed", supplierId: "S1" }, { poNumber: "PO-F", status: "completed", supplierId: "S1" });
+  s.purchaseOrders.push({ poNumber: "PO-P", status: "printed", supplierId: "S1", supplierName: "SUP ONE" }, { poNumber: "PO-F", status: "completed", supplierId: "S1", supplierName: "SUP ONE" });
   s.poItems.push({ poNumber: "PO-P", itemNo: 1, productId: "P-OLD", supplierProductId: "", rowNumber: 4 }, { poNumber: "PO-F", itemNo: 1, productId: "P-OLD", supplierProductId: "", rowNumber: 5 });
   const p = planReplacement(s, "P-OLD", "P-NEW", today, "u1", now);
   assert.equal(p.skipped.find((u) => u.documentId === "PO-P")?.reason, "already sent to supplier");
@@ -159,5 +159,22 @@ assert.ok(usages.some((u) => u.documentId === "Q-2" && u.reason === "already sen
 assert.ok(!usages.some((u) => u.documentId === "CTR-2" || u.documentId === "SO-C"));
 assert.equal(usages.filter((u) => u.documentType === "salesOrder").length, 2);
 assert.ok(usages.some((u) => u.documentType === "customerPrice" && u.documentNo === "XYZ INC"));
+
+// Each usage names who it is for and links straight to the record.
+{
+  const byId = (id: string) => usages.find((u) => u.documentId === id);
+  const contract = byId("CTR-1");
+  assert.equal(contract?.partyName, "DIVINE GRACE");
+  assert.equal(contract?.lineLabel, "");
+  assert.equal(contract?.href, "/dashboard/customer-contracts?contract=CTR-1");
+  assert.equal(byId("SO-A")?.partyName, "ABC CORP");
+  assert.equal(byId("PR-1")?.partyName, "XYZ INC");
+  assert.equal(byId("PR-1")?.href, "/dashboard/purchase-requests?q=AIC-PR-2026-0001");
+  assert.equal(byId("Q-2")?.partyName, "XYZ INC");
+  assert.equal(byId("Q-2")?.href, "/dashboard/quotations?q=Q-2");
+  assert.equal(byId("PO-C")?.partyName, "SUP ONE");
+  assert.equal(byId("PO-C")?.href, "/dashboard/purchase-orders?q=PO-C");
+  assert.equal(byId("SP-1")?.href, "/dashboard/supplier-products?productId=P-OLD");
+}
 
 console.log("classify tests passed");
