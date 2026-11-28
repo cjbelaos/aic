@@ -142,6 +142,16 @@ assert.equal(edit("ContractItems", 2, "C")?.oldValue, "P-OLD");
   assert.equal(offer.cellEdits.find((e) => e.sheet === "SupplierProducts" && e.rowNumber === 2 && e.column === "I")?.newValue, "inactive");
 }
 
+// A printed (or any other non-draft, unfinished) PO counts as sent; completed ones are finished.
+{
+  const s = snapshot();
+  s.purchaseOrders.push({ poNumber: "PO-P", status: "printed", supplierId: "S1" }, { poNumber: "PO-F", status: "completed", supplierId: "S1" });
+  s.poItems.push({ poNumber: "PO-P", itemNo: 1, productId: "P-OLD", supplierProductId: "", rowNumber: 4 }, { poNumber: "PO-F", itemNo: 1, productId: "P-OLD", supplierProductId: "", rowNumber: 5 });
+  const p = planReplacement(s, "P-OLD", "P-NEW", today, "u1", now);
+  assert.equal(p.skipped.find((u) => u.documentId === "PO-P")?.reason, "already sent to supplier");
+  assert.ok(![...p.changes, ...p.skipped].some((u) => u.documentId === "PO-F"));
+}
+
 // Bell list: only in-progress usages of inactive products, each with a link.
 const usages = findUsages(snapshot(), today);
 assert.ok(usages.every((u) => u.productId === "P-OLD" && u.href));

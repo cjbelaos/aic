@@ -16,7 +16,8 @@ import {
 
 const OPEN_SO_STATUSES = new Set(["DRAFT", "CONFIRMED", "ON_HOLD"]);
 const EDITABLE_QUOTATION_STATUSES = new Set(["DRAFT", "SAVED"]);
-const SENT_PO_STATUSES = new Set(["created", "approved"]);
+/** Any PO that is neither a draft nor finished has gone to the supplier (created, approved, printed, ...). */
+const FINISHED_PO_STATUSES = new Set(["completed", "cancelled", "deleted"]);
 
 const HREF: Record<UsageDocumentType, (id: string) => string> = {
   contract: () => "/dashboard/customer-contracts",
@@ -155,11 +156,11 @@ function collectCandidates(snapshot: ReplacementSnapshot, productIds: ReadonlySe
     if (!hits(item.productId) || !po) continue;
     const status = po.status.toLowerCase();
     const label = `Item ${item.itemNo}`;
-    if (SENT_PO_STATUSES.has(status)) {
+    if (FINISHED_PO_STATUSES.has(status)) continue;
+    if (status !== "draft") {
       out.push({ usage: usage("purchaseOrder", item.productId, po.poNumber, po.poNumber, label, "needs_manual", "already sent to supplier") });
       continue;
     }
-    if (status !== "draft") continue;
     out.push({
       usage: usage("purchaseOrder", item.productId, po.poNumber, po.poNumber, label),
       apply: (to, ctx) => {
