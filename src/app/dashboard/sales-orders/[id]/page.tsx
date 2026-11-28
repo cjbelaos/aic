@@ -117,9 +117,9 @@ function DetailInner({ orderId }: { orderId: string }) {
           <div><span className="text-muted-foreground">Customer: </span>{order.customerNameSnapshot || order.customerId}</div>
           <div><span className="text-muted-foreground">Received: </span>{formatDate(order.receivedDate)}</div>
           <div><span className="text-muted-foreground">Required: </span>{formatDate(order.requiredDate)}</div>
-          <div><span className="text-muted-foreground">Customer PO: </span>{order.customerPONo || "—"}</div>
+          <div><span className="text-muted-foreground">Customer PO: </span>{order.customerPONo || "—"}<AttachedDocLink detail={detail} orderId={orderId} type="CUSTOMER_PO" /></div>
           <div><span className="text-muted-foreground">Recommended by: </span>{order.recommendedByName || "—"}</div>
-          <div><span className="text-muted-foreground">Quotation No.: </span>{salesOrderQuotationDisplay(order) || "—"}</div>
+          <div><span className="text-muted-foreground">Quotation No.: </span>{salesOrderQuotationDisplay(order) || "—"}<AttachedDocLink detail={detail} orderId={orderId} type="QUOTATION" /></div>
           <div><span className="text-muted-foreground">Terms: </span>{order.paymentTermsSnapshot || "—"}</div>
           <div><span className="text-muted-foreground">Category: </span>{detail.category || "—"}</div>
           <div><span className="text-muted-foreground">Billing type: </span>{billing ? BILLING_TYPE_LABELS[billing.billingType] : "—"}</div>
@@ -159,6 +159,25 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline" | "dest
   full: "default", partial: "secondary", unpaid: "destructive",
 };
 const PAYMENT_LABEL: Record<string, string> = { full: "Paid", partial: "Partially paid", unpaid: "Unpaid" };
+
+/** Opens the most recently attached file of this type (e.g. customer PO, quotation) in a new tab. */
+function AttachedDocLink({ detail, orderId, type }: { detail: SalesOrderDetail; orderId: string; type: "CUSTOMER_PO" | "QUOTATION" }): React.ReactNode {
+  const doc = detail.documents
+    .filter((d) => d.documentType === type && (d.driveFileId || d.externalUrl))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  if (!doc) return null;
+  return (
+    <a
+      href={`/api/sales-orders/${encodeURIComponent(orderId)}/documents/${encodeURIComponent(doc.documentId)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={doc.fileName}
+      className="ml-2 inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
+    >
+      <FileText className="h-3.5 w-3.5" />View
+    </a>
+  );
+}
 
 function StatusBadge({ value, label }: { value: string; label?: string }): React.ReactNode {
   const key = value.toLowerCase();
