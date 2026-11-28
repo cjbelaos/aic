@@ -1,4 +1,4 @@
-import { currentActor, dbQuery, txQuery } from "@/lib/db/postgres";
+import { dbQuery } from "@/lib/db/postgres";
 import { SHEET_COLUMNS } from "@/lib/db/sheetColumns.generated";
 
 /**
@@ -27,9 +27,9 @@ const TABLE = /^aic\.[a-z_]+$/;
 
 export async function sheetRows(table: string, columns: string[], where = "true", params: unknown[] = []): Promise<string[][]> {
   if (!TABLE.test(table)) throw new Error(`Invalid table name: ${table}`);
-  // Inside a save, read through its transaction so the save sees its own writes.
-  const run = currentActor() ? txQuery : dbQuery;
-  const rows = await run<{ r: string[] }>(
+  // Inside a save, dbQuery reads through the save's transaction (as a savepoint), so the save sees
+  // its own writes and a tolerated read failure does not abort it.
+  const rows = await dbQuery<{ r: string[] }>(
     `select array[${columns.join(", ")}] as r from ${table} where ${where} order by source_row nulls last, created_at nulls last`,
     params,
   );

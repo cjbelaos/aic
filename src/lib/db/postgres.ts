@@ -25,13 +25,21 @@ function pool(): Pool {
       // Serverless functions each hold a few connections; the pooler multiplexes them.
       max: 3,
       idleTimeoutMillis: 10_000,
+      // A save that cannot get a connection fails cleanly instead of hanging.
+      connectionTimeoutMillis: 10_000,
     });
   }
   return globalForPool.__aicPgPool;
 }
 
-/** Runs a read query and returns its rows. */
+/**
+ * Runs a read query and returns its rows. Inside a save it runs on the save's own connection (so it
+ * sees the save's writes and never waits for a second pooled connection), as a savepoint: a failing
+ * read that the caller tolerates undoes only itself and leaves the save usable.
+ */
 export async function dbQuery<T extends object>(sql: string, params: unknown[] = []): Promise<T[]> {
+  const open = transactions.getStore();
+  if (open) return inTransaction(open.actor, () => txQuery<T>(sql, params));
   return (await pool().query<T>(sql, params)).rows;
 }
 
@@ -67,7 +75,10 @@ export async function inTransaction<T>(actor: string, work: () => Promise<T>): P
     await client.query("begin");
     await client.query("select set_config('aic.actor', $1, true)", [actor]);
     const result = await transactions.run({ client, actor, depth: 0 }, work);
-    await client.query("commit");
+    // A statement that failed and was caught leaves the transaction aborted; PostgreSQL then answers
+    // COMMIT with ROLLBACK and no error. Report that as a failed save, never as success.
+    const committed = await client.query("commit");
+    if (committed.command !== "COMMIT") throw new Error("The save was rolled back because one of its steps failed.");
     return result;
   } catch (error) {
     await client.query("rollback").catch(() => {});

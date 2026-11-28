@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { sheets_v4 } from "googleapis";
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import type { ContractNote } from "@/types/contract";
 import { sortContractNotes } from "@/lib/contractNotes";
 
@@ -48,7 +50,8 @@ function fromRow(row: string[]): ContractNote {
 }
 
 export async function getContractNotes(): Promise<ContractNote[]> {
-  return sortContractNotes((await readRows(await context())).filter(row => row[0] && row[1]).map(fromRow));
+  const rows = isPostgresBackend() ? await sheetRowsForRange(`${CONTRACT_NOTES_TAB}!A2:E`) : await readRows(await context());
+  return sortContractNotes(rows.filter(row => row[0] && row[1]).map(fromRow));
 }
 
 /** Run with contract writes paused. Each migration is one atomic batch, including clearing legacy cells. */

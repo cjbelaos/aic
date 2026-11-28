@@ -63,4 +63,13 @@ run('releases-inventory-postgres', [
     assert.equal((await inventory.listMovements()).length, m);
     assert.ok((await inventory.listDrStockLines()).length > 0);
   }],
+  // Final review, Important 4: a contract-releasing DR and a no-charge switch must not read Google Sheets.
+  ['contracts, contract items and DR-linked invoices read from the database', async () => {
+    const [{ c, i }] = await db.dbQuery('select (select count(*) from aic.contracts)::int c, (select count(*) from aic.contract_items)::int i');
+    assert.equal((await h.load('src/lib/contractSheets.ts').getContracts()).length, c);
+    assert.equal((await h.load('src/lib/contractItemSheets.ts').getContractItems()).length, i);
+    const [{ dr_number, invoice_no }] = await db.dbQuery("select dr_number, invoice_no from aic.service_invoices where dr_number is not null and coalesce(status, '') not in ('cancelled', 'void', 'deleted') limit 1");
+    const linked = await h.load('src/lib/invoiceRepository.ts').readDrLinkedInvoiceNumbers(dr_number);
+    assert.ok(linked.includes(invoice_no), `${invoice_no} not among ${linked}`);
+  }],
 ]).finally(closePool);

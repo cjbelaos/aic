@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
-import { isPostgresBackend } from "@/lib/db/postgres";
+import { inTransaction, isPostgresBackend } from "@/lib/db/postgres";
 import { runSave } from "@/lib/db/routeTransaction";
 import type { SessionUser } from "@/types/user";
 import {
@@ -245,10 +245,12 @@ async function createDeliveryRelease(session: SessionUser, body: CreateDeliveryP
         fulfillment = { state: "PENDING_AUTHORIZATION", posted: 0, alreadyPosted: 0 };
       } else {
         try {
-          fulfillment = await postFinalizedDeliveryReleaseFulfillment(result.drNumber, {
+          // PostgreSQL: its own savepoint, so a tolerated failure undoes only the fulfilment.
+          const post = () => postFinalizedDeliveryReleaseFulfillment(result.drNumber, {
             userId: session.userId,
             displayName: session.fullName,
           });
+          fulfillment = isPostgresBackend() ? await inTransaction(session.userId, post) : await post();
         } catch (error) {
           // The delivery evidence is durable. Do not turn a successful release
           // into a failed browser response; the reconciliation endpoint can

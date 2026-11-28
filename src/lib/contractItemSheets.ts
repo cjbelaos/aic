@@ -1,4 +1,6 @@
 import { getDatabaseSpreadsheetId, getSheetsClient } from "@/lib/googleSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import { getProducts } from "@/lib/productSheets";
 import { nextStableId, rowNumberFromStableId } from "@/lib/sheets.utils";
 import { getContracts } from "@/lib/contractSheets";
@@ -13,9 +15,10 @@ function fromRow(row: unknown[]): ContractItem {
 }
 
 async function rows(): Promise<ContractItem[]> {
-  const sheets = await getSheetsClient(); const spreadsheetId = await getDatabaseSpreadsheetId();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE });
-  return (response.data.values ?? []).map(fromRow).filter((item) => item.id);
+  const values = isPostgresBackend()
+    ? await sheetRowsForRange(RANGE)
+    : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: RANGE })).data.values;
+  return (values ?? []).map(fromRow).filter((item) => item.id);
 }
 
 async function ensureHeaders(): Promise<void> {

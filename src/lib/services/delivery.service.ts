@@ -39,11 +39,11 @@ const deliveryService = {
     payload: CreateDeliveryPayload,
   ): Promise<DeliveryReceiptResponse> => {
     try {
-      // One request ID per save: if the response is lost, the resend replays the first result
-      // instead of creating a second DR (PostgreSQL backend; ignored on Sheets).
+      // The request ID lets the PostgreSQL backend replay a repeated save instead of creating a
+      // second DR. Never resend automatically: the Sheets backend ignores the ID, so a resend
+      // after a lost response would create a duplicate there.
       const requestId = crypto.randomUUID();
-      const send = () => axios.post<DeliveryReceiptResponse>(API_BASE_URL, { ...payload, requestId, pdfFormat: "html" });
-      const response = await send().catch((error) => (axios.isAxiosError(error) && !error.response ? send() : Promise.reject(error)));
+      const response = await axios.post<DeliveryReceiptResponse>(API_BASE_URL, { ...payload, requestId, pdfFormat: "html" });
       if (payload.status !== "draft") {
         try {
           const { generateDeliveryReceiptPdfBase64 } = await import("@/lib/deliveryReceiptPdf");
@@ -73,9 +73,9 @@ const deliveryService = {
     payload: UpdateDeliveryPayload,
   ): Promise<DeliveryReceiptSummary> => {
     try {
+      // Request ID for PostgreSQL replay; no automatic resend (see createAndPopulateSheet).
       const requestId = crypto.randomUUID();
-      const send = () => axios.put<DeliveryReceiptSummary>(`${API_BASE_URL}/${drNumber}`, { ...payload, requestId });
-      const response = await send().catch((error) => (axios.isAxiosError(error) && !error.response ? send() : Promise.reject(error)));
+      const response = await axios.put<DeliveryReceiptSummary>(`${API_BASE_URL}/${drNumber}`, { ...payload, requestId });
       return response.data;
     } catch (error) {
       console.error("Failed to update delivery receipt:", error);

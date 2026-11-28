@@ -118,4 +118,28 @@ DR 3708's status-history row has a Drive URL in `old_status`, from an older colu
 - **Offline acceptance: passes.** `npm run test:zero-sheets` calls every API route the DR, Service Invoices and Quotations pages load on open, with DATA_BACKEND=postgres and a Google client that refuses use: all 200 with data, **0 Sheets calls**. It reports 2 Drive lookups from `identifyLegacyScan` (legacy scan detection by Drive filename, cached 5 min; harmless and could be persisted later).
 - **Fixed on the way:** the audit bypass now checks `USAGE`, not `MEMBER` (Supabase's postgres has an admin-only membership in aic_app, so imports were being re-stamped). The verifier now checks lineage. FieldWorkLogs times are text.
 - **Live acceptance: passed (2026-11-28).** Chris signed in on aic-staging (site gate + allow-list) and opened DR, Service Invoices, Quotations and a second DR tab. All four loaded with data from PostgreSQL. aic-staging env: SITE_BASIC_AUTH, ACCESS_ALLOWED_USER_IDS (Chris's user id), DATA_BACKEND=postgres, DATABASE_URL (aic_web, :6543), AUTH_SESSION_SECRET, JWT_SECRET; STAGING_DATABASE_URL removed. Sign-in errors no longer show infrastructure messages.
-- **Next: register writes.** The plan is [docs/superpowers/plans/2026-11-28-dr-writes-postgres.md](docs/superpowers/plans/2026-11-28-dr-writes-postgres.md): a shared write foundation (request-scoped transactions, idempotency log, DR numbering under lock, side-effect outbox), then DR saves in one transaction. Invoices and quotations follow on the same foundation. It awaits Chris's review and choice of execution approach. PDFs, trackers and email stay on Google through the outbox, with staging destinations still to be set up.
+- **DR writes on PostgreSQL: done** (plan [2026-11-28-dr-writes-postgres.md](docs/superpowers/plans/2026-11-28-dr-writes-postgres.md), executed inline, commits 2f425f7..f30d00a; the ledger with every ruling is `.superpowers/sdd/2026-11-28-dr-writes-postgres/progress.md`, git-ignored).
+  - **Foundation** (`src/lib/db/`):
+    - `inTransaction`/`txQuery`/`currentActor`: AsyncLocalStorage transactions; nested calls become savepoints.
+    - `withIdempotency` + `aic.request_log`.
+    - `nextDrNumber`: an advisory lock.
+    - `aic.outbox` with `enqueueSideEffect`/`runPendingSideEffects`.
+    - `runSave`: the route wrapper; one transaction plus requestId replay, 409 on a reused id with a different payload, and error responses roll back.
+    - `upsertSheetRows`: a generic writer of sheet-shaped rows using `targets` in `sheetColumns.generated.ts`.
+  - **DR**: create, edit/promote, delete, scan and items in one transaction. Business rules are untouched; the code branches only at storage points. Promotion renumbers via ON UPDATE CASCADE (migration 20261128122000). Handover commit and scan return run on PostgreSQL, with a unique (document_type, document_number). Also on PostgreSQL: contract releases, the inventory lock (advisory) and stock-guard reads, positions, warehouses, and the sales-order command writer (its unchanged body runs against a DB-backed stand-in client).
+  - **PDFs**: outbox jobs carrying the browser-rendered PDF. `/api/jobs/side-effects` (cron `CRON_SECRET` or admin) deliberately fails them with "needs staging Drive destinations" until the follow-on plan provides staging folders and templates. It must never call the Sheets template exporter on staging.
+  - **Tests** (all against staging; each rolls back or cleans up; the harness refuses Google by default):
+    - `test:db-transaction`, `test:db-idempotency`, `test:db-outbox-sequences`, `test:handover-postgres`, `test:releases-inventory-postgres`
+    - `test:dr-writes-postgres`, `test:sales-order-commands-postgres`, `test:dr-routes-postgres` (it includes a check that no test DR is left behind)
+    - plus the earlier `test:lookup-parity` (run right after an import), `test:zero-sheets` and `test:users-postgres`
+    - All 20 pre-existing suites pass. Older loaders now fall back to `scripts/lib/sheets-mode-stubs.cjs`.
+  - **Incidents (resolved)**:
+    - A RED run wrote one test row to the LIVE DocumentHandover tab (row 752). Chris deleted it, and the harness now refuses Google.
+    - The scan test committed staging DRs 4111/4112. Chris deleted them, and the test is fixed.
+  - **Pre-existing, not fixed**: `scripts/test-document-handover-commit.cjs` (in no npm script) fails on main too.
+  - **Staging vs live**: staging is the 27 Nov snapshot, and live has since issued DR 4111. Re-import from a fresh snapshot before Chris test-saves on staging (plan Task 8 step 6).
+- **Next:**
+  1. Act on the final whole-branch review findings.
+  2. Re-import staging fresh.
+  3. Chris's staging save check (draft → promote → edit → scan → delete).
+  4. Follow-on plans on the same foundation: invoices (`invoiceRepository`, `ensureAutomaticDocumentHandover`, the tracker via the outbox, linked invoice PDF refresh); quotations (save, send via the outbox with a staging recipient allow-list); staging PDF/Drive destinations so outbox jobs can run.

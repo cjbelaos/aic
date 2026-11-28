@@ -46,6 +46,30 @@ run('db-transaction', [
     });
     assert.equal(db.currentActor(), undefined);
   }],
+  // Final review, Important 2: PostgreSQL turns COMMIT of an aborted transaction into ROLLBACK without an error.
+  ['a caught failing statement fails the save instead of silently committing nothing', async () => {
+    await assert.rejects(db.inTransaction('test:tx', async () => {
+      await scratch();
+      await db.txQuery("insert into tx_scratch values ('lost')");
+      try { await db.txQuery('select 1 / 0'); } catch { /* a tolerated step */ }
+    }), /rolled back/);
+  }],
+  // Final review, Important 3: reads inside a save use the save's own connection (no second pool connection).
+  ['dbQuery inside a save sees its own writes', async () => {
+    await db.inTransaction('test:tx', async () => {
+      await scratch();
+      await db.txQuery("insert into tx_scratch values ('mine')");
+      assert.deepEqual((await db.dbQuery('select v from tx_scratch')).map((r) => r.v), ['mine']);
+    });
+  }],
+  ['a caught failing read inside a save does not abort it', async () => {
+    await db.inTransaction('test:tx', async () => {
+      await scratch();
+      await db.txQuery("insert into tx_scratch values ('kept')");
+      await assert.rejects(db.dbQuery('select 1 / 0'), /division by zero/);
+      assert.deepEqual(await rows(), ['kept']);
+    });
+  }],
   ['withTransaction still hands the work a client', async () => {
     const value = await db.withTransaction('test:tx', async (client) => (await client.query('select 41 + 1 as v')).rows[0].v);
     assert.equal(value, 42);

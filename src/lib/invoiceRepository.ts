@@ -1723,11 +1723,15 @@ export async function readSalesOrderLinkedInvoices(salesOrderId: string): Promis
 
 /** Live Service and Sales Invoice numbers linked to a DR (column L), ignoring cancelled, void and deleted ones. */
 export async function readDrLinkedInvoiceNumbers(drNumber: number): Promise<string[]> {
-  const sheets = await getSheetsClient();
-  const spreadsheetId = await getDatabaseSpreadsheetId();
   const ranges = ["ServiceInvoices!A2:L", "SalesInvoices!A2:L"];
-  const responses = await Promise.all(ranges.map((range) => sheets.spreadsheets.values.get({ spreadsheetId, range })));
-  return responses.flatMap((response) => (response.data.values || [])
+  const tables = isPostgresBackend()
+    ? await Promise.all(ranges.map((range) => sheetRowsForRange(range)))
+    : await (async () => {
+        const sheets = await getSheetsClient();
+        const spreadsheetId = await getDatabaseSpreadsheetId();
+        return (await Promise.all(ranges.map((range) => sheets.spreadsheets.values.get({ spreadsheetId, range })))).map((response) => response.data.values || []);
+      })();
+  return tables.flatMap((values) => values
     .filter((row) => Number(row[11]) === drNumber && !["cancelled", "void", "deleted"].includes(String(row[8] ?? "").trim()))
     .map((row) => String(row[0] ?? "").trim())
     .filter(Boolean));

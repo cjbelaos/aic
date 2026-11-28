@@ -1,4 +1,6 @@
 import { getSheetsClient, getDatabaseSpreadsheetId } from "@/lib/googleSheets";
+import { isPostgresBackend } from "@/lib/db/postgres";
+import { sheetRowsForRange } from "@/lib/db/sheetRows";
 import {
   Contract,
   CreateContractPayload,
@@ -31,20 +33,16 @@ const CONTRACTS_RANGE = `${CONTRACTS_SHEET}!A2:Q`;
  */
 export async function getContracts(): Promise<Contract[]> {
   try {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = await getDatabaseSpreadsheetId();
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: CONTRACTS_RANGE,
-    });
-
-    const rows = response.data.values;
+    const rows = isPostgresBackend()
+      ? await sheetRowsForRange(CONTRACTS_RANGE)
+      : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: CONTRACTS_RANGE })).data.values;
     if (!rows || rows.length === 0) return [];
 
-    const itemResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: "ContractItems!A2:G" });
+    const itemValues = isPostgresBackend()
+      ? await sheetRowsForRange("ContractItems!A2:G")
+      : (await (await getSheetsClient()).spreadsheets.values.get({ spreadsheetId: await getDatabaseSpreadsheetId(), range: "ContractItems!A2:G" })).data.values;
     const itemsByContract = new Map<string, { frequency: string }[]>();
-    for (const item of itemResponse.data.values ?? []) {
+    for (const item of itemValues ?? []) {
       if (!item[0] || !item[1]) continue;
       const items = itemsByContract.get(String(item[1])) ?? [];
       items.push({ frequency: String(item[5] ?? "Monthly") });
