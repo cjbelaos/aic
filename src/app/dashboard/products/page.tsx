@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductDetailDrawer } from "@/components/product-detail-drawer";
+import { ProductReplacementDialog } from "@/components/product-replacement-dialog";
+import { isStoredUserAdmin } from "@/lib/services/product-replacement.service";
 
 // Services
 import productService from "@/lib/services/product.service";
@@ -251,6 +253,7 @@ export default function ProductsPage() {
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [detailTarget, setDetailTarget] = useState<Product | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [suppliers, setSuppliers] = useState<Company[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
@@ -295,6 +298,7 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
+    setIsAdmin(isStoredUserAdmin());
     loadProducts().finally(() => setLoading(false));
 
     productUnitService
@@ -827,8 +831,15 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
 
+      <ProductReplacementDialog
+        open={isAdmin && !!deleteTarget}
+        source={deleteTarget ? { productId: deleteTarget.productId ?? deleteTarget.id, code: deleteTarget.code, name: deleteTarget.name } : null}
+        onClose={() => setDeleteTarget(null)}
+        onDone={() => { void loadProducts(); }}
+        onDeactivateOnly={handleDelete}
+      />
       <ConfirmDeleteDialog
-        open={!!deleteTarget}
+        open={!isAdmin && !!deleteTarget}
         title="Delete Product"
         description={`Are you sure you want to delete "${deleteTarget?.description}"? This action cannot be undone.`}
         onConfirm={handleDelete}
