@@ -1,7 +1,7 @@
 export const businessDocumentHeaderStyles = `
   .business-document-header { color: #17232d; font: 12px/1.45 Arial, sans-serif; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 3px solid #17232d; padding-bottom: 14px; }
   .business-document-header img { width: 125px; height: 70px; object-fit: contain; object-position: left center; }
-  .business-document-header .company-info { flex: 1; min-width: 0; text-align: left; font-size: 10px; line-height: 1.35; }
+  .business-document-header .company-info { flex: 1; min-width: 0; text-align: left; font-size: 11px; line-height: 1.35; }
   .business-document-header .company-name { font-size: 13px; font-weight: 700; letter-spacing: .2px; }
   .business-document-header .title { text-align: right; }
   .business-document-header h1 { font-weight: 700; font-size: 22px; letter-spacing: 1px; margin: 0; }
@@ -20,10 +20,10 @@ export const businessDocumentPrintShell = `<!doctype html><html><head><meta char
   .heading-cell { padding: 0 0 18px; font-weight: normal; }
   ${businessDocumentHeaderStyles}
   .details { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; padding-top: 14px; }
-  .label { color: #52616b; font-size: 10px; text-transform: uppercase; letter-spacing: .6px; }
+  .label { color: #52616b; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
   .customer { font-size: 15px; font-weight: bold; }
   .multiline { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .columns th { border-block: 1px solid #17232d; padding: 8px 6px; font-size: 10px; text-transform: uppercase; }
+  .columns th { border-block: 1px solid #17232d; padding: 8px 6px; font-size: 11px; text-transform: uppercase; }
   .item td { padding: 9px 6px; border-bottom: 1px solid #cbd2d8; vertical-align: top; white-space: pre-wrap; }
   .item { break-inside: avoid; page-break-inside: avoid; }
   .qty { text-align: right; }
