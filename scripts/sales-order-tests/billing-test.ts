@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   assertInvoiceFitsOrder,
   billingProgress,
+  invoiceTally,
   defaultBillingType,
   effectiveBillingType,
   SalesOrderBillingError,
@@ -47,3 +48,25 @@ assert.throws(
   () => assertInvoiceFitsOrder({ ...base, invoiceKind: "sales", others: [], invoiceTotal: 1 }),
   (error: unknown) => error instanceof SalesOrderBillingError && /billed by Service Invoice \(SR\)/.test(error.message),
 );
+
+// Invoice tally: compares this invoice against the order's balance, excluding the
+// invoice itself (it may already be saved as a draft) from what's billed elsewhere.
+{
+  const linked = [
+    { invoiceKind: "service" as const, invoiceNo: "1800", status: "created", total: 20000 },
+    { invoiceKind: "service" as const, invoiceNo: "DRAFT-1", status: "draft", total: 5000 },
+    { invoiceKind: "service" as const, invoiceNo: "1799", status: "void", total: 999 },
+  ];
+  assert.deepEqual(
+    invoiceTally(36300, linked, { invoiceKind: "service", invoiceNo: "DRAFT-1" }, 16300),
+    { orderTotal: 36300, billedElsewhere: 20000, remaining: 16300, thisInvoice: 16300, difference: 0, status: "match" },
+  );
+  assert.equal(invoiceTally(36300, linked, { invoiceKind: "service", invoiceNo: "DRAFT-1" }, 10000).status, "under");
+  assert.equal(invoiceTally(36300, linked, { invoiceKind: "service", invoiceNo: "DRAFT-1" }, 10000).difference, -6300);
+  const over = invoiceTally(36300, linked, { invoiceKind: "service" }, 16300);
+  assert.equal(over.billedElsewhere, 25000, "a new invoice counts every billed invoice, drafts included");
+  assert.equal(over.status, "over");
+  assert.equal(over.difference, 5000);
+  assert.equal(invoiceTally(100, [{ invoiceKind: "sales" as const, invoiceNo: "DRAFT-1", status: "draft", total: 40 }], { invoiceKind: "service", invoiceNo: "DRAFT-1" }, 60).status, "match", "same number, other kind is a different invoice");
+  assert.equal(invoiceTally(100, [], { invoiceKind: "service" }, 100.004).status, "match", "rounding to centavos");
+}

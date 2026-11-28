@@ -1,6 +1,7 @@
 "use client";
 import { DatePickerInput, MonthPickerInput } from "@/components/ui/date-picker";
 import { InvoiceDiscountEditor } from "@/components/invoice-discount-editor";
+import { InvoiceItemsTally } from "@/components/invoice-items-tally";
 import { defaultDiscount } from "@/lib/discounts";
 import { invoiceItemsDiffer, invoiceItemsFromDelivery, salesOrderInvoiceItems } from "@/lib/serviceInvoicePresentation";
 import { invoiceTotals } from "@/lib/serviceInvoiceDiscounts";
@@ -2455,6 +2456,14 @@ export default function ServiceInvoicesClient({
                   </Button>
                 </div>
               ))}
+              {lineItems.length > 0 && (
+                <InvoiceItemsTally
+                  invoiceKind={invoiceKind}
+                  orderId={referenceMode === "SALES_ORDER" ? linkedSalesOrderId || undefined : undefined}
+                  items={lineItems}
+                  discountSettings={discountSettings}
+                />
+              )}
             </div>
 
             {!isSales && serviceBranch && <p className="text-sm">Service location: {serviceBranch.companyName}</p>}
@@ -3080,6 +3089,15 @@ export default function ServiceInvoicesClient({
                   </Button>
                 </div>
               ))}
+              {editLineItems.length > 0 && editTarget && (
+                <InvoiceItemsTally
+                  invoiceKind={invoiceKind}
+                  orderId={editReferenceMode === "SALES_ORDER" ? editSalesOrderId || undefined : undefined}
+                  items={editLineItems}
+                  discountSettings={editDiscountSettings}
+                  invoiceNo={editTarget.invoiceNo}
+                />
+              )}
             </div>
           </div>
 

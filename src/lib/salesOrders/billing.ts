@@ -65,6 +65,39 @@ export function billingProgress(
   return { orderTotal: roundCurrency(orderTotal), invoiced, remaining, fullyInvoiced: orderTotal > 0 && remaining <= 0 };
 }
 
+export interface InvoiceTally {
+  orderTotal: number;
+  /** Billed on the order's other invoices (drafts included), excluding this one. */
+  billedElsewhere: number;
+  /** What is left to bill before this invoice. */
+  remaining: number;
+  thisInvoice: number;
+  /** thisInvoice − remaining: negative = partial, positive = over the balance. */
+  difference: number;
+  status: "match" | "under" | "over";
+}
+
+/** Compares an invoice's VAT-inclusive total against its Sales Order's unbilled balance. */
+export function invoiceTally(
+  orderTotal: number,
+  linkedInvoices: ReadonlyArray<{ invoiceKind: InvoiceKind; invoiceNo: string; status: string; total: number }>,
+  current: { invoiceKind: InvoiceKind; invoiceNo?: string },
+  invoiceTotal: number,
+): InvoiceTally {
+  const others = linkedInvoices.filter((invoice) => !(invoice.invoiceKind === current.invoiceKind && invoice.invoiceNo === current.invoiceNo));
+  const progress = billingProgress(orderTotal, others);
+  const thisInvoice = roundCurrency(invoiceTotal);
+  const difference = roundCurrency(thisInvoice - progress.remaining);
+  return {
+    orderTotal: progress.orderTotal,
+    billedElsewhere: progress.invoiced,
+    remaining: progress.remaining,
+    thisInvoice,
+    difference,
+    status: difference === 0 ? "match" : difference < 0 ? "under" : "over",
+  };
+}
+
 export class SalesOrderBillingError extends Error {}
 
 /**
