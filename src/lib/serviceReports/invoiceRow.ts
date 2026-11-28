@@ -7,8 +7,9 @@
 //   M AssignedTechnicianUserId             N AssignedTechnicianName
 //   O ServiceReportId                      P ServiceReportStatus
 //
-// M/N are the assigned technician (the single identity that performs the
-// services); O/P are the Service Report link. Never insert, rename or reorder a
+// M/N are the Service Technician (the single identity that performs the
+// services, chosen explicitly — a linked DR's deliverer never overrides it); O/P
+// are the Service Report link. Never insert, rename or reorder a
 // column: this mapper reads by position.
 //
 // Pure module: imported by ./repository (which re-exports it) and directly by the

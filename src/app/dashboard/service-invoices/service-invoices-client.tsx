@@ -296,6 +296,7 @@ export default function ServiceInvoicesClient({
   /* Assigned technician (ServiceInvoices M/N). Inherited from a linked DR. */
   const [technicianId, setTechnicianId] = useState("");
   const [technicianName, setTechnicianName] = useState("");
+  const [drDeliveredByName, setDrDeliveredByName] = useState("");
   const [poNo, setPoNo] = useState("");
   const [trNo, setTrNo] = useState("");
   const [deliveryUsers, setDeliveryUsers] = useState<
@@ -341,6 +342,7 @@ export default function ServiceInvoicesClient({
   const [editSalesOrderId, setEditSalesOrderId] = useState("");
   const [editTechnicianId, setEditTechnicianId] = useState("");
   const [editTechnicianName, setEditTechnicianName] = useState("");
+  const [editDrDeliveredByName, setEditDrDeliveredByName] = useState("");
   const [editPoNo, setEditPoNo] = useState("");
   const [editTrNo, setEditTrNo] = useState("");
   const [completionTarget, setCompletionTarget] =
@@ -641,10 +643,11 @@ export default function ServiceInvoicesClient({
     return () => { active = false; };
   }, [linkedDrNumber, companies, modalOpen, isSales, billingMode]);
 
-  /* Linked DR owns the assigned technician; show its current user immediately.
-     The server re-resolves the technician from the DR on save. */
+  /* A linked DR supplies references and its deliverer (shown read-only). For
+     sales invoices the DR also owns the technician; a service invoice's
+     Service Technician is always picked explicitly. */
   useEffect(() => {
-    if (!linkedDrNumber) return;
+    if (!linkedDrNumber) { setDrDeliveredByName(""); return; }
     const selected = deliveryService
       .getAll()
       .then((drs) =>
@@ -656,16 +659,22 @@ export default function ServiceInvoicesClient({
           setReferenceMode(dr.salesOrderId ? "SALES_ORDER" : "TR_NUMBER");
           setLinkedSalesOrderId(dr.salesOrderId || "");
         }
-        setTechnicianId(dr?.deliveredById || "");
-        setTechnicianName(dr?.deliveredBy || "");
+        setDrDeliveredByName(dr?.deliveredBy || "");
+        if (isSales) {
+          setTechnicianId(dr?.deliveredById || "");
+          setTechnicianName(dr?.deliveredBy || "");
+        }
         setPoNo(dr?.poNo || "");
         setTrNo(dr?.trNo || "");
       })
       .catch(() => {
-        setTechnicianId("");
-        setTechnicianName("");
+        setDrDeliveredByName("");
+        if (isSales) {
+          setTechnicianId("");
+          setTechnicianName("");
+        }
       });
-  }, [linkedDrNumber]);
+  }, [linkedDrNumber, isSales]);
 
   useEffect(() => {
     if (!modalOpen && !editTarget) return;
@@ -708,7 +717,7 @@ export default function ServiceInvoicesClient({
   }, [linkedSalesOrderId, linkedDrNumber, salesOrdersById, referenceMode]);
 
   useEffect(() => {
-    if (!editDrNumber) return;
+    if (!editDrNumber) { setEditDrDeliveredByName(""); return; }
     deliveryService
       .getAll()
       .then((drs) =>
@@ -719,16 +728,22 @@ export default function ServiceInvoicesClient({
           setEditReferenceMode(dr.salesOrderId ? "SALES_ORDER" : "TR_NUMBER");
           setEditSalesOrderId(dr.salesOrderId || "");
         }
-        setEditTechnicianId(dr?.deliveredById || "");
-        setEditTechnicianName(dr?.deliveredBy || "");
+        setEditDrDeliveredByName(dr?.deliveredBy || "");
+        if (isSales) {
+          setEditTechnicianId(dr?.deliveredById || "");
+          setEditTechnicianName(dr?.deliveredBy || "");
+        }
         setEditPoNo(dr?.poNo || "");
         setEditTrNo(dr?.trNo || "");
       })
       .catch(() => {
-        setEditTechnicianId("");
-        setEditTechnicianName("");
+        setEditDrDeliveredByName("");
+        if (isSales) {
+          setEditTechnicianId("");
+          setEditTechnicianName("");
+        }
       });
-  }, [editDrNumber]);
+  }, [editDrNumber, isSales]);
 
   useEffect(() => {
     if (
@@ -1438,7 +1453,7 @@ export default function ServiceInvoicesClient({
     }
 
 
-    if (!isSales && !linkedDrNumber && !technicianId) { toast.error("Assigned Technician is required before finalizing."); return; }
+    if (!isSales && !technicianId) { toast.error("Service Technician is required before finalizing."); return; }
     setPrinting(true);
     try {
       const payload = {
@@ -1631,6 +1646,7 @@ export default function ServiceInvoicesClient({
     if (editDrLoading) { toast.error("Wait for DR items to load."); return; }
     if (loadingOrderItems || loadingEditOrderItems || orderItemsError) { toast.error(orderItemsError || "Wait for Sales Order items to load."); return; }
     if (isSales && !editAssignedPicUserId) { toast.error("Assigned PIC is required for invoice delivery."); return; }
+    if (!isSales && editStatus === "created" && !editTechnicianId) { toast.error("Service Technician is required before finalizing."); return; }
     if (!editTarget) return;
     if (
       editReferenceMode === "SALES_ORDER" &&
@@ -2585,46 +2601,35 @@ export default function ServiceInvoicesClient({
               </div>}
               <div hidden={isSales} className="space-y-1.5 w-full">
                 <Label>
-                  Assigned Technician{" "}{!linkedDrNumber && <span className="text-destructive">*</span>}
+                  Service Technician <span className="text-destructive">*</span>
                 </Label>
-                {linkedDrNumber ? (
-                  <>
-                    <Input
-                      value={technicianName}
-                      readOnly
-                      className="bg-muted"
-                      placeholder="Loading from Delivery Receipt..."
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Automatically assigned from DR #{linkedDrNumber}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <SearchableSelect
-                      value={technicianId}
-                      onValueChange={(id) => {
-                        setTechnicianId(id);
-                        setTechnicianName(
-                          deliveryUsers.find((user) => user.value === id)
-                            ?.label || "",
-                        );
-                      }}
-                      options={deliveryUsers}
-                      disabled={deliveryUsersLoading || !!deliveryUsersError}
-                      placeholder={
-                        deliveryUsersLoading
-                          ? "Loading eligible users..."
-                          : "Select Assigned Technician"
-                      }
-                      emptyText="No eligible application users found."
-                    />
-                    {deliveryUsersError && (
-                      <p className="text-xs text-destructive">
-                        {deliveryUsersError}
-                      </p>
-                    )}
-                  </>
+                <SearchableSelect
+                  value={technicianId}
+                  onValueChange={(id) => {
+                    setTechnicianId(id);
+                    setTechnicianName(
+                      deliveryUsers.find((user) => user.value === id)
+                        ?.label || "",
+                    );
+                  }}
+                  options={deliveryUsers}
+                  disabled={deliveryUsersLoading || !!deliveryUsersError}
+                  placeholder={
+                    deliveryUsersLoading
+                      ? "Loading eligible users..."
+                      : "Select Service Technician"
+                  }
+                  emptyText="No eligible application users found."
+                />
+                {linkedDrNumber && (
+                  <p className="text-xs text-muted-foreground">
+                    Delivered by (DR #{linkedDrNumber}): {drDeliveredByName || "—"}
+                  </p>
+                )}
+                {deliveryUsersError && (
+                  <p className="text-xs text-destructive">
+                    {deliveryUsersError}
+                  </p>
                 )}
               </div>
             </div>
@@ -2931,42 +2936,40 @@ export default function ServiceInvoicesClient({
               </div>}
               <div hidden={isSales} className="space-y-1.5">
                 <Label>
-                  Assigned Technician{" "}
-                  {editDrNumber === "" && (
-                    <span className="text-destructive">*</span>
-                  )}
+                  Service Technician <span className="text-destructive">*</span>
                 </Label>
-                {editDrNumber ? (
-                  <>
-                    <Input
-                      value={editTechnicianName}
-                      readOnly
-                      className="bg-muted"
-                      placeholder="Loading from Delivery Receipt..."
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Automatically assigned from DR #{editDrNumber}
-                    </p>
-                  </>
-                ) : (
-                  <SearchableSelect
-                    value={editTechnicianId}
-                    onValueChange={(id) => {
-                      setEditTechnicianId(id);
-                      setEditTechnicianName(
-                        deliveryUsers.find((user) => user.value === id)
-                          ?.label || "",
-                      );
-                    }}
-                    options={deliveryUsers}
-                    disabled={deliveryUsersLoading || !!deliveryUsersError}
-                    placeholder={
-                      deliveryUsersLoading
-                        ? "Loading eligible users..."
-                        : "Select Assigned Technician"
-                    }
-                    emptyText="No eligible application users found."
-                  />
+                <SearchableSelect
+                  value={editTechnicianId}
+                  onValueChange={(id) => {
+                    setEditTechnicianId(id);
+                    setEditTechnicianName(
+                      deliveryUsers.find((user) => user.value === id)
+                        ?.label || "",
+                    );
+                  }}
+                  options={deliveryUsers}
+                  disabled={deliveryUsersLoading || !!deliveryUsersError}
+                  placeholder={
+                    deliveryUsersLoading
+                      ? "Loading eligible users..."
+                      : "Select Service Technician"
+                  }
+                  emptyText="No eligible application users found."
+                />
+                {editTechnicianId && editTechnicianName && !deliveryUsersLoading && !deliveryUsers.some((user) => user.value === editTechnicianId) && (
+                  <p className="text-xs text-muted-foreground">
+                    Currently: {editTechnicianName}
+                  </p>
+                )}
+                {editDrNumber && (
+                  <p className="text-xs text-muted-foreground">
+                    Delivered by (DR #{editDrNumber}): {editDrDeliveredByName || "—"}
+                  </p>
+                )}
+                {editTarget?.serviceReportId && editTechnicianId !== (editTarget.assignedTechnicianUserId || "") && (
+                  <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
+                    Service Report {editTarget.serviceReportId} is linked. Its &ldquo;Attended by&rdquo; keeps the technician who filled it in.
+                  </p>
                 )}
                 {deliveryUsersError && (
                   <p className="text-xs text-destructive">
