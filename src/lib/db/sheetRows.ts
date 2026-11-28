@@ -25,12 +25,19 @@ export const bool = (name: string) => `case when ${name} then 'TRUE' when not ${
 
 const TABLE = /^aic\.[a-z_]+$/;
 
+/**
+ * Last sort key per table. Rows saved in one transaction tie on source_row (null) and created_at
+ * (the transaction time), so without it their order would follow physical storage, which edits
+ * change. Line tables (no primary key) use their insert-ordered identity id.
+ */
+const TIE_BREAKER = new Map(Object.values(SHEET_COLUMNS).map((spec) => [spec.table, `"${spec.pk ?? "id"}"`]));
+
 export async function sheetRows(table: string, columns: string[], where = "true", params: unknown[] = []): Promise<string[][]> {
   if (!TABLE.test(table)) throw new Error(`Invalid table name: ${table}`);
   // Inside a save, dbQuery reads through the save's transaction (as a savepoint), so the save sees
   // its own writes and a tolerated read failure does not abort it.
   const rows = await dbQuery<{ r: string[] }>(
-    `select array[${columns.join(", ")}] as r from ${table} where ${where} order by source_row nulls last, created_at nulls last`,
+    `select array[${columns.join(", ")}] as r from ${table} where ${where} order by source_row nulls last, created_at nulls last${TIE_BREAKER.has(table) ? `, ${TIE_BREAKER.get(table)}` : ""}`,
     params,
   );
   return rows.map((row) => row.r);

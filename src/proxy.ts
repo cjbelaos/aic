@@ -14,10 +14,20 @@ function credentialsMatch(header: string | null, expected: string): boolean {
   return supplied.length === wanted.length && timingSafeEqual(supplied, wanted);
 }
 
+/** Vercel cron calls the side-effects runner with `Authorization: Bearer $CRON_SECRET`; only that GET may skip the gate. */
+function isCronRequest(request: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || request.method !== "GET" || request.nextUrl?.pathname !== "/api/jobs/side-effects") return false;
+  const supplied = Buffer.from(request.headers.get("authorization") ?? "");
+  const wanted = Buffer.from(`Bearer ${secret}`);
+  return supplied.length === wanted.length && timingSafeEqual(supplied, wanted);
+}
+
 export function proxy(request: NextRequest) {
   const expected = process.env.SITE_BASIC_AUTH;
   if (!expected) return NextResponse.next();
   if (credentialsMatch(request.headers.get("authorization"), expected)) return NextResponse.next();
+  if (isCronRequest(request)) return NextResponse.next(); // the route checks the secret again
   return new NextResponse("Authentication required.", {
     status: 401,
     headers: { "WWW-Authenticate": 'Basic realm="AIC staging", charset="UTF-8"' },

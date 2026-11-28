@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
+import { inTransaction, isPostgresBackend } from "@/lib/db/postgres";
 import { getDriveUploadClient, findOrCreateDriveFolder } from "@/lib/googleSheets";
 import { getCompanies } from "@/lib/companySheets";
 import { trackerWarningAfterScan } from "@/lib/documentHandoverSheets";
@@ -59,9 +60,15 @@ export async function POST(req: NextRequest) {
     // Before anything is uploaded: a sheet that can't hold the link must not leave a Drive file behind.
     await ensureDeliveryReceiptScanColumns();
 
+    // PostgreSQL runs on staging: scans go only to a folder configured for it, never the production folder.
+    const scanFolderId = isPostgresBackend() ? process.env.DR_SCAN_DRIVE_FOLDER_ID?.trim() : DR_SCAN_DRIVE_FOLDER_ID;
+    if (!scanFolderId) {
+      return NextResponse.json({ error: "Scanned copies can't be uploaded here yet: no Drive folder is configured for this environment (DR_SCAN_DRIVE_FOLDER_ID)." }, { status: 503 });
+    }
+
     const year = /^\d{4}/.exec(receipt.date)?.[0] ?? String(new Date().getFullYear());
     const drive = await getDriveUploadClient();
-    const yearFolderId = await findOrCreateDriveFolder(drive, year, DR_SCAN_DRIVE_FOLDER_ID);
+    const yearFolderId = await findOrCreateDriveFolder(drive, year, scanFolderId);
 
     const safeBase = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
     const fileName = `DR-SCANNED_${drNumber}_${Date.now()}_${safeBase}`;
@@ -80,26 +87,30 @@ export async function POST(req: NextRequest) {
       console.warn("Could not set public read permission on scanned DR file:", permError);
     }
 
-    await recordDeliveryReceiptScan(receipt.rowNumber, fileLink, session.userId);
-
-    // A signed copy is back: complete the DR and return it in the Document Tracker.
-    // Neither step undoes the saved scan.
-    let statusWarning: string | undefined;
-    try {
-      await completeDeliveryReceiptFromScan(drNumber, receipt.rowNumber, receipt.status, session.userId);
-    } catch (error) {
-      console.error("Scanned DR saved but its status could not be completed:", error);
-      statusWarning = `Scan saved, but the DR was not marked completed: ${error instanceof Error ? error.message : "unknown error"}`;
-    }
-    const trackerWarning = await trackerWarningAfterScan({
-      documentType: "delivery_receipt",
-      documentNumber: String(drNumber),
-      actor: session,
-      resolveCustomerName: async () => {
-        const company = (await getCompanies()).find((c) => c.companyId === receipt.companyId || c.id === receipt.companyId);
-        return company?.companyName || receipt.companyId;
-      },
-    });
+    // A signed copy is back: record it, complete the DR and return it in the Document Tracker.
+    // Neither later step undoes the saved scan. On PostgreSQL the three run in one transaction;
+    // the two tolerated steps are savepoints, so their failure leaves the recorded scan intact.
+    const recordScan = async () => {
+      await recordDeliveryReceiptScan(receipt.rowNumber, fileLink, session.userId);
+      let statusWarning: string | undefined;
+      try {
+        await completeDeliveryReceiptFromScan(drNumber, receipt.rowNumber, receipt.status, session.userId);
+      } catch (error) {
+        console.error("Scanned DR saved but its status could not be completed:", error);
+        statusWarning = `Scan saved, but the DR was not marked completed: ${error instanceof Error ? error.message : "unknown error"}`;
+      }
+      const trackerWarning = await trackerWarningAfterScan({
+        documentType: "delivery_receipt",
+        documentNumber: String(drNumber),
+        actor: session,
+        resolveCustomerName: async () => {
+          const company = (await getCompanies()).find((c) => c.companyId === receipt.companyId || c.id === receipt.companyId);
+          return company?.companyName || receipt.companyId;
+        },
+      });
+      return { statusWarning, trackerWarning };
+    };
+    const { statusWarning, trackerWarning } = isPostgresBackend() ? await inTransaction(session.userId, recordScan) : await recordScan();
 
     return NextResponse.json({ success: true, fileId, fileLink, fileName, trackerWarning, statusWarning });
   } catch (error) {

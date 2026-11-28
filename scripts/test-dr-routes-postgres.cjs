@@ -100,11 +100,25 @@ run('dr-routes-postgres', [
     const [job] = await q("select payload->>'pdfBase64' as pdf from aic.outbox where kind = 'dr.pdf' and document_key = $1 and status = 'pending'", [String(created.drNumber)]);
     assert.equal(job.pdf, 'JVBERi0xLjQK');
   })],
+  // Final review, Important 6: staging must never upload into the production scan folder.
+  ['upload-scanned is refused on PostgreSQL until a staging scan folder is configured', async () => {
+    delete process.env.DR_SCAN_DRIVE_FOLDER_ID;
+    let driveUsed = false;
+    const spy = createHarness({ ...baseMocks, '@/lib/googleSheets': { getDriveUploadClient: async () => { driveUsed = true; return {}; }, findOrCreateDriveFolder: async () => { driveUsed = true; return 'x'; } } });
+    const form = new FormData();
+    form.append('drNumber', '4000');
+    form.append('file', new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' }));
+    const res = await spy.load('src/app/api/deliveries/upload-scanned/route.ts').POST(new Request('http://t/api/deliveries/upload-scanned', { method: 'POST', body: form }));
+    assert.equal(res.status, 503);
+    assert.equal(driveUsed, false, 'Drive was touched');
+  }],
   ['upload-scanned records the scan and completes the DR (fake Drive)', async () => {
     // This harness has its own transaction module, so the rollback wrapper and queries must use it too;
     // otherwise its saves commit (they did once: test DRs 4111/4112, removed).
+    process.env.DR_SCAN_DRIVE_FOLDER_ID = 'staging-scan-folder';
+    const parents = [];
     const drive = { files: { create: async () => ({ data: { id: 'scan-file' } }) }, permissions: { create: async () => ({}) } };
-    const withDrive = createHarness({ ...baseMocks, '@/lib/googleSheets': { getDriveUploadClient: async () => drive, findOrCreateDriveFolder: async () => 'folder' } });
+    const withDrive = createHarness({ ...baseMocks, '@/lib/googleSheets': { getDriveUploadClient: async () => drive, findOrCreateDriveFolder: async (_d, _name, parent) => { parents.push(parent); return 'folder'; } } });
     const driveDb = withDrive.load('src/lib/db/postgres.ts');
     const q = (sql, params) => driveDb.txQuery(sql, params);
     const marker = `route-${randomUUID()}`;
@@ -118,6 +132,7 @@ run('dr-routes-postgres', [
     assert.equal(res.status, 200, JSON.stringify(json));
     const [row] = await q('select status, scanned_file_link from aic.delivery_receipts where dr_number = $1', [created.drNumber]);
     assert.deepEqual(row, { status: 'completed', scanned_file_link: 'https://drive.google.com/file/d/scan-file/view' });
+    assert.deepEqual(parents, ['staging-scan-folder'], 'uploaded outside the staging scan folder');
     throw ROLLBACK;
     }); } catch (e) { if (e !== ROLLBACK) throw e; }
     const [{ n }] = await db.dbQuery('select count(*)::int n from aic.delivery_receipts where comments = $1', [marker]);

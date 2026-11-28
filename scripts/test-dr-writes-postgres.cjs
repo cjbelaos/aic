@@ -97,6 +97,14 @@ run('dr-writes-postgres', [
     assert.equal((await items(created.drNumber)).length, 0);
     assert.equal((await q("select status from aic.contract_releases where release_id = 'REL-TEST-DEL'"))[0].status, 'Deleted');
   })],
+  // Final review, Important 5: new rows tie on source_row/created_at, so heap order leaked into reads.
+  ['items read back in line order after an edit moves a row', async () => inRolledBack(async () => {
+    const three = [item(fixture.products[0], 1), item(fixture.products[1], 2), item(fixture.products[2], 3)];
+    const created = await dr.processDeliveryReceipt(payload({ items: three }), ACTOR);
+    await q("update aic.delivery_receipt_items set serial_numbers = 'SN-1' where dr_number = $1 and item_no = 1", [created.drNumber]);
+    const lines = (await h.load('src/lib/transactionItemSheets.ts').getDeliveryItems()).get(created.drNumber);
+    assert.deepEqual(lines.map((l) => l.quantity), [1, 2, 3]);
+  })],
   ['nothing persisted', async () => {
     const [{ n }] = await db.dbQuery("select count(*)::int n from aic.delivery_receipts where comments in ('integration test', 'edited by test')");
     assert.equal(n, 0);

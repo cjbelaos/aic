@@ -32,6 +32,15 @@ function main() {
   assert.equal(proxy(request(basic('chris:s3cret-pass-longer'))).status, 401);
   assert.equal(proxy(request('Bearer abc')).status, 401);
   assert.equal(proxy(request(basic('chris:s3cret-pass'))).status, 200);
+  // Final review, Important 7: Vercel cron (Bearer CRON_SECRET) reaches only the side-effects runner.
+  process.env.CRON_SECRET = 'cron-secret-value';
+  const at = (path, auth, method = 'GET') => ({ ...request(auth), method, nextUrl: new URL(`http://t${path}`) });
+  assert.equal(proxy(at('/api/jobs/side-effects', 'Bearer cron-secret-value')).status, 200, 'cron blocked by the gate');
+  assert.equal(proxy(at('/api/jobs/side-effects', 'Bearer wrong')).status, 401);
+  assert.equal(proxy(at('/api/jobs/side-effects', 'Bearer cron-secret-value', 'POST')).status, 401, 'cron secret only opens the cron GET');
+  assert.equal(proxy(at('/api/deliveries', 'Bearer cron-secret-value')).status, 401, 'cron secret opened another path');
+  delete process.env.CRON_SECRET;
+  assert.equal(proxy(at('/api/jobs/side-effects', 'Bearer ')).status, 401, 'empty secret must not match');
   delete process.env.SITE_BASIC_AUTH;
 
   const tokenA = session.createSessionToken(user('user-a'));
