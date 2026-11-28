@@ -12,17 +12,26 @@ function load(file, mocks = {}) {
 
 const session = { userId: 'chris', fullName: 'Chris John Belaos' };
 
-function route(receipt, calls, { completeFails = false, columnsFail = false } = {}) {
+const names = load('src/lib/scannedCopyFileName.ts');
+const companies = { getCompanies: async () => [{ companyId: 'C1', companyName: 'Honorable Dungca' }] };
+
+function route(receipt, calls, { completeFails = false, columnsFail = false, oldScanName = 'DR-SCANNED_4030_1_scan.pdf', renameFails = false } = {}) {
   return load('src/app/api/deliveries/upload-scanned/route.ts', {
+    '@/lib/scannedCopyFileName': names,
+    '@/lib/scannedCopyDrive': load('src/lib/scannedCopyDrive.ts', { '@/lib/companySheets': companies, '@/lib/scannedCopyFileName': names }),
     '@/lib/auth/session': { requireAuthenticatedSession: async () => session },
     '@/lib/googleSheets': {
       getDriveUploadClient: async () => ({
-        files: { create: async (req) => { calls.uploadParents = req.requestBody.parents; return { data: { id: 'scan1' } }; } },
+        files: {
+          create: async (req) => { calls.uploadParents = req.requestBody.parents; calls.uploadName = req.requestBody.name; return { data: { id: 'scan1' } }; },
+          get: async ({ fileId }) => { calls.oldScanRead = fileId; return { data: { name: oldScanName, trashed: false } }; },
+          update: async ({ fileId, requestBody }) => { if (renameFails) throw new Error('no access'); calls.renamed = { fileId, name: requestBody.name }; },
+        },
         permissions: { create: async () => {} },
       }),
       findOrCreateDriveFolder: async (_drive, name, parent) => { calls.folder = { name, parent }; return `year-${name}`; },
     },
-    '@/lib/companySheets': { getCompanies: async () => [{ companyId: 'C1', companyName: 'Honorable Dungca' }] },
+    '@/lib/companySheets': companies,
     '@/lib/documentHandoverSheets': {
       trackerWarningAfterScan: async (input) => { calls.tracker = input; calls.customer = await input.resolveCustomerName(); return undefined; },
     },
@@ -67,6 +76,31 @@ async function main() {
   assert.equal(calls.tracker.documentNumber, '4030');
   assert.equal(calls.tracker.actor, session);
   assert.equal(calls.customer, 'Honorable Dungca');
+  // Named from the DR's DeliveryDate, number and customer; nothing to mark as replaced.
+  assert.equal(calls.uploadName, 'DR-11-10-2026-4030-Honorable Dungca.pdf');
+  assert.equal(body.fileName, 'DR-11-10-2026-4030-Honorable Dungca.pdf');
+  assert.equal(calls.renamed, undefined);
+  assert.equal(body.statusWarning, undefined);
+
+  // Replacing a scan renames the old Drive file with a dated suffix.
+  const replacing = {};
+  const replaced = await (await route({ ...receipt, scannedFileLink: 'https://drive.google.com/file/d/old1/view' }, replacing).POST(request('4030'))).json();
+  assert.equal(replaced.success, true);
+  assert.equal(replacing.renamed.fileId, 'old1');
+  assert.match(replacing.renamed.name, /^DR-SCANNED_4030_1_scan \(replaced \d{4}-\d{2}-\d{2}\)\.pdf$/);
+
+  // An old file that can't be renamed still saves the new scan, with a warning.
+  const stuck = {};
+  const stuckBody = await (await route({ ...receipt, scannedFileLink: 'https://drive.google.com/file/d/old1/view' }, stuck, { renameFails: true }).POST(request('4030'))).json();
+  assert.equal(stuckBody.success, true);
+  assert.ok(stuck.recorded);
+  assert.match(stuckBody.statusWarning, /could not be marked as replaced/);
+
+  // A DR without a DeliveryDate is named with today's date and says so.
+  const undated = {};
+  const undatedBody = await (await route({ ...receipt, date: '' }, undated).POST(request('4030'))).json();
+  assert.match(undated.uploadName, /^DR-\d{2}-\d{2}-\d{4}-4030-Honorable Dungca\.pdf$/);
+  assert.match(undatedBody.statusWarning, /no date/);
 
   // A failed status update keeps the scan and reports a warning.
   const failing = {};

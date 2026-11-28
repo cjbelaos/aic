@@ -1209,14 +1209,14 @@ export async function getDeliveryReceiptStatus(drNumber: number): Promise<string
 }
 
 /** The DR's row number, delivery date, company and status, or null when it doesn't exist. */
-export async function findDeliveryReceiptForScan(drNumber: number): Promise<{ rowNumber: number; date: string; companyId: string; status: string } | null> {
+export async function findDeliveryReceiptForScan(drNumber: number): Promise<{ rowNumber: number; date: string; companyId: string; status: string; scannedFileLink?: string } | null> {
   const sheets = await getSheetsClient();
   const spreadsheetId = await getDatabaseSpreadsheetId();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!A2:K` });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${DELIVERY_RECEIPTS_SHEET}!A2:AB` });
   const index = (response.data.values ?? []).findIndex((r) => parseInt(String(r[0] ?? "").trim(), 10) === drNumber);
   if (index < 0) return null;
   const row = response.data.values![index];
-  return { rowNumber: index + 2, date: String(row[1] ?? "").trim(), companyId: String(row[2] ?? "").trim(), status: String(row[10] ?? "created").trim() || "created" };
+  return { rowNumber: index + 2, date: String(row[1] ?? "").trim(), companyId: String(row[2] ?? "").trim(), status: String(row[10] ?? "created").trim() || "created", scannedFileLink: String(row[27] ?? "").trim() || undefined };
 }
 
 const DR_SCAN_HEADERS = ["ScannedFileLink", "ScannedAt", "ScannedBy"];

@@ -88,10 +88,12 @@ async function main() {
   const disabledPdf=load('src/app/api/service-invoices/save-pdf/route.ts',{'@/lib/auth/session':{requireAuthenticatedSession:async()=>session}});
   assert.equal((await disabledPdf.POST()).status,410);
   // Upload persistence uses the signed actor; the service must send the invoice number.
-  let scanSaved, trackerStep;
+  let scanSaved, trackerStep, uploadedName;
   const upload=load('src/app/api/service-invoices/upload-scanned/route.ts',{
     '@/lib/auth/session':{requireAuthenticatedSession:async()=>session},
-    '@/lib/googleSheets':{getSheetsClient:async()=>sheets,getDatabaseSpreadsheetId:async()=>'fixture',getDriveUploadClient:async()=>({files:{create:async()=>({data:{id:'newscan'}})},permissions:{create:async()=>{}}})},
+    '@/lib/googleSheets':{getSheetsClient:async()=>sheets,getDatabaseSpreadsheetId:async()=>'fixture',getDriveUploadClient:async()=>({files:{create:async({requestBody})=>{uploadedName=requestBody.name;return {data:{id:'newscan'}};}},permissions:{create:async()=>{}}})},
+    '@/lib/scannedCopyFileName':load('src/lib/scannedCopyFileName.ts'),
+    '@/lib/scannedCopyDrive':{scanCustomerName:async(id)=>id,markReplacedScan:async()=>undefined,noDateWarning:(label)=>`no date ${label}`},
     '@/lib/serviceInvoiceSheets':{recordServiceInvoiceScan:async(no,link,actor)=>{scanSaved={no,link,actor};}},
     '@/lib/documentHandoverSheets':{trackerWarningAfterScan:async(input)=>{trackerStep=input;return undefined;}},
     '@/lib/companySheets':{getCompanies:async()=>[]},
@@ -99,6 +101,8 @@ async function main() {
   const form=new FormData();form.append('invoiceNo','1002');form.append('file',new File(['PDF fixture'],'scan.pdf',{type:'application/pdf'}));
   assert.equal((await upload.POST(new Request('http://test',{method:'POST',body:form}))).status,200);
   assert.deepEqual(scanSaved,{no:'1002',link:'https://drive.google.com/file/d/newscan/view',actor:'admin'});
+  // Scans are named SR-{MM}-{DD}-{YYYY}-{No.}-{Customer}; this fixture row has no date or customer.
+  assert.match(uploadedName,/^SR-\d{2}-\d{2}-\d{4}-1002\.pdf$/);
   // The saved scan then returns its Document Tracker entry as the uploader.
   assert.equal(trackerStep.documentType,'service_invoice');assert.equal(trackerStep.documentNumber,'1002');assert.equal(trackerStep.actor,session);
   let posted;

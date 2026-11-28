@@ -20,7 +20,6 @@ export function scanDateParts(stored: string): { mm: string; dd: string; yyyy: s
 
 /** Keeps the text as written; only characters that break file names become spaces. */
 export function sanitizeFileNamePart(value: string): string {
-  // eslint-disable-next-line no-control-regex -- control characters are exactly what must go
   return String(value ?? "").replace(/[/\\:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
 }
 
