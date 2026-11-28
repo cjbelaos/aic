@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { deactivateProduct, updateProduct } from "@/lib/productSheets";
 import { deactivateCustomerPrice, getCustomerPrices } from "@/lib/customerPriceSheets";
+import { invalidateUsageCache } from "@/lib/productReplacement/service";
 import type { UpdateProductRecordPayload } from "@/types/product-record";
 
 type Context = { params: Promise<{ id: string }> };
@@ -18,6 +19,7 @@ export async function DELETE(_request: Request, { params }: Context) {
     // A deleted product must not keep pricing customers: deactivate its active customer prices too.
     const prices = (await getCustomerPrices()).filter((price) => price.productId === id && price.status === "active");
     for (const price of prices) await deactivateCustomerPrice(price.customerProductPriceId, session.userId);
+    invalidateUsageCache();
     return NextResponse.json(product);
   }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to deactivate product." }, { status: 500 }); }
