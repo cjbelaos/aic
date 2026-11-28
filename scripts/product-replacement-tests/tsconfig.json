@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "rootDir": "../..",
+    "outDir": "../../tmp/product-replacement-tests/out"
+  },
+  "include": [
+    "*.ts",
+    "../../src/lib/productReplacement/types.ts",
+    "../../src/lib/productReplacement/classify.ts",
+    "../../src/lib/contractStatus.ts",
+    "../../src/types/contract.ts"
+  ]
+}
