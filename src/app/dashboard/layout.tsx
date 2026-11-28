@@ -4,6 +4,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { UserMenu } from "@/components/user-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { InactiveProductBell } from "@/components/inactive-product-bell";
 import { Separator } from "@/components/ui/separator";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -30,8 +31,9 @@ export default function DashboardLayout({
                   <DashboardPageTitle />
                 </div>
 
-                {/* Right: theme toggle + user menu */}
+                {/* Right: admin bell + theme toggle + user menu */}
                 <div className="ml-auto flex items-center gap-1 flex-shrink-0">
+                  <InactiveProductBell />
                   <ThemeToggle />
                   <UserMenu />
                 </div>

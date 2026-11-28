@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useSyncExternalStore } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -243,6 +243,8 @@ function supplierLabel(s: Company): string {
   return s.companyName?.trim() || `Supplier #${s.id}`;
 }
 
+const subscribeNoop = () => () => undefined;
+
 export default function ProductsPage() {
   const [data, setData] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -253,7 +255,7 @@ export default function ProductsPage() {
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [detailTarget, setDetailTarget] = useState<Product | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const isAdmin = useSyncExternalStore(subscribeNoop, isStoredUserAdmin, () => false);
   const [suppliers, setSuppliers] = useState<Company[]>([]);
   const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [productCategories, setProductCategories] = useState<ProductCategory[]>(
@@ -298,7 +300,6 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
-    setIsAdmin(isStoredUserAdmin());
     loadProducts().finally(() => setLoading(false));
 
     productUnitService
