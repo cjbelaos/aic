@@ -26,6 +26,14 @@ You are working in `C:\Users\chris\aic`, a Next.js 16 app (read `AGENTS.md` firs
 5. Never print or log row contents, passwords, tokens or connection strings. Tests print counts and ids only.
 6. Do not run `import.mjs --replace`, `apply-migrations.mjs` or `create-app-role.mjs`.
 
+### Existing test suites (clarification, 2026-11-28 — overrides the rules above where they conflict)
+
+1. The `test:*` suites already in the repository are approved to run against staging **exactly as they are**, including those that commit scratch rows and clean them up (`test:users-postgres`, `test:db-idempotency`, `test:db-outbox-sequences`) and those that create temporary tables (`test:db-transaction`). Staging is disposable: it is re-imported from the sheets before anyone relies on it.
+2. Rule 3 (no schema changes) covers migrations and `create`/`alter`/`drop` on real tables or schemas. A session-scoped `create temp table … on commit drop` in a test is allowed.
+3. Rules 2 and 4 (rolled-back writes, no deletes) apply to the tests **you** write.
+4. Run the suites one at a time, never in parallel; the numbering test assumes no other DR saves are running.
+5. If an existing suite fails or leaves rows behind, stop and report; do not fix it and do not delete anything by hand. Leftover check after a run: `select count(*) from aic.delivery_receipts where source_row is null` must be `0`.
+
 ## The pattern
 
 **Reads.** Every Sheets read becomes a branch that returns the same Sheets-shaped `string[][]` from the database, so the module's existing row parser runs unchanged:
