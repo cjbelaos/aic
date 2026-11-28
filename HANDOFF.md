@@ -1,5 +1,40 @@
 # Claude handoff for the AIC Supabase migration
 
+## Resume here (paused 2026-11-28)
+
+**Where things stand.** Branch `migration/supabase`; everything is pushed. Production (`main`, Vercel project `aic`) is unchanged and still on Google Sheets. Staging (Vercel `aic-staging`, Supabase project `aic`/`yxevopwnqrbxoekclbda`, schema `aic`) runs with `DATA_BACKEND=postgres`.
+
+**Done:**
+- **Data:** imported and reconciled (76 tables).
+- **On PostgreSQL:** sign-in and users; DR, Service Invoices and Quotations page loads (0 Sheets calls, live check passed); DR saves (create, edit, draft promotion, delete, scan) as single transactions with replayable request ids and an outbox for PDFs.
+- **Review:** final review fixes done. All 31 `npm run test:*` suites pass.
+
+**What is happening while paused:**
+- Chris builds a new live feature on `main`.
+- Codex migrates the remaining modules on its own branch `migration/codex-modules`, per [docs/superpowers/plans/2026-11-28-codex-parallel-migration.md](docs/superpowers/plans/2026-11-28-codex-parallel-migration.md). It reports in `docs/superpowers/migration/04-codex-report.md`.
+
+**First steps when resuming:**
+1. `git fetch origin` and read Codex's report. Review its branch: no edits to the files the brief reserves; Sheets paths unchanged; every `test:*` passes. Then merge it into `migration/supabase`; Chris approves merges.
+2. Merge `main` into `migration/supabase` to pick up the live feature. If it changed a sheet layout (new or renamed columns or tabs), update `scripts/migration/schema-map.mjs`, add a migration, regenerate `src/lib/db/sheetColumns.generated.ts` (`node scripts/migration/emit-sheet-columns.mjs <snapshot>`), and give the feature's module PostgreSQL branches.
+3. Re-import staging from a fresh snapshot. Live has issued DRs since 27 Nov; the next live DR is 4112+.
+   - `node --env-file=.env.local scripts/migration/capture-snapshot.mjs tmp/migration/snapshot-<date>` (read-only)
+   - `import.mjs <dir> --dry-run`
+   - `import.mjs <dir> --replace` (this also clears `request_log`/`outbox`)
+   - `verify-import.mjs <dir>`, `reconcile.mjs <dir>`, `npm run test:lookup-parity`
+   - Explain any new discrepancies in `docs/superpowers/migration/03-import-discrepancies.md`.
+4. Chris checks DR saving on staging: draft → promote with an edited line → edit → scan → delete. Scans need `DR_SCAN_DRIVE_FOLDER_ID` set to a **staging** Drive folder on aic-staging, otherwise they get 503.
+5. Next plans on the same foundation: invoices (`invoiceRepository`, `ensureAutomaticDocumentHandover`, tracker via the outbox, linked invoice PDF refresh), quotations (save, and send through the outbox with a staging recipient allow-list), and staging Drive/template destinations so outbox PDF jobs can actually upload.
+
+**Open decisions for Chris:**
+- The 8 deferred minors in [docs/superpowers/migration/05-dr-writes-ledger.md](docs/superpowers/migration/05-dr-writes-ledger.md).
+- Restoring the 14 hand-deleted products (deferred; search hints in the 03 log).
+- MOA and DeliveryReceiptItems_Legacy: archive or drop.
+
+**Safety rules learned the hard way:**
+- `.env.local` has live Google credentials. App code runs only through `scripts/lib/ts-harness.cjs`, which refuses Google.
+- A second test harness has its own transaction context, so roll back through that same harness.
+- Never put `STAGING_DATABASE_URL` (the owner role) on Vercel; the app uses `DATABASE_URL` = `aic_web` on port 6543.
+
 Prepared 27 November 2026 for the next Claude Code session in `C:\Users\chris\aic`.
 
 ## Goal and starting state
