@@ -60,9 +60,10 @@ export interface CreateServiceInvoicePayload {
   /** @deprecated Legacy display-name snapshot; the server resolves the name. */
   deliveredByName?: string;
   /**
-   * Assigned technician (ServiceInvoices column M; the display name in column N is
-   * server-resolved from the Users sheet). A linked Delivery Receipt's technician
-   * always wins over the value submitted here.
+   * Service Technician: who performs the service (ServiceInvoices column M; the
+   * display name in column N is server-resolved from the Users sheet). Required to
+   * finalize. A linked DR's deliverer never overrides it on Service Invoices; on
+   * Sales Invoices a linked DR's deliverer still wins.
    */
   assignedTechnicianUserId?: string;
 }

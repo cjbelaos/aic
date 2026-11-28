@@ -98,6 +98,7 @@ export function createInvoiceRepository(invoiceKind: "service" | "sales") {
     }
   }
 const SERVICE_INVOICES_SHEET = invoiceKind === "sales" ? "SalesInvoices" : "ServiceInvoices";
+const SERVICE_TECHNICIAN_REQUIRED = "Service Technician is required before finalizing a Service Invoice.";
 const SERVICE_INVOICES_RANGE = `${SERVICE_INVOICES_SHEET}!A2:U`;
 // The append range locates the logical table. Restrict it to the invoice-number
 // column so a stray value in a later column cannot shift an entire row right.
@@ -305,7 +306,7 @@ async function resolveServiceInvoiceDeliveredBy(
 
   const requestedId = payload.deliveredById?.trim();
   if (!requestedId) {
-    if (invoiceKind === "service" && isFinal) throw new Error("Assigned Technician is required before finalizing a Service Invoice.");
+    if (invoiceKind === "service" && isFinal) throw new Error(SERVICE_TECHNICIAN_REQUIRED);
     return {};
   }
   const user = await getUserById(requestedId);
@@ -738,16 +739,18 @@ async function processServiceInvoice(
 
     const assignedPic = invoiceKind === "service" || (copyExistingBilling && !payload.assignedPicUserId) ? { assignedPicUserId: "", assignedPicName: "" } : await resolveInvoicePic(payload.assignedPicUserId);
     const createdAt = new Date().toISOString();
-    // Technician source: a linked DR wins, else the explicit technician, else the
-    // legacy `deliveredById` alias. `assignedTechnicianUserId` is passed through as
-    // the requested user so the "required when finalizing" rule still applies.
-    const deliveredBy = await resolveServiceInvoiceDeliveredBy(
-      { drNumber: payload.drNumber, deliveredById: payload.assignedTechnicianUserId ?? payload.deliveredById },
-      !isDraft,
-    );
-    const assignedTechnician = await resolveAssignedTechnician(payload);
-    // Columns M/N hold the assigned technician: a linked DR's technician wins,
+    // Columns M/N hold the technician. Service invoices: the explicitly chosen
+    // Service Technician only — a linked DR's deliverer (often a trucking driver)
+    // never fills or overrides it. Sales invoices: a linked DR's deliverer wins,
     // then the explicit technician, then the legacy `deliveredById` alias.
+    const deliveredBy: DeliveredByResolution = invoiceKind === "service"
+      ? {}
+      : await resolveServiceInvoiceDeliveredBy(
+          { drNumber: payload.drNumber, deliveredById: payload.assignedTechnicianUserId ?? payload.deliveredById },
+          !isDraft,
+        );
+    const assignedTechnician = await resolveAssignedTechnician(payload);
+    if (invoiceKind === "service" && !isDraft && !assignedTechnician.assignedTechnicianUserId) throw new Error(SERVICE_TECHNICIAN_REQUIRED);
     const technicianId = deliveredBy.deliveredById || assignedTechnician.assignedTechnicianUserId || "";
     const technicianName = deliveredBy.deliveredById
       ? deliveredBy.deliveredByName || assignedTechnician.assignedTechnicianName || ""
@@ -1086,8 +1089,9 @@ async function updateServiceInvoice(
     }
 
     let deliveredBy: DeliveredByResolution;
-    if (linkedDrNumber !== undefined) {
-      // A linked DR always wins, even if a client submits another user ID.
+    if (linkedDrNumber !== undefined && invoiceKind === "sales") {
+      // Sales invoices: a linked DR always wins, even if a client submits another
+      // user ID. Service invoices keep their explicit Service Technician.
       deliveredBy = await resolveServiceInvoiceDeliveredBy({ drNumber: linkedDrNumber }, isFinal);
     } else if (payload.assignedTechnicianUserId !== undefined || payload.deliveredById !== undefined) {
       // The explicit technician (or its legacy `deliveredById` alias) replaces the
@@ -1106,7 +1110,7 @@ async function updateServiceInvoice(
       
     }
 
-    if (invoiceKind === "service" && isFinal && !deliveredBy.deliveredById) throw new Error("Assigned Technician is required before finalizing a Service Invoice.");
+    if (invoiceKind === "service" && isFinal && !deliveredBy.deliveredById) throw new Error(SERVICE_TECHNICIAN_REQUIRED);
 
     // M/N hold the assigned technician; O/P are owned by the Service Report link.
     const currentTechnicianId = String(currentRow[12] ?? "").trim() || "";
@@ -1114,12 +1118,13 @@ async function updateServiceInvoice(
     const assignedTechnician = payload.assignedTechnicianUserId !== undefined || payload.deliveredById !== undefined
       ? await resolveAssignedTechnician(payload)
       : { assignedTechnicianUserId: currentTechnicianId, assignedTechnicianName: currentTechnicianName };
-    // The values written to M/N: a linked DR's technician wins, else the explicit
-    // technician, else the stored value.
-    const technicianIdForRow = linkedDrNumber !== undefined && deliveredBy.deliveredById
+    // The values written to M/N: for sales a linked DR's technician wins; else the
+    // explicit technician, else the stored value.
+    const drOwnsTechnician = linkedDrNumber !== undefined && invoiceKind === "sales";
+    const technicianIdForRow = drOwnsTechnician && deliveredBy.deliveredById
       ? deliveredBy.deliveredById
       : assignedTechnician.assignedTechnicianUserId || "";
-    const technicianNameForRow = linkedDrNumber !== undefined && deliveredBy.deliveredById
+    const technicianNameForRow = drOwnsTechnician && deliveredBy.deliveredById
       ? deliveredBy.deliveredByName || ""
       : assignedTechnician.assignedTechnicianName || "";
     const deliveryPic = invoiceKind === "sales" ? assignedPic : { assignedPicUserId: technicianIdForRow, assignedPicName: technicianNameForRow };
