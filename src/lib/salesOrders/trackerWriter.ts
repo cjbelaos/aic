@@ -58,7 +58,15 @@ function trackerLifecycle(order: SalesOrder, item: SalesOrderItem): string {
     : "Pending";
 }
 
-export function projectTrackerLine(order: SalesOrder, item: SalesOrderItem, links: { customerPO?: string; quotation?: string } = {}): {
+/**
+ * PIC (column U) is the order's Recommended By technician, by full name. When
+ * the order has none, the cell keeps whatever is already recorded there.
+ */
+export function trackerPic(order: Pick<SalesOrder, "recommendedByName">, existingPic = ""): string {
+  return String(order.recommendedByName ?? "").trim() || existingPic;
+}
+
+export function projectTrackerLine(order: SalesOrder, item: SalesOrderItem, links: { customerPO?: string; quotation?: string } = {}, existingPic = ""): {
   aToP: TrackerRowValue[];
   uToV: [string, string];
 } {
@@ -69,7 +77,7 @@ export function projectTrackerLine(order: SalesOrder, item: SalesOrderItem, link
     item.productNameSnapshot || item.description, item.description, quantity === 0 ? "" : quantity,
     item.unitPrice ?? "", item.discountAmount, item.taxAmount, item.lineTotal, links.customerPO ?? "", links.quotation ?? "",
   ];
-  return { aToP, uToV: [order.assignedToUserId, trackerLifecycle(order, item)] };
+  return { aToP, uToV: [trackerPic(order, existingPic), trackerLifecycle(order, item)] };
 }
 
 function ownedPayloadHash(
@@ -144,7 +152,8 @@ async function resolveTrackerLayout() {
 
 /**
  * Reconciles one Sales Order to its denormalized Tracker rows. It updates the
- * app-owned cells only (A:P, U:V and hidden X:AE), preserving user workflow
+ * app-owned cells only (A:P, U:V and hidden X:AE; U = Recommended By, kept
+ * when the order has none), preserving user workflow
  * columns Q:T and formula column W. A removed order line is cleared from the
  * visible projection rather than deleting its whole Sheet row and risking
  * unrelated workflow data.
@@ -187,8 +196,10 @@ export async function syncSalesOrderToTracker(order: SalesOrder, items: SalesOrd
   const updates: Array<{ range: string; values: TrackerRowValue[][] }> = [];
   let nextRow = lastOwnedRow + 1;
   for (const item of desiredItems) {
-    const rowNumber = existingByItemId.get(item.salesOrderItemId) ?? nextRow++;
-    const visible = projectTrackerLine(order, item, links);
+    const existingRow = existingByItemId.get(item.salesOrderItemId);
+    const rowNumber = existingRow ?? nextRow++;
+    const existingPic = existingRow ? String(values[existingRow - 1]?.[20] ?? "") : "";
+    const visible = projectTrackerLine(order, item, links, existingPic);
     updates.push(
       { range: `${quotedTitle}!A${rowNumber}:P${rowNumber}`, values: [visible.aToP] },
       { range: `${quotedTitle}!U${rowNumber}:V${rowNumber}`, values: [visible.uToV] },
