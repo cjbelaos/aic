@@ -133,6 +133,16 @@ async function main() {
     await assert.rejects(storage.processServiceInvoice({ ...pms, invoiceNo: "1774", date: row[1], drNumber: 4096, status: "draft" }, "tester"), error => error === stop);
     assert.deepEqual(JSON.parse(writes[0][19]).serviceContext, { version: 1, serviceCompanyId: "COMP-122", serviceCompanyName: "HOLY FAMILY", drCompanyId: regular.customerId }, "A DR's FOR client is the service location; the DR company still owns the contract");
     writes = [];
+    await assert.rejects(storage.processServiceInvoice({ ...regular, invoiceNo: "1775", date: row[1], drNumber: 3941, status: "draft", assignedTechnicianUserId: "svc-tech" }, "tester"), error => error === stop);
+    assert.equal(writes[0][12], "svc-tech", "A linked DR's deliverer must not override the Service Technician");
+    writes = [];
+    await assert.rejects(storage.processServiceInvoice({ ...regular, invoiceNo: "1776", date: row[1], drNumber: 3941, status: "created", manualCategories: ["Service"] }, "tester"), /Service Technician is required before finalizing/);
+    assert.equal(writes.length, 0, "A DR link does not satisfy the Service Technician requirement");
+    writes = []; row[12] = "stored-tech"; row[13] = "Stored Tech";
+    await assert.rejects(storage.updateServiceInvoice("1721", { ...regular, contractId: "", referenceMode: "TR_NUMBER", drNumber: 4096 }, "tester"), error => error === stop);
+    assert.equal(writes[0][12], "stored-tech", "Editing without a technician keeps the stored Service Technician");
+    row[12] = "tech"; row[13] = "";
+    writes = [];
     row[8] = "draft";
     await assert.rejects(storage.updateServiceInvoice("1721", { status: "created", billingMode: "REGULAR", contractId: "", manualCategories: [] }, "tester"), /Select an invoice category/);
     assert.equal(writes.length, 0, "Draft finalization validates billing before persisting");
