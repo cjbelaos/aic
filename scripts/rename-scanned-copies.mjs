@@ -17,10 +17,10 @@ const require = createRequire(import.meta.url);
 const ts = require("typescript");
 
 function loadTs(file) {
-  const module = { exports: {} };
+  const loaded = { exports: {} };
   const output = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  new Function("require", "module", "exports", output)(require, module, module.exports);
-  return module.exports;
+  new Function("require", "module", "exports", output)(require, loaded, loaded.exports);
+  return loaded.exports;
 }
 
 const names = loadTs("src/lib/scannedCopyFileName.ts");
