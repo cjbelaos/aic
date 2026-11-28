@@ -1,5 +1,7 @@
 import { recordServiceInvoiceScan } from "@/lib/salesInvoiceSheets";
 import { NextRequest, NextResponse } from "next/server";
+import { markReplacedScan, noDateWarning, scanCustomerName } from "@/lib/scannedCopyDrive";
+import { scanExtension, scannedCopyFileName } from "@/lib/scannedCopyFileName";
 import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import {
@@ -8,7 +10,7 @@ import {
   getSheetsClient,
 } from "@/lib/googleSheets";
 
-const SERVICE_INVOICE_DRIVE_FOLDER_ID = "166LGOl4qTL4Ukabnrk335OT0ccLQnCq_";
+const SERVICE_INVOICE_DRIVE_FOLDER_ID = "1OvWCCqVw0KOSO48KjhcVhcvsweSKG7qY";
 const SERVICE_INVOICES_SHEET = "SalesInvoices";
 
 /**
@@ -78,12 +80,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // The file is named from the invoice: B = Date, C = customer, J = legacy link, T = metadata.
+    const rowNumber = siRowIdx + 2;
+    const rowResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${SERVICE_INVOICES_SHEET}!A${rowNumber}:T${rowNumber}` });
+    const invoiceRow = rowResponse.data.values?.[0] ?? [];
+    const customerName = await scanCustomerName(String(invoiceRow[2] ?? "").trim());
+    let previousScan: string | undefined;
+    try {
+      previousScan = String(JSON.parse(String(invoiceRow[19] || "{}")).scannedFileLink || "") || undefined;
+    } catch {
+      previousScan = undefined;
+    }
+    const legacyLink = String(invoiceRow[9] ?? "").trim() || undefined;
+    const { name: fileName, usedToday } = scannedCopyFileName({
+      prefix: "SI",
+      date: String(invoiceRow[1] ?? ""),
+      number: invoiceNo,
+      customer: customerName,
+      extension: scanExtension(file.name, file.type),
+    });
+
     // 2. Upload the scanned file to Drive.
     const buffer = Buffer.from(await file.arrayBuffer());
-    const safeBase = file.name
-      .replace(/[^a-zA-Z0-9._-]/g, "_")
-      .slice(0, 80);
-    const fileName = `SALES-INVOICE-SCANNED_${invoiceNo}_${Date.now()}_${safeBase}`;
 
     const drive = await getDriveUploadClient();
     const uploadedFile = await drive.files.create({
@@ -117,11 +135,21 @@ export async function POST(req: NextRequest) {
 
     await recordServiceInvoiceScan(invoiceNo, fileLink, session.userId);
 
+    // Follow-up steps never undo the saved scan; they come back as warnings.
+    const warnings: string[] = [];
+    if (usedToday) warnings.push(noDateWarning("Sales Invoice"));
+    // Older scans are known only by the SI-SCANNED_ name on the J link; J may also be a generated PDF.
+    const replaceWarning = previousScan
+      ? await markReplacedScan(drive, previousScan)
+      : await markReplacedScan(drive, legacyLink, { onlyIfNamePrefix: "SI-SCANNED_" });
+    if (replaceWarning) warnings.push(replaceWarning);
+
     return NextResponse.json({
       success: true,
       fileId,
       fileLink,
       fileName,
+      statusWarning: warnings.join(" ") || undefined,
     });
   } catch (error) {
     console.error("Scanned Sales Invoice upload error:", error);

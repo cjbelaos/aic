@@ -63,7 +63,7 @@ assert.match(pdfModule, /"pdfjs-dist\/legacy\/build\/pdf\.worker\.min\.mjs"/);
 
 // Service Invoice scans move to the new folder; Sales Invoice scans stay put.
 assert.match(fs.readFileSync('src/app/api/service-invoices/upload-scanned/route.ts', 'utf8'), /1bUpm-7ExZzgBvcmqBNd24iw6n3q_R1IM/);
-assert.match(fs.readFileSync('src/app/api/sales-invoices/upload-scanned/route.ts', 'utf8'), /166LGOl4qTL4Ukabnrk335OT0ccLQnCq_/);
+assert.match(fs.readFileSync('src/app/api/sales-invoices/upload-scanned/route.ts', 'utf8'), /1OvWCCqVw0KOSO48KjhcVhcvsweSKG7qY/);
 
 // Drafts are flagged like cancelled/void: a signed copy of an unprinted draft is almost certainly a misread.
 assert.equal(rules.rowStatus('1817', false, info({ status: 'draft' }), false), 'inactive');

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
 import { requireAuthenticatedSession } from "@/lib/auth/session";
 import { getDriveUploadClient, findOrCreateDriveFolder } from "@/lib/googleSheets";
-import { getCompanies } from "@/lib/companySheets";
+import { markReplacedScan, noDateWarning, scanCustomerName } from "@/lib/scannedCopyDrive";
+import { scanExtension, scannedCopyFileName } from "@/lib/scannedCopyFileName";
 import { trackerWarningAfterScan } from "@/lib/documentHandoverSheets";
 import {
   completeDeliveryReceiptFromScan,
@@ -63,8 +64,14 @@ export async function POST(req: NextRequest) {
     const drive = await getDriveUploadClient();
     const yearFolderId = await findOrCreateDriveFolder(drive, year, DR_SCAN_DRIVE_FOLDER_ID);
 
-    const safeBase = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-    const fileName = `DR-SCANNED_${drNumber}_${Date.now()}_${safeBase}`;
+    const customerName = await scanCustomerName(receipt.companyId);
+    const { name: fileName, usedToday } = scannedCopyFileName({
+      prefix: "DR",
+      date: receipt.date,
+      number: String(drNumber),
+      customer: customerName,
+      extension: scanExtension(file.name, file.type),
+    });
     const uploaded = await drive.files.create({
       requestBody: { name: fileName, parents: [yearFolderId], mimeType: file.type },
       media: { mimeType: file.type, body: Readable.from(Buffer.from(await file.arrayBuffer())) },
@@ -83,22 +90,23 @@ export async function POST(req: NextRequest) {
     await recordDeliveryReceiptScan(receipt.rowNumber, fileLink, session.userId);
 
     // A signed copy is back: complete the DR and return it in the Document Tracker.
-    // Neither step undoes the saved scan.
-    let statusWarning: string | undefined;
+    // None of the follow-up steps undoes the saved scan.
+    const warnings: string[] = [];
+    if (usedToday) warnings.push(noDateWarning("DR"));
+    const replaceWarning = await markReplacedScan(drive, receipt.scannedFileLink);
+    if (replaceWarning) warnings.push(replaceWarning);
     try {
       await completeDeliveryReceiptFromScan(drNumber, receipt.rowNumber, receipt.status, session.userId);
     } catch (error) {
       console.error("Scanned DR saved but its status could not be completed:", error);
-      statusWarning = `Scan saved, but the DR was not marked completed: ${error instanceof Error ? error.message : "unknown error"}`;
+      warnings.push(`Scan saved, but the DR was not marked completed: ${error instanceof Error ? error.message : "unknown error"}`);
     }
+    const statusWarning = warnings.join(" ") || undefined;
     const trackerWarning = await trackerWarningAfterScan({
       documentType: "delivery_receipt",
       documentNumber: String(drNumber),
       actor: session,
-      resolveCustomerName: async () => {
-        const company = (await getCompanies()).find((c) => c.companyId === receipt.companyId || c.id === receipt.companyId);
-        return company?.companyName || receipt.companyId;
-      },
+      resolveCustomerName: async () => customerName,
     });
 
     return NextResponse.json({ success: true, fileId, fileLink, fileName, trackerWarning, statusWarning });

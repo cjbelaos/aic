@@ -407,6 +407,7 @@ export default function ServiceInvoicesClient({
         file,
       );
       toast.success(`Scanned ${invoiceLabel} uploaded for ${uploadTarget}.`);
+      if (result.statusWarning) toast.warning(result.statusWarning);
       if (result.trackerWarning) toast.warning(result.trackerWarning);
       setInvoices((prev) =>
         prev.map((inv) =>
