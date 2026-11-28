@@ -332,20 +332,6 @@ export default function CustomerContractsPage() {
     }));
   }, [data, companyMap]);
 
-  // `?contract=CTR-0010` (e.g. from the inactive product bell) opens that contract's details.
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  useUrlParam("contract", (id) => {
-    if (loading) return false;
-    const match = groupedContracts.find((contract) => contract.id === id);
-    if (match) setViewTarget(match);
-    return true;
-  });
-  const closeView = () => {
-    setViewTarget(null);
-    if (searchParams.get("contract")) router.replace(pathname, { scroll: false });
-  };
 
   /* ── Columns Definition ───────────────────────────────── */
   const filteredContracts = useMemo(() => groupedContracts.filter(contract =>
@@ -596,6 +582,21 @@ export default function CustomerContractsPage() {
     setError("");
     setModalOpen(true);
   };
+
+  // `?contract=CTR-0010` (e.g. from the inactive product bell) opens that contract for editing.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  useUrlParam("contract", (id) => {
+    if (loading) return false;
+    const match = groupedContracts.find((contract) => contract.id === id);
+    if (match) openEdit(match);
+    return true;
+  });
+  // Once the form is open, drop the parameter so the same link works again later.
+  useEffect(() => {
+    if (modalOpen && searchParams.get("contract")) router.replace(pathname, { scroll: false });
+  }, [modalOpen, searchParams, router, pathname]);
 
   const addProductRow = () => {
     setForm((prev) => ({
@@ -937,7 +938,7 @@ export default function CustomerContractsPage() {
         }}
       />}
 
-      <Dialog open={!!viewTarget} onOpenChange={(open) => !open && closeView()}>
+      <Dialog open={!!viewTarget} onOpenChange={(open) => !open && setViewTarget(null)}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Customer Contract</DialogTitle>
@@ -1034,14 +1035,14 @@ export default function CustomerContractsPage() {
                   toast.error("Customer details could not be found.");
                   return;
                 }
-                closeView();
+                setViewTarget(null);
                 setContactCompany(company);
               }}
               disabled={!viewTarget || !companies.some((item) => item.companyId === viewTarget.companyId)}
             >
               View Customer Contacts
             </Button>
-            <Button variant="outline" onClick={closeView}>Close</Button>
+            <Button variant="outline" onClick={() => setViewTarget(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
